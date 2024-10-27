@@ -14,6 +14,19 @@ func newAsyncResult[R any](result R, cause error) Result[R] {
 	}
 }
 
+func newSucceedAsyncResult[R any](result R) Result[R] {
+	return &resultImpl[R]{
+		result: result,
+		cause:  nil,
+	}
+}
+
+func newFailedAsyncResult[R any](cause error) Result[R] {
+	return &resultImpl[R]{
+		cause: cause,
+	}
+}
+
 type resultImpl[R any] struct {
 	result R
 	cause  error
