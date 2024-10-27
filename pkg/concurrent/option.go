@@ -17,7 +17,7 @@ type Options struct {
 	MaxIdleExecuteDuration time.Duration
 }
 
-func MaxWorkers(max int) Option {
+func MaxExecutors(max int) Option {
 	return func(o *Options) error {
 		if max < 1 {
 			return fmt.Errorf("max executors must great than 0")
@@ -27,7 +27,7 @@ func MaxWorkers(max int) Option {
 	}
 }
 
-func MaxIdleWorkerDuration(d time.Duration) Option {
+func MaxIdleExecuteDuration(d time.Duration) Option {
 	return func(o *Options) error {
 		if d < 1 {
 			return fmt.Errorf("max idle duration must great than 0")

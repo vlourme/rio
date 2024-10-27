@@ -1,9 +1,19 @@
 package concurrent
 
-import "context"
-
 type Executor interface {
-	Execute(ctx context.Context)
+	Run()
+}
+
+type funcExecutor struct {
+	fn func()
+}
+
+func (exec *funcExecutor) Run() {
+	exec.fn()
+}
+
+func FuncExecutor(fn func()) Executor {
+	return &funcExecutor{fn: fn}
 }
 
 type Executors interface {
