@@ -76,11 +76,14 @@ func (buf *buffer) Next(n int) (p []byte, err error) {
 	if n < 1 {
 		return
 	}
-	p = buf.Peek(n)
-	if len(p) == 0 {
+	b := buf.Peek(n)
+	peeked := len(b)
+	if peeked == 0 {
 		err = io.EOF
 		return
 	}
+	p = make([]byte, peeked)
+	copy(p, b)
 	buf.Discard(n)
 	return
 }
