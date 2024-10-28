@@ -10,18 +10,20 @@ type Promise[R any] interface {
 	Complete(result R, err error)
 	Succeed(result R)
 	Fail(cause error)
+	Cancel()
+	SetDeadline(t time.Time)
 	Future() (future Future[R])
 }
 
 func TryGetPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
 	exec := From(ctx)
-	// todo avalibale or exec
-	ch, has := exec.GetExecutorSubmitter()
-	if !has {
-		return
+	if exec.Available() {
+		ch, has := exec.GetExecutorSubmitter()
+		if has {
+			promise = newPromise[T](ctx, ch)
+			ok = true
+		}
 	}
-	promise = newPromise[T](ctx, ch)
-	ok = true
 	return
 }
 
@@ -29,7 +31,6 @@ func GetPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	times := 10
 	ok := false
 	for {
-		// todo avalibale or exec
 		promise, ok = TryGetPromise[T](ctx)
 		if ok {
 			break
@@ -48,10 +49,13 @@ func GetPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	return
 }
 
-func newPromise[R any](ctx context.Context, exec ExecutorSubmitter) Promise[R] {
+func newPromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise[R] {
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
 	return &futureImpl[R]{
-		ctx:  ctx,
-		ch:   make(chan Result[R], 1),
-		exec: exec,
+		ctx:       ctx,
+		cancel:    cancel,
+		rch:       make(chan Result[R], 1),
+		submitter: submitter,
 	}
 }
