@@ -1,51 +1,32 @@
 package async
 
-import "errors"
-
-var (
-	ErrFutureClosed = errors.New("rio: future closed")
+import (
+	"context"
+	"errors"
 )
 
-type Promise[R any] interface {
-	Complete(result R, err error)
-	Succeed(result R)
-	Fail(cause error)
-	Future() (future Future[R])
-}
+var (
+	ErrFutureClosed              = errors.New("rio: promise was closed")
+	ErrFutureCancelled           = errors.New("rio: promise was cancelled")
+	ErrGetPromiseFailedByTimeout = errors.New("rio: get promise timeout")
+)
 
 type Future[R any] interface {
 	OnComplete(handler ResultHandler[R])
 }
 
-func SucceedFuture[R any](result R) Future[R] {
-	ch := make(chan Result[R], 1)
-	ch <- newSucceedAsyncResult[R](result)
-	return newFuture[R](ch)
-}
-
-func FailedFuture[R any](cause error) Future[R] {
-	ch := make(chan Result[R], 1)
-	ch <- newFailedAsyncResult[R](cause)
-	return newFuture[R](ch)
-}
-
-func New[R any]() Promise[R] {
-	return &futureImpl[R]{
-		ch: make(chan Result[R], 1),
-	}
-}
-
-func newFuture[R any](ch chan Result[R]) Future[R] {
-	return &futureImpl[R]{ch: ch}
-}
-
 type futureImpl[R any] struct {
-	ch      chan Result[R]
-	handler ResultHandler[R]
+	ctx  context.Context
+	ch   chan Result[R]
+	exec ExecutorChan
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
-	f.setHandler(handler)
+	run := futureRunner[R]{
+		ch:      f.ch,
+		handler: handler,
+	}
+	f.exec.Push(f.ctx, run)
 }
 
 func (f *futureImpl[R]) Complete(result R, err error) {
@@ -71,16 +52,25 @@ func (f *futureImpl[R]) Future() (future Future[R]) {
 	return
 }
 
-func (f *futureImpl[R]) setHandler(handler ResultHandler[R]) {
-	f.handler = handler
-	defaultRunnable.Run(f.await)
+type futureRunner[R any] struct {
+	ch      chan Result[R]
+	handler ResultHandler[R]
 }
 
-func (f *futureImpl[R]) await() {
-	ar, ok := <-f.ch
-	if !ok {
-		f.handler(*new(R), ErrFutureClosed)
+func (run futureRunner[R]) Run(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		run.handler(ctx, *(new(R)), ErrFutureCancelled)
 		return
+	case ar, ok := <-run.ch:
+		if !ok {
+			run.handler(ctx, *(new(R)), ErrFutureClosed)
+			return
+		}
+		if ar.Succeed() {
+			run.handler(ctx, ar.Result(), nil)
+		} else {
+			run.handler(ctx, *(new(R)), ar.Cause())
+		}
 	}
-	f.handler(ar.Result(), ar.Cause())
 }
