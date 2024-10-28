@@ -3,11 +3,11 @@ package async
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 var (
-	ErrFutureClosed              = errors.New("rio: promise was closed")
-	ErrFutureCancelled           = errors.New("rio: promise was cancelled")
+	ErrFutureWasClosed           = errors.New("rio: promise was closed")
 	ErrGetPromiseFailedByTimeout = errors.New("rio: get promise timeout")
 )
 
@@ -16,17 +16,18 @@ type Future[R any] interface {
 }
 
 type futureImpl[R any] struct {
-	ctx  context.Context
-	ch   chan Result[R]
-	exec ExecutorSubmitter
+	ctx       context.Context
+	cancel    context.CancelFunc
+	rch       chan Result[R]
+	submitter ExecutorSubmitter
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	run := futureRunner[R]{
-		ch:      f.ch,
+		rch:     f.rch,
 		handler: handler,
 	}
-	f.exec.Submit(f.ctx, run)
+	f.submitter.Submit(f.ctx, run)
 }
 
 func (f *futureImpl[R]) Complete(result R, err error) {
@@ -38,13 +39,21 @@ func (f *futureImpl[R]) Complete(result R, err error) {
 }
 
 func (f *futureImpl[R]) Succeed(result R) {
-	f.ch <- newSucceedAsyncResult[R](result)
-	close(f.ch)
+	f.rch <- newSucceedAsyncResult[R](result)
+	close(f.rch)
 }
 
 func (f *futureImpl[R]) Fail(cause error) {
-	f.ch <- newFailedAsyncResult[R](cause)
-	close(f.ch)
+	f.rch <- newFailedAsyncResult[R](cause)
+	close(f.rch)
+}
+
+func (f *futureImpl[R]) Cancel() {
+	f.cancel()
+}
+
+func (f *futureImpl[R]) SetDeadline(t time.Time) {
+	f.ctx, f.cancel = context.WithDeadline(f.ctx, t)
 }
 
 func (f *futureImpl[R]) Future() (future Future[R]) {
@@ -53,18 +62,18 @@ func (f *futureImpl[R]) Future() (future Future[R]) {
 }
 
 type futureRunner[R any] struct {
-	ch      chan Result[R]
+	rch     chan Result[R]
 	handler ResultHandler[R]
 }
 
 func (run futureRunner[R]) Run(ctx context.Context) {
 	select {
 	case <-ctx.Done():
-		run.handler(ctx, *(new(R)), ErrFutureCancelled)
+		run.handler(ctx, *(new(R)), ctx.Err())
 		return
-	case ar, ok := <-run.ch:
+	case ar, ok := <-run.rch:
 		if !ok {
-			run.handler(ctx, *(new(R)), ErrFutureClosed)
+			run.handler(ctx, *(new(R)), ErrFutureWasClosed)
 			return
 		}
 		if ar.Succeed() {
