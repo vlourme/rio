@@ -16,7 +16,7 @@ type Promise[R any] interface {
 func TryGetPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
 	exec := From(ctx)
 	// todo avalibale or exec
-	ch, has := exec.TryGetExecutorChan()
+	ch, has := exec.GetExecutorSubmitter()
 	if !has {
 		return
 	}
@@ -48,7 +48,7 @@ func GetPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	return
 }
 
-func newPromise[R any](ctx context.Context, exec ExecutorChan) Promise[R] {
+func newPromise[R any](ctx context.Context, exec ExecutorSubmitter) Promise[R] {
 	return &futureImpl[R]{
 		ctx:  ctx,
 		ch:   make(chan Result[R], 1),

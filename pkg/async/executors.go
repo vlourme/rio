@@ -7,28 +7,26 @@ type Runnable interface {
 }
 
 type runnableFunc struct {
-	ctx context.Context
-	fn  func(ctx context.Context)
+	fn func(ctx context.Context)
 }
 
 func (exec *runnableFunc) Run(ctx context.Context) {
 	exec.fn(ctx)
 }
 
-func RunnableFunc(ctx context.Context, fn func(ctx context.Context)) Runnable {
+func RunnableFunc(fn func(ctx context.Context)) Runnable {
 	return &runnableFunc{
-		ctx: ctx,
-		fn:  fn,
+		fn: fn,
 	}
 }
 
-type ExecutorChan interface {
-	Push(ctx context.Context, runnable Runnable)
+type ExecutorSubmitter interface {
+	Submit(ctx context.Context, runnable Runnable)
 }
 
 type Executors interface {
-	TryEmit(executor Runnable) (ok bool)
-	Emit(executor Runnable)
-	TryGetExecutorChan() (ch ExecutorChan, ok bool)
+	TryExecute(executor Runnable) (ok bool)
+	Execute(executor Runnable)
+	GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool)
 	Close() (err error)
 }

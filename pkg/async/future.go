@@ -18,7 +18,7 @@ type Future[R any] interface {
 type futureImpl[R any] struct {
 	ctx  context.Context
 	ch   chan Result[R]
-	exec ExecutorChan
+	exec ExecutorSubmitter
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
@@ -26,7 +26,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		ch:      f.ch,
 		handler: handler,
 	}
-	f.exec.Push(f.ctx, run)
+	f.exec.Submit(f.ctx, run)
 }
 
 func (f *futureImpl[R]) Complete(result R, err error) {
