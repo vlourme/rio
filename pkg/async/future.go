@@ -7,8 +7,7 @@ import (
 )
 
 var (
-	ErrFutureWasClosed           = errors.New("rio: promise was closed")
-	ErrGetPromiseFailedByTimeout = errors.New("rio: get promise timeout")
+	ErrFutureWasClosed = errors.New("rio: promise was closed")
 )
 
 type Future[R any] interface {
