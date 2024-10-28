@@ -47,6 +47,20 @@ type Operation interface {
 	RemoteAddr() (addr net.Addr)
 }
 
+type Inbound interface {
+	context.Context
+	Buffer() (buf bytebufferpool.Buffer)
+	// RemoteAddr
+	// used by ReadFrom
+	RemoteAddr() (addr net.Addr)
+}
+
+type Outbound interface {
+	context.Context
+	Buffer() (buf bytebufferpool.Buffer)
+	Wrote() (n int)
+}
+
 type Connection interface {
 	context.Context
 	LocalAddr() (addr net.Addr)
@@ -54,9 +68,12 @@ type Connection interface {
 	SetDeadline(t time.Time) (err error)
 	SetReadDeadline(t time.Time) (err error)
 	SetWriteDeadline(t time.Time) (err error)
-	Read() (future async.Future[Operation])
-	Write(p []byte) (future async.Future[Operation])
-	ReadFrom() (future async.Future[Operation])
-	WriteTo(p []byte, addr net.Addr) (future async.Future[Operation])
+	// Read
+	// post request with userdata(promise)
+	// in get status loop, get a result, get promise from userdata(max size is 64, such as ptr * 8, maybe one ptr + 7 padding), then emit an executor to complete promise
+	Read() (future async.Future[Inbound])
+	Write(p []byte) (future async.Future[Outbound])
+	ReadFrom() (future async.Future[Inbound])
+	WriteTo(p []byte, addr net.Addr) (future async.Future[Outbound])
 	Close() (err error)
 }
