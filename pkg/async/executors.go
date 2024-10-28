@@ -28,5 +28,6 @@ type Executors interface {
 	TryExecute(executor Runnable) (ok bool)
 	Execute(executor Runnable)
 	GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool)
+	Available() (ok bool)
 	Close() (err error)
 }
