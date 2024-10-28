@@ -33,7 +33,7 @@ type ExecutorSubmitter interface {
 
 type Executors interface {
 	TryExecute(ctx context.Context, runnable Runnable) (ok bool)
-	Execute(ctx context.Context, runnable Runnable)
+	Execute(ctx context.Context, runnable Runnable) (err error)
 	GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool)
 	Available() (ok bool)
 	Close()
@@ -109,20 +109,12 @@ func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bo
 	if submitter == nil {
 		return false
 	}
-	select {
-	case submitter.ch <- executor{
-		ctx:      ctx,
-		runnable: runnable,
-	}:
-		ok = true
-		break
-	case <-ctx.Done():
-		break
-	}
+	submitter.Submit(ctx, runnable)
+	ok = true
 	return
 }
 
-func (exec *executors) Execute(ctx context.Context, runnable Runnable) {
+func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err error) {
 	if runnable == nil || atomic.LoadInt64(&exec.running) == 0 {
 		return
 	}
@@ -132,8 +124,7 @@ func (exec *executors) Execute(ctx context.Context, runnable Runnable) {
 		if ok {
 			break
 		}
-		deadline, hasDeadline := ctx.Deadline()
-		if hasDeadline && deadline.Before(time.Now()) {
+		if err = ctx.Err(); err != nil {
 			break
 		}
 		time.Sleep(ns500)
@@ -143,6 +134,7 @@ func (exec *executors) Execute(ctx context.Context, runnable Runnable) {
 			runtime.Gosched()
 		}
 	}
+	return
 }
 
 func (exec *executors) GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool) {

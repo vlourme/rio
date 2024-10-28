@@ -15,31 +15,28 @@ type Promise[R any] interface {
 	Future() (future Future[R])
 }
 
-func TryGetPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
+func TryPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
 	exec := From(ctx)
-	if exec.Available() {
-		ch, has := exec.GetExecutorSubmitter()
-		if has {
-			promise = newPromise[T](ctx, ch)
-			ok = true
-		}
+	submitter, has := exec.GetExecutorSubmitter()
+	if has {
+		promise = newPromise[T](ctx, submitter)
+		ok = true
 	}
 	return
 }
 
-func GetPromise[T any](ctx context.Context) (promise Promise[T], err error) {
+func MustPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	times := 10
 	ok := false
 	for {
-		promise, ok = TryGetPromise[T](ctx)
+		promise, ok = TryPromise[T](ctx)
 		if ok {
 			break
 		}
-		deadline, hasDeadline := ctx.Deadline()
-		if hasDeadline && deadline.Before(time.Now()) {
-			err = ErrGetPromiseFailedByTimeout
+		if err = ctx.Err(); err != nil {
 			break
 		}
+		time.Sleep(ns500)
 		times--
 		if times < 0 {
 			times = 10
