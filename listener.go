@@ -1,11 +1,14 @@
 package rio
 
 import (
+	"context"
 	"github.com/brickingsoft/rio/pkg/async"
 	"net"
 )
 
-func Listen() (ln Listener, err error) {
+// Listen
+// ctx as root ctx, each conn can read it.
+func Listen(ctx context.Context, network string, addr string, options ...Option) (ln Listener, err error) {
 
 	return
 }

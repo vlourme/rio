@@ -1,5 +1,7 @@
 package async
 
+import "context"
+
 type Result[R any] interface {
 	Succeed() (succeed bool)
 	Failed() (failed bool)
@@ -52,4 +54,4 @@ func (ar *resultImpl[R]) Cause() (err error) {
 	return
 }
 
-type ResultHandler[R any] func(result R, err error)
+type ResultHandler[R any] func(ctx context.Context, result R, err error)
