@@ -1,6 +1,9 @@
 package async
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type executorsContextKey struct{}
 
@@ -9,10 +12,18 @@ func With(ctx context.Context, exec Executors) context.Context {
 }
 
 func From(ctx context.Context) Executors {
-	executor, ok := ctx.Value(executorsContextKey{}).(Executors)
-	if ok && executor != nil {
-		return executor
+	exec, ok := ctx.Value(executorsContextKey{}).(Executors)
+	if ok && exec != nil {
+		return exec
 	}
 	panic("rio: there is no executors in context")
 	return nil
+}
+
+func IsCanceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
+func IsTimeout(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded)
 }
