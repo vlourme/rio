@@ -49,6 +49,7 @@ func (f *futureImpl[R]) Fail(cause error) {
 
 func (f *futureImpl[R]) Cancel() {
 	f.cancel()
+	close(f.rch)
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
