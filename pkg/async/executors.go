@@ -35,6 +35,7 @@ type Executors interface {
 	TryExecute(ctx context.Context, runnable Runnable) (ok bool)
 	Execute(ctx context.Context, runnable Runnable) (err error)
 	GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool)
+	ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter)
 	Available() (ok bool)
 	Close()
 }
@@ -105,7 +106,7 @@ func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bo
 	if runnable == nil || atomic.LoadInt64(&exec.running) == 0 {
 		return false
 	}
-	submitter := exec.getReady()
+	submitter := exec.getSubmitter()
 	if submitter == nil {
 		return false
 	}
@@ -138,8 +139,13 @@ func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err erro
 }
 
 func (exec *executors) GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool) {
-	submitter = exec.getReady()
+	submitter = exec.getSubmitter()
 	has = submitter != nil
+	return
+}
+
+func (exec *executors) ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter) {
+	exec.release(submitter.(*executorSubmitterImpl))
 	return
 }
 
@@ -228,8 +234,8 @@ func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
 	}
 }
 
-func (exec *executors) getReady() *executorSubmitterImpl {
-	var ch *executorSubmitterImpl
+func (exec *executors) getSubmitter() *executorSubmitterImpl {
+	var submitter *executorSubmitterImpl
 	createExecutor := false
 	exec.locker.Lock()
 	ready := exec.ready
@@ -240,33 +246,33 @@ func (exec *executors) getReady() *executorSubmitterImpl {
 			exec.count++
 		}
 	} else {
-		ch = ready[n]
+		submitter = ready[n]
 		ready[n] = nil
 		exec.ready = ready[:n]
 	}
 	exec.locker.Unlock()
-	if ch == nil {
+	if submitter == nil {
 		if !createExecutor {
 			return nil
 		}
 		vch := exec.submitters.Get()
-		ch = vch.(*executorSubmitterImpl)
+		submitter = vch.(*executorSubmitterImpl)
 		go func() {
-			exec.handle(ch)
+			exec.handle(submitter)
 			exec.submitters.Put(vch)
 		}()
 	}
-	return ch
+	return submitter
 }
 
-func (exec *executors) release(ch *executorSubmitterImpl) bool {
-	ch.lastUseTime = time.Now()
+func (exec *executors) release(submitter *executorSubmitterImpl) bool {
+	submitter.lastUseTime = time.Now()
 	exec.locker.Lock()
 	if exec.mustStop {
 		exec.locker.Unlock()
 		return false
 	}
-	exec.ready = append(exec.ready, ch)
+	exec.ready = append(exec.ready, submitter)
 	exec.locker.Unlock()
 	return true
 }
@@ -277,14 +283,19 @@ func (exec *executors) handle(wch *executorSubmitterImpl) {
 		if !ok {
 			break
 		}
-		ctx := e.ctx
+
 		run := e.runnable
+		ctx := e.ctx
+
 		if ctx == nil || run == nil {
-			break
+			if !exec.release(wch) {
+				break
+			}
+			continue
 		}
-		if ctx.Err() == nil {
-			run.Run(ctx)
-		}
+
+		run.Run(ctx)
+
 		if !exec.release(wch) {
 			break
 		}
