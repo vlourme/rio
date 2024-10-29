@@ -17,7 +17,7 @@ type Future[R any] interface {
 type futureImpl[R any] struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
-	rch       chan Result[R]
+	rch       *resultChan[R]
 	submitter ExecutorSubmitter
 }
 
@@ -30,26 +30,19 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 }
 
 func (f *futureImpl[R]) Complete(result R, err error) {
-	if err == nil {
-		f.Succeed(result)
-	} else {
-		f.Fail(err)
-	}
+	f.rch.Emit(newAsyncResult[R](result, err))
 }
 
 func (f *futureImpl[R]) Succeed(result R) {
-	f.rch <- newSucceedAsyncResult[R](result)
-	close(f.rch)
+	f.rch.Emit(newSucceedAsyncResult[R](result))
 }
 
 func (f *futureImpl[R]) Fail(cause error) {
-	f.rch <- newFailedAsyncResult[R](cause)
-	close(f.rch)
+	f.rch.Emit(newFailedAsyncResult[R](cause))
 }
 
 func (f *futureImpl[R]) Cancel() {
 	f.cancel()
-	close(f.rch)
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
@@ -62,16 +55,18 @@ func (f *futureImpl[R]) Future() (future Future[R]) {
 }
 
 type futureRunner[R any] struct {
-	rch     chan Result[R]
+	rch     *resultChan[R]
 	handler ResultHandler[R]
 }
 
 func (run futureRunner[R]) Run(ctx context.Context) {
+	rch := run.rch
 	select {
 	case <-ctx.Done():
+		rch.CloseUnexpectedly()
 		run.handler(ctx, *(new(R)), ctx.Err())
 		return
-	case ar, ok := <-run.rch:
+	case ar, ok := <-rch.ch:
 		if !ok {
 			run.handler(ctx, *(new(R)), ErrFutureWasClosed)
 			return

@@ -52,7 +52,7 @@ func newPromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise
 	return &futureImpl[R]{
 		ctx:       ctx,
 		cancel:    cancel,
-		rch:       make(chan Result[R], 1),
+		rch:       newResultChan[R](),
 		submitter: submitter,
 	}
 }
