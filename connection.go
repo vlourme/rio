@@ -1,7 +1,6 @@
 package rio
 
 import (
-	"context"
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
 	"net"
@@ -34,21 +33,7 @@ const (
 	Write
 )
 
-type Operation interface {
-	Connection() (conn Connection)
-	Mode() (mode OperationMode)
-	// Inbound
-	// peek read discard
-	Inbound() (buf bytebufferpool.Buffer)
-	Outbound() (buf bytebufferpool.Buffer)
-	Wrote() (n int)
-	// RemoteAddr
-	// used by ReadFrom
-	RemoteAddr() (addr net.Addr)
-}
-
 type Inbound interface {
-	context.Context
 	Buffer() (buf bytebufferpool.Buffer)
 	// RemoteAddr
 	// used by ReadFrom
@@ -56,13 +41,11 @@ type Inbound interface {
 }
 
 type Outbound interface {
-	context.Context
 	Buffer() (buf bytebufferpool.Buffer)
 	Wrote() (n int)
 }
 
 type Connection interface {
-	context.Context
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
 	SetDeadline(t time.Time) (err error)
