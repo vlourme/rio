@@ -26,7 +26,10 @@ type Buffer interface {
 }
 
 var (
-	pageszie = os.Getpagesize()
+	pageszie               = os.Getpagesize()
+	oneQuarterOfPagesize   = pageszie / 4
+	halfOfPagesize         = pageszie / 2
+	threeQuarterOfPagesize = oneQuarterOfPagesize * 3
 )
 
 func newBuffer(n int) (b Buffer) {
@@ -226,6 +229,12 @@ func (buf *buffer) tryReset() {
 	if buf.w != buf.h {
 		// ptr of h position can not be changed
 		// so skip reset
+		return
+	}
+	if buf.w < threeQuarterOfPagesize {
+		return
+	}
+	if halfOfPagesize < buf.w-buf.r {
 		return
 	}
 	if buf.r == buf.w {
