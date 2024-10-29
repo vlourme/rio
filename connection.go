@@ -7,32 +7,6 @@ import (
 	"time"
 )
 
-type OperationMode int
-
-func (op OperationMode) IsRead() bool {
-	return op == Read
-}
-
-func (op OperationMode) IsWrite() bool {
-	return op == Write
-}
-
-func (op OperationMode) String() string {
-	switch op {
-	case Read:
-		return "read"
-	case Write:
-		return "write"
-	default:
-		return "unknown"
-	}
-}
-
-const (
-	Read OperationMode = iota + 1
-	Write
-)
-
 type Inbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
 	// RemoteAddr
@@ -56,7 +30,6 @@ type Connection interface {
 	// in get status loop, get a result, get promise from userdata(max size is 64, such as ptr * 8, maybe one ptr + 7 padding), then emit an executor to complete promise
 	Read() (future async.Future[Inbound])
 	Write(p []byte) (future async.Future[Outbound])
-	ReadFrom() (future async.Future[Inbound])
 	WriteTo(p []byte, addr net.Addr) (future async.Future[Outbound])
 	Close() (err error)
 }
