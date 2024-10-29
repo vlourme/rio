@@ -9,9 +9,6 @@ import (
 
 type Inbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
-	// RemoteAddr
-	// used by ReadFrom
-	RemoteAddr() (addr net.Addr)
 }
 
 type Outbound interface {
