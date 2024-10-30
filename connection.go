@@ -9,6 +9,7 @@ import (
 
 type Inbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
+	Bytes() (n int)
 }
 
 type Outbound interface {
@@ -22,11 +23,8 @@ type Connection interface {
 	SetDeadline(t time.Time) (err error)
 	SetReadDeadline(t time.Time) (err error)
 	SetWriteDeadline(t time.Time) (err error)
-	// Read
-	// post request with userdata(promise)
-	// in get status loop, get a result, get promise from userdata(max size is 64, such as ptr * 8, maybe one ptr + 7 padding), then emit an executor to complete promise
+	SetReadBufferSize(size int)
 	Read() (future async.Future[Inbound])
 	Write(p []byte) (future async.Future[Outbound])
-	WriteTo(p []byte, addr net.Addr) (future async.Future[Outbound])
 	Close() (err error)
 }
