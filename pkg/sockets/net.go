@@ -7,16 +7,6 @@ import (
 	"time"
 )
 
-func Listen() (ln Listener, err error) {
-
-	return
-}
-
-func Dial() (conn Connection, err error) {
-
-	return
-}
-
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
 
@@ -134,4 +124,13 @@ type UnixConnection interface {
 	// Note that if len(b) == 0 and len(oob) > 0, this function will still
 	// write 1 byte to the connection.
 	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr, handler WriteMsgHandler) (err error)
+}
+
+type UnixAcceptHandler func(conn UnixConnection, err error)
+
+type UnixListener interface {
+	Addr() (addr net.Addr)
+	AcceptUnix(handler UnixAcceptHandler)
+	Close() (err error)
+	polling()
 }
