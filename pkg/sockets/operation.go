@@ -4,6 +4,7 @@ const (
 	Accept OperationMode = iota + 1
 	Read
 	Write
+	// todo packet udp unix op
 )
 
 type OperationMode int
