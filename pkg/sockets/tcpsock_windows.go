@@ -7,6 +7,16 @@ import (
 	"net"
 )
 
+func ListenTCP() (ln Listener, err error) {
+
+	return
+}
+
+func DialTCP() (conn Connection, err error) {
+
+	return
+}
+
 type tcpListener struct {
 	iocp   windows.Handle
 	fd     windows.Handle
