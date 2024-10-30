@@ -4,7 +4,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/async"
 )
 
-func Dialer() (future async.Future[Connection]) {
+func Dial() (future async.Future[Connection]) {
 
 	return
 }
