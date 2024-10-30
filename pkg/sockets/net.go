@@ -1,10 +1,21 @@
 package sockets
 
 import (
+	"io"
 	"net"
 	"net/netip"
 	"time"
 )
+
+func Listen() (ln Listener, err error) {
+
+	return
+}
+
+func Dial() (conn Connection, err error) {
+
+	return
+}
 
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
@@ -27,6 +38,20 @@ type Listener interface {
 	Addr() (addr net.Addr)
 	Accept(handler AcceptHandler)
 	Close() (err error)
+	polling()
+}
+
+type TCPConnection interface {
+	Connection
+	// ReadFrom
+	// use sendfile or splice
+	// for windows, sendfile is TransmitFile in iocp, so use event to block it.
+	// when not supported, then use io.copy to copy r into one buf, then write it.
+	ReadFrom(r io.Reader) (n int64, err error)
+	// WriteTo
+	// spliceTo
+	// when not supported, then use io.copy tp copy conn.buf into w.
+	WriteTo(w io.Writer) (n int64, err error)
 }
 
 type PacketReadFromHandler func(n int, addr net.Addr, err error)
