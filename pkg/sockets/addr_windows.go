@@ -34,3 +34,54 @@ func SockaddrToAddr(sa windows.Sockaddr) net.Addr {
 	}
 	return a
 }
+
+func addrToSockaddr(family int, a net.Addr) (sa windows.Sockaddr) {
+	switch addr := a.(type) {
+	case *net.TCPAddr:
+		switch family {
+		case windows.AF_INET:
+			sa4 := &windows.SockaddrInet4{
+				Port: addr.Port,
+				Addr: [4]byte{},
+			}
+			copy(sa4.Addr[:], addr.IP.To4())
+			sa = sa4
+			break
+		case windows.AF_INET6:
+			sa4 := &windows.SockaddrInet6{
+				Port: addr.Port,
+				Addr: [16]byte{},
+			}
+			copy(sa4.Addr[:], addr.IP.To16())
+			sa = sa4
+			break
+		}
+		break
+	case *net.UDPAddr:
+		switch family {
+		case windows.AF_INET:
+			sa4 := &windows.SockaddrInet4{
+				Port: addr.Port,
+				Addr: [4]byte{},
+			}
+			copy(sa4.Addr[:], addr.IP.To4())
+			sa = sa4
+			break
+		case windows.AF_INET6:
+			sa4 := &windows.SockaddrInet6{
+				Port: addr.Port,
+				Addr: [16]byte{},
+			}
+			copy(sa4.Addr[:], addr.IP.To16())
+			sa = sa4
+			break
+		}
+		break
+	case *net.UnixAddr:
+		sa = &windows.SockaddrUnix{
+			Name: addr.Name,
+		}
+		break
+	}
+	return
+}
