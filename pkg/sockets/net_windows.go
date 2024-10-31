@@ -3,8 +3,11 @@
 package sockets
 
 import (
+	"errors"
 	"golang.org/x/sys/windows"
 	"net"
+	"net/netip"
+	"os"
 )
 
 type Fd struct {
@@ -16,9 +19,8 @@ type Fd struct {
 type operation struct {
 	// Used by IOCP interface, it must be first field
 	// of the struct, as our code rely on it.
-	Overlapped windows.Overlapped
+	overlapped windows.Overlapped
 	mode       OperationMode
-
 	// fields used only by net package
 	fd     *Fd
 	buf    windows.WSABuf
@@ -30,6 +32,73 @@ type operation struct {
 	flags  uint32
 	qty    uint32
 	bufs   []windows.WSABuf
+	// fields used only by net callback
+	acceptHandler              AcceptHandler
+	readHandler                ReadHandler
+	writeHandler               WriteHandler
+	readFromHandler            ReadFromHandler
+	readFromUDPHandler         ReadFromUDPHandler
+	readFromUDPAddrPortHandler ReadFromUDPAddrPortHandler
+	readMsgUDPHandler          ReadMsgUDPHandler
+	readMsgUDPAddrPortHandler  ReadMsgUDPAddrPortHandler
+	writeMsgHandler            WriteMsgHandler
+	readFromUnixHandler        ReadFromUnixHandler
+	readMsgUnixHandler         ReadMsgUnixHandler
+	unixAcceptHandler          UnixAcceptHandler
+	closeHandler               CloseHandler
+}
+
+func (op *operation) failed(cause error) {
+	switch op.mode {
+	case accept:
+		op.acceptHandler(nil, cause)
+		break
+	case read:
+		op.readHandler(0, cause)
+		break
+	case write:
+		op.writeHandler(0, cause)
+		break
+	case readFrom:
+		op.readFromHandler(0, nil, cause)
+		break
+	case readFromUDP:
+		op.readFromUDPHandler(0, nil, cause)
+		break
+	case readFromUDPAddrPort:
+		op.readFromUDPAddrPortHandler(0, netip.AddrPort{}, cause)
+		break
+	case readMsgUDP:
+		op.readMsgUDPHandler(0, 0, 0, nil, cause)
+		break
+	case writeMsg:
+		op.writeMsgHandler(0, 0, nil)
+		break
+	case readFromUnix:
+		op.readFromUnixHandler(0, nil, cause)
+		break
+	case readMsgUnix:
+		op.readMsgUnixHandler(0, nil, 0, nil, cause)
+		break
+	case unixAccept:
+		op.unixAcceptHandler(nil, cause)
+		break
+	case disconnect:
+		op.closeHandler(cause)
+		break
+	case exit:
+		break
+	default:
+		break
+	}
+}
+
+func wrapSyscallError(name string, err error) error {
+	var errno windows.Errno
+	if errors.As(err, &errno) {
+		err = os.NewSyscallError(name, err)
+	}
+	return err
 }
 
 type connection struct {

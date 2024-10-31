@@ -1,34 +1,63 @@
 package sockets
 
 const (
-	Accept OperationMode = iota + 1
-	Read
-	Write
-	// todo packet udp unix op
+	accept OperationMode = iota + 1
+	unixAccept
+	read
+	write
+	readFrom
+	readFromUDP
+	readFromUDPAddrPort
+	readMsgUDP
+	writeMsg
+	readFromUnix
+	readMsgUnix
+	disconnect
+	exit
 )
 
 type OperationMode int
 
 func (op OperationMode) IsAccept() bool {
-	return op == Accept
+	return op == accept
 }
 
 func (op OperationMode) IsRead() bool {
-	return op == Read
+	return op == read
 }
 
 func (op OperationMode) IsWrite() bool {
-	return op == Write
+	return op == write
 }
 
 func (op OperationMode) String() string {
 	switch op {
-	case Accept:
+	case accept:
 		return "accept"
-	case Read:
+	case unixAccept:
+		return "unixAccept"
+	case read:
 		return "read"
-	case Write:
+	case write:
 		return "write"
+	case writeMsg:
+		return "writeMsg"
+	case readFromUDPAddrPort:
+		return "readFromUDPAddrPort"
+	case readFrom:
+		return "readFrom"
+	case readFromUDP:
+		return "readFromUDP"
+	case readFromUnix:
+		return "readFromUnix"
+	case readMsgUDP:
+		return "readMsgUDP"
+	case readMsgUnix:
+		return "readMsgUnix"
+	case disconnect:
+		return "disconnect"
+	case exit:
+		return "exit"
 	default:
 		return "unknown"
 	}
