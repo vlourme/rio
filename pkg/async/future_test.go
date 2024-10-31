@@ -114,6 +114,24 @@ func TestTryPromise_Timeout(t *testing.T) {
 	wg.Wait()
 }
 
+func TestPromise_Await(t *testing.T) {
+	exec := async.New()
+	defer exec.Close()
+	ctx := async.With(context.Background(), exec)
+	promise, ok := async.TryPromise[int](ctx)
+	if !ok {
+		t.Errorf("try promise failed")
+		return
+	}
+	promise.Succeed(1)
+	future := promise.Future()
+	v, err := future.Await()
+	if err != nil {
+		t.Errorf("await failed: %v", err)
+	}
+	t.Log(v)
+}
+
 func BenchmarkTryPromise(b *testing.B) {
 	b.ReportAllocs()
 	exec := async.New()
