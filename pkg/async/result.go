@@ -102,3 +102,8 @@ func (rch *resultChan[R]) CloseUnexpectedly() {
 	rch.closed = true
 	rch.locker.Unlock()
 }
+
+func (rch *resultChan[R]) Get() (r Result[R], ok bool) {
+	r, ok = <-rch.ch
+	return
+}
