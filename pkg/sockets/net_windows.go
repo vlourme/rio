@@ -4,6 +4,7 @@ package sockets
 
 import (
 	"errors"
+	"fmt"
 	"golang.org/x/sys/windows"
 	"net"
 	"net/netip"
@@ -99,6 +100,20 @@ func wrapSyscallError(name string, err error) error {
 		err = os.NewSyscallError(name, err)
 	}
 	return err
+}
+
+func wsaStartup() (windows.WSAData, error) {
+	var d windows.WSAData
+	startupErr := windows.WSAStartup(uint32(0x202), &d)
+	if startupErr != nil {
+		fmt.Printf("Error starting WSAStartup: %v", startupErr)
+		return d, startupErr
+	}
+	return d, nil
+}
+
+func wsaCleanup() {
+	_ = windows.WSACleanup()
 }
 
 type connection struct {
