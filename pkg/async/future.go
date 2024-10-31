@@ -12,6 +12,7 @@ var (
 
 type Future[R any] interface {
 	OnComplete(handler ResultHandler[R])
+	Await() (v R, err error)
 }
 
 type futureImpl[R any] struct {
@@ -27,6 +28,20 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		handler: handler,
 	}
 	f.submitter.Submit(f.ctx, run)
+}
+
+func (f *futureImpl[R]) Await() (v R, err error) {
+	result, ok := f.rch.Get()
+	if !ok {
+		err = ErrFutureWasClosed
+		return
+	}
+	if result.Succeed() {
+		v = result.Result()
+	} else {
+		err = result.Cause()
+	}
+	return
 }
 
 func (f *futureImpl[R]) Complete(result R, err error) {
