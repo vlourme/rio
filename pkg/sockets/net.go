@@ -9,6 +9,7 @@ import (
 
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
+type CloseHandler func(err error)
 
 type Connection interface {
 	LocalAddr() (addr net.Addr)
@@ -16,10 +17,11 @@ type Connection interface {
 	SetDeadline(t time.Time) (err error)
 	SetReadDeadline(t time.Time) (err error)
 	SetWriteDeadline(t time.Time) (err error)
-	SetReadBufferSize(size int)
+	SetReadBuffer(bytes int) (err error)
+	SetWriteBuffer(bytes int) (err error)
 	Read(p []byte, handler ReadHandler) (err error)
 	Write(p []byte, handler WriteHandler) (err error)
-	Close() (err error)
+	Close(handler CloseHandler) (err error)
 }
 
 type AcceptHandler func(conn Connection, err error)
@@ -42,18 +44,22 @@ type TCPConnection interface {
 	// spliceTo
 	// when not supported, then use io.copy tp copy conn.buf into w.
 	WriteTo(w io.Writer) (n int64, err error)
+	SetNoDelay(noDelay bool) (err error)
+	SetLinger(sec int) (err error)
+	SetKeepAlive(keepalive bool) (err error)
+	SetKeepAlivePeriod(d time.Duration) (err error)
 }
 
-type PacketReadFromHandler func(n int, addr net.Addr, err error)
+type ReadFromHandler func(n int, addr net.Addr, err error)
 
 type PacketConnection interface {
 	LocalAddr() (addr net.Addr)
 	SetDeadline(t time.Time) (err error)
 	SetReadDeadline(t time.Time) (err error)
 	SetWriteDeadline(t time.Time) (err error)
-	ReadFrom(p []byte, handler PacketReadFromHandler) (err error)
+	ReadFrom(p []byte, handler ReadFromHandler) (err error)
 	WriteTo(p []byte, addr net.Addr, handler WriteHandler) (err error)
-	Close() (err error)
+	Close(handler CloseHandler) (err error)
 }
 
 type ReadFromUDPHandler func(n int, addr *net.UDPAddr, err error)
