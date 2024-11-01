@@ -44,11 +44,6 @@ func (pl *poller) wait() {
 		}
 		op := (*operation)(unsafe.Pointer(overlapped))
 		if getQueuedCompletionStatusErr != nil {
-			if op.mode == disconnect && errors.Is(getQueuedCompletionStatusErr, windows.ERROR_CONNECTION_ABORTED) {
-				// closed by server
-				op.handleDisconnect()
-				continue
-			}
 			op.failed(getQueuedCompletionStatusErr)
 			continue
 		}
@@ -61,9 +56,6 @@ func (pl *poller) wait() {
 			break
 		case write:
 			op.handleWrite()
-			break
-		case disconnect:
-			op.handleDisconnect()
 			break
 			// todo
 		default:
