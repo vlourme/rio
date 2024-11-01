@@ -31,6 +31,8 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 }
 
 func (f *futureImpl[R]) Await() (v R, err error) {
+	exec := From(f.ctx)
+	exec.ReleaseNotUsedExecutorSubmitter(f.submitter)
 	result, ok := f.rch.Get()
 	if !ok {
 		err = ErrFutureWasClosed
