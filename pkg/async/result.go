@@ -107,3 +107,5 @@ func (rch *resultChan[R]) Get() (r Result[R], ok bool) {
 	r, ok = <-rch.ch
 	return
 }
+
+type Void struct{}
