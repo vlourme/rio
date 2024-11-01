@@ -47,6 +47,7 @@ func (pl *poller) wait() {
 			op.failed(getQueuedCompletionStatusErr)
 			continue
 		}
+		// todo use op.finish() to handle callback ?
 		switch op.mode {
 		case accept:
 			op.handleAccept()
@@ -60,6 +61,7 @@ func (pl *poller) wait() {
 			// todo
 		default:
 			// not supported
+			// todo means no handler, so failed will do nothing
 			op.failed(wrapSyscallError("GetQueuedCompletionStatus", errors.New("invalid operation")))
 			break
 		}
