@@ -13,7 +13,6 @@ const (
 	readFromUnix
 	readMsgUnix
 	disconnect
-	exit
 )
 
 type OperationMode int
@@ -56,8 +55,6 @@ func (op OperationMode) String() string {
 		return "readMsgUnix"
 	case disconnect:
 		return "disconnect"
-	case exit:
-		return "exit"
 	default:
 		return "unknown"
 	}

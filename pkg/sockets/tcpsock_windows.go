@@ -3,13 +3,11 @@
 package sockets
 
 import (
-	"errors"
 	"golang.org/x/sys/windows"
 	"io"
 	"net"
 	"os"
-	"runtime"
-	"unsafe"
+	"time"
 )
 
 func newTCPListener(network string, addr *net.TCPAddr, proto int, pollers int) (ln *tcpListener, err error) {
@@ -20,7 +18,7 @@ func newTCPListener(network string, addr *net.TCPAddr, proto int, pollers int) (
 		return
 	}
 	// create root iocp
-	iocp, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
+	rcphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
 	if createIOCPErr != nil {
 		err = os.NewSyscallError("CreateIoCompletionPort", createIOCPErr)
 		wsaCleanup()
@@ -31,7 +29,7 @@ func newTCPListener(network string, addr *net.TCPAddr, proto int, pollers int) (
 	fd, fdErr := windows.WSASocket(int32(family), windows.SOCK_STREAM, int32(proto), nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
 	if fdErr != nil {
 		err = os.NewSyscallError("WSASocket", fdErr)
-		_ = windows.CloseHandle(iocp)
+		_ = windows.CloseHandle(rcphandle)
 		wsaCleanup()
 		return
 	}
@@ -40,7 +38,7 @@ func newTCPListener(network string, addr *net.TCPAddr, proto int, pollers int) (
 	if setDefaultSockOptsErr != nil {
 		err = setDefaultSockOptsErr
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(iocp)
+		_ = windows.CloseHandle(rcphandle)
 		wsaCleanup()
 		return
 	}
@@ -50,33 +48,49 @@ func newTCPListener(network string, addr *net.TCPAddr, proto int, pollers int) (
 	if bindErr != nil {
 		err = os.NewSyscallError("Bind", bindErr)
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(iocp)
+		_ = windows.CloseHandle(rcphandle)
 		wsaCleanup()
 		return
 	}
+	// listen
+	listenErr := windows.Listen(fd, windows.SOMAXCONN)
+	if listenErr != nil {
+		err = os.NewSyscallError("Listen", listenErr)
+		_ = windows.Closesocket(fd)
+		_ = windows.CloseHandle(rcphandle)
+		wsaCleanup()
+		return
+	}
+	// lsa
+	lsa, getLSAErr := windows.Getsockname(fd)
+	if getLSAErr != nil {
+		err = os.NewSyscallError("Getsockname", getLSAErr)
+		_ = windows.Closesocket(fd)
+		_ = windows.CloseHandle(rcphandle)
+		wsaCleanup()
+		return
+	}
+	addr = sockaddrToTCPAddr(lsa)
 
 	// create listener iocp
-	listenerIOCP, createListenIOCPErr := windows.CreateIoCompletionPort(fd, iocp, 0, 0)
+	cphandle, createListenIOCPErr := windows.CreateIoCompletionPort(fd, rcphandle, 0, 0)
 	if createListenIOCPErr != nil {
 		err = os.NewSyscallError("CreateIoCompletionPort", createListenIOCPErr)
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(iocp)
+		_ = windows.CloseHandle(rcphandle)
 		wsaCleanup()
 		return
 	}
 
 	// create listener
-	if pollers < 1 {
-		pollers = runtime.NumCPU() * 2
-	}
 	ln = &tcpListener{
-		rootIOCP: iocp,
-		iocp:     listenerIOCP,
-		fd:       fd,
-		addr:     addr,
-		family:   family,
-		net:      network,
-		pollers:  pollers,
+		rcphandle: rcphandle,
+		cphandle:  cphandle,
+		fd:        fd,
+		addr:      addr,
+		family:    family,
+		net:       network,
+		poller:    newPoller(0, cphandle),
 	}
 	// polling
 	ln.polling()
@@ -84,13 +98,13 @@ func newTCPListener(network string, addr *net.TCPAddr, proto int, pollers int) (
 }
 
 type tcpListener struct {
-	rootIOCP windows.Handle
-	iocp     windows.Handle
-	fd       windows.Handle
-	addr     *net.TCPAddr
-	family   int
-	net      string
-	pollers  int
+	rcphandle windows.Handle
+	cphandle  windows.Handle
+	fd        windows.Handle
+	addr      *net.TCPAddr
+	family    int
+	net       string
+	poller    *poller
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -99,6 +113,8 @@ func (ln *tcpListener) Addr() (addr net.Addr) {
 }
 
 func (ln *tcpListener) Accept(handler AcceptHandler) {
+	// op.handler = ln.fd
+	// op.iocp = ln.iocp
 	//TODO implement me
 	panic("implement me")
 }
@@ -107,11 +123,8 @@ func (ln *tcpListener) Close() (err error) {
 	defer func() {
 		_ = windows.WSACleanup()
 	}()
-	for i := 0; i < ln.pollers; i++ {
-		_ = windows.PostQueuedCompletionStatus(ln.fd, 0, 0, nil)
-	}
-	// break polling
-	// todo test post status times by 1 (1 -> 1)
+
+	ln.poller.stop()
 	// close socket
 	closeSockErr := windows.Closesocket(ln.fd)
 	if closeSockErr != nil {
@@ -119,81 +132,59 @@ func (ln *tcpListener) Close() (err error) {
 		return
 	}
 
-	closeIocpErr := windows.Close(ln.iocp)
+	closeIocpErr := windows.Close(ln.cphandle)
 	if closeIocpErr != nil {
 		err = &net.OpError{Op: "close", Net: ln.net, Source: nil, Addr: ln.addr, Err: closeIocpErr}
 		return
 	}
 
+	return
+}
+
+func (ln *tcpListener) polling() {
+	ln.poller.start()
+}
+
+type tcpConnection struct {
+	connection
+}
+
+func (conn *tcpConnection) Read(p []byte, handler ReadHandler) (err error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (ln *tcpListener) polling() {
-	/*
-		客户端主动关闭：qty是0 io.EOF
-		客户端异常关闭：windows.ERROR_NETNAME_DELETED
-		服务器主动关闭：windows.ERROR_CONNECTION_ABORTED
-		超时: windows.WAIT_TIMEOUT
-	*/
-	for i := 0; i < ln.pollers; i++ {
-		go func(ln *tcpListener) {
-			var qty uint32
-			var key uintptr
-			var overlapped *windows.Overlapped
-			for {
-				getQueuedCompletionStatusErr := windows.GetQueuedCompletionStatus(ln.iocp, &qty, &key, &overlapped, windows.INFINITE)
-				op := (*operation)(unsafe.Pointer(overlapped))
-				if getQueuedCompletionStatusErr != nil {
-					op.failed(wrapSyscallError("GetQueuedCompletionStatus", getQueuedCompletionStatusErr))
-					continue
-				}
-				if qty == 0 { // normal closed by client
-					if op.mode == exit {
-						break
-					}
-					op.failed(io.EOF)
-					continue
-				}
-				// todo
-				switch op.mode {
-				case accept:
-					break
-				case read:
-					break
-				case write:
-					break
-				case disconnect:
-					break
-				default:
-					// not supported
-					op.failed(wrapSyscallError("GetQueuedCompletionStatus", errors.New("invalid operation")))
-					break
-				}
-			}
-		}(ln)
-	}
+func (conn *tcpConnection) Write(p []byte, handler WriteHandler) (err error) {
+	//TODO implement me
+	panic("implement me")
 }
 
-func (ln *tcpListener) handleAccept(op *operation) {
-	// todo
-	return
+func (conn *tcpConnection) ReadFrom(r io.Reader) (n int64, err error) {
+	//TODO implement me
+	panic("implement me")
 }
 
-type tcpConnection struct {
-	iocp       windows.Handle // conn iocp
-	fd         windows.Handle
-	localAddr  net.Addr
-	remoteAddr net.Addr
-	family     int
-	sotype     int
-	net        string
+func (conn *tcpConnection) WriteTo(w io.Writer) (n int64, err error) {
+	//TODO implement me
+	panic("implement me")
 }
 
-func (conn *tcpConnection) Close() {
+func (conn *tcpConnection) SetNoDelay(noDelay bool) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
 
-	//
-	_ = windows.Shutdown(conn.fd, 2)
-	_ = windows.Closesocket(conn.fd)
-	_ = windows.CloseHandle(conn.iocp)
+func (conn *tcpConnection) SetLinger(sec int) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (conn *tcpConnection) SetKeepAlive(keepalive bool) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (conn *tcpConnection) SetKeepAlivePeriod(d time.Duration) (err error) {
+	//TODO implement me
+	panic("implement me")
 }

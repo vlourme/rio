@@ -7,11 +7,10 @@ import (
 	"net"
 )
 
-func SockaddrToAddr(sa windows.Sockaddr) net.Addr {
-	var a net.Addr
+func sockaddrToTCPAddr(sa windows.Sockaddr) (addr *net.TCPAddr) {
 	switch sa := sa.(type) {
 	case *windows.SockaddrInet4:
-		a = &net.TCPAddr{
+		addr = &net.TCPAddr{
 			IP:   append([]byte{}, sa.Addr[:]...),
 			Port: sa.Port,
 		}
@@ -24,11 +23,18 @@ func SockaddrToAddr(sa windows.Sockaddr) net.Addr {
 		}
 		if zone == "" && sa.ZoneId != 0 {
 		}
-		a = &net.TCPAddr{
+		addr = &net.TCPAddr{
 			IP:   append([]byte{}, sa.Addr[:]...),
 			Port: sa.Port,
 			Zone: zone,
 		}
+	}
+	return
+}
+
+func sockaddrToUnixAddr(sa windows.Sockaddr) net.Addr {
+	var a net.Addr
+	switch sa := sa.(type) {
 	case *windows.SockaddrUnix:
 		a = &net.UnixAddr{Net: "unix", Name: sa.Name}
 	}

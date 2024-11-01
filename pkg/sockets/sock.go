@@ -30,7 +30,6 @@ type Listener interface {
 	Addr() (addr net.Addr)
 	Accept(handler AcceptHandler)
 	Close() (err error)
-	polling()
 }
 
 type TCPConnection interface {
@@ -136,7 +135,7 @@ type UnixAcceptHandler func(conn UnixConnection, err error)
 
 type UnixListener interface {
 	Addr() (addr net.Addr)
+	Accept(handler AcceptHandler)
 	AcceptUnix(handler UnixAcceptHandler)
 	Close() (err error)
-	polling()
 }
