@@ -12,7 +12,6 @@ const (
 	writeMsg
 	readFromUnix
 	readMsgUnix
-	disconnect
 )
 
 type OperationMode int
@@ -53,8 +52,6 @@ func (op OperationMode) String() string {
 		return "readMsgUDP"
 	case readMsgUnix:
 		return "readMsgUnix"
-	case disconnect:
-		return "disconnect"
 	default:
 		return "unknown"
 	}

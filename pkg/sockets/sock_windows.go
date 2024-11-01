@@ -76,9 +76,8 @@ func (conn *connection) SetWriteBuffer(bytes int) (err error) {
 	panic("implement me")
 }
 
-func (conn *connection) Close(handler CloseHandler) (err error) {
-	// todo async or sync
-	//windows.PostQueuedCompletionStatus()
+func (conn *connection) Close() (err error) {
+	// todo sync close
 	_ = windows.Shutdown(conn.fd, 2)
 	_ = windows.Closesocket(conn.fd)
 	_ = windows.CloseHandle(conn.cphandle)

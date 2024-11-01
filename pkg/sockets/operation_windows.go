@@ -41,7 +41,6 @@ type operation struct {
 	readFromUnixHandler        ReadFromUnixHandler
 	readMsgUnixHandler         ReadMsgUnixHandler
 	unixAcceptHandler          UnixAcceptHandler
-	closeHandler               CloseHandler
 }
 
 func (op *operation) handleAccept() {
@@ -104,12 +103,6 @@ func (op *operation) handleRead() {
 func (op *operation) handleWrite() {
 	op.writeHandler(int(op.qty), nil)
 	op.writeHandler = nil
-	return
-}
-
-func (op *operation) handleDisconnect() {
-	op.closeHandler(nil)
-	op.closeHandler = nil
 	return
 }
 
@@ -201,15 +194,6 @@ func (op *operation) failed(cause error) {
 		break
 	case unixAccept:
 		op.unixAcceptHandler(nil, cause)
-		break
-	case disconnect:
-		op.closeHandler(&net.OpError{
-			Op:     "close",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
 		break
 	default:
 		break

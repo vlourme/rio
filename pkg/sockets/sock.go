@@ -9,7 +9,6 @@ import (
 
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
-type CloseHandler func(err error)
 
 type Connection interface {
 	LocalAddr() (addr net.Addr)
@@ -21,7 +20,7 @@ type Connection interface {
 	SetWriteBuffer(bytes int) (err error)
 	Read(p []byte, handler ReadHandler) (err error)
 	Write(p []byte, handler WriteHandler) (err error)
-	Close(handler CloseHandler) (err error)
+	Close() (err error)
 }
 
 type AcceptHandler func(conn Connection, err error)
@@ -58,7 +57,7 @@ type PacketConnection interface {
 	SetWriteDeadline(t time.Time) (err error)
 	ReadFrom(p []byte, handler ReadFromHandler) (err error)
 	WriteTo(p []byte, addr net.Addr, handler WriteHandler) (err error)
-	Close(handler CloseHandler) (err error)
+	Close() (err error)
 }
 
 type ReadFromUDPHandler func(n int, addr *net.UDPAddr, err error)
