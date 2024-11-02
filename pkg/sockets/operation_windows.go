@@ -6,7 +6,6 @@ import (
 	"golang.org/x/sys/windows"
 	"io"
 	"net"
-	"net/netip"
 	"os"
 	"unsafe"
 )
@@ -14,8 +13,8 @@ import (
 type operation struct {
 	// Used by IOCP interface, it must be first field
 	// of the struct, as our code rely on it.
-	overlapped windows.Overlapped
-	mode       OperationMode
+	windows.Overlapped
+	mode OperationMode
 	// fields used only by net package
 	conn   connection
 	buf    windows.WSABuf
@@ -26,7 +25,6 @@ type operation struct {
 	iocp   windows.Handle
 	handle windows.Handle
 	flags  uint32
-	qty    uint32
 	bufs   []windows.WSABuf
 	// fields used only by net callback
 	acceptHandler              AcceptHandler
@@ -43,7 +41,52 @@ type operation struct {
 	unixAcceptHandler          UnixAcceptHandler
 }
 
-func (op *operation) handleAccept() {
+func (op *operation) complete(qty int, err error) {
+	switch op.mode {
+	case accept:
+		op.completeAccept(qty, err)
+		break
+	case unixAccept:
+		op.completeUnixAccept(qty, err)
+		break
+	case read:
+		op.completeRead(qty, err)
+		break
+	case write:
+		op.completeWrite(qty, err)
+		break
+	case readFrom:
+		op.completeReadFrom(qty, err)
+		break
+	case readFromUDP:
+		op.completeReadFromUDP(qty, err)
+		break
+	case readFromUDPAddrPort:
+		op.completeReadFromUDPAddrPort(qty, err)
+		break
+	case readMsgUDP:
+		op.completeReadMsgUDP(qty, err)
+		break
+	case writeMsg:
+		op.completeWriteMsg(qty, err)
+		break
+	case readFromUnix:
+		op.completeReadFromUnix(qty, err)
+		break
+	case readMsgUnix:
+		op.completeReadMsgUnix(qty, err)
+		break
+	default:
+		break
+	}
+}
+
+func (op *operation) completeAccept(_ int, err error) {
+	op.conn.sop = nil
+	if err != nil {
+		op.acceptHandler(nil, os.NewSyscallError("AcceptEx", err))
+		return
+	}
 	conn := op.conn
 	// set SO_UPDATE_ACCEPT_CONTEXT
 	setAcceptSocketOptErr := windows.Setsockopt(
@@ -90,112 +133,94 @@ func (op *operation) handleAccept() {
 	op.acceptHandler = nil
 }
 
-func (op *operation) handleRead() {
-	if op.qty == 0 {
+func (op *operation) completeRead(qty int, err error) {
+	op.conn.rop = nil
+	if err != nil {
+		op.readHandler(0, &net.OpError{
+			Op:     op.mode.String(),
+			Net:    op.conn.net,
+			Source: op.conn.localAddr,
+			Addr:   op.conn.remoteAddr,
+			Err:    err,
+		})
+		return
+	}
+	if qty == 0 {
 		op.readHandler(0, io.EOF)
 	} else {
-		op.readHandler(int(op.qty), nil)
+		op.readHandler(qty, nil)
 	}
 	op.readHandler = nil
 	return
 }
 
-func (op *operation) handleWrite() {
-	op.writeHandler(int(op.qty), nil)
+func (op *operation) completeWrite(qty int, err error) {
+	op.conn.wop = nil
+	if err != nil {
+		op.writeHandler(0, &net.OpError{
+			Op:     op.mode.String(),
+			Net:    op.conn.net,
+			Source: op.conn.localAddr,
+			Addr:   op.conn.remoteAddr,
+			Err:    err,
+		})
+		return
+	}
+	op.writeHandler(qty, nil)
 	op.writeHandler = nil
 	return
 }
 
-func (op *operation) failed(cause error) {
-	switch op.mode {
-	case accept:
-		op.acceptHandler(nil, cause)
-		break
-	case read:
-		op.readHandler(0, &net.OpError{
-			Op:     "read",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case write:
-		op.writeHandler(0, &net.OpError{
-			Op:     "write",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case readFrom:
-		op.readFromHandler(0, nil, &net.OpError{
-			Op:     "readFrom",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case readFromUDP:
-		op.readFromUDPHandler(0, nil, &net.OpError{
-			Op:     "readFromUDP",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case readFromUDPAddrPort:
-		op.readFromUDPAddrPortHandler(0, netip.AddrPort{}, &net.OpError{
-			Op:     "readFromUDPAddrPort",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case readMsgUDP:
-		op.readMsgUDPHandler(0, 0, 0, nil, &net.OpError{
-			Op:     "readMsgUDP",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case writeMsg:
-		op.writeMsgHandler(0, 0, &net.OpError{
-			Op:     "writeMsg",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case readFromUnix:
-		op.readFromUnixHandler(0, nil, &net.OpError{
-			Op:     "readFromUnix",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case readMsgUnix:
-		op.readMsgUnixHandler(0, nil, 0, nil, &net.OpError{
-			Op:     "readMsgUnix",
-			Net:    op.conn.net,
-			Source: op.conn.localAddr,
-			Addr:   op.conn.remoteAddr,
-			Err:    cause,
-		})
-		break
-	case unixAccept:
-		op.unixAcceptHandler(nil, cause)
-		break
-	default:
-		break
-	}
+func (op *operation) completeReadFrom(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadFromUDP(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadFromUDPAddrPort(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadMsgUDP(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadMsgUDPAddrPort(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeWriteMsg(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadFromUnix(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadMsgUnix(qty int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) completeUnixAccept(_ int, err error) {
+	// todo
+	panic("implement me")
+	return
 }
