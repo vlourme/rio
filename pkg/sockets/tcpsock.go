@@ -1,15 +1,22 @@
 package sockets
 
 import (
-	"context"
+	"errors"
+	"net"
 )
 
-func ListenTCP(ctx context.Context, network, address string, opt Options) (ln Listener, err error) {
-	//laddr, laddrErr := net.ResolveTCPAddr(network, address)
-	//if laddrErr != nil {
-	//	err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: err}
-	//	return
-	//}
+func ListenTCP(network, address string, opt Options) (ln Listener, err error) {
+	addr, family, ipv6only, addrErr := GetAddrAndFamily(network, address)
+	if addrErr != nil {
+		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
+		return
+	}
+	tcpAddr, isTCPAddr := addr.(*net.TCPAddr)
+	if !isTCPAddr {
+		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a TCP address")}
+		return
+	}
+	ln, err = newTCPListener(network, family, tcpAddr, ipv6only, opt.Proto, opt.Pollers)
 	return
 }
 
