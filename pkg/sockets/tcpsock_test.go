@@ -6,7 +6,6 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestGetAddrAndFamily(t *testing.T) {
@@ -72,7 +71,6 @@ func TestTcpListener_Accept(t *testing.T) {
 		t.Error("dial ->", dialErr)
 		return
 	}
-	time.Sleep(3 * time.Second)
 	_ = conn.Close()
 	wg.Wait()
 }
