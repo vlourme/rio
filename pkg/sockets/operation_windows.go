@@ -13,10 +13,10 @@ import (
 type operation struct {
 	// Used by IOCP interface, it must be first field
 	// of the struct, as our code rely on it.
-	windows.Overlapped
-	mode OperationMode
+	overlapped windows.Overlapped
+	mode       OperationMode
 	// fields used only by net package
-	conn   connection
+	conn   *connection
 	buf    windows.WSABuf
 	msg    windows.WSAMsg
 	sa     windows.Sockaddr
@@ -82,9 +82,11 @@ func (op *operation) complete(qty int, err error) {
 }
 
 func (op *operation) completeAccept(_ int, err error) {
-	op.conn.sop = nil
 	if err != nil {
 		op.acceptHandler(nil, os.NewSyscallError("AcceptEx", err))
+		op.acceptHandler = nil
+		op.handle = 0
+		op.iocp = 0
 		return
 	}
 	conn := op.conn
@@ -98,6 +100,8 @@ func (op *operation) completeAccept(_ int, err error) {
 	if setAcceptSocketOptErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
 		op.acceptHandler = nil
+		op.handle = 0
+		op.iocp = 0
 		return
 	}
 	// get addr
@@ -105,6 +109,8 @@ func (op *operation) completeAccept(_ int, err error) {
 	if lsaErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("getsockname", lsaErr))
 		op.acceptHandler = nil
+		op.handle = 0
+		op.iocp = 0
 		return
 	}
 	la := sockaddrToTCPAddr(lsa)
@@ -113,6 +119,8 @@ func (op *operation) completeAccept(_ int, err error) {
 	if rsaErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("getsockname", rsaErr))
 		op.acceptHandler = nil
+		op.handle = 0
+		op.iocp = 0
 		return
 	}
 	ra := sockaddrToTCPAddr(rsa)
@@ -122,19 +130,23 @@ func (op *operation) completeAccept(_ int, err error) {
 	if createErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
 		op.acceptHandler = nil
+		op.handle = 0
+		op.iocp = 0
 		return
 	}
 	conn.cphandle = cphandle
 	// callback
 	tcpConn := tcpConnection{
-		connection: conn,
+		connection: *conn,
 	}
 	op.acceptHandler(&tcpConn, nil)
 	op.acceptHandler = nil
+	op.handle = 0
+	op.iocp = 0
+	return
 }
 
 func (op *operation) completeRead(qty int, err error) {
-	op.conn.rop = nil
 	if err != nil {
 		op.readHandler(0, &net.OpError{
 			Op:     op.mode.String(),
@@ -143,6 +155,7 @@ func (op *operation) completeRead(qty int, err error) {
 			Addr:   op.conn.remoteAddr,
 			Err:    err,
 		})
+		op.readHandler = nil
 		return
 	}
 	if qty == 0 {
@@ -155,7 +168,6 @@ func (op *operation) completeRead(qty int, err error) {
 }
 
 func (op *operation) completeWrite(qty int, err error) {
-	op.conn.wop = nil
 	if err != nil {
 		op.writeHandler(0, &net.OpError{
 			Op:     op.mode.String(),
@@ -164,6 +176,7 @@ func (op *operation) completeWrite(qty int, err error) {
 			Addr:   op.conn.remoteAddr,
 			Err:    err,
 		})
+		op.writeHandler = nil
 		return
 	}
 	op.writeHandler(qty, nil)
