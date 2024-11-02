@@ -39,6 +39,9 @@ type connection struct {
 	localAddr  net.Addr
 	remoteAddr net.Addr
 	net        string
+	sop        *operation
+	rop        *operation
+	wop        *operation
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {
@@ -77,9 +80,17 @@ func (conn *connection) SetWriteBuffer(bytes int) (err error) {
 }
 
 func (conn *connection) Close() (err error) {
-	// todo sync close
 	_ = windows.Shutdown(conn.fd, 2)
-	_ = windows.Closesocket(conn.fd)
+	err = windows.Closesocket(conn.fd)
+	if err != nil {
+		err = &net.OpError{
+			Op:     "close",
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    err,
+		}
+	}
 	_ = windows.CloseHandle(conn.cphandle)
 	return
 }
