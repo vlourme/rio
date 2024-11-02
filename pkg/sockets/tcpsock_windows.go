@@ -132,12 +132,14 @@ func (ln *tcpListener) Accept(handler AcceptHandler) {
 	rsan := uint32(unsafe.Sizeof(rawsa[0]))
 	// qty
 	qty := uint32(0)
+	// overlapped
+	overlapped := &conn.rop.overlapped
 	// accept
 	acceptErr := windows.AcceptEx(
 		ln.fd, connFd,
 		(*byte)(unsafe.Pointer(rsa)), 0,
 		lsan+16, rsan+16,
-		&qty, &conn.rop.overlapped,
+		&qty, overlapped,
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
