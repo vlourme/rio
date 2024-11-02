@@ -50,7 +50,11 @@ func addrToSockaddr(family int, a net.Addr) (sa windows.Sockaddr) {
 				Port: addr.Port,
 				Addr: [4]byte{},
 			}
-			copy(sa4.Addr[:], addr.IP.To4())
+			ip := addr.IP
+			if len(ip) == 0 {
+				ip = net.IPv4zero
+			}
+			copy(sa4.Addr[:], ip.To4())
 			sa = sa4
 			break
 		case windows.AF_INET6:
@@ -58,7 +62,11 @@ func addrToSockaddr(family int, a net.Addr) (sa windows.Sockaddr) {
 				Port: addr.Port,
 				Addr: [16]byte{},
 			}
-			copy(sa4.Addr[:], addr.IP.To16())
+			ip := addr.IP
+			if len(ip) == 0 {
+				ip = net.IPv6zero
+			}
+			copy(sa4.Addr[:], ip.To16())
 			sa = sa4
 			break
 		}
