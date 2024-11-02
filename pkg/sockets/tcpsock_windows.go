@@ -118,43 +118,13 @@ func (ln *tcpListener) Accept(handler AcceptHandler) {
 		handler(nil, wrapSyscallError("WSASocket", createSocketErr))
 		return
 	}
+	// conn
+	conn := newConnection(ln.net, connFd)
 	// op
-	op := &operation{
-		Overlapped: windows.Overlapped{},
-		mode:       accept,
-		conn: connection{
-			cphandle:   0,
-			fd:         connFd,
-			localAddr:  nil,
-			remoteAddr: nil,
-			net:        ln.net,
-			sop:        nil,
-			rop:        nil,
-			wop:        nil,
-		},
-		buf:                        windows.WSABuf{},
-		msg:                        windows.WSAMsg{},
-		sa:                         nil,
-		rsa:                        nil,
-		rsan:                       0,
-		iocp:                       0,
-		handle:                     ln.fd,
-		flags:                      0,
-		bufs:                       nil,
-		acceptHandler:              handler,
-		readHandler:                nil,
-		writeHandler:               nil,
-		readFromHandler:            nil,
-		readFromUDPHandler:         nil,
-		readFromUDPAddrPortHandler: nil,
-		readMsgUDPHandler:          nil,
-		readMsgUDPAddrPortHandler:  nil,
-		writeMsgHandler:            nil,
-		readFromUnixHandler:        nil,
-		readMsgUnixHandler:         nil,
-		unixAcceptHandler:          nil,
-	}
-	op.conn.sop = op
+	conn.rop.mode = accept
+	conn.rop.handle = ln.fd
+	conn.rop.iocp = ln.cphandle
+	conn.rop.acceptHandler = handler
 	// sa
 	var rawsa [2]windows.RawSockaddrAny
 	lsan := uint32(unsafe.Sizeof(rawsa[1]))
@@ -167,7 +137,7 @@ func (ln *tcpListener) Accept(handler AcceptHandler) {
 		ln.fd, connFd,
 		(*byte)(unsafe.Pointer(rsa)), 0,
 		lsan+16, rsan+16,
-		&qty, &op.Overlapped,
+		&qty, &conn.rop.overlapped,
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
