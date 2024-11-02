@@ -33,15 +33,21 @@ func wsaCleanup() {
 	_ = windows.WSACleanup()
 }
 
+func newConnection(network string, fd windows.Handle) (conn *connection) {
+	conn = &connection{net: network, fd: fd}
+	conn.rop.conn = conn
+	conn.wop.conn = conn
+	return
+}
+
 type connection struct {
 	cphandle   windows.Handle
 	fd         windows.Handle
 	localAddr  net.Addr
 	remoteAddr net.Addr
 	net        string
-	sop        *operation
-	rop        *operation
-	wop        *operation
+	rop        operation
+	wop        operation
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {
