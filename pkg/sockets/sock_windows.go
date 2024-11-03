@@ -60,27 +60,27 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 	return
 }
 
-func (conn *connection) SetDeadline(t time.Time) (err error) {
+func (conn *connection) SetDeadline(deadline time.Time) (err error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *connection) SetReadDeadline(t time.Time) (err error) {
+func (conn *connection) SetReadDeadline(deadline time.Time) (err error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *connection) SetWriteDeadline(t time.Time) (err error) {
+func (conn *connection) SetWriteDeadline(deadline time.Time) (err error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *connection) SetReadBuffer(bytes int) (err error) {
+func (conn *connection) SetReadBuffer(n int) (err error) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *connection) SetWriteBuffer(bytes int) (err error) {
+func (conn *connection) SetWriteBuffer(n int) (err error) {
 	//TODO implement me
 	panic("implement me")
 }

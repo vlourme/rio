@@ -175,13 +175,13 @@ type tcpConnection struct {
 	connection
 }
 
-func (conn *tcpConnection) Read(p []byte, handler ReadHandler) (err error) {
+func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
 	// todo set op into conn
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *tcpConnection) Write(p []byte, handler WriteHandler) (err error) {
+func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -211,7 +211,7 @@ func (conn *tcpConnection) SetKeepAlive(keepalive bool) (err error) {
 	panic("implement me")
 }
 
-func (conn *tcpConnection) SetKeepAlivePeriod(d time.Duration) (err error) {
+func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) {
 	//TODO implement me
 	panic("implement me")
 }
