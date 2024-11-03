@@ -91,15 +91,18 @@ func TestTcpConnection_ReadAndWrite(t *testing.T) {
 			return
 		}
 		t.Log("srv: accepted!!!")
-		p := make([]byte, 1024)
-		conn.Read(p, func(n int, err error) {
-			t.Log("srv: read ->", n, string(p[:n]), err)
-			p = []byte(time.Now().String())
-			conn.Write(p, func(n int, err error) {
-				t.Log("srv: write ->", n, err)
-				wg.Done()
+		go func(conn sockets.Connection, wg *sync.WaitGroup) {
+			p := make([]byte, 1024)
+			conn.Read(p, func(n int, err error) {
+				t.Log("srv: read ->", n, string(p[:n]), err)
+				go func(conn sockets.Connection, wg *sync.WaitGroup) {
+					conn.Write([]byte(time.Now().String()), func(n int, err error) {
+						t.Log("srv: write ->", n, err)
+						wg.Done()
+					})
+				}(conn, wg)
 			})
-		})
+		}(conn, wg)
 	})
 	conn, dialErr := net.Dial("tcp", "127.0.0.1:9000")
 	if dialErr != nil {
