@@ -209,30 +209,72 @@ func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 
 func (conn *tcpConnection) ReadFrom(r io.Reader) (n int64, err error) {
 	//TODO implement me
+	// todo use sendfile
+	// not supported ?
+	// then use io.Copy(c, r)
+	// create new write wrap conn
 	panic("implement me")
 }
 
 func (conn *tcpConnection) WriteTo(w io.Writer) (n int64, err error) {
 	//TODO implement me
+	// todo use spliceTo(w, conn)
+	// not supported
+	// then use io.Copy(w, c),
+	// create new reader, then conn.Read bytes, copy bytes into reader
 	panic("implement me")
 }
 
 func (conn *tcpConnection) SetNoDelay(noDelay bool) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = windows.SetsockoptInt(conn.fd, windows.IPPROTO_TCP, windows.TCP_NODELAY, boolint(noDelay))
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }
 
 func (conn *tcpConnection) SetLinger(sec int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	var l windows.Linger
+	if sec >= 0 {
+		l.Onoff = 1
+		l.Linger = int32(sec)
+	} else {
+		l.Onoff = 0
+		l.Linger = 0
+	}
+	err = windows.SetsockoptLinger(conn.fd, windows.SOL_SOCKET, windows.SO_LINGER, &l)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }
 
 func (conn *tcpConnection) SetKeepAlive(keepalive bool) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_KEEPALIVE, boolint(keepalive))
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }
 
+const (
+	defaultTCPKeepAliveIdle = 5 * time.Second
+)
+
 func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) {
-	//TODO implement me
-	panic("implement me")
+	if period == 0 {
+		period = defaultTCPKeepAliveIdle
+	} else if period < 0 {
+		return nil
+	}
+	secs := int(roundDurationUp(period, time.Second))
+	err = windows.SetsockoptInt(conn.fd, windows.IPPROTO_TCP, windows.TCP_KEEPIDLE, secs)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }

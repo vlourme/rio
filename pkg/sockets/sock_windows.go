@@ -58,29 +58,64 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 	return
 }
 
+const (
+	defaultTCPTimeout = 1000 * time.Millisecond
+)
+
 func (conn *connection) SetDeadline(deadline time.Time) (err error) {
-	//TODO implement me
-	panic("implement me")
+	timeout := deadline.Sub(time.Now())
+	if timeout == 0 {
+		timeout = defaultTCPTimeout
+	} else if timeout < 0 {
+		return nil
+	}
+	millis := int(roundDurationUp(timeout, time.Millisecond))
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVTIMEO, millis)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	// SO_SNDTIMEO was not supported
+	return
 }
 
 func (conn *connection) SetReadDeadline(deadline time.Time) (err error) {
-	//TODO implement me
-	panic("implement me")
+	timeout := deadline.Sub(time.Now())
+	if timeout == 0 {
+		timeout = defaultTCPTimeout
+	} else if timeout < 0 {
+		return nil
+	}
+	millis := int(roundDurationUp(timeout, time.Millisecond))
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVTIMEO, millis)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }
 
-func (conn *connection) SetWriteDeadline(deadline time.Time) (err error) {
-	//TODO implement me
-	panic("implement me")
+func (conn *connection) SetWriteDeadline(_ time.Time) (err error) {
+	// SO_SNDTIMEO was not supported
+	return
 }
 
 func (conn *connection) SetReadBuffer(n int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVBUF, n)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }
 
 func (conn *connection) SetWriteBuffer(n int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_SNDBUF, n)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+	return
 }
 
 func (conn *connection) Close() (err error) {
