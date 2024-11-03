@@ -130,8 +130,6 @@ func (ln *tcpListener) Accept(handler AcceptHandler) {
 	lsan := uint32(unsafe.Sizeof(rawsa[1]))
 	rsa := &rawsa[0]
 	rsan := uint32(unsafe.Sizeof(rawsa[0]))
-	// qty
-	qty := uint32(0)
 	// overlapped
 	overlapped := &conn.rop.overlapped
 	// accept
@@ -139,7 +137,7 @@ func (ln *tcpListener) Accept(handler AcceptHandler) {
 		ln.fd, connFd,
 		(*byte)(unsafe.Pointer(rsa)), 0,
 		lsan+16, rsan+16,
-		&qty, overlapped,
+		&conn.rop.qty, overlapped,
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
@@ -186,8 +184,7 @@ func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
 	op.buf.Buf = &p[0]
 	op.buf.Len = uint32(pLen)
 	op.readHandler = handler
-	qty := uint32(0)
-	err := windows.WSARecv(conn.fd, &op.buf, 1, &qty, &op.flags, &op.overlapped, nil)
+	err := windows.WSARecv(conn.fd, &op.buf, 1, &op.qty, &op.flags, &op.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		handler(0, wrapSyscallError("WSARecv", err))
 	}
@@ -204,8 +201,7 @@ func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 	op.buf.Buf = &p[0]
 	op.buf.Len = uint32(pLen)
 	op.writeHandler = handler
-	qty := uint32(0)
-	err := windows.WSASend(conn.fd, &op.buf, 1, &qty, op.flags, &op.overlapped, nil)
+	err := windows.WSASend(conn.fd, &op.buf, 1, &op.qty, op.flags, &op.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		handler(0, wrapSyscallError("WSASend", err))
 	}

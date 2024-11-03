@@ -26,6 +26,7 @@ type operation struct {
 	handle windows.Handle
 	flags  uint32
 	bufs   []windows.WSABuf
+	qty    uint32
 	// fields used only by net callback
 	acceptHandler              AcceptHandler
 	readHandler                ReadHandler
