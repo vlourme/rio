@@ -4,7 +4,6 @@ package sockets
 
 import (
 	"errors"
-	"fmt"
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
@@ -23,8 +22,7 @@ func wsaStartup() (windows.WSAData, error) {
 	var d windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &d)
 	if startupErr != nil {
-		fmt.Printf("Error starting WSAStartup: %v", startupErr)
-		return d, startupErr
+		return d, wrapSyscallError("WSAStartup", startupErr)
 	}
 	return d, nil
 }
