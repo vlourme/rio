@@ -6,6 +6,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestGetAddrAndFamily(t *testing.T) {
@@ -71,6 +72,45 @@ func TestTcpListener_Accept(t *testing.T) {
 		t.Error("dial ->", dialErr)
 		return
 	}
+	_ = conn.Close()
+	wg.Wait()
+}
+
+func TestTcpConnection_ReadAndWrite(t *testing.T) {
+	ln, err := sockets.ListenTCP("tcp", "127.0.0.1:9000", sockets.Options{})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	defer ln.Close()
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	ln.Accept(func(conn sockets.Connection, err error) {
+		if err != nil {
+			t.Error("srv: accept ->", err)
+			return
+		}
+		t.Log("srv: accepted!!!")
+		p := make([]byte, 1024)
+		conn.Read(p, func(n int, err error) {
+			t.Log("srv: read ->", n, string(p[:n]), err)
+			p = []byte(time.Now().String())
+			conn.Write(p, func(n int, err error) {
+				t.Log("srv: write ->", n, err)
+				wg.Done()
+			})
+		})
+	})
+	conn, dialErr := net.Dial("tcp", "127.0.0.1:9000")
+	if dialErr != nil {
+		t.Error("cli: dial ->", dialErr)
+		return
+	}
+	n, wErr := conn.Write([]byte("hello world"))
+	t.Log("cli: write ->", n, wErr)
+	p := make([]byte, 1024)
+	n, rErr := conn.Read(p)
+	t.Log("cli: read ->", n, string(p[0:n]), rErr)
 	_ = conn.Close()
 	wg.Wait()
 }
