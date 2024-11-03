@@ -85,8 +85,6 @@ func (op *operation) completeAccept(_ int, err error) {
 	if err != nil {
 		op.acceptHandler(nil, os.NewSyscallError("AcceptEx", err))
 		op.acceptHandler = nil
-		op.handle = 0
-		op.iocp = 0
 		return
 	}
 	conn := op.conn
@@ -100,8 +98,6 @@ func (op *operation) completeAccept(_ int, err error) {
 	if setAcceptSocketOptErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
 		op.acceptHandler = nil
-		op.handle = 0
-		op.iocp = 0
 		return
 	}
 	// get addr
@@ -109,8 +105,6 @@ func (op *operation) completeAccept(_ int, err error) {
 	if lsaErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("getsockname", lsaErr))
 		op.acceptHandler = nil
-		op.handle = 0
-		op.iocp = 0
 		return
 	}
 	la := sockaddrToTCPAddr(lsa)
@@ -119,8 +113,6 @@ func (op *operation) completeAccept(_ int, err error) {
 	if rsaErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("getsockname", rsaErr))
 		op.acceptHandler = nil
-		op.handle = 0
-		op.iocp = 0
 		return
 	}
 	ra := sockaddrToTCPAddr(rsa)
@@ -130,8 +122,6 @@ func (op *operation) completeAccept(_ int, err error) {
 	if createErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
 		op.acceptHandler = nil
-		op.handle = 0
-		op.iocp = 0
 		return
 	}
 	conn.cphandle = cphandle
@@ -141,8 +131,6 @@ func (op *operation) completeAccept(_ int, err error) {
 	}
 	op.acceptHandler(&tcpConn, nil)
 	op.acceptHandler = nil
-	op.handle = 0
-	op.iocp = 0
 	return
 }
 
