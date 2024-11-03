@@ -31,18 +31,19 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 }
 
 func (f *futureImpl[R]) Await() (v R, err error) {
-	exec := From(f.ctx)
-	exec.ReleaseNotUsedExecutorSubmitter(f.submitter)
-	result, ok := f.rch.Get()
-	if !ok {
-		err = ErrFutureWasClosed
-		return
+	ch := make(chan Result[R], 1)
+	var handler ResultHandler[R] = func(ctx context.Context, result R, err error) {
+		ch <- newAsyncResult[R](result, err)
+		close(ch)
 	}
-	if result.Succeed() {
-		v = result.Result()
-	} else {
-		err = result.Cause()
+	run := futureRunner[R]{
+		rch:     f.rch,
+		handler: handler,
 	}
+	f.submitter.Submit(f.ctx, run)
+	ar := <-ch
+	v = ar.Result()
+	err = ar.Cause()
 	return
 }
 
@@ -94,4 +95,8 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			run.handler(ctx, *(new(R)), ar.Cause())
 		}
 	}
+}
+
+func futureAwaitHandler[R any](ctx context.Context, result R, err error) {
+
 }
