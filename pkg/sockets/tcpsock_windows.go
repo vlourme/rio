@@ -176,14 +176,39 @@ type tcpConnection struct {
 }
 
 func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
-	// todo set op into conn
-	//TODO implement me
-	panic("implement me")
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, errors.New("rio: empty packet"))
+		return
+	}
+	op := conn.rop
+	op.mode = read
+	op.buf.Buf = &p[0]
+	op.buf.Len = uint32(pLen)
+	op.readHandler = handler
+	qty := uint32(0)
+	err := windows.WSARecv(conn.fd, &op.buf, 1, &qty, &op.flags, &op.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		handler(0, wrapSyscallError("WSARecv", err))
+	}
 }
 
 func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
-	//TODO implement me
-	panic("implement me")
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, errors.New("rio: empty packet"))
+		return
+	}
+	op := conn.wop
+	op.mode = write
+	op.buf.Buf = &p[0]
+	op.buf.Len = uint32(pLen)
+	op.writeHandler = handler
+	qty := uint32(0)
+	err := windows.WSASend(conn.fd, &op.buf, 1, &qty, op.flags, &op.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		handler(0, wrapSyscallError("WSASend", err))
+	}
 }
 
 func (conn *tcpConnection) ReadFrom(r io.Reader) (n int64, err error) {
