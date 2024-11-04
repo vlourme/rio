@@ -16,8 +16,6 @@ type Connection interface {
 	SetDeadline(deadline time.Time) (err error)
 	SetReadDeadline(deadline time.Time) (err error)
 	SetWriteDeadline(deadline time.Time) (err error)
-	SetReadBuffer(n int) (err error)
-	SetWriteBuffer(n int) (err error)
 	Read(p []byte, handler ReadHandler)
 	Write(p []byte, handler WriteHandler)
 	Close() (err error)
