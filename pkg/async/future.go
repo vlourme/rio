@@ -15,6 +15,40 @@ type Future[R any] interface {
 	Await() (v R, err error)
 }
 
+func SucceedImmediately[R any](ctx context.Context, value R) (f Future[R]) {
+	f = &immediatelyFuture[R]{
+		ctx:    ctx,
+		result: value,
+		cause:  nil,
+	}
+	return
+}
+
+func FailedImmediately[R any](ctx context.Context, cause error) (f Future[R]) {
+	f = &immediatelyFuture[R]{
+		ctx:    ctx,
+		result: *(new(R)),
+		cause:  cause,
+	}
+	return
+}
+
+type immediatelyFuture[R any] struct {
+	ctx    context.Context
+	result R
+	cause  error
+}
+
+func (f *immediatelyFuture[R]) OnComplete(handler ResultHandler[R]) {
+	handler(f.ctx, f.result, f.cause)
+	return
+}
+
+func (f *immediatelyFuture[R]) Await() (v R, err error) {
+	v, err = f.result, f.cause
+	return
+}
+
 type futureImpl[R any] struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -95,8 +129,4 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			run.handler(ctx, *(new(R)), ar.Cause())
 		}
 	}
-}
-
-func futureAwaitHandler[R any](ctx context.Context, result R, err error) {
-
 }
