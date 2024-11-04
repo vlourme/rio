@@ -100,24 +100,6 @@ func (conn *connection) SetWriteDeadline(_ time.Time) (err error) {
 	return
 }
 
-func (conn *connection) SetReadBuffer(n int) (err error) {
-	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVBUF, n)
-	if err != nil {
-		err = wrapSyscallError("setsockopt", err)
-		return
-	}
-	return
-}
-
-func (conn *connection) SetWriteBuffer(n int) (err error) {
-	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_SNDBUF, n)
-	if err != nil {
-		err = wrapSyscallError("setsockopt", err)
-		return
-	}
-	return
-}
-
 func (conn *connection) Close() (err error) {
 	_ = windows.Shutdown(conn.fd, 2)
 	err = windows.Closesocket(conn.fd)
