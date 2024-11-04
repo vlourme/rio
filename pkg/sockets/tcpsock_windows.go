@@ -3,6 +3,7 @@
 package sockets
 
 import (
+	"context"
 	"errors"
 	"golang.org/x/sys/windows"
 	"io"
@@ -141,6 +142,7 @@ func (ln *tcpListener) Accept(handler AcceptHandler) {
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
+		conn.rop.acceptHandler = nil
 	}
 }
 
@@ -186,7 +188,11 @@ func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
 	op.readHandler = handler
 	err := windows.WSARecv(conn.fd, &op.buf, 1, &op.qty, &op.flags, &op.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
 		handler(0, wrapSyscallError("WSARecv", err))
+		op.readHandler = nil
 	}
 }
 
@@ -203,11 +209,17 @@ func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 	op.writeHandler = handler
 	err := windows.WSASend(conn.fd, &op.buf, 1, &op.qty, op.flags, &op.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
 		handler(0, wrapSyscallError("WSASend", err))
+		op.writeHandler = nil
 	}
 }
 
 func (conn *tcpConnection) ReadFrom(r io.Reader) (n int64, err error) {
+	//c1 := net.TCPConn{}
+	//c1.ReadFrom()
 	//TODO implement me
 	// todo use sendfile
 	// not supported ?
