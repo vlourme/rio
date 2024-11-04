@@ -3,6 +3,8 @@
 package sockets
 
 import (
+	"context"
+	"errors"
 	"golang.org/x/sys/windows"
 	"runtime"
 	"unsafe"
@@ -38,6 +40,9 @@ func (pl *poller) wait() {
 		getQueuedCompletionStatusErr := windows.GetQueuedCompletionStatus(pl.cphandle, &qty, &key, &overlapped, windows.INFINITE)
 		if qty == 0 && overlapped == nil { // exit
 			break
+		}
+		if errors.Is(windows.ERROR_TIMEOUT, getQueuedCompletionStatusErr) {
+			getQueuedCompletionStatusErr = context.DeadlineExceeded
 		}
 		op := (*operation)(unsafe.Pointer(overlapped))
 		op.complete(int(qty), getQueuedCompletionStatusErr)
