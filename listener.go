@@ -2,8 +2,14 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/async"
 	"net"
+)
+
+var (
+	ErrBusy        = errors.New("rio: system busy")
+	ErrEmptyPacket = errors.New("rio: empty packet")
 )
 
 // Listen
