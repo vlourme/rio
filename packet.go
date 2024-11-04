@@ -22,6 +22,7 @@ type PacketInbound interface {
 }
 
 type PacketConnection interface {
+	Context() (ctx context.Context)
 	LocalAddr() (addr net.Addr)
 	SetDeadline(t time.Time) error
 	SetReadDeadline(t time.Time) error
