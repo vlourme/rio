@@ -108,7 +108,7 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 }
 
 func (conn *connection) SetDeadline(t time.Time) (err error) {
-	timeout := t.Sub(time.Now())
+	timeout := time.Until(t)
 	if timeout < 1 {
 		err = errors.New("deadline too short")
 		return
@@ -123,7 +123,7 @@ func (conn *connection) SetDeadline(t time.Time) (err error) {
 }
 
 func (conn *connection) SetReadDeadline(t time.Time) (err error) {
-	timeout := t.Sub(time.Now())
+	timeout := time.Until(t)
 	if timeout < 1 {
 		err = errors.New("deadline too short")
 		return
@@ -137,7 +137,7 @@ func (conn *connection) SetReadDeadline(t time.Time) (err error) {
 }
 
 func (conn *connection) SetWriteDeadline(t time.Time) (err error) {
-	timeout := t.Sub(time.Now())
+	timeout := time.Until(t)
 	if timeout < 1 {
 		err = errors.New("deadline too short")
 		return
