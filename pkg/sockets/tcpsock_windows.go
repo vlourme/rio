@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"golang.org/x/sys/windows"
-	"io"
 	"net"
 	"os"
 	"time"
@@ -215,26 +214,6 @@ func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 		handler(0, wrapSyscallError("WSASend", err))
 		op.writeHandler = nil
 	}
-}
-
-func (conn *tcpConnection) ReadFrom(r io.Reader) (n int64, err error) {
-	//c1 := net.TCPConn{}
-	//c1.ReadFrom()
-	//TODO implement me
-	// todo use sendfile
-	// not supported ?
-	// then use io.Copy(c, r)
-	// create new write wrap conn
-	panic("implement me")
-}
-
-func (conn *tcpConnection) WriteTo(w io.Writer) (n int64, err error) {
-	//TODO implement me
-	// todo use spliceTo(w, conn)
-	// not supported
-	// then use io.Copy(w, c),
-	// create new reader, then conn.Read bytes, copy bytes into reader
-	panic("implement me")
 }
 
 func (conn *tcpConnection) SetNoDelay(noDelay bool) (err error) {
