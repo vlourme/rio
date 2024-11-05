@@ -72,45 +72,64 @@ func TestTryPromise_CompleteErr(t *testing.T) {
 func TestTryPromise_Cancel(t *testing.T) {
 	exec := async.New()
 	defer exec.Close()
+	ctx := async.With(context.Background(), exec)
 	wg := new(sync.WaitGroup)
-	ctx := context.Background()
-	ctx = async.With(ctx, exec)
-	promise, ok := async.TryPromise[int](ctx)
-	if !ok {
-		t.Errorf("try promise failed")
+	wg.Add(1)
+	promise1, ok1 := async.TryPromise[int](ctx)
+	if !ok1 {
+		t.Errorf("try promise1 failed")
 		return
 	}
-	promise.Cancel()
-	wg.Add(1)
-
-	promise.Future().OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future result:", result, err, "canceled:", async.IsCanceled(err))
+	future1 := promise1.Future()
+	future1.OnComplete(func(ctx context.Context, result int, err error) {
+		t.Log("future1 result:", result, err)
+		wg.Add(1)
+		promise2, ok2 := async.TryPromise[int](ctx)
+		if !ok2 {
+			t.Errorf("try promise2 failed")
+		}
+		promise2.Succeed(2)
+		future2 := promise2.Future()
+		future2.OnComplete(func(ctx context.Context, result int, err error) {
+			t.Log("future2 result:", result, err)
+			wg.Done()
+		})
 		wg.Done()
 	})
+	promise1.Cancel()
 	wg.Wait()
 }
 
 func TestTryPromise_Timeout(t *testing.T) {
 	exec := async.New()
 	defer exec.Close()
+	ctx := async.With(context.Background(), exec)
 	wg := new(sync.WaitGroup)
-	ctx := context.Background()
-	ctx = async.With(ctx, exec)
-	promise, ok := async.TryPromise[int](ctx)
-	if !ok {
-		t.Errorf("try promise failed")
+	wg.Add(1)
+	promise1, ok1 := async.TryPromise[int](ctx)
+	if !ok1 {
+		t.Errorf("try promise1 failed")
 		return
 	}
-	promise.SetDeadline(time.Now().Add(1 * time.Second))
-	time.Sleep(2 * time.Second)
-	promise.Succeed(1)
-	wg.Add(1)
-
-	promise.Future().OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future result:", result, err, "timeout:", async.IsTimeout(err))
+	promise1.SetDeadline(time.Now().Add(3 * time.Second))
+	future1 := promise1.Future()
+	future1.OnComplete(func(ctx context.Context, result int, err error) {
+		t.Log("future1 result:", result, err)
+		wg.Add(1)
+		promise2, ok2 := async.TryPromise[int](ctx)
+		if !ok2 {
+			t.Errorf("try promise2 failed")
+		}
+		promise2.Succeed(2)
+		future2 := promise2.Future()
+		future2.OnComplete(func(ctx context.Context, result int, err error) {
+			t.Log("future2 result:", result, err)
+			wg.Done()
+		})
 		wg.Done()
 	})
-
+	time.Sleep(4 * time.Second)
+	promise1.Cancel()
 	wg.Wait()
 }
 

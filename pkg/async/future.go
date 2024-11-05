@@ -50,16 +50,21 @@ func (f *immediatelyFuture[R]) Await() (v R, err error) {
 }
 
 type futureImpl[R any] struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	rch       *resultChan[R]
-	submitter ExecutorSubmitter
+	ctx                     context.Context
+	futureCtx               context.Context
+	futureCtxCancel         context.CancelFunc
+	futureDeadlineCtxCancel context.CancelFunc
+	rch                     *resultChan[R]
+	submitter               ExecutorSubmitter
 }
 
 func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 	run := futureRunner[R]{
-		rch:     f.rch,
-		handler: handler,
+		ctx:            f.futureCtx,
+		cancel:         f.futureCtxCancel,
+		deadlineCancel: f.futureDeadlineCtxCancel,
+		rch:            f.rch,
+		handler:        handler,
 	}
 	f.submitter.Submit(f.ctx, run)
 }
@@ -71,8 +76,11 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 		close(ch)
 	}
 	run := futureRunner[R]{
-		rch:     f.rch,
-		handler: handler,
+		ctx:            f.futureCtx,
+		cancel:         f.futureCtxCancel,
+		deadlineCancel: f.futureDeadlineCtxCancel,
+		rch:            f.rch,
+		handler:        handler,
 	}
 	f.submitter.Submit(f.ctx, run)
 	ar := <-ch
@@ -94,11 +102,14 @@ func (f *futureImpl[R]) Fail(cause error) {
 }
 
 func (f *futureImpl[R]) Cancel() {
-	f.cancel()
+	f.futureCtxCancel()
+	if f.futureDeadlineCtxCancel != nil {
+		f.futureDeadlineCtxCancel()
+	}
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
-	f.ctx, f.cancel = context.WithDeadline(f.ctx, t)
+	f.futureCtx, f.futureDeadlineCtxCancel = context.WithDeadline(f.futureCtx, t)
 }
 
 func (f *futureImpl[R]) Future() (future Future[R]) {
@@ -107,26 +118,39 @@ func (f *futureImpl[R]) Future() (future Future[R]) {
 }
 
 type futureRunner[R any] struct {
-	rch     *resultChan[R]
-	handler ResultHandler[R]
+	ctx            context.Context
+	cancel         context.CancelFunc
+	deadlineCancel context.CancelFunc
+	rch            *resultChan[R]
+	handler        ResultHandler[R]
 }
 
 func (run futureRunner[R]) Run(ctx context.Context) {
+	futureCtx := run.ctx
 	rch := run.rch
 	select {
 	case <-ctx.Done():
 		rch.CloseUnexpectedly()
 		run.handler(ctx, *(new(R)), ctx.Err())
-		return
+		break
+	case <-futureCtx.Done():
+		rch.CloseUnexpectedly()
+		run.handler(ctx, *(new(R)), futureCtx.Err())
+		break
 	case ar, ok := <-rch.ch:
 		if !ok {
 			run.handler(ctx, *(new(R)), ErrFutureWasClosed)
-			return
+			break
 		}
 		if ar.Succeed() {
 			run.handler(ctx, ar.Result(), nil)
 		} else {
 			run.handler(ctx, *(new(R)), ar.Cause())
 		}
+		break
+	}
+	run.cancel()
+	if run.deadlineCancel != nil {
+		run.deadlineCancel()
 	}
 }

@@ -47,12 +47,13 @@ func MustPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 }
 
 func newPromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise[R] {
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
+	futureCtx, futureCtxCancel := context.WithCancel(ctx)
 	return &futureImpl[R]{
-		ctx:       ctx,
-		cancel:    cancel,
-		rch:       newResultChan[R](),
-		submitter: submitter,
+		ctx:                     ctx,
+		futureCtx:               futureCtx,
+		futureCtxCancel:         futureCtxCancel,
+		futureDeadlineCtxCancel: nil,
+		rch:                     newResultChan[R](),
+		submitter:               submitter,
 	}
 }
