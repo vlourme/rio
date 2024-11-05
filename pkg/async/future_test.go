@@ -144,7 +144,7 @@ func TestPromise_Await(t *testing.T) {
 	}
 	promise.Succeed(1)
 	future := promise.Future()
-	v, err := future.Await()
+	v, err := async.Await[int](future)
 	if err != nil {
 		t.Errorf("await failed: %v", err)
 	}

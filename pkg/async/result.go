@@ -63,14 +63,14 @@ func newResultChan[R any]() *resultChan[R] {
 	return &resultChan[R]{
 		ch:     make(chan Result[R], 1),
 		closed: false,
-		locker: sync.Mutex{},
+		locker: new(sync.Mutex),
 	}
 }
 
 type resultChan[R any] struct {
 	ch     chan Result[R]
 	closed bool
-	locker sync.Mutex
+	locker sync.Locker
 }
 
 func (rch *resultChan[R]) Emit(r Result[R]) {
@@ -80,8 +80,6 @@ func (rch *resultChan[R]) Emit(r Result[R]) {
 		return
 	}
 	rch.ch <- r
-	close(rch.ch)
-	rch.closed = true
 	rch.locker.Unlock()
 	return
 }
@@ -99,6 +97,17 @@ func (rch *resultChan[R]) CloseUnexpectedly() {
 			break
 		}
 	}
+	rch.closed = true
+	rch.locker.Unlock()
+}
+
+func (rch *resultChan[R]) Close() {
+	rch.locker.Lock()
+	if rch.closed {
+		rch.locker.Unlock()
+		return
+	}
+	close(rch.ch)
 	rch.closed = true
 	rch.locker.Unlock()
 }
