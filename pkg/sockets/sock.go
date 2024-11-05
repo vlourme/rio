@@ -1,7 +1,6 @@
 package sockets
 
 import (
-	"io"
 	"net"
 	"net/netip"
 	"time"
@@ -31,15 +30,6 @@ type Listener interface {
 
 type TCPConnection interface {
 	Connection
-	// ReadFrom
-	// use sendfile or splice
-	// for windows, sendfile is TransmitFile in iocp, so use event to block it.
-	// when not supported, then use io.copy to copy r into one buf, then write it.
-	ReadFrom(r io.Reader) (n int64, err error)
-	// WriteTo
-	// spliceTo
-	// when not supported, then use io.copy tp copy conn.buf into w.
-	WriteTo(w io.Writer) (n int64, err error)
 	SetNoDelay(noDelay bool) (err error)
 	SetLinger(sec int) (err error)
 	SetKeepAlive(keepalive bool) (err error)
