@@ -102,28 +102,29 @@ func (ln *listener) Close() (err error) {
 	return
 }
 
-type acceptor[R any] struct {
+type acceptor struct {
 	ctx   context.Context
 	ln    sockets.Listener
 	loops int
-	ch    chan R
+	ch    chan Connection
 }
 
-func (acc *acceptor[R]) OnComplete(handler async.ResultHandler[R]) {
+func (acc *acceptor) OnComplete(handler async.ResultHandler[Connection]) {
 	for i := 0; i < acc.loops; i++ {
-		go func(acc *acceptor[R], handler async.ResultHandler[R]) {
+		go func(acc *acceptor, handler async.ResultHandler[Connection]) {
 			conn, ok := <-acc.ch
 			if !ok {
 				handler(acc.ctx, nil, ErrClosed)
 				return
 			}
-			handler(acc.ctx, conn, ErrEmptyPacket)
+			handler(acc.ctx, conn, nil)
+			acc.acceptOne()
 		}(acc, handler)
 	}
 	return
 }
 
-func (acc *acceptor[R]) Await() (v R, err error) {
+func (acc *acceptor) Await() (v Connection, err error) {
 	ok := false
 	v, ok = <-acc.ch
 	if !ok {
@@ -132,10 +133,18 @@ func (acc *acceptor[R]) Await() (v R, err error) {
 	return
 }
 
-func (acc *acceptor[R]) accept() {
+func (acc *acceptor) acceptOne() {
+	acc.ln.Accept(func(conn sockets.Connection, err error) {
+		// todo handle err
+		acc.ch <- newConnection(acc.ctx, conn)
+	})
 	panic("implement me")
 }
 
-func (acc *acceptor[R]) stop() {
+func (acc *acceptor) start() {
+	panic("implement me")
+}
+
+func (acc *acceptor) stop() {
 	panic("implement me")
 }
