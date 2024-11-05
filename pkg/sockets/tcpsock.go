@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func ListenTCP(network, address string, opt Options) (ln Listener, err error) {
+func ListenTCP(network string, address string, opt Options) (ln Listener, err error) {
 	addr, family, ipv6only, addrErr := GetAddrAndFamily(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
