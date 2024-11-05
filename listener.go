@@ -73,8 +73,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx:       ctx,
 		inner:     inner,
 		executors: executors,
-		loops:     opt.loops,
 		tlsConfig: opt.tlsConfig,
+		loops:     opt.loops,
 	}
 	return
 }
@@ -83,8 +83,9 @@ type listener struct {
 	ctx       context.Context
 	inner     sockets.Listener
 	executors async.Executors
-	loops     int
 	tlsConfig *tls.Config
+	loops     int
+	promises  []async.InfinitePromise[Connection]
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
@@ -94,57 +95,18 @@ func (ln *listener) Addr() (addr net.Addr) {
 
 func (ln *listener) Accept() (future async.Future[Connection]) {
 	//TODO implement me
+	// try use group infinite future
+	// for loops -> []promise
+	// async.group([]promise) groupPromise
+	// future = groupPromise.future()
+	// inner: future.OnComplete -> []promise.future.OnComplete
 	panic("implement me")
 }
 
 func (ln *listener) Close() (err error) {
+	for _, promise := range ln.promises {
+		promise.Close()
+	}
 	err = ln.inner.Close()
 	return
-}
-
-type acceptor struct {
-	ctx   context.Context
-	ln    sockets.Listener
-	loops int
-	ch    chan Connection
-}
-
-func (acc *acceptor) OnComplete(handler async.ResultHandler[Connection]) {
-	for i := 0; i < acc.loops; i++ {
-		go func(acc *acceptor, handler async.ResultHandler[Connection]) {
-			conn, ok := <-acc.ch
-			if !ok {
-				handler(acc.ctx, nil, ErrClosed)
-				return
-			}
-			handler(acc.ctx, conn, nil)
-			acc.acceptOne()
-		}(acc, handler)
-	}
-	return
-}
-
-func (acc *acceptor) Await() (v Connection, err error) {
-	ok := false
-	v, ok = <-acc.ch
-	if !ok {
-		err = ErrClosed
-	}
-	return
-}
-
-func (acc *acceptor) acceptOne() {
-	acc.ln.Accept(func(conn sockets.Connection, err error) {
-		// todo handle err
-		acc.ch <- newConnection(acc.ctx, conn)
-	})
-	panic("implement me")
-}
-
-func (acc *acceptor) start() {
-	panic("implement me")
-}
-
-func (acc *acceptor) stop() {
-	panic("implement me")
 }
