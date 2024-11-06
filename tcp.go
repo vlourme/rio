@@ -237,7 +237,7 @@ func (ln *tcpListener) Close() (err error) {
 func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 	ln.inner.Accept(func(sock sockets.TCPConnection, err error) {
 		if err != nil {
-			infinitePromise.Fail(wrapClosedError(err))
+			infinitePromise.Fail(err)
 			return
 		}
 		if ln.tlsConfig != nil {
@@ -250,12 +250,6 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 	})
 }
 
-func wrapClosedError(err error) error {
-	if errors.Is(err, async.ErrFutureWasClosed) {
-		return errors.Join(ErrClosed, err)
-	}
-	if errors.Is(err, context.Canceled) {
-		return errors.Join(ErrClosed, err)
-	}
-	return err
+func IsClosed(err error) bool {
+	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, async.ErrFutureWasClosed)
 }
