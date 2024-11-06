@@ -80,6 +80,16 @@ func (op *operation) complete(qty int, err error) {
 	default:
 		break
 	}
+	op.reset()
+}
+
+func (op *operation) reset() {
+	op.overlapped.Offset = 0
+	op.overlapped.OffsetHigh = 0
+	op.overlapped.Internal = 0
+	op.overlapped.InternalHigh = 0
+	op.overlapped.HEvent = 0
+	op.mode = 0
 }
 
 func (op *operation) completeAccept(_ int, err error) {
