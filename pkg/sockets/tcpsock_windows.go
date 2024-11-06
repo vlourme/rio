@@ -180,18 +180,17 @@ func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
 		handler(0, errors.New("rio: empty packet"))
 		return
 	}
-	op := conn.rop
-	op.mode = read
-	op.buf.Buf = &p[0]
-	op.buf.Len = uint32(pLen)
-	op.readHandler = handler
-	err := windows.WSARecv(conn.fd, &op.buf, 1, &op.qty, &op.flags, &op.overlapped, nil)
+	conn.rop.mode = read
+	conn.rop.buf.Buf = &p[0]
+	conn.rop.buf.Len = uint32(pLen)
+	conn.rop.readHandler = handler
+	err := windows.WSARecv(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, &conn.rop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		if errors.Is(windows.ERROR_TIMEOUT, err) {
 			err = context.DeadlineExceeded
 		}
 		handler(0, wrapSyscallError("WSARecv", err))
-		op.readHandler = nil
+		conn.rop.readHandler = nil
 	}
 }
 
@@ -201,18 +200,17 @@ func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 		handler(0, errors.New("rio: empty packet"))
 		return
 	}
-	op := conn.wop
-	op.mode = write
-	op.buf.Buf = &p[0]
-	op.buf.Len = uint32(pLen)
-	op.writeHandler = handler
-	err := windows.WSASend(conn.fd, &op.buf, 1, &op.qty, op.flags, &op.overlapped, nil)
+	conn.wop.mode = write
+	conn.wop.buf.Buf = &p[0]
+	conn.wop.buf.Len = uint32(pLen)
+	conn.wop.writeHandler = handler
+	err := windows.WSASend(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, &conn.wop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		if errors.Is(windows.ERROR_TIMEOUT, err) {
 			err = context.DeadlineExceeded
 		}
 		handler(0, wrapSyscallError("WSASend", err))
-		op.writeHandler = nil
+		conn.wop.writeHandler = nil
 	}
 }
 
