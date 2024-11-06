@@ -68,11 +68,29 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		}
 		break
 	case "unix":
-		// todo impl listen unix
+		inner, listenTCPErr := sockets.ListenUnix(network, addr, sockets.Options{
+			Proto:   opt.proto,
+			Pollers: opt.pollers,
+		})
+		if listenTCPErr != nil {
+			err = listenTCPErr
+			return
+		}
+		ln = &unixListener{
+			ctx:       ctx,
+			inner:     inner,
+			executors: executors,
+			tlsConfig: opt.tlsConfig,
+			promises:  make([]async.Promise[Connection], opt.loops),
+		}
 		break
 	default:
 		err = errors.New("rio: network not supported")
 		return
 	}
 	return
+}
+
+func IsClosed(err error) bool {
+	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, async.ErrFutureWasClosed)
 }
