@@ -249,7 +249,3 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		return
 	})
 }
-
-func IsClosed(err error) bool {
-	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, async.ErrFutureWasClosed)
-}
