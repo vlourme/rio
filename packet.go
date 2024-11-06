@@ -17,16 +17,16 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 
 type PacketInbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
-	Bytes() (n int)
+	Received() (n int)
 	Addr() (addr net.Addr)
 }
 
 type PacketConnection interface {
 	Context() (ctx context.Context)
 	LocalAddr() (addr net.Addr)
-	SetDeadline(t time.Time) error
-	SetReadDeadline(t time.Time) error
-	SetWriteDeadline(t time.Time) error
+	SetDeadline(deadline time.Time) error
+	SetReadDeadline(deadline time.Time) error
+	SetWriteDeadline(deadline time.Time) error
 	SetReadBufferSize(size int)
 	ReadFrom() (future async.Future[PacketInbound])
 	WriteTo(p []byte, addr net.Addr) (future async.Future[Outbound])
