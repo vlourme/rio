@@ -6,12 +6,12 @@ import (
 	"github.com/brickingsoft/rio/pkg/sockets"
 )
 
-func Serve(conn sockets.Connection, config *tls.Config) (sc *Connection) {
+func Serve(ctx context.Context, conn sockets.Connection, config *tls.Config) (sc sockets.TCPConnection) {
 
 	return nil
 }
 
-func Client(conn sockets.Connection, config *tls.Config) (sc *Connection) {
+func Client(ctx context.Context, conn sockets.Connection, config *tls.Config) (sc sockets.TCPConnection) {
 
 	return nil
 }
@@ -19,5 +19,6 @@ func Client(conn sockets.Connection, config *tls.Config) (sc *Connection) {
 type handshakeFn func(ctx context.Context, handler func(cause error))
 
 type Connection struct {
-	// impl sockets Conn
+	// impl sockets tcp Conn
+	inner sockets.TCPConnection
 }
