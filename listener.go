@@ -61,6 +61,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		})
 		break
 	case "unix":
+		// todo impl listen unix
 		break
 	default:
 		err = errors.New("rio: network not supported")
