@@ -20,14 +20,6 @@ type Connection interface {
 	Close() (err error)
 }
 
-//type AcceptHandler func(conn Connection, err error)
-//
-//type Listener interface {
-//	Addr() (addr net.Addr)
-//	Accept(handler AcceptHandler)
-//	Close() (err error)
-//}
-
 type TCPAcceptHandler func(conn TCPConnection, err error)
 
 type TCPListener interface {
