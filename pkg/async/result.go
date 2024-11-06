@@ -2,6 +2,8 @@ package async
 
 import (
 	"context"
+	"io"
+	"reflect"
 	"sync"
 )
 
@@ -59,9 +61,13 @@ func (ar *resultImpl[R]) Cause() (err error) {
 
 type ResultHandler[R any] func(ctx context.Context, result R, err error)
 
-func newResultChan[R any]() *resultChan[R] {
+const (
+	infiniteResultChanBufferSize = 1024
+)
+
+func newResultChan[R any](buf int) *resultChan[R] {
 	return &resultChan[R]{
-		ch:     make(chan Result[R], 1),
+		ch:     make(chan Result[R], buf),
 		closed: false,
 		locker: new(sync.Mutex),
 	}
@@ -92,9 +98,16 @@ func (rch *resultChan[R]) CloseUnexpectedly() {
 	}
 	close(rch.ch)
 	for {
-		_, ok := <-rch.ch
+		ar, ok := <-rch.ch
 		if !ok {
 			break
+		}
+		if ar.Succeed() {
+			r := reflect.ValueOf(ar.Result()).Interface()
+			closer, isCloser := r.(io.Closer)
+			if isCloser {
+				_ = closer.Close()
+			}
 		}
 	}
 	rch.closed = true

@@ -6,16 +6,7 @@ import (
 	"time"
 )
 
-type InfinitePromise[R any] interface {
-	Complete(result R, err error)
-	Succeed(result R)
-	Fail(cause error)
-	Cancel()
-	Future() (future Future[R])
-	Close()
-}
-
-func TryInfinitePromise[T any](ctx context.Context) (promise InfinitePromise[T], ok bool) {
+func TryInfinitePromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
 	exec := From(ctx)
 	submitter, has := exec.GetExecutorSubmitter()
 	if has {
@@ -25,7 +16,7 @@ func TryInfinitePromise[T any](ctx context.Context) (promise InfinitePromise[T],
 	return
 }
 
-func MustInfinitePromise[T any](ctx context.Context) (promise InfinitePromise[T], err error) {
+func MustInfinitePromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	times := 10
 	ok := false
 	for {
@@ -46,6 +37,6 @@ func MustInfinitePromise[T any](ctx context.Context) (promise InfinitePromise[T]
 	return
 }
 
-func newInfinitePromise[R any](ctx context.Context, submitter ExecutorSubmitter) InfinitePromise[R] {
+func newInfinitePromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise[R] {
 	return newFuture[R](ctx, true, submitter)
 }

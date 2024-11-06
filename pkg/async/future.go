@@ -64,13 +64,17 @@ func (f *immediatelyFuture[R]) Await() (v R, err error) {
 
 func newFuture[R any](ctx context.Context, infinite bool, submitter ExecutorSubmitter) *futureImpl[R] {
 	futureCtx, futureCtxCancel := context.WithCancel(ctx)
+	buf := 1
+	if infinite {
+		buf = infiniteResultChanBufferSize
+	}
 	return &futureImpl[R]{
 		ctx:                     ctx,
 		futureCtx:               futureCtx,
 		futureCtxCancel:         futureCtxCancel,
 		futureDeadlineCtxCancel: nil,
 		infinite:                infinite,
-		rch:                     newResultChan[R](),
+		rch:                     newResultChan[R](buf),
 		submitter:               submitter,
 	}
 }
@@ -140,6 +144,9 @@ func (f *futureImpl[R]) Fail(cause error) {
 }
 
 func (f *futureImpl[R]) Cancel() {
+	if f.infinite {
+		f.rch.Close()
+	}
 	f.futureCtxCancel()
 	if f.futureDeadlineCtxCancel != nil {
 		f.futureDeadlineCtxCancel()
@@ -147,7 +154,7 @@ func (f *futureImpl[R]) Cancel() {
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
-	if f.infinite {
+	if !f.infinite {
 		f.futureCtx, f.futureDeadlineCtxCancel = context.WithDeadline(f.futureCtx, t)
 	}
 }
@@ -172,25 +179,28 @@ type futureRunner[R any] struct {
 
 func (run futureRunner[R]) Run(ctx context.Context) {
 	futureCtx := run.ctx
+	futureCtxCancel := run.cancel
 	rch := run.rch
 	stopped := false
 	for {
 		select {
 		case <-ctx.Done():
-			rch.Close()
-			run.handler(ctx, *(new(R)), ctx.Err())
-			stopped = true
+			if !run.infinite {
+				rch.CloseUnexpectedly()
+				run.handler(ctx, *(new(R)), ctx.Err())
+				stopped = true
+			}
 			break
 		case <-futureCtx.Done():
-			rch.Close()
-			run.handler(ctx, *(new(R)), futureCtx.Err())
-			stopped = true
+			if !run.infinite {
+				rch.CloseUnexpectedly()
+				run.handler(ctx, *(new(R)), futureCtx.Err())
+				stopped = true
+			}
 			break
 		case ar, ok := <-rch.ch:
 			if !ok {
-				if !run.infinite {
-					run.handler(ctx, *(new(R)), ErrFutureWasClosed)
-				}
+				run.handler(ctx, *(new(R)), ErrFutureWasClosed)
 				stopped = true
 				break
 			}
@@ -208,7 +218,7 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			break
 		}
 	}
-	run.cancel()
+	futureCtxCancel()
 	if run.deadlineCancel != nil {
 		run.deadlineCancel()
 	}
