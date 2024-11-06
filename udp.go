@@ -9,38 +9,37 @@ import (
 
 type UPDInbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
-	Bytes() (n int)
+	Received() (n int)
 	Addr() (addr *net.UDPAddr)
 }
 
 type UPDAddrPortInbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
-	Bytes() (n int)
+	Received() (n int)
 	Addr() (addr netip.AddrPort)
 }
 
 type UPDMsgInbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
-	Bytes() (n int)
+	Received() (n int)
 	OOBBytes() (n int)
 	Flags() (n int)
 	Addr() (addr *net.UDPAddr)
 }
 type UPDMsgAddrPortInbound interface {
 	Buffer() (buf bytebufferpool.Buffer)
-	Bytes() (n int)
+	Received() (n int)
 	OOBBytes() (n int)
 	Flags() (n int)
 	Addr() (addr netip.AddrPort)
 }
 
 type MsgOutbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Bytes() (p []byte)
 	Wrote() (n int)
 	OOBBytes() (n int)
 }
 
-// "udp", "udp4", "udp6"
 type UPDConnection interface {
 	PacketConnection
 	SetReadMsgUDPOOBBufferSize(size int)
