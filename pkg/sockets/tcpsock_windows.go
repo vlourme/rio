@@ -119,7 +119,7 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 		return
 	}
 	// conn
-	conn := newConnection(ln.net, connFd)
+	conn := newConnection(ln.net, windows.SOCK_STREAM, connFd)
 	// op
 	conn.rop.mode = accept
 	conn.rop.handle = ln.fd
