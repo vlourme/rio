@@ -2,6 +2,7 @@ package sockets
 
 const (
 	accept OperationMode = iota + 1
+	packetAccept
 	unixAccept
 	read
 	write
@@ -32,6 +33,8 @@ func (op OperationMode) String() string {
 	switch op {
 	case accept:
 		return "accept"
+	case packetAccept:
+		return "packetAccept"
 	case unixAccept:
 		return "unixAccept"
 	case read:

@@ -31,6 +31,7 @@ type operation struct {
 	acceptHandler              TCPAcceptHandler
 	readHandler                ReadHandler
 	writeHandler               WriteHandler
+	packetAcceptHandler        PacketAcceptHandler
 	readFromHandler            ReadFromHandler
 	readFromUDPHandler         ReadFromUDPHandler
 	readFromUDPAddrPortHandler ReadFromUDPAddrPortHandler
@@ -90,6 +91,13 @@ func (op *operation) reset() {
 	op.overlapped.InternalHigh = 0
 	op.overlapped.HEvent = 0
 	op.mode = 0
+}
+
+func (op *operation) eofError(qty int, err error) error {
+	if qty == 0 && err == nil && op.conn.zeroReadIsEOF {
+		return io.EOF
+	}
+	return err
 }
 
 func (op *operation) completeAccept(_ int, err error) {
@@ -157,11 +165,7 @@ func (op *operation) completeRead(qty int, err error) {
 		op.readHandler = nil
 		return
 	}
-	if qty == 0 {
-		op.readHandler(0, io.EOF)
-	} else {
-		op.readHandler(qty, nil)
-	}
+	op.readHandler(qty, op.eofError(qty, err))
 	op.readHandler = nil
 	return
 }
@@ -183,9 +187,33 @@ func (op *operation) completeWrite(qty int, err error) {
 	return
 }
 
-func (op *operation) completeReadFrom(qty int, err error) {
+func (op *operation) completeUDPAccept(_ int, err error) {
 	// todo
 	panic("implement me")
+	return
+}
+
+func (op *operation) completeReadFrom(qty int, err error) {
+	if err != nil {
+		op.writeHandler(0, &net.OpError{
+			Op:     op.mode.String(),
+			Net:    op.conn.net,
+			Source: op.conn.localAddr,
+			Addr:   op.conn.remoteAddr,
+			Err:    err,
+		})
+		op.writeHandler = nil
+		return
+	}
+	sockaddr, _ := op.rsa.Sockaddr()
+	var addr net.Addr
+	if op.conn.net == "unix" {
+		addr = sockaddrToUnixAddr(sockaddr)
+	} else {
+		addr = sockaddrToUDPAddr(sockaddr)
+	}
+	op.readFromHandler(qty, addr, op.eofError(qty, err))
+	op.readFromHandler = nil
 	return
 }
 
