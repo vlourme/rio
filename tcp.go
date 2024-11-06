@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
 	"time"
@@ -238,6 +239,9 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		if err != nil {
 			infinitePromise.Fail(wrapClosedError(err))
 			return
+		}
+		if ln.tlsConfig != nil {
+			sock = security.Serve(ln.ctx, sock, ln.tlsConfig)
 		}
 		conn := newTCPConnection(ln.ctx, sock)
 		infinitePromise.Succeed(conn)
