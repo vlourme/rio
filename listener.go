@@ -28,7 +28,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	opt := Options{
-		loops:        0,
+		loops:        1,
 		tlsConfig:    nil,
 		multipathTCP: false,
 		proto:        0,
@@ -75,6 +75,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		executors: executors,
 		tlsConfig: opt.tlsConfig,
 		loops:     opt.loops,
+		promises:  make([]async.Promise[Connection], opt.loops),
 	}
 	return
 }
@@ -85,7 +86,7 @@ type listener struct {
 	executors async.Executors
 	tlsConfig *tls.Config
 	loops     int
-	promises  []async.InfinitePromise[Connection]
+	promises  []async.Promise[Connection]
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
@@ -94,19 +95,38 @@ func (ln *listener) Addr() (addr net.Addr) {
 }
 
 func (ln *listener) Accept() (future async.Future[Connection]) {
-	//TODO implement me
-	// try use group infinite future
-	// for loops -> []promise
-	// async.group([]promise) groupPromise
-	// future = groupPromise.future()
-	// inner: future.OnComplete -> []promise.future.OnComplete
-	panic("implement me")
+	ctx := ln.ctx
+	for i := 0; i < ln.loops; i++ {
+		promise, promiseErr := async.MustInfinitePromise[Connection](ctx)
+		if promiseErr != nil {
+			future = async.FailedImmediately[Connection](ctx, promiseErr)
+			_ = ln.Close()
+			return
+		}
+		ln.acceptOne(promise)
+		ln.promises[i] = promise
+	}
+	future = async.Group[Connection](ln.promises)
+	return
 }
 
 func (ln *listener) Close() (err error) {
 	for _, promise := range ln.promises {
-		promise.Close()
+		promise.Cancel()
 	}
 	err = ln.inner.Close()
 	return
+}
+
+func (ln *listener) acceptOne(infinitePromise async.Promise[Connection]) {
+	ln.inner.Accept(func(sock sockets.Connection, err error) {
+		if err != nil {
+			infinitePromise.Fail(err)
+			return
+		}
+		conn := newConnection(ln.ctx, sock)
+		infinitePromise.Complete(conn, err)
+		ln.acceptOne(infinitePromise)
+		return
+	})
 }
