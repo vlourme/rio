@@ -20,8 +20,9 @@ type Option func(options *Options) (err error)
 
 func WithLoops(loops int) Option {
 	return func(options *Options) (err error) {
-		if loops < 1 {
-			loops = runtime.NumCPU() * 2
+		cpuNum := runtime.NumCPU() * 2
+		if loops < 1 || cpuNum < loops {
+			loops = cpuNum
 		}
 		options.loops = loops
 		return
