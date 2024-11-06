@@ -214,6 +214,7 @@ func (conn *connection) Write(p []byte) (future async.Future[Outbound]) {
 func (conn *connection) Close() (err error) {
 	conn.cancel()
 	err = conn.inner.Close()
+	conn.rb.Reset()
 	bytebufferpool.Put(conn.rb)
 	return
 }
