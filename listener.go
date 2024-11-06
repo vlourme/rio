@@ -21,8 +21,6 @@ type Listener interface {
 	Close() (err error)
 }
 
-// Listen
-// ctx as root ctx, each conn can read it.
 func Listen(ctx context.Context, network string, addr string, options ...Option) (ln Listener, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -121,12 +119,22 @@ func (ln *listener) Close() (err error) {
 func (ln *listener) acceptOne(infinitePromise async.Promise[Connection]) {
 	ln.inner.Accept(func(sock sockets.Connection, err error) {
 		if err != nil {
-			infinitePromise.Fail(err)
+			infinitePromise.Fail(wrapClosedError(err))
 			return
 		}
 		conn := newConnection(ln.ctx, sock)
-		infinitePromise.Complete(conn, err)
+		infinitePromise.Succeed(conn)
 		ln.acceptOne(infinitePromise)
 		return
 	})
+}
+
+func wrapClosedError(err error) error {
+	if errors.Is(err, async.ErrFutureWasClosed) {
+		return errors.Join(ErrClosed, err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return errors.Join(ErrClosed, err)
+	}
+	return err
 }
