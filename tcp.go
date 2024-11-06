@@ -241,7 +241,7 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 			return
 		}
 		if ln.tlsConfig != nil {
-			sock = security.Serve(ln.ctx, sock, ln.tlsConfig)
+			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.TCPConnection)
 		}
 		conn := newTCPConnection(ln.ctx, sock)
 		infinitePromise.Succeed(conn)
