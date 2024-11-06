@@ -55,7 +55,7 @@ func TestTcpListener_Accept(t *testing.T) {
 	defer ln.Close()
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	ln.Accept(func(conn sockets.Connection, err error) {
+	ln.Accept(func(conn sockets.TCPConnection, err error) {
 		wg.Done()
 		if err != nil {
 			t.Error("accept ->", err)
@@ -85,7 +85,7 @@ func TestTcpConnection_ReadAndWrite(t *testing.T) {
 	defer ln.Close()
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	ln.Accept(func(conn sockets.Connection, err error) {
+	ln.Accept(func(conn sockets.TCPConnection, err error) {
 		if err != nil {
 			t.Error("srv: accept ->", err)
 			return

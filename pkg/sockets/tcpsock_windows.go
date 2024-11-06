@@ -111,7 +111,7 @@ func (ln *tcpListener) Addr() (addr net.Addr) {
 	return
 }
 
-func (ln *tcpListener) Accept(handler AcceptHandler) {
+func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 	// socket
 	connFd, createSocketErr := windows.WSASocket(windows.AF_INET, windows.SOCK_STREAM, 0, nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
 	if createSocketErr != nil {

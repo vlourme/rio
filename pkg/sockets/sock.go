@@ -20,11 +20,19 @@ type Connection interface {
 	Close() (err error)
 }
 
-type AcceptHandler func(conn Connection, err error)
+//type AcceptHandler func(conn Connection, err error)
+//
+//type Listener interface {
+//	Addr() (addr net.Addr)
+//	Accept(handler AcceptHandler)
+//	Close() (err error)
+//}
 
-type Listener interface {
+type TCPAcceptHandler func(conn TCPConnection, err error)
+
+type TCPListener interface {
 	Addr() (addr net.Addr)
-	Accept(handler AcceptHandler)
+	Accept(handler TCPAcceptHandler)
 	Close() (err error)
 }
 
@@ -122,7 +130,6 @@ type UnixAcceptHandler func(conn UnixConnection, err error)
 
 type UnixListener interface {
 	Addr() (addr net.Addr)
-	Accept(handler AcceptHandler)
 	AcceptUnix(handler UnixAcceptHandler)
 	Close() (err error)
 }

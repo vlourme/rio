@@ -28,7 +28,7 @@ type operation struct {
 	bufs   []windows.WSABuf
 	qty    uint32
 	// fields used only by net callback
-	acceptHandler              AcceptHandler
+	acceptHandler              TCPAcceptHandler
 	readHandler                ReadHandler
 	writeHandler               WriteHandler
 	readFromHandler            ReadFromHandler
