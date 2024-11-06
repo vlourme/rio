@@ -74,7 +74,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		inner:     inner,
 		executors: executors,
 		tlsConfig: opt.tlsConfig,
-		loops:     opt.loops,
 		promises:  make([]async.Promise[Connection], opt.loops),
 	}
 	return
@@ -85,7 +84,6 @@ type listener struct {
 	inner     sockets.Listener
 	executors async.Executors
 	tlsConfig *tls.Config
-	loops     int
 	promises  []async.Promise[Connection]
 }
 
@@ -96,7 +94,8 @@ func (ln *listener) Addr() (addr net.Addr) {
 
 func (ln *listener) Accept() (future async.Future[Connection]) {
 	ctx := ln.ctx
-	for i := 0; i < ln.loops; i++ {
+	promisesLen := len(ln.promises)
+	for i := 0; i < promisesLen; i++ {
 		promise, promiseErr := async.MustInfinitePromise[Connection](ctx)
 		if promiseErr != nil {
 			future = async.FailedImmediately[Connection](ctx, promiseErr)
