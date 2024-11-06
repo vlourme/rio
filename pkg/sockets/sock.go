@@ -38,6 +38,8 @@ type TCPConnection interface {
 
 type ReadFromHandler func(n int, addr net.Addr, err error)
 
+type PacketAcceptHandler func(conn PacketConnection, err error)
+
 type PacketConnection interface {
 	LocalAddr() (addr net.Addr)
 	SetDeadline(t time.Time) (err error)
