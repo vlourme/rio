@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -31,21 +32,23 @@ func wsaCleanup() {
 	_ = windows.WSACleanup()
 }
 
-func newConnection(network string, fd windows.Handle) (conn *connection) {
+func newConnection(network string, sotype int, fd windows.Handle) (conn *connection) {
 	conn = &connection{net: network, fd: fd}
 	conn.rop.conn = conn
 	conn.wop.conn = conn
+	conn.zeroReadIsEOF = sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW
 	return
 }
 
 type connection struct {
-	cphandle   windows.Handle
-	fd         windows.Handle
-	localAddr  net.Addr
-	remoteAddr net.Addr
-	net        string
-	rop        operation
-	wop        operation
+	cphandle      windows.Handle
+	fd            windows.Handle
+	localAddr     net.Addr
+	remoteAddr    net.Addr
+	net           string
+	zeroReadIsEOF bool
+	rop           operation
+	wop           operation
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {
