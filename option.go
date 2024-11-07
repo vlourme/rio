@@ -7,6 +7,7 @@ import (
 )
 
 type Options struct {
+	minGOMAXPROCS           int
 	parallelAcceptors       int
 	maxExecutors            int
 	maxExecutorIdleDuration time.Duration
@@ -17,6 +18,15 @@ type Options struct {
 }
 
 type Option func(options *Options) (err error)
+
+func WithMinGOMAXPROCS(min int) Option {
+	return func(options *Options) (err error) {
+		if min > 2 {
+			options.minGOMAXPROCS = min
+		}
+		return
+	}
+}
 
 func WithParallelAcceptors(parallelAcceptors int) Option {
 	return func(options *Options) (err error) {

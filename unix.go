@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
@@ -141,11 +142,12 @@ func (conn *unixConnection) WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (fut
 }
 
 type unixListener struct {
-	ctx       context.Context
-	inner     sockets.UnixListener
-	executors async.Executors
-	tlsConfig *tls.Config
-	promises  []async.Promise[Connection]
+	ctx          context.Context
+	inner        sockets.UnixListener
+	executors    async.Executors
+	tlsConfig    *tls.Config
+	promises     []async.Promise[Connection]
+	maxprocsUndo maxprocs.Undo
 }
 
 func (ln *unixListener) Addr() (addr net.Addr) {
@@ -175,6 +177,7 @@ func (ln *unixListener) Close() (err error) {
 		promise.Cancel()
 	}
 	err = ln.inner.Close()
+	ln.maxprocsUndo()
 	return
 }
 

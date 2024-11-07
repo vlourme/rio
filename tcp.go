@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
@@ -197,11 +198,12 @@ func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) 
 }
 
 type tcpListener struct {
-	ctx       context.Context
-	inner     sockets.TCPListener
-	executors async.Executors
-	tlsConfig *tls.Config
-	promises  []async.Promise[Connection]
+	ctx          context.Context
+	inner        sockets.TCPListener
+	executors    async.Executors
+	tlsConfig    *tls.Config
+	promises     []async.Promise[Connection]
+	maxprocsUndo maxprocs.Undo
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -231,6 +233,7 @@ func (ln *tcpListener) Close() (err error) {
 		promise.Cancel()
 	}
 	err = ln.inner.Close()
+	ln.maxprocsUndo()
 	return
 }
 

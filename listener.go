@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/async"
+	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
 	"runtime"
@@ -26,17 +27,26 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	opt := Options{
-		parallelAcceptors: runtime.NumCPU() * 2,
-		tlsConfig:         nil,
-		multipathTCP:      false,
-		proto:             0,
-		pollers:           0,
+		minGOMAXPROCS:           0,
+		parallelAcceptors:       runtime.NumCPU() * 2,
+		maxExecutors:            0,
+		maxExecutorIdleDuration: 0,
+		tlsConfig:               nil,
+		multipathTCP:            false,
+		proto:                   0,
+		pollers:                 0,
 	}
 	for _, option := range options {
 		err = option(&opt)
 		if err != nil {
 			return
 		}
+	}
+	// maxprocs
+	maxprocsUndo, enableMaxprocsErr := maxprocs.Enable(maxprocs.Min(opt.minGOMAXPROCS))
+	if enableMaxprocsErr != nil {
+		err = enableMaxprocsErr
+		return
 	}
 	// executors
 	executorsOptions := make([]async.Option, 0, 1)
@@ -61,11 +71,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			return
 		}
 		ln = &tcpListener{
-			ctx:       ctx,
-			inner:     inner,
-			executors: executors,
-			tlsConfig: opt.tlsConfig,
-			promises:  make([]async.Promise[Connection], opt.parallelAcceptors),
+			ctx:          ctx,
+			inner:        inner,
+			executors:    executors,
+			tlsConfig:    opt.tlsConfig,
+			promises:     make([]async.Promise[Connection], opt.parallelAcceptors),
+			maxprocsUndo: maxprocsUndo,
 		}
 		break
 	case "unix":
@@ -78,11 +89,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			return
 		}
 		ln = &unixListener{
-			ctx:       ctx,
-			inner:     inner,
-			executors: executors,
-			tlsConfig: opt.tlsConfig,
-			promises:  make([]async.Promise[Connection], opt.parallelAcceptors),
+			ctx:          ctx,
+			inner:        inner,
+			executors:    executors,
+			tlsConfig:    opt.tlsConfig,
+			promises:     make([]async.Promise[Connection], opt.parallelAcceptors),
+			maxprocsUndo: maxprocsUndo,
 		}
 		break
 	default:
