@@ -27,7 +27,7 @@ func TestListen(t *testing.T) {
 			}
 		}
 	})
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 10; i++ {
 		conn, dialErr := net.Dial("tcp", ":9000")
 		if dialErr != nil {
 			t.Error(dialErr)
