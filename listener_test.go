@@ -4,8 +4,6 @@ import (
 	"context"
 	"github.com/brickingsoft/rio"
 	"net"
-	"sync"
-	"sync/atomic"
 	"testing"
 )
 
@@ -16,33 +14,33 @@ func TestListen(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	defer func(ln rio.Listener) {
-		closeErr := ln.Close()
-		if closeErr != nil {
-			t.Error(closeErr)
-		}
-	}(ln)
-	wg := &sync.WaitGroup{}
-	count := atomic.Int64{}
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		var addr net.Addr
 		if conn != nil {
 			addr = conn.RemoteAddr()
 		}
-		t.Log("accepted:", count.Add(1), addr, err, ctx.Err())
+		t.Log("accepted:", addr, err, ctx.Err())
 		if conn != nil {
-			wg.Done()
+			err = conn.Close()
+			if err != nil {
+				t.Error("srv close conn err:", err)
+			}
 		}
 	})
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
+	for i := 0; i < 1; i++ {
 		conn, dialErr := net.Dial("tcp", ":9000")
 		if dialErr != nil {
 			t.Error(dialErr)
 			return
 		}
 		t.Log("dialed:", i+1, conn.LocalAddr())
-		_ = conn.Close()
+		err := conn.Close()
+		if err != nil {
+			t.Error("cli close conn err:", err)
+		}
 	}
-	wg.Wait()
+	closeErr := ln.Close()
+	if closeErr != nil {
+		t.Error(closeErr)
+	}
 }

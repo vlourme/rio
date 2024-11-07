@@ -197,7 +197,6 @@ func (exec *executors) GracefulClose() {
 			break
 		}
 		exec.locker.Unlock()
-		time.Sleep(ms500)
 	}
 }
 

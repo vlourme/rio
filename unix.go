@@ -183,7 +183,7 @@ func (ln *unixListener) Close() (err error) {
 		promise.Cancel()
 	}
 	err = ln.inner.Close()
-	ln.executors.GracefulClose()
+	ln.executors.Close()
 	ln.maxprocsUndo()
 	return
 }

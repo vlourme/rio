@@ -241,7 +241,7 @@ func (ln *tcpListener) Close() (err error) {
 	}
 	err = ln.inner.Close()
 	ln.cancel()
-	ln.executors.GracefulClose()
+	ln.executors.Close()
 	ln.maxprocsUndo()
 	return
 }

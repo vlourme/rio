@@ -6,7 +6,7 @@ import (
 
 const (
 	defaultMaxExecutors            = 256 * 1024
-	defaultMaxExecutorIdleDuration = 2 * time.Second
+	defaultMaxExecutorIdleDuration = 10 * time.Second
 )
 
 type Option func(*Options) error
