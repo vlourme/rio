@@ -12,7 +12,9 @@ func currentMaxProcs() int {
 	return runtime.GOMAXPROCS(0)
 }
 
-func Enable(opts ...Option) (undo func(), err error) {
+type Undo func()
+
+func Enable(opts ...Option) (undo Undo, err error) {
 	options := &Options{
 		procs:          cpu.QuotaToGOMAXPROCS,
 		roundQuotaFunc: cpu.DefaultRoundFunc,
