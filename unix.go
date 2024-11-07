@@ -145,13 +145,15 @@ func (conn *unixConnection) WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (fut
 }
 
 type unixListener struct {
-	ctx                context.Context
-	inner              sockets.UnixListener
-	connectionsLimiter *timeslimiter.Bucket
-	executors          async.Executors
-	tlsConfig          *tls.Config
-	promises           []async.Promise[Connection]
-	maxprocsUndo       maxprocs.Undo
+	ctx                           context.Context
+	cancel                        context.CancelFunc
+	inner                         sockets.UnixListener
+	connectionsLimiter            *timeslimiter.Bucket
+	connectionsLimiterWaitTimeout time.Duration
+	executors                     async.Executors
+	tlsConfig                     *tls.Config
+	promises                      []async.Promise[Connection]
+	maxprocsUndo                  maxprocs.Undo
 }
 
 func (ln *unixListener) Addr() (addr net.Addr) {
@@ -181,12 +183,26 @@ func (ln *unixListener) Close() (err error) {
 		promise.Cancel()
 	}
 	err = ln.inner.Close()
+	ln.executors.GracefulClose()
 	ln.maxprocsUndo()
 	return
 }
 
+func (ln *unixListener) ok() bool {
+	return ln.ctx.Err() == nil
+}
+
 func (ln *unixListener) acceptOne(infinitePromise async.Promise[Connection]) {
-	_ = ln.connectionsLimiter.Wait(ln.ctx) // discard wait err cause err must be canceled when ln was closed
+	if !ln.ok() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
+	waitErr := ln.connectionsLimiter.Wait(ctx)
+	cancel()
+	if waitErr != nil {
+		ln.acceptOne(infinitePromise)
+		return
+	}
 	ln.inner.AcceptUnix(func(sock sockets.UnixConnection, err error) {
 		if err != nil {
 			infinitePromise.Fail(err)

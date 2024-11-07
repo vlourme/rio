@@ -202,13 +202,15 @@ func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) 
 }
 
 type tcpListener struct {
-	ctx                context.Context
-	inner              sockets.TCPListener
-	connectionsLimiter *timeslimiter.Bucket
-	executors          async.Executors
-	tlsConfig          *tls.Config
-	promises           []async.Promise[Connection]
-	maxprocsUndo       maxprocs.Undo
+	ctx                           context.Context
+	cancel                        context.CancelFunc
+	inner                         sockets.TCPListener
+	connectionsLimiter            *timeslimiter.Bucket
+	connectionsLimiterWaitTimeout time.Duration
+	executors                     async.Executors
+	tlsConfig                     *tls.Config
+	promises                      []async.Promise[Connection]
+	maxprocsUndo                  maxprocs.Undo
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -238,12 +240,27 @@ func (ln *tcpListener) Close() (err error) {
 		promise.Cancel()
 	}
 	err = ln.inner.Close()
+	ln.cancel()
+	ln.executors.GracefulClose()
 	ln.maxprocsUndo()
 	return
 }
 
+func (ln *tcpListener) ok() bool {
+	return ln.ctx.Err() == nil
+}
+
 func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
-	_ = ln.connectionsLimiter.Wait(ln.ctx) // discard wait err cause err must be canceled when ln was closed
+	if !ln.ok() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
+	waitErr := ln.connectionsLimiter.Wait(ctx)
+	cancel()
+	if waitErr != nil {
+		ln.acceptOne(infinitePromise)
+		return
+	}
 	ln.inner.Accept(func(sock sockets.TCPConnection, err error) {
 		if err != nil {
 			infinitePromise.Fail(err)
@@ -252,7 +269,7 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.TCPConnection)
 		}
-		conn := newTCPConnection(ln.ctx, sock, func(_ Connection) {
+		conn := newTCPConnection(ln.ctx, sock, func(conn Connection) {
 			ln.connectionsLimiter.Revert()
 		})
 		infinitePromise.Succeed(conn)
