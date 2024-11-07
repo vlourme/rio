@@ -60,3 +60,5 @@ type Connection interface {
 	Write(p []byte) (future async.Future[Outbound])
 	Close() (err error)
 }
+
+type ConnectionOnClose func(conn Connection)
