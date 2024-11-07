@@ -222,7 +222,7 @@ func (ln *tcpListener) Accept() (future async.Future[Connection]) {
 	ctx := ln.ctx
 	promisesLen := len(ln.promises)
 	for i := 0; i < promisesLen; i++ {
-		promise, promiseErr := async.MustInfinitePromise[Connection](ctx)
+		promise, promiseErr := async.MustInfinitePromise[Connection](ctx, 8)
 		if promiseErr != nil {
 			future = async.FailedImmediately[Connection](ctx, promiseErr)
 			_ = ln.Close()
@@ -239,9 +239,9 @@ func (ln *tcpListener) Close() (err error) {
 	for _, promise := range ln.promises {
 		promise.Cancel()
 	}
-	err = ln.inner.Close()
 	ln.cancel()
-	ln.executors.Close()
+	err = ln.inner.Close()
+	ln.executors.GracefulClose()
 	ln.maxprocsUndo()
 	return
 }

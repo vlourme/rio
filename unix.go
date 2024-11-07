@@ -165,7 +165,7 @@ func (ln *unixListener) Accept() (future async.Future[Connection]) {
 	ctx := ln.ctx
 	promisesLen := len(ln.promises)
 	for i := 0; i < promisesLen; i++ {
-		promise, promiseErr := async.MustInfinitePromise[Connection](ctx)
+		promise, promiseErr := async.MustInfinitePromise[Connection](ctx, 8)
 		if promiseErr != nil {
 			future = async.FailedImmediately[Connection](ctx, promiseErr)
 			_ = ln.Close()
@@ -182,8 +182,9 @@ func (ln *unixListener) Close() (err error) {
 	for _, promise := range ln.promises {
 		promise.Cancel()
 	}
+	ln.cancel()
 	err = ln.inner.Close()
-	ln.executors.Close()
+	ln.executors.GracefulClose()
 	ln.maxprocsUndo()
 	return
 }
