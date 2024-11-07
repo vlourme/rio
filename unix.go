@@ -194,6 +194,7 @@ func (ln *unixListener) ok() bool {
 
 func (ln *unixListener) acceptOne(infinitePromise async.Promise[Connection]) {
 	if !ln.ok() {
+		infinitePromise.Fail(ErrClosed)
 		return
 	}
 	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
