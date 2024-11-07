@@ -252,6 +252,7 @@ func (ln *tcpListener) ok() bool {
 
 func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 	if !ln.ok() {
+		infinitePromise.Fail(ErrClosed)
 		return
 	}
 	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
