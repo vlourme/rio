@@ -10,12 +10,17 @@ import (
 
 func TestListen(t *testing.T) {
 	ctx := context.Background()
-	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(4))
+	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(1))
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
 	}
-	defer ln.Close()
+	defer func(ln rio.Listener) {
+		closeErr := ln.Close()
+		if closeErr != nil {
+			t.Error(closeErr)
+		}
+	}(ln)
 	count := atomic.Int64{}
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		var addr net.Addr
