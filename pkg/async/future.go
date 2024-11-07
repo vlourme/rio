@@ -185,18 +185,14 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			if !run.infinite {
-				rch.CloseUnexpectedly()
-				run.handler(ctx, *(new(R)), ctx.Err())
-				stopped = true
-			}
+			run.handler(ctx, *(new(R)), ctx.Err())
+			stopped = true
+			rch.CloseUnexpectedly()
 			break
 		case <-futureCtx.Done():
-			if !run.infinite {
-				rch.CloseUnexpectedly()
-				run.handler(ctx, *(new(R)), futureCtx.Err())
-				stopped = true
-			}
+			run.handler(ctx, *(new(R)), futureCtx.Err())
+			stopped = true
+			rch.CloseUnexpectedly()
 			break
 		case ar, ok := <-rch.ch:
 			if !ok {
