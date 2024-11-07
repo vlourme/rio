@@ -28,7 +28,7 @@ type operation struct {
 	bufs   []windows.WSABuf
 	qty    uint32
 	// fields used only by net callback
-	acceptHandler              TCPAcceptHandler
+	tcpAcceptHandler           TCPAcceptHandler
 	readHandler                ReadHandler
 	writeHandler               WriteHandler
 	packetAcceptHandler        PacketAcceptHandler
@@ -45,8 +45,11 @@ type operation struct {
 
 func (op *operation) complete(qty int, err error) {
 	switch op.mode {
-	case accept:
-		op.completeAccept(qty, err)
+	case tcpAccept:
+		op.completeTCPAccept(qty, err)
+		break
+	case udpAccept:
+		op.completeUDPAccept(qty, err)
 		break
 	case unixAccept:
 		op.completeUnixAccept(qty, err)
@@ -100,10 +103,10 @@ func (op *operation) eofError(qty int, err error) error {
 	return err
 }
 
-func (op *operation) completeAccept(_ int, err error) {
+func (op *operation) completeTCPAccept(_ int, err error) {
 	if err != nil {
-		op.acceptHandler(nil, os.NewSyscallError("AcceptEx", err))
-		op.acceptHandler = nil
+		op.tcpAcceptHandler(nil, os.NewSyscallError("AcceptEx", err))
+		op.tcpAcceptHandler = nil
 		return
 	}
 	conn := op.conn
@@ -115,23 +118,23 @@ func (op *operation) completeAccept(_ int, err error) {
 		int32(unsafe.Sizeof(op.handle)),
 	)
 	if setAcceptSocketOptErr != nil {
-		op.acceptHandler(nil, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
-		op.acceptHandler = nil
+		op.tcpAcceptHandler(nil, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
+		op.tcpAcceptHandler = nil
 		return
 	}
 	// get addr
 	lsa, lsaErr := windows.Getsockname(conn.fd)
 	if lsaErr != nil {
-		op.acceptHandler(nil, os.NewSyscallError("getsockname", lsaErr))
-		op.acceptHandler = nil
+		op.tcpAcceptHandler(nil, os.NewSyscallError("getsockname", lsaErr))
+		op.tcpAcceptHandler = nil
 		return
 	}
 	la := sockaddrToTCPAddr(lsa)
 	conn.localAddr = la
 	rsa, rsaErr := windows.Getpeername(op.conn.fd)
 	if rsaErr != nil {
-		op.acceptHandler(nil, os.NewSyscallError("getsockname", rsaErr))
-		op.acceptHandler = nil
+		op.tcpAcceptHandler(nil, os.NewSyscallError("getsockname", rsaErr))
+		op.tcpAcceptHandler = nil
 		return
 	}
 	ra := sockaddrToTCPAddr(rsa)
@@ -139,8 +142,8 @@ func (op *operation) completeAccept(_ int, err error) {
 	// CreateIoCompletionPort
 	cphandle, createErr := windows.CreateIoCompletionPort(op.conn.fd, op.iocp, 0, 0)
 	if createErr != nil {
-		op.acceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
-		op.acceptHandler = nil
+		op.tcpAcceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
+		op.tcpAcceptHandler = nil
 		return
 	}
 	conn.cphandle = cphandle
@@ -148,8 +151,8 @@ func (op *operation) completeAccept(_ int, err error) {
 	tcpConn := tcpConnection{
 		connection: *conn,
 	}
-	op.acceptHandler(&tcpConn, nil)
-	op.acceptHandler = nil
+	op.tcpAcceptHandler(&tcpConn, nil)
+	op.tcpAcceptHandler = nil
 	return
 }
 

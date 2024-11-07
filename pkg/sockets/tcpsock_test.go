@@ -58,13 +58,13 @@ func TestTcpListener_Accept(t *testing.T) {
 	ln.Accept(func(conn sockets.TCPConnection, err error) {
 		wg.Done()
 		if err != nil {
-			t.Error("accept ->", err)
+			t.Error("tcpAccept ->", err)
 			return
 		}
 		t.Log("accepted!!!")
 		err = conn.Close()
 		if err != nil {
-			t.Error("accept close:", err)
+			t.Error("tcpAccept close:", err)
 		}
 	})
 	conn, dialErr := net.Dial("tcp", "127.0.0.1:9000")
@@ -87,7 +87,7 @@ func TestTcpConnection_ReadAndWrite(t *testing.T) {
 	wg.Add(1)
 	ln.Accept(func(conn sockets.TCPConnection, err error) {
 		if err != nil {
-			t.Error("srv: accept ->", err)
+			t.Error("srv: tcpAccept ->", err)
 			return
 		}
 		t.Log("srv: accepted!!!")

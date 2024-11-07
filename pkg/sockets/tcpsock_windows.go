@@ -121,10 +121,10 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 	// conn
 	conn := newConnection(ln.net, windows.SOCK_STREAM, connFd)
 	// op
-	conn.rop.mode = accept
+	conn.rop.mode = tcpAccept
 	conn.rop.handle = ln.fd
 	conn.rop.iocp = ln.cphandle
-	conn.rop.acceptHandler = handler
+	conn.rop.tcpAcceptHandler = handler
 	// sa
 	var rawsa [2]windows.RawSockaddrAny
 	lsan := uint32(unsafe.Sizeof(rawsa[1]))
@@ -132,7 +132,7 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 	rsan := uint32(unsafe.Sizeof(rawsa[0]))
 	// overlapped
 	overlapped := &conn.rop.overlapped
-	// accept
+	// tcpAccept
 	acceptErr := windows.AcceptEx(
 		ln.fd, connFd,
 		(*byte)(unsafe.Pointer(rsa)), 0,
@@ -141,7 +141,7 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
-		conn.rop.acceptHandler = nil
+		conn.rop.tcpAcceptHandler = nil
 	}
 }
 

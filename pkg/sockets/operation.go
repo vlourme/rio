@@ -1,8 +1,8 @@
 package sockets
 
 const (
-	accept OperationMode = iota + 1
-	packetAccept
+	tcpAccept OperationMode = iota + 1
+	udpAccept
 	unixAccept
 	read
 	write
@@ -17,24 +17,12 @@ const (
 
 type OperationMode int
 
-func (op OperationMode) IsAccept() bool {
-	return op == accept
-}
-
-func (op OperationMode) IsRead() bool {
-	return op == read
-}
-
-func (op OperationMode) IsWrite() bool {
-	return op == write
-}
-
 func (op OperationMode) String() string {
 	switch op {
-	case accept:
-		return "accept"
-	case packetAccept:
-		return "packetAccept"
+	case tcpAccept:
+		return "tcpAccept"
+	case udpAccept:
+		return "udpAccept"
 	case unixAccept:
 		return "unixAccept"
 	case read:
