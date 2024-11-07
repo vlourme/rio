@@ -49,11 +49,11 @@ type executor struct {
 
 type executorSubmitterImpl struct {
 	lastUseTime time.Time
-	ch          chan executor
+	ch          chan *executor
 }
 
 func (submitter *executorSubmitterImpl) Submit(ctx context.Context, runnable Runnable) {
-	submitter.ch <- executor{
+	submitter.ch <- &executor{
 		ctx:      ctx,
 		runnable: runnable,
 	}
@@ -88,6 +88,7 @@ func New(options ...Option) Executors {
 		ready:                   nil,
 		stopCh:                  nil,
 		submitters:              sync.Pool{},
+		submittersWaitGroup:     new(sync.WaitGroup),
 	}
 	exec.start()
 	return exec
@@ -103,6 +104,7 @@ type executors struct {
 	ready                   []*executorSubmitterImpl
 	stopCh                  chan struct{}
 	submitters              sync.Pool
+	submittersWaitGroup     *sync.WaitGroup
 }
 
 func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bool) {
@@ -180,7 +182,7 @@ func (exec *executors) Close() {
 	exec.locker.Lock()
 	ready := exec.ready
 	for i := range ready {
-		ready[i].ch <- executor{}
+		ready[i].ch <- nil
 		ready[i] = nil
 	}
 	exec.ready = ready[:0]
@@ -189,7 +191,19 @@ func (exec *executors) Close() {
 }
 
 func (exec *executors) GracefulClose() {
-	exec.Close()
+	atomic.StoreInt64(&exec.running, 0)
+	exec.submittersWaitGroup.Wait()
+	close(exec.stopCh)
+	exec.stopCh = nil
+	exec.locker.Lock()
+	ready := exec.ready
+	for i := range ready {
+		ready[i].ch <- nil
+		ready[i] = nil
+	}
+	exec.ready = ready[:0]
+	exec.mustStop = true
+	exec.locker.Unlock()
 	for {
 		exec.locker.Lock()
 		if exec.count == 0 {
@@ -206,7 +220,7 @@ func (exec *executors) start() {
 	stopCh := exec.stopCh
 	exec.submitters.New = func() interface{} {
 		return &executorSubmitterImpl{
-			ch: make(chan executor, 1),
+			ch: make(chan *executor, 1),
 		}
 	}
 	go func() {
@@ -252,7 +266,7 @@ func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
 	exec.locker.Unlock()
 	tmp := *scratch
 	for i := range tmp {
-		tmp[i].ch <- executor{}
+		tmp[i].ch <- nil
 		tmp[i] = nil
 	}
 }
@@ -285,6 +299,7 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 			exec.submitters.Put(vch)
 		}()
 	}
+	exec.submittersWaitGroup.Add(1)
 	return submitter
 }
 
@@ -293,10 +308,12 @@ func (exec *executors) release(submitter *executorSubmitterImpl) bool {
 	exec.locker.Lock()
 	if exec.mustStop {
 		exec.locker.Unlock()
+		exec.submittersWaitGroup.Done()
 		return false
 	}
 	exec.ready = append(exec.ready, submitter)
 	exec.locker.Unlock()
+	exec.submittersWaitGroup.Done()
 	return true
 }
 
@@ -306,19 +323,12 @@ func (exec *executors) handle(wch *executorSubmitterImpl) {
 		if !ok {
 			break
 		}
-
+		if e == nil {
+			break
+		}
 		run := e.runnable
 		ctx := e.ctx
-
-		if ctx == nil || run == nil {
-			if !exec.release(wch) {
-				break
-			}
-			continue
-		}
-
 		run.Run(ctx)
-
 		if !exec.release(wch) {
 			break
 		}

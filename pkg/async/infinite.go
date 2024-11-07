@@ -6,21 +6,21 @@ import (
 	"time"
 )
 
-func TryInfinitePromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
+func TryInfinitePromise[T any](ctx context.Context, buf int) (promise Promise[T], ok bool) {
 	exec := From(ctx)
 	submitter, has := exec.GetExecutorSubmitter()
 	if has {
-		promise = newInfinitePromise[T](ctx, submitter)
+		promise = newInfinitePromise[T](ctx, submitter, buf)
 		ok = true
 	}
 	return
 }
 
-func MustInfinitePromise[T any](ctx context.Context) (promise Promise[T], err error) {
+func MustInfinitePromise[T any](ctx context.Context, buf int) (promise Promise[T], err error) {
 	times := 10
 	ok := false
 	for {
-		promise, ok = TryInfinitePromise[T](ctx)
+		promise, ok = TryInfinitePromise[T](ctx, buf)
 		if ok {
 			break
 		}
@@ -37,6 +37,6 @@ func MustInfinitePromise[T any](ctx context.Context) (promise Promise[T], err er
 	return
 }
 
-func newInfinitePromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise[R] {
-	return newFuture[R](ctx, true, submitter)
+func newInfinitePromise[R any](ctx context.Context, submitter ExecutorSubmitter, buf int) Promise[R] {
+	return newFuture[R](ctx, submitter, buf)
 }

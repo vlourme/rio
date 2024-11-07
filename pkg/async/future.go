@@ -62,12 +62,12 @@ func (f *immediatelyFuture[R]) Await() (v R, err error) {
 	return
 }
 
-func newFuture[R any](ctx context.Context, infinite bool, submitter ExecutorSubmitter) *futureImpl[R] {
+func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int) *futureImpl[R] {
 	futureCtx, futureCtxCancel := context.WithCancel(ctx)
-	buf := 1
-	if infinite {
-		buf = infiniteResultChanBufferSize
+	if buf < 1 {
+		buf = 1
 	}
+	infinite := buf > 1
 	return &futureImpl[R]{
 		ctx:                     ctx,
 		futureCtx:               futureCtx,

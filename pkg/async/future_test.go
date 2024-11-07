@@ -11,7 +11,7 @@ import (
 
 func TestTryPromise(t *testing.T) {
 	exec := async.New()
-	defer exec.Close()
+	defer exec.GracefulClose()
 	ctx := async.With(context.Background(), exec)
 	promise, ok := async.TryPromise[int](ctx)
 	if !ok {
@@ -20,18 +20,14 @@ func TestTryPromise(t *testing.T) {
 	}
 	promise.Succeed(1)
 	future := promise.Future()
-	wg := new(sync.WaitGroup)
-	wg.Add(1)
 	future.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future result:", result, err)
-		wg.Done()
 	})
-	wg.Wait()
 }
 
 func TestMustPromise(t *testing.T) {
 	exec := async.New()
-	defer exec.Close()
+	defer exec.GracefulClose()
 	ctx := async.With(context.Background(), exec)
 	promise, err := async.MustPromise[int](ctx)
 	if err != nil {

@@ -8,9 +8,9 @@ import (
 
 func TestTryInfinitePromise(t *testing.T) {
 	exec := async.New()
-	defer exec.Close()
+	defer exec.GracefulClose()
 	ctx := async.With(context.Background(), exec)
-	promise, ok := async.TryInfinitePromise[*Closer](ctx)
+	promise, ok := async.TryInfinitePromise[*Closer](ctx, 8)
 	if !ok {
 		t.Errorf("try promise failed")
 		return
