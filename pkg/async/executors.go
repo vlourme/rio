@@ -2,6 +2,7 @@ package async
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -38,6 +39,7 @@ type Executors interface {
 	ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter)
 	Available() (ok bool)
 	Close()
+	GracefulClose()
 }
 
 type executor struct {
@@ -59,6 +61,7 @@ func (submitter *executorSubmitterImpl) Submit(ctx context.Context, runnable Run
 
 const (
 	ns500 = 500 * time.Nanosecond
+	ms500 = 500 * time.Millisecond
 )
 
 func New(options ...Option) Executors {
@@ -115,6 +118,10 @@ func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bo
 	return
 }
 
+var (
+	ErrExecutorsWasClosed = errors.New("executors were closed")
+)
+
 func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err error) {
 	if runnable == nil || atomic.LoadInt64(&exec.running) == 0 {
 		return
@@ -127,6 +134,10 @@ func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err erro
 		}
 		if err = ctx.Err(); err != nil {
 			break
+		}
+		if atomic.LoadInt64(&exec.running) == 0 {
+			err = ErrExecutorsWasClosed
+			return
 		}
 		time.Sleep(ns500)
 		times--
@@ -175,6 +186,19 @@ func (exec *executors) Close() {
 	exec.ready = ready[:0]
 	exec.mustStop = true
 	exec.locker.Unlock()
+}
+
+func (exec *executors) GracefulClose() {
+	exec.Close()
+	for {
+		exec.locker.Lock()
+		if exec.count == 0 {
+			exec.locker.Unlock()
+			break
+		}
+		exec.locker.Unlock()
+		time.Sleep(ms500)
+	}
 }
 
 func (exec *executors) start() {
