@@ -10,7 +10,7 @@ import (
 
 func TestListen(t *testing.T) {
 	ctx := context.Background()
-	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithLoops(4))
+	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(4))
 	if lnErr != nil {
 		t.Error(lnErr)
 		return

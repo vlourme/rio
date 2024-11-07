@@ -5,15 +5,15 @@ import (
 )
 
 const (
-	defaultMaxExecutors           = 256 * 1024
-	defaultMaxExecuteIdleDuration = 2 * time.Second
+	defaultMaxExecutors            = 256 * 1024
+	defaultMaxExecutorIdleDuration = 2 * time.Second
 )
 
 type Option func(*Options) error
 
 type Options struct {
-	MaxExecutors           int
-	MaxExecuteIdleDuration time.Duration
+	MaxExecutors            int
+	MaxExecutorIdleDuration time.Duration
 }
 
 func MaxExecutors(max int) Option {
@@ -26,12 +26,12 @@ func MaxExecutors(max int) Option {
 	}
 }
 
-func MaxIdleExecuteDuration(d time.Duration) Option {
+func MaxIdleExecutorDuration(d time.Duration) Option {
 	return func(o *Options) error {
 		if d < 1 {
-			d = defaultMaxExecuteIdleDuration
+			d = defaultMaxExecutorIdleDuration
 		}
-		o.MaxExecuteIdleDuration = d
+		o.MaxExecutorIdleDuration = d
 		return nil
 	}
 }

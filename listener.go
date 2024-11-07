@@ -6,6 +6,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
+	"runtime"
 )
 
 var (
@@ -25,11 +26,11 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	opt := Options{
-		loops:        1,
-		tlsConfig:    nil,
-		multipathTCP: false,
-		proto:        0,
-		pollers:      0,
+		parallelAcceptors: runtime.NumCPU() * 2,
+		tlsConfig:         nil,
+		multipathTCP:      false,
+		proto:             0,
+		pollers:           0,
 	}
 	for _, option := range options {
 		err = option(&opt)
@@ -42,8 +43,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	if opt.maxExecutors > 0 {
 		executorsOptions = append(executorsOptions, async.MaxExecutors(opt.maxExecutors))
 	}
-	if opt.maxExecuteIdleDuration > 0 {
-		executorsOptions = append(executorsOptions, async.MaxIdleExecuteDuration(opt.maxExecuteIdleDuration))
+	if opt.maxExecutorIdleDuration > 0 {
+		executorsOptions = append(executorsOptions, async.MaxIdleExecutorDuration(opt.maxExecutorIdleDuration))
 	}
 	executors := async.New(executorsOptions...)
 	ctx = async.With(ctx, executors)
@@ -64,7 +65,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			inner:     inner,
 			executors: executors,
 			tlsConfig: opt.tlsConfig,
-			promises:  make([]async.Promise[Connection], opt.loops),
+			promises:  make([]async.Promise[Connection], opt.parallelAcceptors),
 		}
 		break
 	case "unix":
@@ -81,7 +82,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			inner:     inner,
 			executors: executors,
 			tlsConfig: opt.tlsConfig,
-			promises:  make([]async.Promise[Connection], opt.loops),
+			promises:  make([]async.Promise[Connection], opt.parallelAcceptors),
 		}
 		break
 	default:

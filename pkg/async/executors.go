@@ -63,8 +63,8 @@ const (
 
 func New(options ...Option) Executors {
 	opt := Options{
-		MaxExecutors:           defaultMaxExecutors,
-		MaxExecuteIdleDuration: defaultMaxExecuteIdleDuration,
+		MaxExecutors:            defaultMaxExecutors,
+		MaxExecutorIdleDuration: defaultMaxExecutorIdleDuration,
 	}
 	if options != nil {
 		for _, option := range options {
@@ -77,7 +77,7 @@ func New(options ...Option) Executors {
 	}
 	exec := &executors{
 		maxExecutorsCount:       int64(opt.MaxExecutors),
-		maxExecutorIdleDuration: opt.MaxExecuteIdleDuration,
+		maxExecutorIdleDuration: opt.MaxExecutorIdleDuration,
 		locker:                  sync.Mutex{},
 		count:                   0,
 		running:                 0,

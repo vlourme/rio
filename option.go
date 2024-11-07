@@ -7,24 +7,24 @@ import (
 )
 
 type Options struct {
-	loops                  int // one loop one acceptor, multi-acceptors use one promise
-	maxExecutors           int
-	maxExecuteIdleDuration time.Duration
-	tlsConfig              *tls.Config
-	multipathTCP           bool
-	proto                  int
-	pollers                int
+	parallelAcceptors       int
+	maxExecutors            int
+	maxExecutorIdleDuration time.Duration
+	tlsConfig               *tls.Config
+	multipathTCP            bool
+	proto                   int
+	pollers                 int
 }
 
 type Option func(options *Options) (err error)
 
-func WithLoops(loops int) Option {
+func WithParallelAcceptors(parallelAcceptors int) Option {
 	return func(options *Options) (err error) {
 		cpuNum := runtime.NumCPU() * 2
-		if loops < 1 || cpuNum < loops {
-			loops = cpuNum
+		if parallelAcceptors < 1 || cpuNum < parallelAcceptors {
+			parallelAcceptors = cpuNum
 		}
-		options.loops = loops
+		options.parallelAcceptors = parallelAcceptors
 		return
 	}
 }
@@ -63,9 +63,9 @@ func WithMaxExecutors(maxExecutors int) Option {
 	}
 }
 
-func WithMaxExecuteIdleDuration(maxExecuteIdleDuration time.Duration) Option {
+func WithMaxExecutorIdleDuration(duration time.Duration) Option {
 	return func(options *Options) (err error) {
-		options.maxExecuteIdleDuration = maxExecuteIdleDuration
+		options.maxExecutorIdleDuration = duration
 		return
 	}
 }
