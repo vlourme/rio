@@ -7,19 +7,21 @@ import (
 )
 
 const (
-	InfiniteConnections = int64(0)
+	InfiniteConnections                     = int64(0)
+	DefaultMaxConnectionsLimiterWaitTimeout = 500 * time.Millisecond
 )
 
 type Options struct {
-	minGOMAXPROCS           int
-	parallelAcceptors       int
-	maxConnections          int64
-	maxExecutors            int
-	maxExecutorIdleDuration time.Duration
-	tlsConfig               *tls.Config
-	multipathTCP            bool
-	proto                   int
-	pollers                 int
+	minGOMAXPROCS                    int
+	parallelAcceptors                int
+	maxConnections                   int64
+	maxConnectionsLimiterWaitTimeout time.Duration
+	maxExecutors                     int
+	maxExecutorIdleDuration          time.Duration
+	tlsConfig                        *tls.Config
+	multipathTCP                     bool
+	proto                            int
+	pollers                          int
 }
 
 type Option func(options *Options) (err error)
@@ -48,6 +50,15 @@ func WithMaxConnections(maxConnections int64) Option {
 	return func(options *Options) (err error) {
 		if maxConnections > 0 {
 			options.maxConnections = maxConnections
+		}
+		return
+	}
+}
+
+func WithMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
+	return func(options *Options) (err error) {
+		if maxConnectionsLimiterWaitTimeout > 0 {
+			options.maxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
 		}
 		return
 	}

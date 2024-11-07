@@ -28,15 +28,16 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	opt := Options{
-		minGOMAXPROCS:           0,
-		parallelAcceptors:       runtime.NumCPU() * 2,
-		maxConnections:          InfiniteConnections,
-		maxExecutors:            0,
-		maxExecutorIdleDuration: 0,
-		tlsConfig:               nil,
-		multipathTCP:            false,
-		proto:                   0,
-		pollers:                 0,
+		minGOMAXPROCS:                    0,
+		parallelAcceptors:                runtime.NumCPU() * 2,
+		maxConnections:                   InfiniteConnections,
+		maxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
+		maxExecutors:                     0,
+		maxExecutorIdleDuration:          0,
+		tlsConfig:                        nil,
+		multipathTCP:                     false,
+		proto:                            0,
+		pollers:                          0,
 	}
 	for _, option := range options {
 		err = option(&opt)
@@ -74,14 +75,17 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			err = listenTCPErr
 			return
 		}
+		lnCtx, lnCtxCancel := context.WithCancel(ctx)
 		ln = &tcpListener{
-			ctx:                ctx,
-			inner:              inner,
-			connectionsLimiter: connectionsLimiter,
-			executors:          executors,
-			tlsConfig:          opt.tlsConfig,
-			promises:           make([]async.Promise[Connection], opt.parallelAcceptors),
-			maxprocsUndo:       maxprocsUndo,
+			ctx:                           lnCtx,
+			cancel:                        lnCtxCancel,
+			inner:                         inner,
+			connectionsLimiter:            connectionsLimiter,
+			connectionsLimiterWaitTimeout: opt.maxConnectionsLimiterWaitTimeout,
+			executors:                     executors,
+			tlsConfig:                     opt.tlsConfig,
+			promises:                      make([]async.Promise[Connection], opt.parallelAcceptors),
+			maxprocsUndo:                  maxprocsUndo,
 		}
 		break
 	case "unix":
@@ -93,13 +97,17 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			err = listenTCPErr
 			return
 		}
+		lnCtx, lnCtxCancel := context.WithCancel(ctx)
 		ln = &unixListener{
-			ctx:          ctx,
-			inner:        inner,
-			executors:    executors,
-			tlsConfig:    opt.tlsConfig,
-			promises:     make([]async.Promise[Connection], opt.parallelAcceptors),
-			maxprocsUndo: maxprocsUndo,
+			ctx:                           lnCtx,
+			cancel:                        lnCtxCancel,
+			inner:                         inner,
+			connectionsLimiter:            connectionsLimiter,
+			connectionsLimiterWaitTimeout: opt.maxConnectionsLimiterWaitTimeout,
+			executors:                     executors,
+			tlsConfig:                     opt.tlsConfig,
+			promises:                      make([]async.Promise[Connection], opt.parallelAcceptors),
+			maxprocsUndo:                  maxprocsUndo,
 		}
 		break
 	default:
