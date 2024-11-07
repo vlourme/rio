@@ -6,9 +6,14 @@ import (
 	"time"
 )
 
+const (
+	InfiniteConnections = int64(0)
+)
+
 type Options struct {
 	minGOMAXPROCS           int
 	parallelAcceptors       int
+	maxConnections          int64
 	maxExecutors            int
 	maxExecutorIdleDuration time.Duration
 	tlsConfig               *tls.Config
@@ -35,6 +40,15 @@ func WithParallelAcceptors(parallelAcceptors int) Option {
 			parallelAcceptors = cpuNum
 		}
 		options.parallelAcceptors = parallelAcceptors
+		return
+	}
+}
+
+func WithMaxConnections(maxConnections int64) Option {
+	return func(options *Options) (err error) {
+		if maxConnections > 0 {
+			options.maxConnections = maxConnections
+		}
 		return
 	}
 }

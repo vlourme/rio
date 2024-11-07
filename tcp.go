@@ -7,6 +7,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
 	"github.com/brickingsoft/rio/pkg/maxprocs"
+	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
@@ -26,28 +27,30 @@ const (
 	defaultReadBufferSize = 1024
 )
 
-func newTCPConnection(ctx context.Context, inner sockets.TCPConnection) (conn TCPConnection) {
+func newTCPConnection(ctx context.Context, inner sockets.TCPConnection, onClose ConnectionOnClose) (conn TCPConnection) {
 	connCtx, cancel := context.WithCancel(ctx)
 	conn = &tcpConnection{
-		ctx:    connCtx,
-		cancel: cancel,
-		inner:  inner,
-		rbs:    defaultReadBufferSize,
-		rb:     bytebufferpool.Get(),
-		rto:    defaultRWTimeout,
-		wto:    defaultRWTimeout,
+		ctx:     connCtx,
+		cancel:  cancel,
+		inner:   inner,
+		rbs:     defaultReadBufferSize,
+		rb:      bytebufferpool.Get(),
+		rto:     defaultRWTimeout,
+		wto:     defaultRWTimeout,
+		onClose: onClose,
 	}
 	return
 }
 
 type tcpConnection struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	inner  sockets.TCPConnection
-	rbs    int
-	rb     bytebufferpool.Buffer
-	rto    time.Duration
-	wto    time.Duration
+	ctx     context.Context
+	cancel  context.CancelFunc
+	inner   sockets.TCPConnection
+	rbs     int
+	rb      bytebufferpool.Buffer
+	rto     time.Duration
+	wto     time.Duration
+	onClose ConnectionOnClose
 }
 
 func (conn *tcpConnection) Context() (ctx context.Context) {
@@ -170,6 +173,7 @@ func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
 }
 
 func (conn *tcpConnection) Close() (err error) {
+	conn.onClose(conn)
 	conn.cancel()
 	err = conn.inner.Close()
 	conn.rb.Reset()
@@ -198,12 +202,13 @@ func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) 
 }
 
 type tcpListener struct {
-	ctx          context.Context
-	inner        sockets.TCPListener
-	executors    async.Executors
-	tlsConfig    *tls.Config
-	promises     []async.Promise[Connection]
-	maxprocsUndo maxprocs.Undo
+	ctx                context.Context
+	inner              sockets.TCPListener
+	connectionsLimiter *timeslimiter.Bucket
+	executors          async.Executors
+	tlsConfig          *tls.Config
+	promises           []async.Promise[Connection]
+	maxprocsUndo       maxprocs.Undo
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -238,6 +243,7 @@ func (ln *tcpListener) Close() (err error) {
 }
 
 func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
+	_ = ln.connectionsLimiter.Wait(ln.ctx) // discard wait err cause err must be canceled when ln was closed
 	ln.inner.Accept(func(sock sockets.TCPConnection, err error) {
 		if err != nil {
 			infinitePromise.Fail(err)
@@ -246,7 +252,9 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.TCPConnection)
 		}
-		conn := newTCPConnection(ln.ctx, sock)
+		conn := newTCPConnection(ln.ctx, sock, func(_ Connection) {
+			ln.connectionsLimiter.Revert()
+		})
 		infinitePromise.Succeed(conn)
 		ln.acceptOne(infinitePromise)
 		return

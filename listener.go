@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/maxprocs"
+	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
 	"runtime"
@@ -29,6 +30,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	opt := Options{
 		minGOMAXPROCS:           0,
 		parallelAcceptors:       runtime.NumCPU() * 2,
+		maxConnections:          InfiniteConnections,
 		maxExecutors:            0,
 		maxExecutorIdleDuration: 0,
 		tlsConfig:               nil,
@@ -48,6 +50,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		err = enableMaxprocsErr
 		return
 	}
+	// connections limiter
+	connectionsLimiter := timeslimiter.New(opt.maxConnections)
 	// executors
 	executorsOptions := make([]async.Option, 0, 1)
 	if opt.maxExecutors > 0 {
@@ -71,12 +75,13 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			return
 		}
 		ln = &tcpListener{
-			ctx:          ctx,
-			inner:        inner,
-			executors:    executors,
-			tlsConfig:    opt.tlsConfig,
-			promises:     make([]async.Promise[Connection], opt.parallelAcceptors),
-			maxprocsUndo: maxprocsUndo,
+			ctx:                ctx,
+			inner:              inner,
+			connectionsLimiter: connectionsLimiter,
+			executors:          executors,
+			tlsConfig:          opt.tlsConfig,
+			promises:           make([]async.Promise[Connection], opt.parallelAcceptors),
+			maxprocsUndo:       maxprocsUndo,
 		}
 		break
 	case "unix":

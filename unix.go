@@ -6,6 +6,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/async"
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
 	"github.com/brickingsoft/rio/pkg/maxprocs"
+	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"net"
@@ -53,12 +54,13 @@ type UnixConnection interface {
 	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[MsgOutbound])
 }
 
-func newUnixConnection(ctx context.Context, conn sockets.UnixConnection) (uc *unixConnection) {
+func newUnixConnection(ctx context.Context, conn sockets.UnixConnection, onClose ConnectionOnClose) (uc *unixConnection) {
 
 	return
 }
 
 type unixConnection struct {
+	onClose ConnectionOnClose
 }
 
 func (conn *unixConnection) Context() (ctx context.Context) {
@@ -107,6 +109,7 @@ func (conn *unixConnection) Write(p []byte) (future async.Future[Outbound]) {
 }
 
 func (conn *unixConnection) Close() (err error) {
+	conn.onClose(conn)
 	//TODO implement me
 	panic("implement me")
 }
@@ -142,12 +145,13 @@ func (conn *unixConnection) WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (fut
 }
 
 type unixListener struct {
-	ctx          context.Context
-	inner        sockets.UnixListener
-	executors    async.Executors
-	tlsConfig    *tls.Config
-	promises     []async.Promise[Connection]
-	maxprocsUndo maxprocs.Undo
+	ctx                context.Context
+	inner              sockets.UnixListener
+	connectionsLimiter *timeslimiter.Bucket
+	executors          async.Executors
+	tlsConfig          *tls.Config
+	promises           []async.Promise[Connection]
+	maxprocsUndo       maxprocs.Undo
 }
 
 func (ln *unixListener) Addr() (addr net.Addr) {
@@ -182,6 +186,7 @@ func (ln *unixListener) Close() (err error) {
 }
 
 func (ln *unixListener) acceptOne(infinitePromise async.Promise[Connection]) {
+	_ = ln.connectionsLimiter.Wait(ln.ctx) // discard wait err cause err must be canceled when ln was closed
 	ln.inner.AcceptUnix(func(sock sockets.UnixConnection, err error) {
 		if err != nil {
 			infinitePromise.Fail(err)
@@ -190,7 +195,9 @@ func (ln *unixListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.UnixConnection)
 		}
-		conn := newUnixConnection(ln.ctx, sock)
+		conn := newUnixConnection(ln.ctx, sock, func(_ Connection) {
+			ln.connectionsLimiter.Revert()
+		})
 		infinitePromise.Succeed(conn)
 		ln.acceptOne(infinitePromise)
 		return
