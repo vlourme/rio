@@ -11,17 +11,19 @@ func QuotaToGOMAXPROCS(minValue int, round func(v float64) int) (maxProcs int, s
 	if round == nil {
 		round = DefaultRoundFunc
 	}
-	groups, err := newQuery()
-	if err != nil {
+	groups, createQueryErr := newQuery()
+	if createQueryErr != nil {
 		maxProcs = -1
 		status = QuotaUndefined
+		err = createQueryErr
 		return
 	}
 
-	quota, defined, err := groups.CPUQuota()
-	if !defined || err != nil {
+	quota, defined, getQuotaErr := groups.CPUQuota()
+	if !defined || getQuotaErr != nil {
 		maxProcs = -1
 		status = QuotaUndefined
+		err = getQuotaErr
 		return
 	}
 
@@ -48,5 +50,5 @@ func newQuery() (q query, err error) {
 		q, err = cgroups.NewCGroupsForCurrentProcess()
 		return
 	}
-	return nil, err
+	return
 }

@@ -33,8 +33,9 @@ func Enable(opts ...Option) (undo Undo, err error) {
 		return
 	}
 
-	maxProcs, status, err := options.procs(options.minGOMAXPROCS, options.roundQuotaFunc)
-	if err != nil {
+	maxProcs, status, procsErr := options.procs(options.minGOMAXPROCS, options.roundQuotaFunc)
+	if procsErr != nil {
+		err = procsErr
 		return
 	}
 
