@@ -34,9 +34,9 @@ type UPDMsgAddrPortInbound interface {
 }
 
 type MsgOutbound interface {
-	Bytes() (p []byte)
 	Wrote() (n int)
 	OOBBytes() (n int)
+	UnexpectedError() (err error)
 }
 
 type UPDConnection interface {

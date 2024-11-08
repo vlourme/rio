@@ -146,25 +146,52 @@ func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
 		future = async.FailedImmediately[Outbound](conn.ctx, ErrEmptyPacket)
 		return
 	}
+
 	promise, ok := async.TryPromise[Outbound](conn.ctx)
 	if !ok {
 		future = async.FailedImmediately[Outbound](conn.ctx, ErrBusy)
 		return
 	}
+
 	timeout := time.Now().Add(conn.wto)
 	promise.SetDeadline(timeout)
-	conn.inner.Write(p, func(n int, err error) {
-		if err != nil {
-			promise.Fail(err)
-			return
-		}
+
+	conn.write(p, 0, promise)
+
+	future = promise.Future()
+	return
+}
+
+func (conn *tcpConnection) write(p []byte, wrote int, promise async.Promise[Outbound]) {
+	if err := conn.ctx.Err(); err != nil {
 		promise.Succeed(outbound{
-			p: p,
-			n: n,
+			n:   wrote,
+			err: err,
 		})
 		return
+	}
+	conn.inner.Write(p, func(n int, err error) {
+		if err != nil {
+			if wrote == 0 {
+				promise.Fail(err)
+			} else {
+				promise.Succeed(outbound{
+					n:   wrote,
+					err: err,
+				})
+			}
+			return
+		}
+		if n == len(p) {
+			promise.Succeed(outbound{
+				n:   wrote + n,
+				err: nil,
+			})
+			return
+		}
+		conn.write(p[n:], wrote+n, promise)
+		return
 	})
-	future = promise.Future()
 	return
 }
 

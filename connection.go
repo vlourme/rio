@@ -116,17 +116,17 @@ func (in inbound) Received() (n int) {
 }
 
 type Outbound interface {
-	Bytes() (p []byte)
 	Wrote() (n int)
+	UnexpectedError() (err error)
 }
 
 type outbound struct {
-	p []byte
-	n int
+	n   int
+	err error
 }
 
-func (out outbound) Bytes() (p []byte) {
-	p = out.p
+func (out outbound) UnexpectedError() (err error) {
+	err = out.err
 	return
 }
 
