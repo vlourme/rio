@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/async"
-	"github.com/brickingsoft/rio/pkg/bytebufferpool"
 	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
@@ -33,8 +32,8 @@ func newTCPConnection(ctx context.Context, inner sockets.TCPConnection) (conn TC
 		ctx:    connCtx,
 		cancel: cancel,
 		inner:  inner,
+		rb:     new(inboundBuffer),
 		rbs:    defaultReadBufferSize,
-		rb:     bytebufferpool.Get(),
 		rto:    defaultRWTimeout,
 		wto:    defaultRWTimeout,
 	}
@@ -45,8 +44,8 @@ type tcpConnection struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	inner  sockets.TCPConnection
+	rb     *inboundBuffer
 	rbs    int
-	rb     bytebufferpool.Buffer
 	rto    time.Duration
 	wto    time.Duration
 }
@@ -125,10 +124,9 @@ func (conn *tcpConnection) Read() (future async.Future[Inbound]) {
 	}
 	timeout := time.Now().Add(conn.rto)
 	promise.SetDeadline(timeout)
-	area := conn.rb.ApplyAreaForWrite(conn.rbs)
-	p := area.Bytes()
+	p := conn.rb.allocate(conn.rbs)
 	conn.inner.Read(p, func(n int, err error) {
-		area.Finish()
+		conn.rb.free()
 		if err != nil {
 			promise.Fail(err)
 			return
@@ -173,8 +171,7 @@ func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
 func (conn *tcpConnection) Close() (err error) {
 	conn.cancel()
 	err = conn.inner.Close()
-	conn.rb.Reset()
-	bytebufferpool.Put(conn.rb)
+	conn.rb.tryRelease()
 	timeslimiter.Revert(conn.ctx)
 	return
 }
