@@ -11,6 +11,7 @@ import (
 type InboundBuffer interface {
 	Peek(n int) (p []byte)
 	Next(n int) (p []byte, err error)
+	Read(p []byte) (n int, err error)
 	Discard(n int)
 }
 
@@ -63,6 +64,18 @@ func (buf *inboundBuffer) Next(n int) (p []byte, err error) {
 		return
 	}
 	p, err = buf.b.Next(n)
+	if buf.b.Len() == 0 {
+		bytebufferpool.Put(buf.b)
+		buf.b = nil
+	}
+	return
+}
+
+func (buf *inboundBuffer) Read(p []byte) (n int, err error) {
+	if buf.b == nil {
+		return
+	}
+	n, err = buf.b.Read(p)
 	if buf.b.Len() == 0 {
 		bytebufferpool.Put(buf.b)
 		buf.b = nil
