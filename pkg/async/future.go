@@ -10,7 +10,15 @@ var (
 	ErrFutureWasClosed = errors.New("rio: promise was closed")
 )
 
+// Future
+// 许诺的未来，注册一个异步非堵塞的结果处理器。
 type Future[R any] interface {
+	// OnComplete
+	// 注册一个结果处理器，它是异步非堵塞的。
+	// 除了 Promise.Fail 给到的错误外，还有可以有以下错误。
+	// context.Canceled 已取消
+	// context.DeadlineExceeded 已超时
+	// ErrFutureWasClosed 非无限流许诺的不正常关闭
 	OnComplete(handler ResultHandler[R])
 }
 
@@ -18,6 +26,10 @@ type Awaitable[R any] interface {
 	Await() (v R, err error)
 }
 
+// Await
+// 同步等待未来结果。
+// 注意，非无限流许诺只有一个未来，而无限流许诺可能有多个未来。
+// 对于无限流许诺，知道 err 不为空时才算结束。
 func Await[R any](future Future[R]) (v R, err error) {
 	awaitable, ok := future.(Awaitable[R])
 	if !ok {
@@ -143,13 +155,7 @@ func (f *futureImpl[R]) Fail(cause error) {
 }
 
 func (f *futureImpl[R]) Cancel() {
-	if f.infinite {
-		f.rch.Close()
-	}
 	f.futureCtxCancel()
-	if f.futureDeadlineCtxCancel != nil {
-		f.futureDeadlineCtxCancel()
-	}
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
@@ -159,10 +165,6 @@ func (f *futureImpl[R]) SetDeadline(t time.Time) {
 func (f *futureImpl[R]) Future() (future Future[R]) {
 	future = f
 	return
-}
-
-func (f *futureImpl[R]) Close() {
-	f.rch.Close()
 }
 
 type futureRunner[R any] struct {
@@ -179,21 +181,24 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 	futureCtxCancel := run.cancel
 	rch := run.rch
 	stopped := false
+	isUnexpectedError := false
 	for {
 		select {
 		case <-ctx.Done():
 			run.handler(ctx, *(new(R)), ctx.Err())
 			stopped = true
-			rch.CloseUnexpectedly()
+			isUnexpectedError = true
 			break
 		case <-futureCtx.Done():
 			run.handler(ctx, *(new(R)), futureCtx.Err())
 			stopped = true
-			rch.CloseUnexpectedly()
+			isUnexpectedError = true
 			break
 		case ar, ok := <-rch.ch:
 			if !ok {
-				run.handler(ctx, *(new(R)), ErrFutureWasClosed)
+				if !run.infinite {
+					run.handler(ctx, *(new(R)), ErrFutureWasClosed)
+				}
 				stopped = true
 				break
 			}
@@ -210,6 +215,9 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 		if stopped {
 			break
 		}
+	}
+	if isUnexpectedError {
+		rch.CloseUnexpectedly()
 	}
 	futureCtxCancel()
 	if run.deadlineCancel != nil {
