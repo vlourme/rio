@@ -54,13 +54,13 @@ type UnixConnection interface {
 	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[MsgOutbound])
 }
 
-func newUnixConnection(ctx context.Context, conn sockets.UnixConnection, onClose ConnectionOnClose) (uc *unixConnection) {
+func newUnixConnection(ctx context.Context, conn sockets.UnixConnection) (uc *unixConnection) {
 
 	return
 }
 
 type unixConnection struct {
-	onClose ConnectionOnClose
+	ctx context.Context
 }
 
 func (conn *unixConnection) Context() (ctx context.Context) {
@@ -109,7 +109,7 @@ func (conn *unixConnection) Write(p []byte) (future async.Future[Outbound]) {
 }
 
 func (conn *unixConnection) Close() (err error) {
-	conn.onClose(conn)
+	timeslimiter.Revert(conn.ctx)
 	//TODO implement me
 	panic("implement me")
 }
@@ -213,9 +213,7 @@ func (ln *unixListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.UnixConnection)
 		}
-		conn := newUnixConnection(ln.ctx, sock, func(_ Connection) {
-			ln.connectionsLimiter.Revert()
-		})
+		conn := newUnixConnection(ln.ctx, sock)
 		infinitePromise.Succeed(conn)
 		ln.acceptOne(infinitePromise)
 		return

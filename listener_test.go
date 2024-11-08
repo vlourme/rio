@@ -3,13 +3,19 @@ package rio_test
 import (
 	"context"
 	"github.com/brickingsoft/rio"
+	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"net"
 	"testing"
 )
 
 func TestListen(t *testing.T) {
 	ctx := context.Background()
-	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(1))
+	ln, lnErr := rio.Listen(
+		ctx,
+		"tcp", ":9000",
+		rio.WithParallelAcceptors(1),
+		rio.WithMaxConnections(10),
+	)
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
@@ -19,7 +25,7 @@ func TestListen(t *testing.T) {
 		if conn != nil {
 			addr = conn.RemoteAddr()
 		}
-		t.Log("accepted:", addr, err, ctx.Err())
+		t.Log("accepted:", timeslimiter.Tokens(ctx), addr, err, ctx.Err())
 		if conn != nil {
 			err = conn.Close()
 			if err != nil {

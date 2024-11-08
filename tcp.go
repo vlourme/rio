@@ -27,30 +27,28 @@ const (
 	defaultReadBufferSize = 1024
 )
 
-func newTCPConnection(ctx context.Context, inner sockets.TCPConnection, onClose ConnectionOnClose) (conn TCPConnection) {
+func newTCPConnection(ctx context.Context, inner sockets.TCPConnection) (conn TCPConnection) {
 	connCtx, cancel := context.WithCancel(ctx)
 	conn = &tcpConnection{
-		ctx:     connCtx,
-		cancel:  cancel,
-		inner:   inner,
-		rbs:     defaultReadBufferSize,
-		rb:      bytebufferpool.Get(),
-		rto:     defaultRWTimeout,
-		wto:     defaultRWTimeout,
-		onClose: onClose,
+		ctx:    connCtx,
+		cancel: cancel,
+		inner:  inner,
+		rbs:    defaultReadBufferSize,
+		rb:     bytebufferpool.Get(),
+		rto:    defaultRWTimeout,
+		wto:    defaultRWTimeout,
 	}
 	return
 }
 
 type tcpConnection struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	inner   sockets.TCPConnection
-	rbs     int
-	rb      bytebufferpool.Buffer
-	rto     time.Duration
-	wto     time.Duration
-	onClose ConnectionOnClose
+	ctx    context.Context
+	cancel context.CancelFunc
+	inner  sockets.TCPConnection
+	rbs    int
+	rb     bytebufferpool.Buffer
+	rto    time.Duration
+	wto    time.Duration
 }
 
 func (conn *tcpConnection) Context() (ctx context.Context) {
@@ -173,11 +171,11 @@ func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
 }
 
 func (conn *tcpConnection) Close() (err error) {
-	conn.onClose(conn)
 	conn.cancel()
 	err = conn.inner.Close()
 	conn.rb.Reset()
 	bytebufferpool.Put(conn.rb)
+	timeslimiter.Revert(conn.ctx)
 	return
 }
 
@@ -270,9 +268,7 @@ func (ln *tcpListener) acceptOne(infinitePromise async.Promise[Connection]) {
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.TCPConnection)
 		}
-		conn := newTCPConnection(ln.ctx, sock, func(conn Connection) {
-			ln.connectionsLimiter.Revert()
-		})
+		conn := newTCPConnection(ln.ctx, sock)
 		infinitePromise.Succeed(conn)
 		ln.acceptOne(infinitePromise)
 		return

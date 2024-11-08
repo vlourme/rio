@@ -61,10 +61,50 @@ func (bucket *Bucket) Revert() {
 	bucket.tokens.Add(-1)
 }
 
-func (bucket *Bucket) Used() int64 {
+func (bucket *Bucket) Tokens() int64 {
 	return bucket.tokens.Load()
 }
 
 func (bucket *Bucket) ok() bool {
 	return bucket.upperbound > 0
+}
+
+type ctxKey struct{}
+
+var (
+	key = ctxKey{}
+)
+
+func With(ctx context.Context, bucket *Bucket) context.Context {
+	return context.WithValue(ctx, key, bucket)
+}
+
+func From(ctx context.Context) *Bucket {
+	value := ctx.Value(key)
+	if value == nil {
+		panic("get bucket from context failed cause there is no bucket in context")
+		return nil
+	}
+	bucket, ok := value.(*Bucket)
+	if !ok {
+		panic("get bucket from context failed  cause the value is not a *Bucket")
+		return nil
+	}
+	return bucket
+}
+
+func Wait(ctx context.Context) (err error) {
+	bucket := From(ctx)
+	err = bucket.Wait(ctx)
+	return
+}
+
+func Revert(ctx context.Context) {
+	bucket := From(ctx)
+	bucket.Revert()
+}
+
+func Tokens(ctx context.Context) int64 {
+	bucket := From(ctx)
+	return bucket.Tokens()
 }

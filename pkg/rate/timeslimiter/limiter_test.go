@@ -15,7 +15,7 @@ func TestBucket_Wait(t *testing.T) {
 		if err != nil {
 			t.Log(err)
 		} else {
-			t.Log("ok", bucket.Used())
+			t.Log("ok", bucket.Tokens())
 		}
 		bucket.Revert()
 		cancel()

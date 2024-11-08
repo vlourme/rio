@@ -53,6 +53,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 	// connections limiter
 	connectionsLimiter := timeslimiter.New(opt.maxConnections)
+	ctx = timeslimiter.With(ctx, connectionsLimiter)
 	// executors
 	executorsOptions := make([]async.Option, 0, 1)
 	if opt.maxExecutors > 0 {
