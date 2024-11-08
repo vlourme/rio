@@ -113,13 +113,19 @@ func (buf *buffer) Read(p []byte) (n int, err error) {
 	if pLen == 0 {
 		return
 	}
-	b, nextErr := buf.Next(pLen)
-	if nextErr != nil {
-		err = nextErr
+	bufLen := buf.Len()
+	if bufLen == 0 {
+		err = io.EOF
 		return
 	}
-	copy(p, b)
-	n = len(b)
+	if pLen <= bufLen {
+		copy(p, buf.buf[buf.r:buf.r+pLen])
+		n = pLen
+	} else {
+		copy(p, buf.buf[buf.r:buf.w])
+		n = bufLen
+	}
+	buf.Discard(n)
 	return
 }
 

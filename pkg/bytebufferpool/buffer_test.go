@@ -46,5 +46,5 @@ func TestBuffer_Read(t *testing.T) {
 	_, _ = buf.WriteString("0123456789")
 	p := make([]byte, 5)
 	buf.Read(p)
-	t.Log(string(p))
+	t.Log(string(p), string(buf.Peek(5)))
 }
