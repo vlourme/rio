@@ -62,12 +62,11 @@ func (f *immediatelyFuture[R]) Await() (v R, err error) {
 	return
 }
 
-func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int) *futureImpl[R] {
+func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int, infinite bool) *futureImpl[R] {
 	futureCtx, futureCtxCancel := context.WithCancel(ctx)
 	if buf < 1 {
 		buf = 1
 	}
-	infinite := buf > 1
 	return &futureImpl[R]{
 		ctx:                     ctx,
 		futureCtx:               futureCtx,
@@ -154,9 +153,7 @@ func (f *futureImpl[R]) Cancel() {
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
-	if !f.infinite {
-		f.futureCtx, f.futureDeadlineCtxCancel = context.WithDeadline(f.futureCtx, t)
-	}
+	f.futureCtx, f.futureDeadlineCtxCancel = context.WithDeadline(f.futureCtx, t)
 }
 
 func (f *futureImpl[R]) Future() (future Future[R]) {

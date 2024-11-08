@@ -47,5 +47,5 @@ func MustPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 }
 
 func newPromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise[R] {
-	return newFuture[R](ctx, submitter, 1)
+	return newFuture[R](ctx, submitter, 1, false)
 }

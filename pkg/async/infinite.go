@@ -38,5 +38,5 @@ func MustInfinitePromise[T any](ctx context.Context, buf int) (promise Promise[T
 }
 
 func newInfinitePromise[R any](ctx context.Context, submitter ExecutorSubmitter, buf int) Promise[R] {
-	return newFuture[R](ctx, submitter, buf)
+	return newFuture[R](ctx, submitter, buf, true)
 }
