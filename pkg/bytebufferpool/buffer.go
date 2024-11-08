@@ -185,14 +185,18 @@ func (buf *buffer) ApplyAreaForWrite(n int) (area AreaOfBuffer) {
 		panic("bytebuffurpool.Buffer: cannot apply area for write, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
 		return
 	}
+	if n < 1 {
+		n = oneQuarterOfPagesize
+	}
 	if buf.Available() < n {
 		buf.grow(n)
 	}
 	buf.buf = append(buf.buf, make([]byte, n)...)
 	buf.h += n
 	area = &areaOfBuffer{
-		p:   buf.buf[buf.w:buf.h],
-		fin: buf.FinishAreaWrite,
+		p:      buf.buf[buf.w:buf.h],
+		finish: buf.FinishAreaWrite,
+		cancel: buf.CancelAreaWrite,
 	}
 	return
 }
@@ -203,6 +207,13 @@ func (buf *buffer) FinishAreaWrite() {
 		return
 	}
 	buf.w = buf.h
+}
+
+func (buf *buffer) CancelAreaWrite() {
+	if buf.h <= buf.w {
+		return
+	}
+	buf.h = buf.w
 }
 
 func (buf *buffer) Reset() {
