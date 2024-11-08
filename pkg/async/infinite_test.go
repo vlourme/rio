@@ -27,7 +27,7 @@ func TestTryInfinitePromise(t *testing.T) {
 		return
 	})
 	for i := 0; i < 10; i++ {
-		promise.Succeed(&Closer{N: i})
+		promise.Succeed(&Closer{N: i, t: t})
 	}
 	promise.Cancel()
 	<-ctx.Done()
@@ -35,8 +35,10 @@ func TestTryInfinitePromise(t *testing.T) {
 
 type Closer struct {
 	N int
+	t *testing.T
 }
 
 func (c *Closer) Close() error {
+	c.t.Log("close ", c.N)
 	return nil
 }
