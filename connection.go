@@ -105,12 +105,12 @@ type inbound struct {
 	n   int
 }
 
-func (in *inbound) Buffer() (buf InboundBuffer) {
+func (in inbound) Buffer() (buf InboundBuffer) {
 	buf = in.buf
 	return
 }
 
-func (in *inbound) Received() (n int) {
+func (in inbound) Received() (n int) {
 	n = in.n
 	return
 }
@@ -125,12 +125,12 @@ type outbound struct {
 	n int
 }
 
-func (out *outbound) Bytes() (p []byte) {
+func (out outbound) Bytes() (p []byte) {
 	p = out.p
 	return
 }
 
-func (out *outbound) Wrote() (n int) {
+func (out outbound) Wrote() (n int) {
 	n = out.n
 	return
 }

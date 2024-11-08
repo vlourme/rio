@@ -131,7 +131,7 @@ func (conn *tcpConnection) Read() (future async.Future[Inbound]) {
 			promise.Fail(err)
 			return
 		}
-		promise.Succeed(&inbound{
+		promise.Succeed(inbound{
 			buf: conn.rb,
 			n:   n,
 		})
@@ -158,7 +158,7 @@ func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
 			promise.Fail(err)
 			return
 		}
-		promise.Succeed(&outbound{
+		promise.Succeed(outbound{
 			p: p,
 			n: n,
 		})
