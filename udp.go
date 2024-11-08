@@ -2,32 +2,31 @@ package rio
 
 import (
 	"github.com/brickingsoft/rio/pkg/async"
-	"github.com/brickingsoft/rio/pkg/bytebufferpool"
 	"net"
 	"net/netip"
 )
 
 type UPDInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Buffer() (buf InboundBuffer)
 	Received() (n int)
 	Addr() (addr *net.UDPAddr)
 }
 
 type UPDAddrPortInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Buffer() (buf InboundBuffer)
 	Received() (n int)
 	Addr() (addr netip.AddrPort)
 }
 
 type UPDMsgInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Buffer() (buf InboundBuffer)
 	Received() (n int)
 	OOBBytes() (n int)
 	Flags() (n int)
 	Addr() (addr *net.UDPAddr)
 }
 type UPDMsgAddrPortInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Buffer() (buf InboundBuffer)
 	Received() (n int)
 	OOBBytes() (n int)
 	Flags() (n int)

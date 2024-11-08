@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"github.com/brickingsoft/rio/pkg/async"
-	"github.com/brickingsoft/rio/pkg/bytebufferpool"
 	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
@@ -17,13 +16,13 @@ import (
 // udp: unixgram
 
 type UnixInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Buffer() (buf InboundBuffer)
 	Received() (n int)
 	Addr() (addr *net.UnixAddr)
 }
 
 type UnixMsgInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
+	Buffer() (buf InboundBuffer)
 	Received() (n int)
 	OOBBytes() (n int)
 	Flags() (n int)
