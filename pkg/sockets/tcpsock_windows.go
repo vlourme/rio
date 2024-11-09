@@ -179,6 +179,9 @@ func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
 	if pLen == 0 {
 		handler(0, errors.New("rio: empty packet"))
 		return
+	} else if pLen > maxRW {
+		p = p[:maxRW]
+		pLen = maxRW
 	}
 	conn.rop.mode = read
 	conn.rop.buf.Buf = &p[0]
@@ -199,6 +202,9 @@ func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
 	if pLen == 0 {
 		handler(0, errors.New("rio: empty packet"))
 		return
+	} else if pLen > maxRW {
+		p = p[:maxRW]
+		pLen = maxRW
 	}
 	conn.wop.mode = write
 	conn.wop.buf.Buf = &p[0]

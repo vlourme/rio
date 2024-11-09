@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const maxRW = 1 << 30
+
 func wrapSyscallError(name string, err error) error {
 	var errno windows.Errno
 	if errors.As(err, &errno) {
