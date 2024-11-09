@@ -13,6 +13,7 @@ type InboundReader interface {
 type InboundBuffer interface {
 	InboundReader
 	Allocate(size int) (p []byte)
+	Write(p []byte) (n int, err error)
 	Free()
 	Close()
 }
@@ -44,6 +45,14 @@ func (buf *inboundBuffer) Free() {
 		buf.area.Finish()
 		buf.area = nil
 	}
+}
+
+func (buf *inboundBuffer) Write(p []byte) (n int, err error) {
+	if buf.b == nil {
+		buf.b = bytebufferpool.Get()
+	}
+	n, err = buf.b.Write(p)
+	return
 }
 
 func (buf *inboundBuffer) Close() {
