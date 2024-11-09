@@ -22,7 +22,15 @@ func ListenTCP(network string, address string, opt Options) (ln TCPListener, err
 }
 
 func DialTCP() (conn Connection, err error) {
-
+	// todo
+	// net/fd_windows
+	// netFD.connect()
+	// socket fd
+	//
+	// 直接 ConnectEx
+	//
+	// 如果实现 WSAIoctl
+	// 则在之前，处理127.0.0.1的情况
 	return
 }
 

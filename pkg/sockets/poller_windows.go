@@ -21,7 +21,7 @@ func newPoller(cnt int, cphandle windows.Handle) *poller {
 }
 
 type poller struct {
-	cphandle windows.Handle
+	cphandle windows.Handle // root iocp
 	key      uintptr
 	cnt      int
 }

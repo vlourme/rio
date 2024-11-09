@@ -13,12 +13,24 @@ import (
 )
 
 func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool, proto int, pollers int) (ln *tcpListener, err error) {
+	// todo >>>
+	// mv root iocp to shared
+	// mv poller to shared ?
+	// such as
+	// var (
+	// 		poller {iocp handle} // add runtime.SetFinalizer(pl, pl.stop) in new
+	// )
+	// all srv and cli use same root iocp
+	// <<<
+
+	// todo wsa startup may not be called, and it works when not called
+	// todo also wsa clean up
 	// startup wsa
-	_, startupErr := wsaStartup()
-	if startupErr != nil {
-		err = os.NewSyscallError("WSAStartup", startupErr)
-		return
-	}
+	//_, startupErr := wsaStartup()
+	//if startupErr != nil {
+	//	err = os.NewSyscallError("WSAStartup", startupErr)
+	//	return
+	//}
 	// create root iocp
 	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
 	if createIOCPErr != nil {
@@ -146,9 +158,9 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 }
 
 func (ln *tcpListener) Close() (err error) {
-	defer func() {
-		_ = windows.WSACleanup()
-	}()
+	//defer func() {
+	//	_ = windows.WSACleanup()
+	//}()
 	// stop polling
 	ln.poller.stop()
 	// close socket

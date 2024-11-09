@@ -29,9 +29,10 @@ type operation struct {
 	qty    uint32
 	// fields used only by net callback
 	tcpAcceptHandler           TCPAcceptHandler
+	unixAcceptHandler          UnixAcceptHandler
+	listenPacketHandler        ListenPacketHandler // todo use listen udp handler
 	readHandler                ReadHandler
 	writeHandler               WriteHandler
-	packetAcceptHandler        PacketAcceptHandler
 	readFromHandler            ReadFromHandler
 	readFromUDPHandler         ReadFromUDPHandler
 	readFromUDPAddrPortHandler ReadFromUDPAddrPortHandler
@@ -40,7 +41,6 @@ type operation struct {
 	writeMsgHandler            WriteMsgHandler
 	readFromUnixHandler        ReadFromUnixHandler
 	readMsgUnixHandler         ReadMsgUnixHandler
-	unixAcceptHandler          UnixAcceptHandler
 }
 
 func (op *operation) complete(qty int, err error) {

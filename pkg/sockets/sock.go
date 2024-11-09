@@ -38,7 +38,7 @@ type TCPConnection interface {
 
 type ReadFromHandler func(n int, addr net.Addr, err error)
 
-type PacketAcceptHandler func(conn PacketConnection, err error)
+type ListenPacketHandler func(conn PacketConnection, err error)
 
 type PacketConnection interface {
 	LocalAddr() (addr net.Addr)
@@ -56,7 +56,7 @@ type ReadMsgUDPHandler func(n int, oobn int, flags int, addr *net.UDPAddr, err e
 type ReadMsgUDPAddrPortHandler func(n int, oobn int, flags int, addr netip.AddrPort, err error)
 type WriteMsgHandler func(n int, oobn int, err error)
 
-type UPDConnection interface {
+type UDPConnection interface {
 	PacketConnection
 	// ReadFromUDP acts like ReadFrom but returns a UDPAddr.
 	ReadFromUDP(p []byte, handler ReadFromUDPHandler)
@@ -126,4 +126,7 @@ type UnixListener interface {
 	Addr() (addr net.Addr)
 	AcceptUnix(handler UnixAcceptHandler)
 	Close() (err error)
+}
+
+type IPConnection interface {
 }

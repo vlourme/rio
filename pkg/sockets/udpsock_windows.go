@@ -87,9 +87,6 @@ func (conn *udpConnection) polling() {
 }
 
 func (conn *udpConnection) Close() (err error) {
-	defer func() {
-		_ = windows.WSACleanup()
-	}()
 	// stop polling
 	conn.poller.stop()
 	// close socket
