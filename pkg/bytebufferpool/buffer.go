@@ -22,6 +22,8 @@ type Buffer interface {
 	WriteByte(c byte) (err error)
 	WriteRune(r rune) (n int, err error)
 	ApplyAreaForWrite(n int) (area AreaOfBuffer)
+	WritePending() bool
+	Empty() bool
 	Reset()
 }
 
@@ -64,7 +66,7 @@ func (buf *buffer) Available() (n int) {
 }
 
 func (buf *buffer) Peek(n int) (p []byte) {
-	if n < 1 || buf.empty() {
+	if n < 1 || buf.Len() == 0 {
 		return
 	}
 	if buf.Len() > n {
@@ -79,10 +81,13 @@ func (buf *buffer) Next(n int) (p []byte, err error) {
 	if n < 1 {
 		return
 	}
+	if buf.Empty() {
+		err = io.EOF
+		return
+	}
 	b := buf.Peek(n)
 	peeked := len(b)
 	if peeked == 0 {
-		err = io.EOF
 		return
 	}
 	p = make([]byte, peeked)
@@ -92,7 +97,7 @@ func (buf *buffer) Next(n int) (p []byte, err error) {
 }
 
 func (buf *buffer) Discard(n int) {
-	if n < 1 || buf.empty() {
+	if n < 1 || buf.Len() == 0 {
 		return
 	}
 	if buf.Len() <= n {
@@ -113,9 +118,12 @@ func (buf *buffer) Read(p []byte) (n int, err error) {
 	if pLen == 0 {
 		return
 	}
+	if buf.Empty() {
+		err = io.EOF
+		return
+	}
 	bufLen := buf.Len()
 	if bufLen == 0 {
-		err = io.EOF
 		return
 	}
 	if pLen <= bufLen {
@@ -268,6 +276,10 @@ func (buf *buffer) tryReset() {
 	return
 }
 
-func (buf *buffer) empty() bool {
-	return buf.Len() == 0
+func (buf *buffer) WritePending() bool {
+	return buf.h > buf.w
+}
+
+func (buf *buffer) Empty() bool {
+	return buf.w-buf.r == 0 && buf.h == buf.w
 }
