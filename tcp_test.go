@@ -3,6 +3,7 @@ package rio_test
 import (
 	"context"
 	"github.com/brickingsoft/rio"
+	"github.com/brickingsoft/rio/transport"
 	"net"
 	"testing"
 )
@@ -24,16 +25,16 @@ func TestTCP(t *testing.T) {
 			return
 		}
 		t.Log("srv accept:", conn.RemoteAddr(), err)
-		conn.Read().OnComplete(func(ctx context.Context, in rio.Inbound, err error) {
+		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
 			if err != nil {
 				t.Error("srv read:", err)
 				_ = conn.Close()
 				return
 			}
 			n := in.Received()
-			p, _ := in.Buffer().Next(n)
+			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
-			conn.Write(p).OnComplete(func(ctx context.Context, out rio.Outbound, err error) {
+			conn.Write(p).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
 				if err != nil {
 					t.Error("srv write:", err)
 					return
