@@ -9,6 +9,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rio/transport"
 	"net"
 	"time"
 )
@@ -32,7 +33,7 @@ func newTCPConnection(ctx context.Context, inner sockets.TCPConnection) (conn TC
 		ctx:    connCtx,
 		cancel: cancel,
 		inner:  inner,
-		rb:     new(inboundBuffer),
+		rb:     transport.NewInboundBuffer(),
 		rbs:    defaultReadBufferSize,
 		rto:    defaultRWTimeout,
 		wto:    defaultRWTimeout,
@@ -44,7 +45,7 @@ type tcpConnection struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	inner  sockets.TCPConnection
-	rb     *inboundBuffer
+	rb     transport.InboundBuffer
 	rbs    int
 	rto    time.Duration
 	wto    time.Duration
@@ -116,40 +117,38 @@ func (conn *tcpConnection) SetReadBufferSize(size int) {
 	return
 }
 
-func (conn *tcpConnection) Read() (future async.Future[Inbound]) {
-	promise, ok := async.TryPromise[Inbound](conn.ctx)
+func (conn *tcpConnection) Read() (future async.Future[transport.Inbound]) {
+	promise, ok := async.TryPromise[transport.Inbound](conn.ctx)
 	if !ok {
-		future = async.FailedImmediately[Inbound](conn.ctx, ErrBusy)
+		future = async.FailedImmediately[transport.Inbound](conn.ctx, ErrBusy)
 		return
 	}
 	timeout := time.Now().Add(conn.rto)
 	promise.SetDeadline(timeout)
-	p := conn.rb.allocate(conn.rbs)
+	p := conn.rb.Allocate(conn.rbs)
 	conn.inner.Read(p, func(n int, err error) {
-		conn.rb.free()
+		conn.rb.Free()
 		if err != nil {
 			promise.Fail(err)
 			return
 		}
-		promise.Succeed(inbound{
-			buf: conn.rb,
-			n:   n,
-		})
+		inbound := transport.NewInbound(conn.rb, n)
+		promise.Succeed(inbound)
 		return
 	})
 	future = promise.Future()
 	return
 }
 
-func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
+func (conn *tcpConnection) Write(p []byte) (future async.Future[transport.Outbound]) {
 	if len(p) == 0 {
-		future = async.FailedImmediately[Outbound](conn.ctx, ErrEmptyPacket)
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrEmptyPacket)
 		return
 	}
 
-	promise, ok := async.TryPromise[Outbound](conn.ctx)
+	promise, ok := async.TryPromise[transport.Outbound](conn.ctx)
 	if !ok {
-		future = async.FailedImmediately[Outbound](conn.ctx, ErrBusy)
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
 		return
 	}
 
@@ -162,12 +161,10 @@ func (conn *tcpConnection) Write(p []byte) (future async.Future[Outbound]) {
 	return
 }
 
-func (conn *tcpConnection) write(p []byte, wrote int, promise async.Promise[Outbound]) {
+func (conn *tcpConnection) write(p []byte, wrote int, promise async.Promise[transport.Outbound]) {
 	if err := conn.ctx.Err(); err != nil {
-		promise.Succeed(outbound{
-			n:   wrote,
-			err: err,
-		})
+		outbound := transport.NewOutBound(wrote, err)
+		promise.Succeed(outbound)
 		return
 	}
 	conn.inner.Write(p, func(n int, err error) {
@@ -175,18 +172,14 @@ func (conn *tcpConnection) write(p []byte, wrote int, promise async.Promise[Outb
 			if wrote == 0 {
 				promise.Fail(err)
 			} else {
-				promise.Succeed(outbound{
-					n:   wrote,
-					err: err,
-				})
+				outbound := transport.NewOutBound(wrote, err)
+				promise.Succeed(outbound)
 			}
 			return
 		}
 		if n == len(p) {
-			promise.Succeed(outbound{
-				n:   wrote + n,
-				err: nil,
-			})
+			outbound := transport.NewOutBound(wrote+n, nil)
+			promise.Succeed(outbound)
 			return
 		}
 		conn.write(p[n:], wrote+n, promise)
@@ -198,7 +191,7 @@ func (conn *tcpConnection) write(p []byte, wrote int, promise async.Promise[Outb
 func (conn *tcpConnection) Close() (err error) {
 	conn.cancel()
 	err = conn.inner.Close()
-	conn.rb.tryRelease()
+	conn.rb.Close()
 	timeslimiter.Revert(conn.ctx)
 	return
 }

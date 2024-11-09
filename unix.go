@@ -8,6 +8,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rio/transport"
 	"net"
 	"time"
 )
@@ -15,25 +16,11 @@ import (
 // tcp: unix,unixpacket
 // udp: unixgram
 
-type UnixInbound interface {
-	Buffer() (buf InboundBuffer)
-	Received() (n int)
-	Addr() (addr *net.UnixAddr)
-}
-
-type UnixMsgInbound interface {
-	Buffer() (buf InboundBuffer)
-	Received() (n int)
-	OOBBytes() (n int)
-	Flags() (n int)
-	Addr() (addr *net.UnixAddr)
-}
-
 type UnixConnection interface {
 	Connection
 	PacketConnection
 	// ReadFromUnix acts like [UnixConn.ReadFrom] but returns a [UnixAddr].
-	ReadFromUnix() (future async.Future[UnixInbound])
+	ReadFromUnix() (future async.Future[transport.UnixInbound])
 	// ReadMsgUnix reads a message from c, copying the payload into b and
 	// the associated out-of-band data into oob. It returns the number of
 	// bytes copied into b, the number of bytes copied into oob, the flags
@@ -41,16 +28,16 @@ type UnixConnection interface {
 	//
 	// Note that if len(b) == 0 and len(oob) > 0, this function will still
 	// read (and discard) 1 byte from the connection.
-	ReadMsgUnix() (future async.Future[UnixMsgInbound])
+	ReadMsgUnix() (future async.Future[transport.UnixMsgInbound])
 	// WriteToUnix acts like [UnixConn.WriteTo] but takes a [UnixAddr].
-	WriteToUnix(b []byte, addr *net.UnixAddr) (future async.Future[Outbound])
+	WriteToUnix(b []byte, addr *net.UnixAddr) (future async.Future[transport.Outbound])
 	// WriteMsgUnix writes a message to addr via c, copying the payload
 	// from b and the associated out-of-band data from oob. It returns the
 	// number of payload and out-of-band bytes written.
 	//
 	// Note that if len(b) == 0 and len(oob) > 0, this function will still
 	// write 1 byte to the connection.
-	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[MsgOutbound])
+	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[transport.MsgOutbound])
 }
 
 func newUnixConnection(ctx context.Context, conn sockets.UnixConnection) (uc *unixConnection) {
@@ -97,12 +84,12 @@ func (conn *unixConnection) SetReadBufferSize(size int) {
 	panic("implement me")
 }
 
-func (conn *unixConnection) Read() (future async.Future[Inbound]) {
+func (conn *unixConnection) Read() (future async.Future[transport.Inbound]) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *unixConnection) Write(p []byte) (future async.Future[Outbound]) {
+func (conn *unixConnection) Write(p []byte) (future async.Future[transport.Outbound]) {
 	//TODO implement me
 	panic("implement me")
 }
@@ -113,32 +100,32 @@ func (conn *unixConnection) Close() (err error) {
 	panic("implement me")
 }
 
-func (conn *unixConnection) ReadFrom() (future async.Future[PacketInbound]) {
+func (conn *unixConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *unixConnection) WriteTo(p []byte, addr net.Addr) (future async.Future[Outbound]) {
+func (conn *unixConnection) WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound]) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *unixConnection) ReadFromUnix() (future async.Future[UnixInbound]) {
+func (conn *unixConnection) ReadFromUnix() (future async.Future[transport.UnixInbound]) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *unixConnection) ReadMsgUnix() (future async.Future[UnixMsgInbound]) {
+func (conn *unixConnection) ReadMsgUnix() (future async.Future[transport.UnixMsgInbound]) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *unixConnection) WriteToUnix(b []byte, addr *net.UnixAddr) (future async.Future[Outbound]) {
+func (conn *unixConnection) WriteToUnix(b []byte, addr *net.UnixAddr) (future async.Future[transport.Outbound]) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (conn *unixConnection) WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[MsgOutbound]) {
+func (conn *unixConnection) WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[transport.MsgOutbound]) {
 	//TODO implement me
 	panic("implement me")
 }

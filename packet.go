@@ -3,7 +3,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/async"
-	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+	"github.com/brickingsoft/rio/transport"
 	"net"
 	"time"
 )
@@ -15,12 +15,6 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 	return
 }
 
-type PacketInbound interface {
-	Buffer() (buf bytebufferpool.Buffer)
-	Received() (n int)
-	Addr() (addr net.Addr)
-}
-
 type PacketConnection interface {
 	Context() (ctx context.Context)
 	LocalAddr() (addr net.Addr)
@@ -28,7 +22,7 @@ type PacketConnection interface {
 	SetReadDeadline(deadline time.Time) error
 	SetWriteDeadline(deadline time.Time) error
 	SetReadBufferSize(size int)
-	ReadFrom() (future async.Future[PacketInbound])
-	WriteTo(p []byte, addr net.Addr) (future async.Future[Outbound])
+	ReadFrom() (future async.Future[transport.PacketInbound])
+	WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound])
 	Close() error
 }
