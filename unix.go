@@ -157,7 +157,7 @@ func (ln *unixListener) Accept() (future async.Future[Connection]) {
 			_ = ln.Close()
 			return
 		}
-		ln.acceptOne(promise)
+		ln.acceptOne(promise, 0)
 		ln.promises[i] = promise
 	}
 	future = async.Group[Connection](ln.promises)
@@ -170,7 +170,7 @@ func (ln *unixListener) Close() (err error) {
 	}
 	ln.cancel()
 	err = ln.inner.Close()
-	ln.executors.GracefulClose()
+	ln.executors.CloseGracefully()
 	ln.maxprocsUndo()
 	return
 }
@@ -179,29 +179,34 @@ func (ln *unixListener) ok() bool {
 	return ln.ctx.Err() == nil
 }
 
-func (ln *unixListener) acceptOne(infinitePromise async.Promise[Connection]) {
+func (ln *unixListener) acceptOne(streamPromise async.Promise[Connection], limitedTimes int) {
 	if !ln.ok() {
-		infinitePromise.Fail(ErrClosed)
+		streamPromise.Fail(ErrClosed)
 		return
+	}
+	if limitedTimes > 9 {
+		time.Sleep(ms10)
+		limitedTimes = 0
 	}
 	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
 	waitErr := ln.connectionsLimiter.Wait(ctx)
 	cancel()
 	if waitErr != nil {
-		ln.acceptOne(infinitePromise)
+		limitedTimes++
+		ln.acceptOne(streamPromise, limitedTimes)
 		return
 	}
 	ln.inner.AcceptUnix(func(sock sockets.UnixConnection, err error) {
 		if err != nil {
-			infinitePromise.Fail(err)
+			streamPromise.Fail(err)
 			return
 		}
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.UnixConnection)
 		}
 		conn := newUnixConnection(ln.ctx, sock)
-		infinitePromise.Succeed(conn)
-		ln.acceptOne(infinitePromise)
+		streamPromise.Succeed(conn)
+		ln.acceptOne(streamPromise, 0)
 		return
 	})
 }
