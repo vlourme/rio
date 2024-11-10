@@ -61,7 +61,6 @@ func (submitter *executorSubmitterImpl) Submit(ctx context.Context, runnable Run
 
 const (
 	ns500 = 500 * time.Nanosecond
-	ms500 = 500 * time.Millisecond
 )
 
 type counter struct {
@@ -87,7 +86,7 @@ func (c *counter) Wait() {
 		if n < 1 {
 			break
 		}
-		time.Sleep(ms500)
+		time.Sleep(ns500)
 		times--
 		if times < 1 {
 			times = 10
