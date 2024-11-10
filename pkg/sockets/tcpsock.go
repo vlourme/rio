@@ -3,7 +3,6 @@ package sockets
 import (
 	"errors"
 	"net"
-	"time"
 )
 
 func ListenTCP(network string, address string, opt Options) (ln TCPListener, err error) {
@@ -34,9 +33,4 @@ func DialTCP(network string, address string, opt Options, handler TCPDialHandler
 	}
 	connectTCP(network, family, tcpAddr, ipv6only, opt.Proto, handler)
 	return
-}
-
-// roundDurationUp rounds d to the next multiple of to.
-func roundDurationUp(d time.Duration, to time.Duration) time.Duration {
-	return (d + to - 1) / to
 }

@@ -1,8 +1,6 @@
 package sockets
 
-type ListenUPDHandler func(conn UDPConnection, err error)
-
-func ListenUPD(handler ListenUPDHandler) {
+func ListenUPD(network string, address string, opt Options, handler ListenUDPHandler) {
 	// udp addr
 	// conn socket
 	// conn
