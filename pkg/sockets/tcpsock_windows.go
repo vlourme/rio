@@ -13,30 +13,6 @@ import (
 )
 
 func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool, proto int, pollers int) (ln *tcpListener, err error) {
-	// todo >>>
-	// mv root iocp to shared
-	// mv poller to shared ?
-	// such as
-	// var (
-	// 		poller {iocp handle} // add runtime.SetFinalizer(pl, pl.stop) in new
-	// )
-	// all srv and cli use same root iocp
-	// <<<
-
-	// todo wsa startup may not be called, and it works when not called
-	// todo also wsa clean up
-	// startup wsa
-	//_, startupErr := wsaStartup()
-	//if startupErr != nil {
-	//	err = os.NewSyscallError("WSAStartup", startupErr)
-	//	return
-	//}
-	// create root iocp
-	//cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
-	//if createIOCPErr != nil {
-	//	err = os.NewSyscallError("CreateIoCompletionPort", createIOCPErr)
-	//	return
-	//}
 	// create listener fd
 	fd, fdErr := windows.WSASocket(int32(family), windows.SOCK_STREAM, int32(proto), nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
 	if fdErr != nil {
