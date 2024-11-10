@@ -3,7 +3,7 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/async"
+	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/sockets"

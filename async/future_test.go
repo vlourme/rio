@@ -3,17 +3,17 @@ package async_test
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/async"
+	async2 "github.com/brickingsoft/rio/async"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestTryPromise(t *testing.T) {
-	exec := async.New()
+	exec := async2.New()
 	defer exec.GracefulClose()
-	ctx := async.With(context.Background(), exec)
-	promise, ok := async.TryPromise[int](ctx)
+	ctx := async2.With(context.Background(), exec)
+	promise, ok := async2.TryPromise[int](ctx)
 	if !ok {
 		t.Errorf("try promise failed")
 		return
@@ -26,10 +26,10 @@ func TestTryPromise(t *testing.T) {
 }
 
 func TestMustPromise(t *testing.T) {
-	exec := async.New()
+	exec := async2.New()
 	defer exec.GracefulClose()
-	ctx := async.With(context.Background(), exec)
-	promise, err := async.MustPromise[int](ctx)
+	ctx := async2.With(context.Background(), exec)
+	promise, err := async2.MustPromise[int](ctx)
 	if err != nil {
 		t.Errorf("must promise failed")
 		return
@@ -46,10 +46,10 @@ func TestMustPromise(t *testing.T) {
 }
 
 func TestTryPromise_CompleteErr(t *testing.T) {
-	exec := async.New()
+	exec := async2.New()
 	defer exec.Close()
-	ctx := async.With(context.Background(), exec)
-	promise, ok := async.TryPromise[int](ctx)
+	ctx := async2.With(context.Background(), exec)
+	promise, ok := async2.TryPromise[int](ctx)
 	if !ok {
 		t.Errorf("try promise failed")
 		return
@@ -66,12 +66,12 @@ func TestTryPromise_CompleteErr(t *testing.T) {
 }
 
 func TestTryPromise_Cancel(t *testing.T) {
-	exec := async.New()
+	exec := async2.New()
 	defer exec.Close()
-	ctx := async.With(context.Background(), exec)
+	ctx := async2.With(context.Background(), exec)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	promise1, ok1 := async.TryPromise[int](ctx)
+	promise1, ok1 := async2.TryPromise[int](ctx)
 	if !ok1 {
 		t.Errorf("try promise1 failed")
 		return
@@ -80,7 +80,7 @@ func TestTryPromise_Cancel(t *testing.T) {
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future1 result:", result, err)
 		wg.Add(1)
-		promise2, ok2 := async.TryPromise[int](ctx)
+		promise2, ok2 := async2.TryPromise[int](ctx)
 		if !ok2 {
 			t.Errorf("try promise2 failed")
 		}
@@ -97,12 +97,12 @@ func TestTryPromise_Cancel(t *testing.T) {
 }
 
 func TestTryPromise_Timeout(t *testing.T) {
-	exec := async.New()
+	exec := async2.New()
 	defer exec.Close()
-	ctx := async.With(context.Background(), exec)
+	ctx := async2.With(context.Background(), exec)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	promise1, ok1 := async.TryPromise[int](ctx)
+	promise1, ok1 := async2.TryPromise[int](ctx)
 	if !ok1 {
 		t.Errorf("try promise1 failed")
 		return
@@ -112,7 +112,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
 		t.Log("future1 result:", result, err)
 		wg.Add(1)
-		promise2, ok2 := async.TryPromise[int](ctx)
+		promise2, ok2 := async2.TryPromise[int](ctx)
 		if !ok2 {
 			t.Errorf("try promise2 failed")
 		}
@@ -130,17 +130,17 @@ func TestTryPromise_Timeout(t *testing.T) {
 }
 
 func TestPromise_Await(t *testing.T) {
-	exec := async.New()
+	exec := async2.New()
 	defer exec.Close()
-	ctx := async.With(context.Background(), exec)
-	promise, ok := async.TryPromise[int](ctx)
+	ctx := async2.With(context.Background(), exec)
+	promise, ok := async2.TryPromise[int](ctx)
 	if !ok {
 		t.Errorf("try promise failed")
 		return
 	}
 	promise.Succeed(1)
 	future := promise.Future()
-	v, err := async.Await[int](future)
+	v, err := async2.Await[int](future)
 	if err != nil {
 		t.Errorf("await failed: %v", err)
 	}
@@ -149,14 +149,14 @@ func TestPromise_Await(t *testing.T) {
 
 func BenchmarkTryPromise(b *testing.B) {
 	b.ReportAllocs()
-	exec := async.New()
+	exec := async2.New()
 	defer exec.Close()
-	ctx := async.With(context.Background(), exec)
+	ctx := async2.With(context.Background(), exec)
 	wg := new(sync.WaitGroup)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			promise, ok := async.TryPromise[int](ctx)
+			promise, ok := async2.TryPromise[int](ctx)
 			if !ok {
 				b.Errorf("try promise failed")
 				return

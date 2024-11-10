@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/async"
+	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/transport"
 	"io"
 )

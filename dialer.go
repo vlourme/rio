@@ -1,7 +1,7 @@
 package rio
 
 import (
-	"github.com/brickingsoft/rio/pkg/async"
+	"github.com/brickingsoft/rio/async"
 )
 
 func Dial() (future async.Future[Connection]) {

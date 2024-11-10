@@ -2,7 +2,7 @@ package async_test
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/async"
+	"github.com/brickingsoft/rio/async"
 	"sync"
 	"testing"
 )

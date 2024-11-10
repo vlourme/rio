@@ -2,7 +2,7 @@ package codec
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/async"
+	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/transport"
 )
 
