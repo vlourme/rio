@@ -21,11 +21,11 @@ func LengthFieldDecode(ctx context.Context, reader FutureReader) (future async.F
 	return
 }
 
-func LengthFieldInfiniteDecode(ctx context.Context, reader FutureReader, infiniteBuf int) (future async.Future[[]byte]) {
+func LengthFieldStreamDecode(ctx context.Context, reader FutureReader, buf int) (future async.Future[[]byte]) {
 	decoder := LengthFieldDecoder[[]byte]{
 		infinite: true,
 	}
-	future = InfiniteDecode[[]byte](ctx, reader, &decoder, infiniteBuf)
+	future = StreamDecode[[]byte](ctx, reader, &decoder, buf)
 	return
 }
 

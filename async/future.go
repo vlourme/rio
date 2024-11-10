@@ -29,7 +29,7 @@ type Awaitable[R any] interface {
 // Await
 // 同步等待未来结果。
 // 注意，非无限流许诺只有一个未来，而无限流许诺可能有多个未来。
-// 对于无限流许诺，知道 err 不为空时才算结束。
+// 对于无限流许诺，直到 err 不为空时才算结束。
 func Await[R any](future Future[R]) (v R, err error) {
 	awaitable, ok := future.(Awaitable[R])
 	if !ok {
@@ -74,7 +74,7 @@ func (f *immediatelyFuture[R]) Await() (v R, err error) {
 	return
 }
 
-func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int, infinite bool) *futureImpl[R] {
+func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int, stream bool) *futureImpl[R] {
 	futureCtx, futureCtxCancel := context.WithCancel(ctx)
 	if buf < 1 {
 		buf = 1
@@ -84,7 +84,7 @@ func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int,
 		futureCtx:               futureCtx,
 		futureCtxCancel:         futureCtxCancel,
 		futureDeadlineCtxCancel: nil,
-		infinite:                infinite,
+		stream:                  stream,
 		rch:                     newResultChan[R](buf),
 		submitter:               submitter,
 	}
@@ -95,7 +95,7 @@ type futureImpl[R any] struct {
 	futureCtx               context.Context
 	futureCtxCancel         context.CancelFunc
 	futureDeadlineCtxCancel context.CancelFunc
-	infinite                bool
+	stream                  bool
 	rch                     *resultChan[R]
 	submitter               ExecutorSubmitter
 }
@@ -105,7 +105,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 		ctx:            f.futureCtx,
 		cancel:         f.futureCtxCancel,
 		deadlineCancel: f.futureDeadlineCtxCancel,
-		infinite:       f.infinite,
+		stream:         f.stream,
 		rch:            f.rch,
 		handler:        handler,
 	}
@@ -122,7 +122,7 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 		ctx:            f.futureCtx,
 		cancel:         f.futureCtxCancel,
 		deadlineCancel: f.futureDeadlineCtxCancel,
-		infinite:       f.infinite,
+		stream:         f.stream,
 		rch:            f.rch,
 		handler:        handler,
 	}
@@ -135,21 +135,21 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 
 func (f *futureImpl[R]) Complete(result R, err error) {
 	f.rch.Emit(newAsyncResult[R](result, err))
-	if !f.infinite {
+	if !f.stream {
 		f.rch.Close()
 	}
 }
 
 func (f *futureImpl[R]) Succeed(result R) {
 	f.rch.Emit(newSucceedAsyncResult[R](result))
-	if !f.infinite {
+	if !f.stream {
 		f.rch.Close()
 	}
 }
 
 func (f *futureImpl[R]) Fail(cause error) {
 	f.rch.Emit(newFailedAsyncResult[R](cause))
-	if !f.infinite {
+	if !f.stream {
 		f.rch.Close()
 	}
 }
@@ -171,7 +171,7 @@ type futureRunner[R any] struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	deadlineCancel context.CancelFunc
-	infinite       bool
+	stream         bool
 	rch            *resultChan[R]
 	handler        ResultHandler[R]
 }
@@ -196,7 +196,7 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			break
 		case ar, ok := <-rch.ch:
 			if !ok {
-				if !run.infinite {
+				if !run.stream {
 					run.handler(ctx, *(new(R)), ErrFutureWasClosed)
 				}
 				stopped = true
@@ -207,7 +207,7 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			} else {
 				run.handler(ctx, *(new(R)), ar.Cause())
 			}
-			if !run.infinite {
+			if !run.stream {
 				stopped = true
 			}
 			break

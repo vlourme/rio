@@ -151,7 +151,7 @@ func (ln *unixListener) Accept() (future async.Future[Connection]) {
 	ctx := ln.ctx
 	promisesLen := len(ln.promises)
 	for i := 0; i < promisesLen; i++ {
-		promise, promiseErr := async.MustInfinitePromise[Connection](ctx, 8)
+		promise, promiseErr := async.MustStreamPromise[Connection](ctx, 8)
 		if promiseErr != nil {
 			future = async.FailedImmediately[Connection](ctx, promiseErr)
 			_ = ln.Close()

@@ -25,8 +25,8 @@ func Decode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T])
 	return
 }
 
-func InfiniteDecode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T], infiniteBuf int) (future async.Future[T]) {
-	promise, promiseErr := async.MustInfinitePromise[T](ctx, infiniteBuf)
+func StreamDecode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T], buf int) (future async.Future[T]) {
+	promise, promiseErr := async.MustStreamPromise[T](ctx, buf)
 	if promiseErr != nil {
 		future = async.FailedImmediately[T](ctx, promiseErr)
 		return
