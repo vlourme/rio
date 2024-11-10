@@ -30,14 +30,13 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	opt := Options{
 		minGOMAXPROCS:                    0,
 		parallelAcceptors:                runtime.NumCPU() * 2,
-		maxConnections:                   InfiniteConnections,
+		maxConnections:                   DefaultMaxConnections,
 		maxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
 		maxExecutors:                     0,
 		maxExecutorIdleDuration:          0,
 		tlsConfig:                        nil,
 		multipathTCP:                     false,
 		proto:                            0,
-		pollers:                          0,
 	}
 	for _, option := range options {
 		err = option(&opt)
@@ -70,7 +69,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		inner, listenTCPErr := sockets.ListenTCP(network, addr, sockets.Options{
 			MultipathTCP: opt.multipathTCP,
 			Proto:        opt.proto,
-			Pollers:      opt.pollers,
 		})
 		if listenTCPErr != nil {
 			err = listenTCPErr
@@ -91,8 +89,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		break
 	case "unix":
 		inner, listenTCPErr := sockets.ListenUnix(network, addr, sockets.Options{
-			Proto:   opt.proto,
-			Pollers: opt.pollers,
+			Proto: opt.proto,
 		})
 		if listenTCPErr != nil {
 			err = listenTCPErr

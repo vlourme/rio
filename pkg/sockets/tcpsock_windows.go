@@ -12,7 +12,7 @@ import (
 	"unsafe"
 )
 
-func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool, proto int, pollers int) (ln *tcpListener, err error) {
+func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool, proto int) (ln *tcpListener, err error) {
 	// create listener fd
 	fd, fdErr := windows.WSASocket(int32(family), windows.SOCK_STREAM, int32(proto), nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
 	if fdErr != nil {

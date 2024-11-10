@@ -17,7 +17,7 @@ func ListenTCP(network string, address string, opt Options) (ln TCPListener, err
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a TCP address")}
 		return
 	}
-	ln, err = newTCPListener(network, family, tcpAddr, ipv6only, opt.Proto, opt.Pollers)
+	ln, err = newTCPListener(network, family, tcpAddr, ipv6only, opt.Proto)
 	return
 }
 

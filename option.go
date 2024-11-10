@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	InfiniteConnections                     = int64(0)
+	DefaultMaxConnections                   = int64(0)
 	DefaultMaxConnectionsLimiterWaitTimeout = 500 * time.Millisecond
 )
 
@@ -21,7 +21,6 @@ type Options struct {
 	tlsConfig                        *tls.Config
 	multipathTCP                     bool
 	proto                            int
-	pollers                          int
 }
 
 type Option func(options *Options) (err error)
@@ -80,13 +79,6 @@ func WithMultipathTCP() Option {
 func WithProto(proto int) Option {
 	return func(options *Options) (err error) {
 		options.proto = proto
-		return
-	}
-}
-
-func WithPollers(pollers int) Option {
-	return func(options *Options) (err error) {
-		options.pollers = pollers
 		return
 	}
 }
