@@ -117,3 +117,43 @@ func TestTcpConnection_ReadAndWrite(t *testing.T) {
 	_ = conn.Close()
 	wg.Wait()
 }
+
+func TestDialTCP(t *testing.T) {
+	ln, err := sockets.ListenTCP("tcp", "127.0.0.1:9000", sockets.Options{})
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	defer func() {
+		err = ln.Close()
+		if err != nil {
+			t.Fatal(err)
+			return
+		}
+	}()
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	ln.Accept(func(conn sockets.TCPConnection, err error) {
+		defer wg.Done()
+		if err != nil {
+			t.Error("srv: tcpAccept ->", err)
+			return
+		}
+		t.Log("srv: accepted!!!", conn.LocalAddr(), conn.RemoteAddr())
+	})
+	wg.Add(1)
+	sockets.DialTCP("tcp", "127.0.0.1:9000", sockets.Options{}, func(conn sockets.TCPConnection, err error) {
+		defer wg.Done()
+		if err != nil {
+			t.Error("cli: dial ->", err)
+			return
+		}
+		t.Log("cli: dialed!!!", conn.LocalAddr(), conn.RemoteAddr())
+		closeErr := conn.Close()
+		if closeErr != nil {
+			t.Error("cli: dial ->", closeErr)
+		}
+		return
+	})
+	wg.Wait()
+}

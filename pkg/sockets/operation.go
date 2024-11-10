@@ -2,6 +2,7 @@ package sockets
 
 const (
 	tcpAccept OperationMode = iota + 1
+	tcpConnect
 	udpAccept
 	unixAccept
 	read
@@ -21,6 +22,8 @@ func (op OperationMode) String() string {
 	switch op {
 	case tcpAccept:
 		return "tcpAccept"
+	case tcpConnect:
+		return "tcpConnect"
 	case udpAccept:
 		return "udpAccept"
 	case unixAccept:

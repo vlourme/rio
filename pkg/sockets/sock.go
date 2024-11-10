@@ -28,6 +28,8 @@ type TCPListener interface {
 	Close() (err error)
 }
 
+type TCPDialHandler func(conn TCPConnection, err error)
+
 type TCPConnection interface {
 	Connection
 	SetNoDelay(noDelay bool) (err error)
@@ -55,6 +57,8 @@ type ReadFromUDPAddrPortHandler func(n int, addr netip.AddrPort, err error)
 type ReadMsgUDPHandler func(n int, oobn int, flags int, addr *net.UDPAddr, err error)
 type ReadMsgUDPAddrPortHandler func(n int, oobn int, flags int, addr netip.AddrPort, err error)
 type WriteMsgHandler func(n int, oobn int, err error)
+
+type ListenUDPHandler func(conn UDPConnection, err error)
 
 type UDPConnection interface {
 	PacketConnection

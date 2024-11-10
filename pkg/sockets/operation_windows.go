@@ -29,8 +29,9 @@ type operation struct {
 	qty    uint32
 	// fields used only by net callback
 	tcpAcceptHandler           TCPAcceptHandler
+	tcpConnectHandler          TCPDialHandler
 	unixAcceptHandler          UnixAcceptHandler
-	listenPacketHandler        ListenPacketHandler // todo use listen udp handler
+	listenUDPHandler           ListenUDPHandler // todo use listen udp handler
 	readHandler                ReadHandler
 	writeHandler               WriteHandler
 	readFromHandler            ReadFromHandler
@@ -47,6 +48,9 @@ func (op *operation) complete(qty int, err error) {
 	switch op.mode {
 	case tcpAccept:
 		op.completeTCPAccept(qty, err)
+		break
+	case tcpConnect:
+		op.completeTCPConnect(qty, err)
 		break
 	case udpAccept:
 		op.completeUDPAccept(qty, err)
@@ -154,6 +158,49 @@ func (op *operation) completeTCPAccept(_ int, err error) {
 	op.tcpAcceptHandler(&tcpConn, nil)
 	op.tcpAcceptHandler = nil
 	return
+}
+func (op *operation) completeTCPConnect(_ int, err error) {
+	if err != nil {
+		op.tcpConnectHandler(nil, os.NewSyscallError("ConnectEx", err))
+		op.tcpConnectHandler = nil
+		return
+	}
+	conn := op.conn
+	// set SO_UPDATE_CONNECT_CONTEXT
+	setSocketOptErr := windows.Setsockopt(
+		conn.fd,
+		windows.SOL_SOCKET, windows.SO_UPDATE_CONNECT_CONTEXT,
+		nil,
+		0,
+	)
+	if setSocketOptErr != nil {
+		op.tcpConnectHandler(nil, os.NewSyscallError("setsockopt", setSocketOptErr))
+		op.tcpConnectHandler = nil
+		return
+	}
+	// get addr
+	lsa, lsaErr := windows.Getsockname(conn.fd)
+	if lsaErr != nil {
+		op.tcpConnectHandler(nil, os.NewSyscallError("getsockname", lsaErr))
+		op.tcpConnectHandler = nil
+		return
+	}
+	la := sockaddrToTCPAddr(lsa)
+	conn.localAddr = la
+	rsa, rsaErr := windows.Getpeername(op.conn.fd)
+	if rsaErr != nil {
+		op.tcpConnectHandler(nil, os.NewSyscallError("getsockname", rsaErr))
+		op.tcpConnectHandler = nil
+		return
+	}
+	ra := sockaddrToTCPAddr(rsa)
+	conn.remoteAddr = ra
+	// callback
+	tcpConn := tcpConnection{
+		connection: *conn,
+	}
+	op.tcpConnectHandler(&tcpConn, nil)
+	op.tcpConnectHandler = nil
 }
 
 func (op *operation) completeRead(qty int, err error) {
