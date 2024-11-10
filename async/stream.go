@@ -11,6 +11,7 @@ import (
 // 无限流的特性是可以无限次完成许诺，而不是一次。
 // 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
 // 关于许诺值，如果它实现了 io.Closer ，则当 Promise.Cancel 后且它未没处理，那么会自动 转化为 io.Closer 进行关闭。
+// 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func TryStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], ok bool) {
 	exec := From(ctx)
 	submitter, has := exec.GetExecutorSubmitter()
@@ -26,6 +27,7 @@ func TryStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], 
 // 无限流的特性是可以无限次完成许诺，而不是一次。
 // 但要注意，必须在不需要它后，调用 Promise.Cancel 来关闭它。
 // 关于许诺值，如果它实现了 io.Closer ，则当 Promise.Cancel 后且它未没处理，那么会自动 转化为 io.Closer 进行关闭。
+// 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func MustStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], err error) {
 	times := 10
 	ok := false

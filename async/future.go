@@ -70,8 +70,8 @@ func (f *immediatelyFuture[R]) OnComplete(handler ResultHandler[R]) {
 	return
 }
 
-func (f *immediatelyFuture[R]) Await() (v R, err error) {
-	v, err = f.result, f.cause
+func (f *immediatelyFuture[R]) Await() (r R, err error) {
+	r, err = f.result, f.cause
 	return
 }
 
@@ -124,7 +124,7 @@ func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
 func (f *futureImpl[R]) Await() (v R, err error) {
 	ch := make(chan Result[R], 1)
 	var handler ResultHandler[R] = func(ctx context.Context, result R, err error) {
-		ch <- newAsyncResult[R](result, err)
+		ch <- newResult[R](result, err)
 		close(ch)
 	}
 	run := futureRunner[R]{
@@ -142,16 +142,16 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 	return
 }
 
-func (f *futureImpl[R]) Complete(result R, err error) {
+func (f *futureImpl[R]) Complete(r R, err error) {
 	if f.stream {
 		f.streamLocker.RLock()
 		if f.streamClosed {
-			tryCloseResultWhenUnexpectedlyErrorOccur(newAsyncResult[R](result, err))
+			tryCloseResultWhenUnexpectedlyErrorOccur(newResult[R](r, err))
 			f.streamLocker.RUnlock()
 			return
 		}
 	}
-	f.rch <- newAsyncResult[R](result, err)
+	f.rch <- newResult[R](r, err)
 	if f.stream {
 		f.streamLocker.RUnlock()
 	} else {
@@ -159,16 +159,16 @@ func (f *futureImpl[R]) Complete(result R, err error) {
 	}
 }
 
-func (f *futureImpl[R]) Succeed(result R) {
+func (f *futureImpl[R]) Succeed(r R) {
 	if f.stream {
 		f.streamLocker.RLock()
 		if f.streamClosed {
-			tryCloseResultWhenUnexpectedlyErrorOccur(newSucceedAsyncResult[R](result))
+			tryCloseResultWhenUnexpectedlyErrorOccur(newSucceedResult[R](r))
 			f.streamLocker.RUnlock()
 			return
 		}
 	}
-	f.rch <- newSucceedAsyncResult[R](result)
+	f.rch <- newSucceedResult[R](r)
 	if f.stream {
 		f.streamLocker.RUnlock()
 	} else {
@@ -184,7 +184,7 @@ func (f *futureImpl[R]) Fail(cause error) {
 			return
 		}
 	}
-	f.rch <- newFailedAsyncResult[R](cause)
+	f.rch <- newFailedResult[R](cause)
 	if f.stream {
 		f.streamLocker.RUnlock()
 	} else {
