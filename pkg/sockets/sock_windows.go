@@ -104,7 +104,6 @@ func (conn *connection) Close() (err error) {
 			Err:    err,
 		}
 	}
-	_ = windows.CloseHandle(conn.cphandle)
 	conn.rop.conn = nil
 	conn.wop.conn = nil
 	return

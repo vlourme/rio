@@ -146,8 +146,6 @@ func (ln *tcpListener) Close() (err error) {
 	if closeSockErr != nil {
 		err = wrapSyscallError("closesocket", closeSockErr)
 	}
-	// close iocp
-	_ = windows.CloseHandle(ln.cphandle)
 	return
 }
 

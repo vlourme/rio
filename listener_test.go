@@ -21,6 +21,10 @@ func TestListen(t *testing.T) {
 		return
 	}
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+		if err != nil {
+			t.Log("accepted:", timeslimiter.Tokens(ctx), err, ctx.Err())
+			return
+		}
 		var addr net.Addr
 		if conn != nil {
 			addr = conn.RemoteAddr()

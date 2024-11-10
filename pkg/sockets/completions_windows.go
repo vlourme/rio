@@ -69,5 +69,4 @@ func (com *completions) shutdown() {
 	}
 	threads.Wait()
 	iocp = windows.InvalidHandle
-	_ = windows.WSACleanup()
 }

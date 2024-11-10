@@ -84,12 +84,14 @@ func (c *counter) Wait() {
 	times := 10
 	for {
 		n := c.Value()
-		if n == 0 {
+		if n < 1 {
 			break
 		}
+		time.Sleep(ms500)
 		times--
 		if times < 1 {
-			time.Sleep(ms500)
+			times = 10
+			runtime.Gosched()
 		}
 	}
 }
@@ -113,7 +115,6 @@ func New(options ...Option) Executors {
 		maxExecutorIdleDuration: opt.MaxExecutorIdleDuration,
 		locker:                  sync.Mutex{},
 		running:                 0,
-		mustStop:                false,
 		ready:                   nil,
 		stopCh:                  nil,
 		submitters:              sync.Pool{},
@@ -128,7 +129,6 @@ type executors struct {
 	maxExecutorIdleDuration time.Duration
 	locker                  sync.Mutex
 	running                 int64
-	mustStop                bool
 	ready                   []*executorSubmitterImpl
 	stopCh                  chan struct{}
 	submitters              sync.Pool
@@ -205,7 +205,6 @@ func (exec *executors) Available() (ok bool) {
 
 func (exec *executors) shutdown() {
 	close(exec.stopCh)
-	exec.stopCh = nil
 	exec.locker.Lock()
 	ready := exec.ready
 	for i := range ready {
@@ -213,7 +212,6 @@ func (exec *executors) shutdown() {
 		ready[i] = nil
 	}
 	exec.ready = ready[:0]
-	exec.mustStop = true
 	exec.locker.Unlock()
 }
 
@@ -231,46 +229,38 @@ func (exec *executors) CloseGracefully() {
 func (exec *executors) start() {
 	exec.running = 1
 	exec.stopCh = make(chan struct{})
-	stopCh := exec.stopCh
 	exec.submitters.New = func() interface{} {
 		return &executorSubmitterImpl{
 			ch: make(chan *executor, 1),
 		}
 	}
-	go func(exec *executors, stopCh chan struct{}) {
+	go func(exec *executors) {
 		var scratch []*executorSubmitterImpl
 		maxExecutorIdleDuration := exec.maxExecutorIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
 		for {
-			exec.clean(&scratch)
 			select {
-			case <-stopCh:
+			case <-exec.stopCh:
 				stopped = true
 				break
 			case <-timer.C:
+				exec.clean(&scratch)
 				timer.Reset(maxExecutorIdleDuration)
 				break
 			}
-			//select {
-			//case <-stopCh:
-			//	stopped = true
-			//	break
-			//default:
-			//	if atomic.LoadInt64(&exec.running) == 0 {
-			//		break
-			//	}
-			//	time.Sleep(maxExecutorIdleDuration)
-			//}
 			if stopped {
 				break
 			}
 		}
 		timer.Stop()
-	}(exec, stopCh)
+	}(exec)
 }
 
 func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
+	if atomic.LoadInt64(&exec.running) == 0 {
+		return
+	}
 	maxExecutorIdleDuration := exec.maxExecutorIdleDuration
 	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 	exec.locker.Lock()
@@ -299,9 +289,9 @@ func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
 	exec.locker.Unlock()
 
 	tmp := *scratch
-	for i := range tmp {
-		tmp[i].ch <- nil
-		tmp[i] = nil
+	for iot := range tmp {
+		tmp[iot].ch <- nil
+		tmp[iot] = nil
 	}
 }
 
@@ -339,7 +329,7 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 func (exec *executors) release(submitter *executorSubmitterImpl) bool {
 	submitter.lastUseTime = time.Now()
 	exec.locker.Lock()
-	if exec.mustStop {
+	if atomic.LoadInt64(&exec.running) == 0 {
 		exec.locker.Unlock()
 		return false
 	}
