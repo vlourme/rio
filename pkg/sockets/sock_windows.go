@@ -21,7 +21,31 @@ func wrapSyscallError(name string, err error) error {
 	return err
 }
 
-func newConnection(network string, sotype int, fd windows.Handle) (conn *connection) {
+func netSocket(family int, sotype int, protocol int, ipv6only bool) (fd windows.Handle, err error) {
+	// socket
+	fd, err = windows.WSASocket(int32(family), int32(sotype), int32(protocol), nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
+	if err != nil {
+		err = wrapSyscallError("WSASocket", err)
+		return
+	}
+	// set default opts
+	setDefaultSockOptsErr := setDefaultSockopts(fd, family, sotype, ipv6only)
+	if setDefaultSockOptsErr != nil {
+		err = setDefaultSockOptsErr
+		_ = windows.Closesocket(fd)
+		return
+	}
+	return
+}
+
+func newConnection(network string, family int, sotype int, protocol int, ipv6only bool) (conn *connection, err error) {
+	// socket
+	fd, fdErr := netSocket(family, sotype, protocol, ipv6only)
+	if fdErr != nil {
+		err = fdErr
+		return
+	}
+	// conn
 	conn = &connection{net: network, fd: fd}
 	conn.rop.conn = conn
 	conn.wop.conn = conn
