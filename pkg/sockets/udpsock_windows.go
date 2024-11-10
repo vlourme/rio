@@ -8,25 +8,45 @@ import (
 	"net/netip"
 )
 
-func newUDPConnection(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int, pollers int) (conn *udpConnection, err error) {
-	conn = &udpConnection{
-		connection: connection{},
-		cphandle:   0,
-		fd:         0,
-		addr:       nil,
-		family:     0,
-		net:        "",
+func listenUDP(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int, handler ListenUDPHandler) {
+	// conn
+	// iocp
+	// new udp conn
+	// todo or use post status with op(mode = listen udp)
+}
+
+func newUDPConnection(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int) (uc *udpConnection, err error) {
+	// conn
+	conn, connErr := newConnection(network, family, windows.SOCK_DGRAM, proto, ipv6only)
+	if connErr != nil {
+		err = connErr
+		return
+	}
+	// bind
+	lsa := addrToSockaddr(family, addr)
+	bindErr := windows.Bind(conn.fd, lsa)
+	if bindErr != nil {
+		err = bindErr
+		_ = windows.Closesocket(conn.fd)
+		return
+	}
+	// CreateIoCompletionPort
+	cphandle, createErr := windows.CreateIoCompletionPort(conn.fd, iocp, key, 0)
+	if createErr != nil {
+		_ = windows.Closesocket(conn.fd)
+		err = createErr
+		return
+	}
+	conn.cphandle = cphandle
+	// udp
+	uc = &udpConnection{
+		connection: *conn,
 	}
 	return
 }
 
 type udpConnection struct {
 	connection
-	cphandle windows.Handle
-	fd       windows.Handle
-	addr     *net.TCPAddr
-	family   int
-	net      string
 }
 
 func (conn *udpConnection) ReadFrom(p []byte, handler ReadFromHandler) {
@@ -77,12 +97,4 @@ func (conn *udpConnection) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr, handler
 func (conn *udpConnection) WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPort, handler WriteMsgHandler) {
 	//TODO implement me
 	panic("implement me")
-}
-
-func (conn *udpConnection) Close() (err error) {
-	// close socket
-	err = conn.connection.Close()
-	// todo close iocp ?
-	_ = windows.CloseHandle(conn.cphandle)
-	return
 }

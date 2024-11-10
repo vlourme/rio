@@ -31,12 +31,14 @@ func connectTCP(network string, family int, addr *net.TCPAddr, ipv6only bool, pr
 	// bind
 	bindErr := windows.Bind(conn.fd, lsa)
 	if bindErr != nil {
+		_ = windows.Closesocket(conn.fd)
 		handler(nil, os.NewSyscallError("bind", bindErr))
 		return
 	}
 	// CreateIoCompletionPort
 	cphandle, createErr := windows.CreateIoCompletionPort(conn.fd, iocp, key, 0)
 	if createErr != nil {
+		_ = windows.Closesocket(conn.fd)
 		handler(nil, wrapSyscallError("createIoCompletionPort", createErr))
 		conn.rop.tcpConnectHandler = nil
 		return
@@ -49,6 +51,7 @@ func connectTCP(network string, family int, addr *net.TCPAddr, ipv6only bool, pr
 	// connect
 	connectErr := windows.ConnectEx(conn.fd, rsa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, windows.ERROR_IO_PENDING) {
+		_ = windows.Closesocket(conn.fd)
 		handler(nil, wrapSyscallError("ConnectEx", connectErr))
 		conn.rop.tcpConnectHandler = nil
 		return
@@ -154,6 +157,7 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 		&conn.rop.qty, overlapped,
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
+		_ = windows.Closesocket(conn.fd)
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
 		conn.rop.tcpAcceptHandler = nil
 	}
