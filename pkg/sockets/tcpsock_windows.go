@@ -12,6 +12,49 @@ import (
 	"unsafe"
 )
 
+func connectTCP(network string, family int, addr *net.TCPAddr, ipv6only bool, proto int, handler TCPDialHandler) {
+	// conn
+	conn, connErr := newConnection(network, family, windows.SOCK_STREAM, proto, ipv6only)
+	if connErr != nil {
+		handler(nil, connErr)
+		return
+	}
+	conn.rop.mode = tcpConnect
+	conn.rop.tcpConnectHandler = handler
+	// lsa
+	var lsa windows.Sockaddr
+	if ipv6only {
+		lsa = &windows.SockaddrInet6{}
+	} else {
+		lsa = &windows.SockaddrInet4{}
+	}
+	// bind
+	bindErr := windows.Bind(conn.fd, lsa)
+	if bindErr != nil {
+		handler(nil, os.NewSyscallError("bind", bindErr))
+		return
+	}
+	// CreateIoCompletionPort
+	cphandle, createErr := windows.CreateIoCompletionPort(conn.fd, iocp, key, 0)
+	if createErr != nil {
+		handler(nil, wrapSyscallError("createIoCompletionPort", createErr))
+		conn.rop.tcpConnectHandler = nil
+		return
+	}
+	conn.cphandle = cphandle
+	// ra
+	rsa := addrToSockaddr(family, addr)
+	// overlapped
+	overlapped := &conn.rop.overlapped
+	// connect
+	connectErr := windows.ConnectEx(conn.fd, rsa, nil, 0, nil, overlapped)
+	if connectErr != nil && !errors.Is(connectErr, windows.ERROR_IO_PENDING) {
+		handler(nil, wrapSyscallError("ConnectEx", connectErr))
+		conn.rop.tcpConnectHandler = nil
+		return
+	}
+}
+
 func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool, proto int) (ln *tcpListener, err error) {
 	// create listener fd
 	fd, fdErr := windows.WSASocket(int32(family), windows.SOCK_STREAM, int32(proto), nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
@@ -65,6 +108,7 @@ func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool
 		addr:     addr,
 		family:   family,
 		net:      network,
+		ipv6only: ipv6only,
 	}
 	return
 }
@@ -75,6 +119,7 @@ type tcpListener struct {
 	addr     *net.TCPAddr
 	family   int
 	net      string
+	ipv6only bool
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -83,14 +128,12 @@ func (ln *tcpListener) Addr() (addr net.Addr) {
 }
 
 func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
-	// socket
-	connFd, createSocketErr := windows.WSASocket(windows.AF_INET, windows.SOCK_STREAM, 0, nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
-	if createSocketErr != nil {
-		handler(nil, wrapSyscallError("WSASocket", createSocketErr))
+	// conn
+	conn, connErr := newConnection(ln.net, windows.AF_INET, windows.SOCK_STREAM, 0, ln.ipv6only)
+	if connErr != nil {
+		handler(nil, connErr)
 		return
 	}
-	// conn
-	conn := newConnection(ln.net, windows.SOCK_STREAM, connFd)
 	// op
 	conn.rop.mode = tcpAccept
 	conn.rop.handle = ln.fd
@@ -105,7 +148,7 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 	overlapped := &conn.rop.overlapped
 	// tcpAccept
 	acceptErr := windows.AcceptEx(
-		ln.fd, connFd,
+		ln.fd, conn.fd,
 		(*byte)(unsafe.Pointer(rsa)), 0,
 		lsan+16, rsan+16,
 		&conn.rop.qty, overlapped,
