@@ -140,7 +140,7 @@ func (op *operation) completeTCPAccept(_ int, err error) {
 	ra := sockaddrToTCPAddr(rsa)
 	conn.remoteAddr = ra
 	// CreateIoCompletionPort
-	cphandle, createErr := windows.CreateIoCompletionPort(op.conn.fd, op.iocp, 0, 0)
+	cphandle, createErr := windows.CreateIoCompletionPort(op.conn.fd, op.iocp, key, 0)
 	if createErr != nil {
 		op.tcpAcceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
 		op.tcpAcceptHandler = nil

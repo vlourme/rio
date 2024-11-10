@@ -32,18 +32,15 @@ func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool
 	//	return
 	//}
 	// create root iocp
-	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
-	if createIOCPErr != nil {
-		err = os.NewSyscallError("CreateIoCompletionPort", createIOCPErr)
-		wsaCleanup()
-		return
-	}
+	//cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
+	//if createIOCPErr != nil {
+	//	err = os.NewSyscallError("CreateIoCompletionPort", createIOCPErr)
+	//	return
+	//}
 	// create listener fd
 	fd, fdErr := windows.WSASocket(int32(family), windows.SOCK_STREAM, int32(proto), nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
 	if fdErr != nil {
 		err = os.NewSyscallError("WSASocket", fdErr)
-		_ = windows.CloseHandle(cphandle)
-		wsaCleanup()
 		return
 	}
 	// set default opts
@@ -51,8 +48,6 @@ func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool
 	if setDefaultSockOptsErr != nil {
 		err = setDefaultSockOptsErr
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(cphandle)
-		wsaCleanup()
 		return
 	}
 	// bind
@@ -61,8 +56,6 @@ func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool
 	if bindErr != nil {
 		err = os.NewSyscallError("Bind", bindErr)
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(cphandle)
-		wsaCleanup()
 		return
 	}
 	// listen
@@ -70,8 +63,6 @@ func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool
 	if listenErr != nil {
 		err = os.NewSyscallError("Listen", listenErr)
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(cphandle)
-		wsaCleanup()
 		return
 	}
 	// lsa
@@ -79,33 +70,26 @@ func newTCPListener(network string, family int, addr *net.TCPAddr, ipv6only bool
 	if getLSAErr != nil {
 		err = os.NewSyscallError("Getsockname", getLSAErr)
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(cphandle)
-		wsaCleanup()
 		return
 	}
 	addr = sockaddrToTCPAddr(lsa)
 
 	// create listener iocp
-	_, createListenIOCPErr := windows.CreateIoCompletionPort(fd, cphandle, 0, 0)
+	cphandler, createListenIOCPErr := createSubIoCompletionPort(fd)
 	if createListenIOCPErr != nil {
 		err = os.NewSyscallError("CreateIoCompletionPort", createListenIOCPErr)
 		_ = windows.Closesocket(fd)
-		_ = windows.CloseHandle(cphandle)
-		wsaCleanup()
 		return
 	}
 
 	// create listener
 	ln = &tcpListener{
-		cphandle: cphandle,
+		cphandle: cphandler,
 		fd:       fd,
 		addr:     addr,
 		family:   family,
 		net:      network,
-		poller:   newPoller(pollers, cphandle),
 	}
-	// polling
-	ln.polling()
 	return
 }
 
@@ -115,7 +99,6 @@ type tcpListener struct {
 	addr     *net.TCPAddr
 	family   int
 	net      string
-	poller   *poller
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -158,28 +141,14 @@ func (ln *tcpListener) Accept(handler TCPAcceptHandler) {
 }
 
 func (ln *tcpListener) Close() (err error) {
-	//defer func() {
-	//	_ = windows.WSACleanup()
-	//}()
-	// stop polling
-	ln.poller.stop()
 	// close socket
 	closeSockErr := windows.Closesocket(ln.fd)
 	if closeSockErr != nil {
 		err = wrapSyscallError("closesocket", closeSockErr)
-		return
 	}
 	// close iocp
-	closeIocpErr := windows.CloseHandle(ln.cphandle)
-	if closeIocpErr != nil {
-		err = wrapSyscallError("CloseHandle", closeIocpErr)
-		return
-	}
+	_ = windows.CloseHandle(ln.cphandle)
 	return
-}
-
-func (ln *tcpListener) polling() {
-	ln.poller.start()
 }
 
 type tcpConnection struct {

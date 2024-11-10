@@ -21,19 +21,6 @@ func wrapSyscallError(name string, err error) error {
 	return err
 }
 
-func wsaStartup() (windows.WSAData, error) {
-	var d windows.WSAData
-	startupErr := windows.WSAStartup(uint32(0x202), &d)
-	if startupErr != nil {
-		return d, wrapSyscallError("WSAStartup", startupErr)
-	}
-	return d, nil
-}
-
-func wsaCleanup() {
-	_ = windows.WSACleanup()
-}
-
 func newConnection(network string, sotype int, fd windows.Handle) (conn *connection) {
 	conn = &connection{net: network, fd: fd}
 	conn.rop.conn = conn
@@ -117,6 +104,7 @@ func (conn *connection) Close() (err error) {
 			Err:    err,
 		}
 	}
+	_ = windows.CloseHandle(conn.cphandle)
 	conn.rop.conn = nil
 	conn.wop.conn = nil
 	return

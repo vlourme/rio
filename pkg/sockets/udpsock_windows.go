@@ -16,9 +16,7 @@ func newUDPConnection(network string, family int, addr *net.UDPAddr, ipv6only bo
 		addr:       nil,
 		family:     0,
 		net:        "",
-		poller:     nil,
 	}
-	conn.polling()
 	return
 }
 
@@ -29,7 +27,6 @@ type udpConnection struct {
 	addr     *net.TCPAddr
 	family   int
 	net      string
-	poller   *poller
 }
 
 func (conn *udpConnection) ReadFrom(p []byte, handler ReadFromHandler) {
@@ -82,13 +79,7 @@ func (conn *udpConnection) WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPor
 	panic("implement me")
 }
 
-func (conn *udpConnection) polling() {
-	conn.poller.start()
-}
-
 func (conn *udpConnection) Close() (err error) {
-	// stop polling
-	conn.poller.stop()
 	// close socket
 	err = conn.connection.Close()
 	// todo close iocp ?

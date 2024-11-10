@@ -40,6 +40,10 @@ func TestTCP(t *testing.T) {
 					return
 				}
 				t.Log("srv write:", out.Wrote())
+				closeErr := conn.Close()
+				if closeErr != nil {
+					t.Error("srv close:", closeErr)
+				}
 			})
 		})
 	})
