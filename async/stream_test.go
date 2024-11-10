@@ -8,7 +8,7 @@ import (
 
 func TestTryStreamPromise(t *testing.T) {
 	exec := async.New()
-	defer exec.GracefulClose()
+	defer exec.CloseGracefully()
 	ctx := async.With(context.Background(), exec)
 	promise, ok := async.TryStreamPromise[*Closer](ctx, 8)
 	if !ok {

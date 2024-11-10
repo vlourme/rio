@@ -39,7 +39,7 @@ type Executors interface {
 	ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter)
 	Available() (ok bool)
 	Close()
-	GracefulClose()
+	CloseGracefully()
 }
 
 type executor struct {
@@ -61,7 +61,6 @@ func (submitter *executorSubmitterImpl) Submit(ctx context.Context, runnable Run
 
 const (
 	ns500 = 500 * time.Nanosecond
-	ms500 = 500 * time.Millisecond
 )
 
 func New(options ...Option) Executors {
@@ -82,13 +81,14 @@ func New(options ...Option) Executors {
 		maxExecutorsCount:       int64(opt.MaxExecutors),
 		maxExecutorIdleDuration: opt.MaxExecutorIdleDuration,
 		locker:                  sync.Mutex{},
-		count:                   0,
 		running:                 0,
 		mustStop:                false,
 		ready:                   nil,
 		stopCh:                  nil,
 		submitters:              sync.Pool{},
 		submittersWaitGroup:     new(sync.WaitGroup),
+		goroutines:              0,
+		goroutinesWaitGroup:     new(sync.WaitGroup),
 	}
 	exec.start()
 	return exec
@@ -98,13 +98,14 @@ type executors struct {
 	maxExecutorsCount       int64
 	maxExecutorIdleDuration time.Duration
 	locker                  sync.Mutex
-	count                   int64
 	running                 int64
 	mustStop                bool
 	ready                   []*executorSubmitterImpl
 	stopCh                  chan struct{}
 	submitters              sync.Pool
 	submittersWaitGroup     *sync.WaitGroup
+	goroutines              int64
+	goroutinesWaitGroup     *sync.WaitGroup
 }
 
 func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bool) {
@@ -165,7 +166,7 @@ func (exec *executors) ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitt
 func (exec *executors) Available() (ok bool) {
 	exec.locker.Lock()
 	if n := len(exec.ready) - 1; n < 0 {
-		if exec.count < exec.maxExecutorsCount {
+		if exec.goroutines < exec.maxExecutorsCount {
 			ok = true
 		}
 	} else {
@@ -175,8 +176,7 @@ func (exec *executors) Available() (ok bool) {
 	return
 }
 
-func (exec *executors) Close() {
-	atomic.StoreInt64(&exec.running, 0)
+func (exec *executors) shutdown() {
 	close(exec.stopCh)
 	exec.stopCh = nil
 	exec.locker.Lock()
@@ -190,28 +190,16 @@ func (exec *executors) Close() {
 	exec.locker.Unlock()
 }
 
-func (exec *executors) GracefulClose() {
+func (exec *executors) Close() {
+	atomic.StoreInt64(&exec.running, 0)
+	exec.shutdown()
+}
+
+func (exec *executors) CloseGracefully() {
 	atomic.StoreInt64(&exec.running, 0)
 	exec.submittersWaitGroup.Wait()
-	close(exec.stopCh)
-	exec.stopCh = nil
-	exec.locker.Lock()
-	ready := exec.ready
-	for i := range ready {
-		ready[i].ch <- nil
-		ready[i] = nil
-	}
-	exec.ready = ready[:0]
-	exec.mustStop = true
-	exec.locker.Unlock()
-	for {
-		exec.locker.Lock()
-		if exec.count == 0 {
-			exec.locker.Unlock()
-			break
-		}
-		exec.locker.Unlock()
-	}
+	exec.shutdown()
+	exec.goroutinesWaitGroup.Wait()
 }
 
 func (exec *executors) start() {
@@ -278,9 +266,9 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 	ready := exec.ready
 	n := len(ready) - 1
 	if n < 0 {
-		if exec.count < exec.maxExecutorsCount {
+		if exec.goroutines < exec.maxExecutorsCount {
 			createExecutor = true
-			exec.count++
+			exec.goroutines++
 		}
 	} else {
 		submitter = ready[n]
@@ -294,6 +282,7 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 		}
 		vch := exec.submitters.Get()
 		submitter = vch.(*executorSubmitterImpl)
+		exec.goroutinesWaitGroup.Add(1)
 		go func() {
 			exec.handle(submitter)
 			exec.submitters.Put(vch)
@@ -334,6 +323,7 @@ func (exec *executors) handle(wch *executorSubmitterImpl) {
 		}
 	}
 	exec.locker.Lock()
-	exec.count--
+	exec.goroutines--
+	exec.goroutinesWaitGroup.Done()
 	exec.locker.Unlock()
 }

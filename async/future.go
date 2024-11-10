@@ -3,6 +3,7 @@ package async
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 )
 
@@ -79,13 +80,19 @@ func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int,
 	if buf < 1 {
 		buf = 1
 	}
+	var streamLocker *sync.RWMutex
+	if stream {
+		streamLocker = new(sync.RWMutex)
+	}
 	return &futureImpl[R]{
 		ctx:                     ctx,
 		futureCtx:               futureCtx,
 		futureCtxCancel:         futureCtxCancel,
 		futureDeadlineCtxCancel: nil,
 		stream:                  stream,
-		rch:                     newResultChan[R](buf),
+		streamClosed:            false,
+		streamLocker:            streamLocker,
+		rch:                     make(chan Result[R], buf),
 		submitter:               submitter,
 	}
 }
@@ -96,7 +103,9 @@ type futureImpl[R any] struct {
 	futureCtxCancel         context.CancelFunc
 	futureDeadlineCtxCancel context.CancelFunc
 	stream                  bool
-	rch                     *resultChan[R]
+	streamClosed            bool
+	streamLocker            *sync.RWMutex
+	rch                     chan Result[R]
 	submitter               ExecutorSubmitter
 }
 
@@ -134,28 +143,69 @@ func (f *futureImpl[R]) Await() (v R, err error) {
 }
 
 func (f *futureImpl[R]) Complete(result R, err error) {
-	f.rch.Emit(newAsyncResult[R](result, err))
-	if !f.stream {
-		f.rch.Close()
+	if f.stream {
+		f.streamLocker.RLock()
+		if f.streamClosed {
+			tryCloseResultWhenUnexpectedlyErrorOccur(newAsyncResult[R](result, err))
+			f.streamLocker.RUnlock()
+			return
+		}
+	}
+	f.rch <- newAsyncResult[R](result, err)
+	if f.stream {
+		f.streamLocker.RUnlock()
+	} else {
+		close(f.rch)
 	}
 }
 
 func (f *futureImpl[R]) Succeed(result R) {
-	f.rch.Emit(newSucceedAsyncResult[R](result))
-	if !f.stream {
-		f.rch.Close()
+	if f.stream {
+		f.streamLocker.RLock()
+		if f.streamClosed {
+			tryCloseResultWhenUnexpectedlyErrorOccur(newSucceedAsyncResult[R](result))
+			f.streamLocker.RUnlock()
+			return
+		}
+	}
+	f.rch <- newSucceedAsyncResult[R](result)
+	if f.stream {
+		f.streamLocker.RUnlock()
+	} else {
+		close(f.rch)
 	}
 }
 
 func (f *futureImpl[R]) Fail(cause error) {
-	f.rch.Emit(newFailedAsyncResult[R](cause))
-	if !f.stream {
-		f.rch.Close()
+	if f.stream {
+		f.streamLocker.RLock()
+		if f.streamClosed {
+			f.streamLocker.RUnlock()
+			return
+		}
+	}
+	f.rch <- newFailedAsyncResult[R](cause)
+	if f.stream {
+		f.streamLocker.RUnlock()
+	} else {
+		close(f.rch)
 	}
 }
 
 func (f *futureImpl[R]) Cancel() {
+	if f.stream {
+		f.streamLocker.Lock()
+		if f.streamClosed {
+			f.streamLocker.Unlock()
+			return
+		}
+	}
 	f.futureCtxCancel()
+	if f.stream {
+		f.streamClosed = true
+		f.streamLocker.Unlock()
+	}
+	close(f.rch)
 }
 
 func (f *futureImpl[R]) SetDeadline(t time.Time) {
@@ -172,7 +222,7 @@ type futureRunner[R any] struct {
 	cancel         context.CancelFunc
 	deadlineCancel context.CancelFunc
 	stream         bool
-	rch            *resultChan[R]
+	rch            <-chan Result[R]
 	handler        ResultHandler[R]
 }
 
@@ -194,7 +244,7 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			stopped = true
 			isUnexpectedError = true
 			break
-		case ar, ok := <-rch.ch:
+		case ar, ok := <-rch:
 			if !ok {
 				if !run.stream {
 					run.handler(ctx, *(new(R)), ErrFutureWasClosed)
@@ -217,7 +267,13 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 		}
 	}
 	if isUnexpectedError {
-		rch.CloseUnexpectedly()
+		for {
+			ar, ok := <-rch
+			if !ok {
+				break
+			}
+			tryCloseResultWhenUnexpectedlyErrorOccur(ar)
+		}
 	}
 	futureCtxCancel()
 	if run.deadlineCancel != nil {
