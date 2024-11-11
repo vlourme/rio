@@ -17,7 +17,6 @@ import (
 // udp: unixgram
 
 type UnixConnection interface {
-	Connection
 	PacketConnection
 	ReadMsgUnix() (future async.Future[transport.UnixMsgInbound])
 	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr) (future async.Future[transport.MsgOutbound])
