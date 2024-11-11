@@ -16,7 +16,11 @@ func ListenTCP(network string, address string, opt Options) (ln TCPListener, err
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a TCP address")}
 		return
 	}
-	ln, err = newTCPListener(network, family, tcpAddr, ipv6only, opt.Proto)
+	proto := 0
+	if opt.MultipathTCP {
+		proto = tryGetMultipathTCPProto()
+	}
+	ln, err = newTCPListener(network, family, tcpAddr, ipv6only, proto)
 	return
 }
 
@@ -31,6 +35,10 @@ func DialTCP(network string, address string, opt Options, handler TCPDialHandler
 		handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: errors.New("not a TCP address")})
 		return
 	}
-	connectTCP(network, family, tcpAddr, ipv6only, opt.Proto, handler)
+	proto := 0
+	if opt.MultipathTCP {
+		proto = tryGetMultipathTCPProto()
+	}
+	connectTCP(network, family, tcpAddr, ipv6only, proto, handler)
 	return
 }

@@ -5,7 +5,7 @@ import (
 	"net"
 )
 
-func ListenUPD(network string, address string, opt Options) (conn UDPConnection, err error) {
+func ListenUPD(network string, address string, _ Options) (conn UDPConnection, err error) {
 	addr, family, ipv6only, addrErr := GetAddrAndFamily(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
@@ -16,6 +16,6 @@ func ListenUPD(network string, address string, opt Options) (conn UDPConnection,
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a UDP address")}
 		return
 	}
-	conn, err = listenUDP(network, family, udpAddr, ipv6only, opt.Proto)
+	conn, err = listenUDP(network, family, udpAddr, ipv6only, 0)
 	return
 }

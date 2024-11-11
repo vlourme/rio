@@ -20,7 +20,6 @@ type Options struct {
 	maxExecutorIdleDuration          time.Duration
 	tlsConfig                        *tls.Config
 	multipathTCP                     bool
-	proto                            int
 }
 
 type Option func(options *Options) (err error)
@@ -72,13 +71,6 @@ func WithTLSConfig(config *tls.Config) Option {
 func WithMultipathTCP() Option {
 	return func(options *Options) (err error) {
 		options.multipathTCP = true
-		return
-	}
-}
-
-func WithProto(proto int) Option {
-	return func(options *Options) (err error) {
-		options.proto = proto
 		return
 	}
 }
