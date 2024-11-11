@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/transport"
 	"net"
-	"time"
 )
 
 // ListenPacket
@@ -16,13 +15,7 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 }
 
 type PacketConnection interface {
-	Context() (ctx context.Context)
-	LocalAddr() (addr net.Addr)
-	SetDeadline(deadline time.Time) error
-	SetReadDeadline(deadline time.Time) error
-	SetWriteDeadline(deadline time.Time) error
-	SetReadBufferSize(size int)
+	Connection
 	ReadFrom() (future async.Future[transport.PacketInbound])
 	WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound])
-	Close() error
 }
