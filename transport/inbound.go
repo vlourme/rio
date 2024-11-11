@@ -13,8 +13,8 @@ type InboundReader interface {
 type InboundBuffer interface {
 	InboundReader
 	Allocate(size int) (p []byte)
+	AllocatedWrote(n int)
 	Write(p []byte) (n int, err error)
-	Free()
 	Close()
 }
 
@@ -23,27 +23,24 @@ func NewInboundBuffer() InboundBuffer {
 }
 
 type inboundBuffer struct {
-	b    bytebufferpool.Buffer
-	area bytebufferpool.AreaOfBuffer
+	b bytebufferpool.Buffer
 }
 
 func (buf *inboundBuffer) Allocate(size int) (p []byte) {
-	if buf.area != nil {
-		panic("rio: buffer already allocated a piece bytes")
-		return
-	}
 	if buf.b == nil {
 		buf.b = bytebufferpool.Get()
 	}
-	buf.area = buf.b.ApplyAreaForWrite(size)
-	p = buf.area.Bytes()
+	if buf.b.WritePending() {
+		panic("rio: buffer already allocated a piece bytes")
+		return
+	}
+	p = buf.b.Allocate(size)
 	return
 }
 
-func (buf *inboundBuffer) Free() {
-	if buf.area != nil {
-		buf.area.Finish()
-		buf.area = nil
+func (buf *inboundBuffer) AllocatedWrote(n int) {
+	if buf.b != nil {
+		buf.b.AllocatedWrote(n)
 	}
 }
 
@@ -56,10 +53,6 @@ func (buf *inboundBuffer) Write(p []byte) (n int, err error) {
 }
 
 func (buf *inboundBuffer) Close() {
-	if buf.area != nil {
-		buf.area.Cancel()
-		buf.area = nil
-	}
 	if buf.b != nil {
 		bytebufferpool.Put(buf.b)
 		buf.b = nil

@@ -21,7 +21,8 @@ type Buffer interface {
 	WriteString(s string) (n int, err error)
 	WriteByte(c byte) (err error)
 	WriteRune(r rune) (n int, err error)
-	ApplyAreaForWrite(n int) (area AreaOfBuffer)
+	Allocate(size int) (p []byte)
+	AllocatedWrote(n int)
 	WritePending() bool
 	Empty() bool
 	Reset()
@@ -48,6 +49,36 @@ type buffer struct {
 	w   int // next position to write
 	h   int // next position to apply
 
+}
+
+func (buf *buffer) Allocate(size int) (p []byte) {
+	if !buf.canWrite() {
+		panic("bytebuffurpool.Buffer: cannot apply area for write, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
+		return
+	}
+	if size < 1 {
+		size = oneQuarterOfPagesize
+	}
+	if buf.Available() < size {
+		buf.grow(size)
+	}
+	buf.buf = append(buf.buf, make([]byte, size)...)
+	buf.h += size
+	p = buf.buf[buf.w:buf.h]
+	return
+}
+
+func (buf *buffer) AllocatedWrote(n int) {
+	if buf.h == buf.w {
+		return
+	}
+	if n == 0 {
+		buf.h = buf.w
+	} else {
+		buf.w += n
+		buf.h = buf.w
+	}
+	buf.buf = buf.buf[:buf.w]
 }
 
 func (buf *buffer) Len() (n int) {
@@ -192,42 +223,6 @@ func (buf *buffer) WriteRune(r rune) (n int, err error) {
 	p = utf8.AppendRune(p, r)
 	n, err = buf.Write(p)
 	return
-}
-
-func (buf *buffer) ApplyAreaForWrite(n int) (area AreaOfBuffer) {
-	if !buf.canWrite() {
-		panic("bytebuffurpool.Buffer: cannot apply area for write, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
-		return
-	}
-	if n < 1 {
-		n = oneQuarterOfPagesize
-	}
-	if buf.Available() < n {
-		buf.grow(n)
-	}
-	buf.buf = append(buf.buf, make([]byte, n)...)
-	buf.h += n
-	area = &areaOfBuffer{
-		p:      buf.buf[buf.w:buf.h],
-		finish: buf.FinishAreaWrite,
-		cancel: buf.CancelAreaWrite,
-	}
-	return
-}
-
-func (buf *buffer) FinishAreaWrite() {
-	if buf.h <= buf.w {
-		panic("bytebuffurpool.Buffer: cannot finish area write, cause not applied")
-		return
-	}
-	buf.w = buf.h
-}
-
-func (buf *buffer) CancelAreaWrite() {
-	if buf.h <= buf.w {
-		return
-	}
-	buf.h = buf.w
 }
 
 func (buf *buffer) Reset() {

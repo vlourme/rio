@@ -18,12 +18,13 @@ func TestBufferPool_Get(t *testing.T) {
 	bytebufferpool.Put(buf)
 }
 
-func TestBuffer_ApplyAreaForWrite(t *testing.T) {
+func TestBuffer_Allocate(t *testing.T) {
 	buf := bytebufferpool.Get()
 	_, _ = buf.WriteString("0123456789")
-	area := buf.ApplyAreaForWrite(5)
-	copy(area.Bytes()[:], "abcde")
-	area.Finish()
+	p := buf.Allocate(5)
+	copy(p, "abc")
+	buf.AllocatedWrote(3)
+	_, _ = buf.WriteString("012")
 	t.Log(string(buf.Peek(100)))
 	bytebufferpool.Put(buf)
 }
