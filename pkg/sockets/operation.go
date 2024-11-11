@@ -35,12 +35,8 @@ func (op OperationMode) String() string {
 		return "writeTo"
 	case writeMsg:
 		return "writeMsg"
-	case readFromUDPAddrPort:
-		return "readFromUDPAddrPort"
 	case readFrom:
 		return "readFrom"
-	case readFromUDP:
-		return "readFromUDP"
 	case readFromUnix:
 		return "readFromUnix"
 	case readMsgUDP:
