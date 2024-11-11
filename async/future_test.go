@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/async"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -169,4 +170,33 @@ func BenchmarkTryPromise(b *testing.B) {
 		}
 	})
 	wg.Wait()
+}
+
+func BenchmarkExec(b *testing.B) {
+	b.ReportAllocs()
+	p := async.New()
+	wg := new(sync.WaitGroup)
+	errs := new(atomic.Int64)
+	ctx := context.Background()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			wg.Add(1)
+			ok := p.TryExecute(ctx, async.RunnableFunc(func(ctx context.Context) {
+				wg.Done()
+			}))
+			if !ok {
+				wg.Done()
+				errs.Add(1)
+			}
+		}
+	})
+	wg.Wait()
+	p.Close()
+	b.Log(errs.Load())
+	// async better than ants
+	// async
+	// BenchmarkExec-20    	 2381676	       480.6 ns/op	      56 B/op	       3 allocs/op
+	// ants
+	// BenchmarkANTS-20    	 2408452	       500.5 ns/op	      16 B/op	       1 allocs/op
 }
