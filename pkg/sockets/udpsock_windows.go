@@ -3,16 +3,17 @@
 package sockets
 
 import (
+	"context"
+	"errors"
 	"golang.org/x/sys/windows"
 	"net"
-	"net/netip"
+	"syscall"
+	"unsafe"
 )
 
-func listenUDP(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int, handler ListenUDPHandler) {
-	// conn
-	// iocp
-	// new udp conn
-	// todo or use post status with op(mode = listen udp)
+func listenUDP(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int) (conn UDPConnection, err error) {
+	conn, err = newUDPConnection(network, family, addr, ipv6only, proto)
+	return
 }
 
 func newUDPConnection(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int) (uc *udpConnection, err error) {
@@ -31,7 +32,7 @@ func newUDPConnection(network string, family int, addr *net.UDPAddr, ipv6only bo
 		return
 	}
 	// CreateIoCompletionPort
-	cphandle, createErr := windows.CreateIoCompletionPort(conn.fd, iocp, key, 0)
+	cphandle, createErr := createSubIoCompletionPort(conn.fd)
 	if createErr != nil {
 		_ = windows.Closesocket(conn.fd)
 		err = createErr
@@ -50,51 +51,89 @@ type udpConnection struct {
 }
 
 func (conn *udpConnection) ReadFrom(p []byte, handler ReadFromHandler) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *udpConnection) ReadFromUDP(p []byte, handler ReadFromUDPHandler) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *udpConnection) ReadFromUDPAddrPort(p []byte, handler ReadFromUDPAddrPortHandler) {
-	//TODO implement me
-	panic("implement me")
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, nil, ErrEmptyPacket)
+		return
+	}
+	if pLen > maxRW {
+		p = p[:maxRW]
+	}
+	conn.rop.mode = readFrom
+	conn.rop.buf.Buf = &p[0]
+	conn.rop.buf.Len = uint32(pLen)
+	if conn.rop.rsa == nil {
+		conn.rop.rsa = new(windows.RawSockaddrAny)
+	}
+	conn.rop.rsan = int32(unsafe.Sizeof(*conn.rop.rsa))
+	conn.rop.readFromHandler = handler
+	err := windows.WSARecvFrom(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, conn.rop.rsa, &conn.rop.rsan, &conn.rop.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
+		handler(0, nil, wrapSyscallError("WSARecvFrom", err))
+		conn.rop.readFromHandler = nil
+	}
+	return
 }
 
 func (conn *udpConnection) WriteTo(p []byte, addr net.Addr, handler WriteHandler) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *udpConnection) WriteToUDP(b []byte, addr *net.UDPAddr, handler WriteHandler) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *udpConnection) WriteToUDPAddrPort(b []byte, addr netip.AddrPort, handler WriteHandler) {
-	//TODO implement me
-	panic("implement me")
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, ErrEmptyPacket)
+		return
+	} else if pLen > maxRW {
+		p = p[:maxRW]
+		pLen = maxRW
+	}
+	conn.wop.mode = writeTo
+	conn.wop.buf.Buf = &p[0]
+	conn.wop.buf.Len = uint32(pLen)
+	conn.wop.sa = addrToSockaddr(conn.family, addr)
+	conn.wop.writeHandler = handler
+	err := windows.WSASendto(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, conn.wop.sa, &conn.wop.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
+		handler(0, wrapSyscallError("WSASend", err))
+		conn.wop.writeHandler = nil
+	}
+	return
 }
 
 func (conn *udpConnection) ReadMsgUDP(p []byte, oob []byte, handler ReadMsgUDPHandler) {
-	//TODO implement me
-	panic("implement me")
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, 0, 0, nil, ErrEmptyPacket)
+		return
+	}
+	if pLen > maxRW {
+		p = p[:maxRW]
+	}
+	conn.rop.mode = readMsgUDP
+	conn.rop.InitMsg(p, oob)
+	conn.rop.msg.Name = (*syscall.RawSockaddrAny)(unsafe.Pointer(conn.rop.rsa))
+	conn.rop.msg.Namelen = int32(unsafe.Sizeof(*conn.rop.rsa))
+	conn.rop.msg.Flags = uint32(0)
+	if conn.rop.rsa == nil {
+		conn.rop.rsa = new(windows.RawSockaddrAny)
+	}
+	conn.rop.rsan = int32(unsafe.Sizeof(*conn.rop.rsa))
+	conn.rop.readMsgUDPHandler = handler
+	err := windows.WSARecvMsg(conn.fd, &conn.rop.msg, &conn.rop.qty, &conn.rop.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
+		handler(0, 0, 0, nil, wrapSyscallError("WSARecvMsg", err))
+		conn.rop.readMsgUDPHandler = nil
+	}
+	return
 }
 
-func (conn *udpConnection) ReadMsgUDPAddrPort(b, oob []byte, handler ReadMsgUDPAddrPortHandler) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *udpConnection) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr, handler WriteMsgHandler) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *udpConnection) WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPort, handler WriteMsgHandler) {
+func (conn *udpConnection) WriteMsgUDP(p []byte, oob []byte, addr *net.UDPAddr, handler WriteMsgHandler) {
 	//TODO implement me
 	panic("implement me")
 }

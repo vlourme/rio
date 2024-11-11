@@ -3,6 +3,7 @@
 package sockets
 
 import (
+	"context"
 	"errors"
 	"golang.org/x/sys/windows"
 	"net"
@@ -46,7 +47,7 @@ func newConnection(network string, family int, sotype int, protocol int, ipv6onl
 		return
 	}
 	// conn
-	conn = &connection{net: network, fd: fd}
+	conn = &connection{net: network, fd: fd, family: family, sotype: sotype, ipv6only: ipv6only}
 	conn.rop.conn = conn
 	conn.wop.conn = conn
 	conn.zeroReadIsEOF = sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW
@@ -58,10 +59,59 @@ type connection struct {
 	fd            windows.Handle
 	localAddr     net.Addr
 	remoteAddr    net.Addr
+	family        int
+	sotype        int
+	ipv6only      bool
 	net           string
 	zeroReadIsEOF bool
 	rop           operation
 	wop           operation
+}
+
+func (conn *connection) Read(p []byte, handler ReadHandler) {
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, ErrEmptyPacket)
+		return
+	} else if pLen > maxRW {
+		p = p[:maxRW]
+		pLen = maxRW
+	}
+	conn.rop.mode = read
+	conn.rop.buf.Buf = &p[0]
+	conn.rop.buf.Len = uint32(pLen)
+	conn.rop.readHandler = handler
+	err := windows.WSARecv(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, &conn.rop.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
+		handler(0, wrapSyscallError("WSARecv", err))
+		conn.rop.readHandler = nil
+	}
+}
+
+func (conn *connection) Write(p []byte, handler WriteHandler) {
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, ErrEmptyPacket)
+		return
+	} else if pLen > maxRW {
+		p = p[:maxRW]
+		pLen = maxRW
+	}
+	conn.wop.mode = write
+	conn.wop.buf.Buf = &p[0]
+	conn.wop.buf.Len = uint32(pLen)
+	conn.wop.writeHandler = handler
+	err := windows.WSASend(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, &conn.wop.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
+		handler(0, wrapSyscallError("WSASend", err))
+		conn.wop.writeHandler = nil
+	}
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {

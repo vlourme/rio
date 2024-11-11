@@ -3,13 +3,12 @@ package sockets
 const (
 	tcpAccept OperationMode = iota + 1
 	tcpConnect
-	udpAccept
 	unixAccept
+	unixConnect
 	read
 	write
 	readFrom
-	readFromUDP
-	readFromUDPAddrPort
+	writeTo
 	readMsgUDP
 	writeMsg
 	readFromUnix
@@ -24,14 +23,16 @@ func (op OperationMode) String() string {
 		return "tcpAccept"
 	case tcpConnect:
 		return "tcpConnect"
-	case udpAccept:
-		return "udpAccept"
 	case unixAccept:
 		return "unixAccept"
+	case unixConnect:
+		return "unixConnect"
 	case read:
 		return "read"
 	case write:
 		return "write"
+	case writeTo:
+		return "writeTo"
 	case writeMsg:
 		return "writeMsg"
 	case readFromUDPAddrPort:

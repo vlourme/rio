@@ -1,7 +1,21 @@
 package sockets
 
-func ListenUPD(network string, address string, opt Options, handler ListenUDPHandler) {
-	// udp addr
-	// conn socket
-	// conn
+import (
+	"errors"
+	"net"
+)
+
+func ListenUPD(network string, address string, opt Options) (conn UDPConnection, err error) {
+	addr, family, ipv6only, addrErr := GetAddrAndFamily(network, address)
+	if addrErr != nil {
+		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
+		return
+	}
+	udpAddr, isUDPAddr := addr.(*net.UDPAddr)
+	if !isUDPAddr {
+		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a UDP address")}
+		return
+	}
+	conn, err = listenUDP(network, family, udpAddr, ipv6only, opt.Proto)
+	return
 }

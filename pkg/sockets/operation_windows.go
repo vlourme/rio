@@ -31,7 +31,7 @@ type operation struct {
 	tcpAcceptHandler           TCPAcceptHandler
 	tcpConnectHandler          TCPDialHandler
 	unixAcceptHandler          UnixAcceptHandler
-	listenUDPHandler           ListenUDPHandler // todo use listen udp handler
+	unixConnectHandler         UnixDialHandler
 	readHandler                ReadHandler
 	writeHandler               WriteHandler
 	readFromHandler            ReadFromHandler
@@ -52,11 +52,11 @@ func (op *operation) complete(qty int, err error) {
 	case tcpConnect:
 		op.completeTCPConnect(qty, err)
 		break
-	case udpAccept:
-		op.completeUDPAccept(qty, err)
-		break
 	case unixAccept:
 		op.completeUnixAccept(qty, err)
+		break
+	case unixConnect:
+		op.completeUnixConnect(qty, err)
 		break
 	case read:
 		op.completeRead(qty, err)
@@ -67,11 +67,8 @@ func (op *operation) complete(qty int, err error) {
 	case readFrom:
 		op.completeReadFrom(qty, err)
 		break
-	case readFromUDP:
-		op.completeReadFromUDP(qty, err)
-		break
-	case readFromUDPAddrPort:
-		op.completeReadFromUDPAddrPort(qty, err)
+	case writeTo:
+		op.completeWriteTo(qty, err)
 		break
 	case readMsgUDP:
 		op.completeReadMsgUDP(qty, err)
@@ -237,12 +234,6 @@ func (op *operation) completeWrite(qty int, err error) {
 	return
 }
 
-func (op *operation) completeUDPAccept(_ int, err error) {
-	// todo
-	panic("implement me")
-	return
-}
-
 func (op *operation) completeReadFrom(qty int, err error) {
 	if err != nil {
 		op.writeHandler(0, &net.OpError{
@@ -252,10 +243,15 @@ func (op *operation) completeReadFrom(qty int, err error) {
 			Addr:   op.conn.remoteAddr,
 			Err:    err,
 		})
-		op.writeHandler = nil
+		op.readFromHandler = nil
 		return
 	}
-	sockaddr, _ := op.rsa.Sockaddr()
+	sockaddr, sockaddrErr := op.rsa.Sockaddr()
+	if sockaddrErr != nil {
+		op.readFromHandler(qty, nil, sockaddrErr)
+		op.readFromHandler = nil
+		return
+	}
 	var addr net.Addr
 	if op.conn.net == "unix" {
 		addr = sockaddrToUnixAddr(sockaddr)
@@ -267,15 +263,20 @@ func (op *operation) completeReadFrom(qty int, err error) {
 	return
 }
 
-func (op *operation) completeReadFromUDP(qty int, err error) {
-	// todo
-	panic("implement me")
-	return
-}
-
-func (op *operation) completeReadFromUDPAddrPort(qty int, err error) {
-	// todo
-	panic("implement me")
+func (op *operation) completeWriteTo(qty int, err error) {
+	if err != nil {
+		op.writeHandler(0, &net.OpError{
+			Op:     op.mode.String(),
+			Net:    op.conn.net,
+			Source: op.conn.localAddr,
+			Addr:   sockaddrToAddr(op.conn.net, op.sa),
+			Err:    err,
+		})
+		op.writeHandler = nil
+		return
+	}
+	op.writeHandler(qty, nil)
+	op.writeHandler = nil
 	return
 }
 
@@ -313,4 +314,34 @@ func (op *operation) completeUnixAccept(_ int, err error) {
 	// todo
 	panic("implement me")
 	return
+}
+
+func (op *operation) completeUnixConnect(_ int, err error) {
+	// todo
+	panic("implement me")
+	return
+}
+
+func (op *operation) InitMsg(p []byte, oob []byte) {
+	op.InitBuf(p)
+	op.msg.Buffers = &op.buf
+	op.msg.BufferCount = 1
+
+	op.msg.Name = nil
+	op.msg.Namelen = 0
+
+	op.msg.Flags = 0
+	op.msg.Control.Len = uint32(len(oob))
+	op.msg.Control.Buf = nil
+	if len(oob) != 0 {
+		op.msg.Control.Buf = &oob[0]
+	}
+}
+
+func (op *operation) InitBuf(buf []byte) {
+	op.buf.Len = uint32(len(buf))
+	op.buf.Buf = nil
+	if len(buf) != 0 {
+		op.buf.Buf = &buf[0]
+	}
 }

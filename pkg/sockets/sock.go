@@ -1,9 +1,14 @@
 package sockets
 
 import (
+	"errors"
 	"net"
 	"net/netip"
 	"time"
+)
+
+var (
+	ErrEmptyPacket = errors.New("rio: empty packet")
 )
 
 type ReadHandler func(n int, err error)
@@ -40,16 +45,10 @@ type TCPConnection interface {
 
 type ReadFromHandler func(n int, addr net.Addr, err error)
 
-type ListenPacketHandler func(conn PacketConnection, err error)
-
 type PacketConnection interface {
-	LocalAddr() (addr net.Addr)
-	SetDeadline(t time.Time) (err error)
-	SetReadDeadline(t time.Time) (err error)
-	SetWriteDeadline(t time.Time) (err error)
+	Connection
 	ReadFrom(p []byte, handler ReadFromHandler)
 	WriteTo(p []byte, addr net.Addr, handler WriteHandler)
-	Close() (err error)
 }
 
 type ReadFromUDPHandler func(n int, addr *net.UDPAddr, err error)
@@ -58,43 +57,10 @@ type ReadMsgUDPHandler func(n int, oobn int, flags int, addr *net.UDPAddr, err e
 type ReadMsgUDPAddrPortHandler func(n int, oobn int, flags int, addr netip.AddrPort, err error)
 type WriteMsgHandler func(n int, oobn int, err error)
 
-type ListenUDPHandler func(conn UDPConnection, err error)
-
 type UDPConnection interface {
 	PacketConnection
-	// ReadFromUDP acts like ReadFrom but returns a UDPAddr.
-	ReadFromUDP(p []byte, handler ReadFromUDPHandler)
-	// ReadFromUDPAddrPort acts like ReadFrom but returns a netip.AddrPort.
-	//
-	// If c is bound to an unspecified address, the returned
-	// netip.AddrPort's address might be an IPv4-mapped IPv6 address.
-	// Use netip.Addr.Unmap to get the address without the IPv6 prefix.
-	ReadFromUDPAddrPort(p []byte, handler ReadFromUDPAddrPortHandler)
-	// ReadMsgUDP reads a message from c, copying the payload into b and
-	// the associated out-of-band data into oob. It returns the number of
-	// bytes copied into b, the number of bytes copied into oob, the flags
-	// that were set on the message and the source address of the message.
-	//
-	// The packages golang.org/x/net/ipv4 and golang.org/x/net/ipv6 can be
-	// used to manipulate IP-level socket options in oob.
 	ReadMsgUDP(p []byte, oob []byte, handler ReadMsgUDPHandler)
-	// ReadMsgUDPAddrPort is like ReadMsgUDP but returns an netip.AddrPort instead of a UDPAddr.
-	ReadMsgUDPAddrPort(b, oob []byte, handler ReadMsgUDPAddrPortHandler)
-	// WriteToUDP acts like WriteTo but takes a UDPAddr.
-	WriteToUDP(b []byte, addr *net.UDPAddr, handler WriteHandler)
-	// WriteToUDPAddrPort acts like WriteTo but takes a netip.AddrPort.
-	WriteToUDPAddrPort(b []byte, addr netip.AddrPort, handler WriteHandler)
-	// WriteMsgUDP writes a message to addr via c if c isn't connected, or
-	// to c's remote address if c is connected (in which case addr must be
-	// nil). The payload is copied from b and the associated out-of-band
-	// data is copied from oob. It returns the number of payload and
-	// out-of-band bytes written.
-	//
-	// The packages golang.org/x/net/ipv4 and golang.org/x/net/ipv6 can be
-	// used to manipulate IP-level socket options in oob.
-	WriteMsgUDP(b, oob []byte, addr *net.UDPAddr, handler WriteMsgHandler)
-	// WriteMsgUDPAddrPort is like WriteMsgUDP but takes a netip.AddrPort instead of a UDPAddr.
-	WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPort, handler WriteMsgHandler)
+	WriteMsgUDP(p []byte, oob []byte, addr *net.UDPAddr, handler WriteMsgHandler)
 }
 
 type ReadFromUnixHandler func(n int, addr *net.UnixAddr, err error)
@@ -123,6 +89,8 @@ type UnixConnection interface {
 	// write 1 byte to the connection.
 	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr, handler WriteMsgHandler)
 }
+
+type UnixDialHandler func(conn UnixConnection, err error)
 
 type UnixAcceptHandler func(conn UnixConnection, err error)
 

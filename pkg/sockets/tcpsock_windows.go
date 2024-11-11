@@ -3,7 +3,6 @@
 package sockets
 
 import (
-	"context"
 	"errors"
 	"golang.org/x/sys/windows"
 	"net"
@@ -174,52 +173,6 @@ func (ln *tcpListener) Close() (err error) {
 
 type tcpConnection struct {
 	connection
-}
-
-func (conn *tcpConnection) Read(p []byte, handler ReadHandler) {
-	pLen := len(p)
-	if pLen == 0 {
-		handler(0, errors.New("rio: empty packet"))
-		return
-	} else if pLen > maxRW {
-		p = p[:maxRW]
-		pLen = maxRW
-	}
-	conn.rop.mode = read
-	conn.rop.buf.Buf = &p[0]
-	conn.rop.buf.Len = uint32(pLen)
-	conn.rop.readHandler = handler
-	err := windows.WSARecv(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, &conn.rop.overlapped, nil)
-	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
-		}
-		handler(0, wrapSyscallError("WSARecv", err))
-		conn.rop.readHandler = nil
-	}
-}
-
-func (conn *tcpConnection) Write(p []byte, handler WriteHandler) {
-	pLen := len(p)
-	if pLen == 0 {
-		handler(0, errors.New("rio: empty packet"))
-		return
-	} else if pLen > maxRW {
-		p = p[:maxRW]
-		pLen = maxRW
-	}
-	conn.wop.mode = write
-	conn.wop.buf.Buf = &p[0]
-	conn.wop.buf.Len = uint32(pLen)
-	conn.wop.writeHandler = handler
-	err := windows.WSASend(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, &conn.wop.overlapped, nil)
-	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
-		}
-		handler(0, wrapSyscallError("WSASend", err))
-		conn.wop.writeHandler = nil
-	}
 }
 
 func (conn *tcpConnection) SetNoDelay(noDelay bool) (err error) {
