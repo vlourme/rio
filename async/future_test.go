@@ -170,6 +170,7 @@ func BenchmarkTryPromise(b *testing.B) {
 		}
 	})
 	wg.Wait()
+	// BenchmarkTryPromise-20    	 1806452	       676.4 ns/op	     569 B/op	      10 allocs/op
 }
 
 func BenchmarkExec(b *testing.B) {
@@ -199,4 +200,7 @@ func BenchmarkExec(b *testing.B) {
 	// BenchmarkExec-20    	 2381676	       480.6 ns/op	      56 B/op	       3 allocs/op
 	// ants
 	// BenchmarkANTS-20    	 2408452	       500.5 ns/op	      16 B/op	       1 allocs/op
+}
+
+func TestTimer(t *testing.T) {
 }
