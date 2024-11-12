@@ -14,7 +14,7 @@ import (
 // 由于在关闭后依旧可以完成许诺，因此所许诺的内容如果含有关闭功能，则请实现 io.Closer。
 func TryStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T], ok bool) {
 	exec := From(ctx)
-	submitter, has := exec.GetExecutorSubmitter()
+	submitter, has := exec.TryGetTaskSubmitter()
 	if has {
 		promise = newStreamPromise[T](ctx, submitter, buf)
 		ok = true
@@ -49,6 +49,6 @@ func MustStreamPromise[T any](ctx context.Context, buf int) (promise Promise[T],
 	return
 }
 
-func newStreamPromise[R any](ctx context.Context, submitter ExecutorSubmitter, buf int) Promise[R] {
+func newStreamPromise[R any](ctx context.Context, submitter TaskSubmitter, buf int) Promise[R] {
 	return newFuture[R](ctx, submitter, buf, true)
 }

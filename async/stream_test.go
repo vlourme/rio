@@ -19,7 +19,7 @@ func TestTryStreamPromise(t *testing.T) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	future.OnComplete(func(ctx context.Context, result *Closer, err error) {
-		t.Log("future result:", result, err)
+		t.Log("future entry:", result, err)
 		if err != nil {
 			cancel()
 			return

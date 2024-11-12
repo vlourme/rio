@@ -22,7 +22,7 @@ func TestTryPromise(t *testing.T) {
 	promise.Succeed(1)
 	future := promise.Future()
 	future.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future result:", result, err)
+		t.Log("future entry:", result, err)
 	})
 }
 
@@ -40,7 +40,7 @@ func TestMustPromise(t *testing.T) {
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	future.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future result:", result, err)
+		t.Log("future entry:", result, err)
 		wg.Done()
 	})
 	wg.Wait()
@@ -60,7 +60,7 @@ func TestTryPromise_CompleteErr(t *testing.T) {
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	future.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future result:", result, err)
+		t.Log("future entry:", result, err)
 		wg.Done()
 	})
 	wg.Wait()
@@ -79,7 +79,7 @@ func TestTryPromise_Cancel(t *testing.T) {
 	}
 	future1 := promise1.Future()
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future1 result:", result, err)
+		t.Log("future1 entry:", result, err)
 		wg.Add(1)
 		promise2, ok2 := async.TryPromise[int](ctx)
 		if !ok2 {
@@ -88,7 +88,7 @@ func TestTryPromise_Cancel(t *testing.T) {
 		promise2.Succeed(2)
 		future2 := promise2.Future()
 		future2.OnComplete(func(ctx context.Context, result int, err error) {
-			t.Log("future2 result:", result, err)
+			t.Log("future2 entry:", result, err)
 			wg.Done()
 		})
 		wg.Done()
@@ -111,7 +111,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 	promise1.SetDeadline(time.Now().Add(3 * time.Second))
 	future1 := promise1.Future()
 	future1.OnComplete(func(ctx context.Context, result int, err error) {
-		t.Log("future1 result:", result, err)
+		t.Log("future1 entry:", result, err)
 		wg.Add(1)
 		promise2, ok2 := async.TryPromise[int](ctx)
 		if !ok2 {
@@ -120,7 +120,7 @@ func TestTryPromise_Timeout(t *testing.T) {
 		promise2.Succeed(2)
 		future2 := promise2.Future()
 		future2.OnComplete(func(ctx context.Context, result int, err error) {
-			t.Log("future2 result:", result, err)
+			t.Log("future2 entry:", result, err)
 			wg.Done()
 		})
 		wg.Done()
@@ -166,14 +166,7 @@ func BenchmarkTryPromise(b *testing.B) {
 			})
 		}
 	})
-	// BenchmarkTryPromise-20    	 1843843	       640.5 ns/op	     552 B/op	       9 allocs/op
-}
-
-type Run struct {
-}
-
-func (r *Run) Run(ctx context.Context) {
-	rand.Int()
+	// BenchmarkTryPromise-20    	 2473136	       494.9 ns/op	     256 B/op	       4 allocs/op
 }
 
 func BenchmarkExec(b *testing.B) {
@@ -183,14 +176,15 @@ func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = p.Execute(ctx, new(Run))
+			_ = p.Execute(ctx, func() {
+				rand.Int()
+			})
 		}
 	})
 	p.CloseGracefully()
 	// async better than ants
 	// async
-	// BenchmarkExec-20    	 2346141	       438.3 ns/op	      40 B/op	       2 allocs/op
-	// BenchmarkExec-20    	 2765719	       440.4 ns/op	      32 B/op	       1 allocs/op
+	// BenchmarkExec-20    	 2533604	       429.8 ns/op	       0 B/op	       0 allocs/op
 	// ants
 	// BenchmarkANTS-20    	 2408452	       500.5 ns/op	      16 B/op	       1 allocs/op
 }

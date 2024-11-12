@@ -10,52 +10,26 @@ import (
 	"time"
 )
 
-type Runnable interface {
-	Run(ctx context.Context)
-}
-
-type runnableFunc struct {
-	fn func(ctx context.Context)
-}
-
-func (exec *runnableFunc) Run(ctx context.Context) {
-	exec.fn(ctx)
-}
-
-func RunnableFunc(fn func(ctx context.Context)) Runnable {
-	return &runnableFunc{
-		fn: fn,
-	}
-}
-
-type ExecutorSubmitter interface {
-	Submit(ctx context.Context, runnable Runnable)
+type TaskSubmitter interface {
+	Submit(task func())
 }
 
 type Executors interface {
-	TryExecute(ctx context.Context, runnable Runnable) (ok bool)
-	Execute(ctx context.Context, runnable Runnable) (err error)
-	GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool)
-	ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter)
+	TryExecute(ctx context.Context, task func()) (ok bool)
+	Execute(ctx context.Context, task func()) (err error)
+	TryGetTaskSubmitter() (submitter TaskSubmitter, has bool)
+	ReleaseNotUsedTaskSubmitter(submitter TaskSubmitter)
 	Close()
 	CloseGracefully()
 }
 
-type executor struct {
-	ctx      context.Context
-	runnable Runnable
-}
-
-type executorSubmitterImpl struct {
+type submitterImpl struct {
 	lastUseTime time.Time
-	ch          chan *executor
+	ch          chan func()
 }
 
-func (submitter *executorSubmitterImpl) Submit(ctx context.Context, runnable Runnable) {
-	submitter.ch <- &executor{
-		ctx:      ctx,
-		runnable: runnable,
-	}
+func (submitter *submitterImpl) Submit(task func()) {
+	submitter.ch <- task
 }
 
 const (
@@ -98,6 +72,7 @@ func New(options ...Option) Executors {
 	opt := Options{
 		MaxGoroutines:            defaultMaxGoroutines,
 		MaxGoroutineIdleDuration: defaultMaxGoroutineIdleDuration,
+		CloseTimeout:             0,
 	}
 	if options != nil {
 		for _, option := range options {
@@ -114,9 +89,10 @@ func New(options ...Option) Executors {
 		locker:                   new(sync.Mutex),
 		running:                  0,
 		ready:                    nil,
-		stopCh:                   nil,
 		submitters:               sync.Pool{},
 		goroutines:               new(counter),
+		stopCh:                   nil,
+		stopTimeout:              0,
 	}
 	exec.start()
 	return exec
@@ -127,22 +103,31 @@ type executors struct {
 	maxGoroutineIdleDuration time.Duration
 	locker                   sync.Locker
 	running                  int64
-	ready                    []*executorSubmitterImpl
-	stopCh                   chan struct{}
+	ready                    []*submitterImpl
 	submitters               sync.Pool
 	goroutines               *counter
+	stopCh                   chan struct{}
+	stopTimeout              time.Duration
 }
 
-func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bool) {
-	if runnable == nil || atomic.LoadInt64(&exec.running) == 0 {
+func (exec *executors) TryExecute(ctx context.Context, task func()) (ok bool) {
+	if task == nil || atomic.LoadInt64(&exec.running) == 0 {
 		return false
 	}
 	submitter := exec.getSubmitter()
 	if submitter == nil {
 		return false
 	}
-	submitter.Submit(ctx, runnable)
-	ok = true
+	select {
+	case <-ctx.Done():
+		exec.ReleaseNotUsedTaskSubmitter(submitter)
+		break
+	default:
+		submitter.Submit(task)
+		ok = true
+		break
+	}
+
 	return
 }
 
@@ -150,13 +135,13 @@ var (
 	ErrExecutorsWasClosed = errors.New("async: executors were closed")
 )
 
-func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err error) {
-	if runnable == nil || atomic.LoadInt64(&exec.running) == 0 {
+func (exec *executors) Execute(ctx context.Context, task func()) (err error) {
+	if task == nil || atomic.LoadInt64(&exec.running) == 0 {
 		return
 	}
 	times := 10
 	for {
-		ok := exec.TryExecute(ctx, runnable)
+		ok := exec.TryExecute(ctx, task)
 		if ok {
 			break
 		}
@@ -177,14 +162,14 @@ func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err erro
 	return
 }
 
-func (exec *executors) GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool) {
+func (exec *executors) TryGetTaskSubmitter() (submitter TaskSubmitter, has bool) {
 	submitter = exec.getSubmitter()
 	has = submitter != nil
 	return
 }
 
-func (exec *executors) ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter) {
-	exec.release(submitter.(*executorSubmitterImpl))
+func (exec *executors) ReleaseNotUsedTaskSubmitter(submitter TaskSubmitter) {
+	exec.release(submitter.(*submitterImpl))
 	return
 }
 
@@ -201,6 +186,10 @@ func (exec *executors) shutdown() {
 }
 
 func (exec *executors) Close() {
+	if exec.stopTimeout > 0 {
+		exec.CloseGracefully()
+		return
+	}
 	atomic.StoreInt64(&exec.running, 0)
 	exec.shutdown()
 }
@@ -208,19 +197,35 @@ func (exec *executors) Close() {
 func (exec *executors) CloseGracefully() {
 	atomic.StoreInt64(&exec.running, 0)
 	exec.shutdown()
-	exec.goroutines.Wait()
+	if exec.stopTimeout == 0 {
+		exec.goroutines.Wait()
+		return
+	}
+	ch := make(chan struct{}, 1)
+	go func(exec *executors, ch chan struct{}) {
+		exec.goroutines.Wait()
+		close(ch)
+	}(exec, ch)
+	timer := time.NewTimer(exec.stopTimeout)
+	select {
+	case <-timer.C:
+		break
+	case <-ch:
+		break
+	}
+	timer.Stop()
 }
 
 func (exec *executors) start() {
 	exec.running = 1
 	exec.stopCh = make(chan struct{})
 	exec.submitters.New = func() interface{} {
-		return &executorSubmitterImpl{
-			ch: make(chan *executor, 1),
+		return &submitterImpl{
+			ch: make(chan func(), 1),
 		}
 	}
 	go func(exec *executors) {
-		var scratch []*executorSubmitterImpl
+		var scratch []*submitterImpl
 		maxExecutorIdleDuration := exec.maxGoroutineIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
@@ -242,7 +247,7 @@ func (exec *executors) start() {
 	}(exec)
 }
 
-func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
+func (exec *executors) clean(scratch *[]*submitterImpl) {
 	if atomic.LoadInt64(&exec.running) == 0 {
 		return
 	}
@@ -280,8 +285,8 @@ func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
 	}
 }
 
-func (exec *executors) getSubmitter() *executorSubmitterImpl {
-	var submitter *executorSubmitterImpl
+func (exec *executors) getSubmitter() *submitterImpl {
+	var submitter *submitterImpl
 	createExecutor := false
 	exec.locker.Lock()
 	ready := exec.ready
@@ -302,7 +307,7 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 			return nil
 		}
 		vch := exec.submitters.Get()
-		submitter = vch.(*executorSubmitterImpl)
+		submitter = vch.(*submitterImpl)
 		go func(exec *executors) {
 			exec.handle(submitter)
 			exec.submitters.Put(vch)
@@ -311,7 +316,7 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 	return submitter
 }
 
-func (exec *executors) release(submitter *executorSubmitterImpl) bool {
+func (exec *executors) release(submitter *submitterImpl) bool {
 	submitter.lastUseTime = time.Now()
 	exec.locker.Lock()
 	if atomic.LoadInt64(&exec.running) == 0 {
@@ -323,21 +328,19 @@ func (exec *executors) release(submitter *executorSubmitterImpl) bool {
 	return true
 }
 
-func (exec *executors) handle(wch *executorSubmitterImpl) {
+func (exec *executors) handle(wch *submitterImpl) {
 	for {
 		if wch == nil {
 			break
 		}
-		e, ok := <-wch.ch
+		task, ok := <-wch.ch
 		if !ok {
 			break
 		}
-		if e == nil {
+		if task == nil {
 			break
 		}
-		run := e.runnable
-		ctx := e.ctx
-		run.Run(ctx)
+		task()
 		if !exec.release(wch) {
 			break
 		}

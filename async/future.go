@@ -7,10 +7,6 @@ import (
 	"time"
 )
 
-var (
-	ErrFutureWasClosed = errors.New("async: promise was closed")
-)
-
 // Future
 // 许诺的未来，注册一个异步非堵塞的结果处理器。
 type Future[R any] interface {
@@ -34,230 +30,104 @@ type Awaitable[R any] interface {
 func Await[R any](future Future[R]) (v R, err error) {
 	awaitable, ok := future.(Awaitable[R])
 	if !ok {
-		err = errors.New("async: future is not a Awaitable[R]")
+		err = errors.New("async: future is not a Awaitable[E]")
 		return
 	}
 	v, err = awaitable.Await()
 	return
 }
 
-func SucceedImmediately[R any](ctx context.Context, value R) (f Future[R]) {
+func SucceedImmediately[R any](ctx context.Context, r R) (f Future[R]) {
 	f = &immediatelyFuture[R]{
-		ctx:    ctx,
-		result: value,
-		cause:  nil,
+		ctx:   ctx,
+		r:     r,
+		cause: nil,
 	}
 	return
 }
 
 func FailedImmediately[R any](ctx context.Context, cause error) (f Future[R]) {
 	f = &immediatelyFuture[R]{
-		ctx:    ctx,
-		result: *(new(R)),
-		cause:  cause,
+		ctx:   ctx,
+		r:     *(new(R)),
+		cause: cause,
 	}
 	return
 }
 
 type immediatelyFuture[R any] struct {
-	ctx    context.Context
-	result R
-	cause  error
+	ctx   context.Context
+	r     R
+	cause error
 }
 
 func (f *immediatelyFuture[R]) OnComplete(handler ResultHandler[R]) {
-	handler(f.ctx, f.result, f.cause)
+	handler(f.ctx, f.r, f.cause)
 	return
 }
 
 func (f *immediatelyFuture[R]) Await() (r R, err error) {
-	r, err = f.result, f.cause
+	r, err = f.r, f.cause
 	return
 }
 
-func newFuture[R any](ctx context.Context, submitter ExecutorSubmitter, buf int, stream bool) *futureImpl[R] {
-	futureCtx, futureCtxCancel := context.WithCancel(ctx)
+func newFuture[R any](ctx context.Context, submitter TaskSubmitter, buf int, stream bool) *futureImpl[R] {
 	if buf < 1 {
 		buf = 1
 	}
-	var streamLocker *sync.RWMutex
+	var streamLocker sync.Locker
 	if stream {
-		streamLocker = new(sync.RWMutex)
+		streamLocker = new(spinLock)
 	}
 	return &futureImpl[R]{
-		ctx:                     ctx,
-		futureCtx:               futureCtx,
-		futureCtxCancel:         futureCtxCancel,
-		futureDeadlineCtxCancel: nil,
-		stream:                  stream,
-		streamClosed:            false,
-		streamLocker:            streamLocker,
-		rch:                     make(chan Result[R], buf),
-		submitter:               submitter,
+		ctx:             ctx,
+		futureCtx:       ctx,
+		futureCtxCancel: nil,
+		stream:          stream,
+		streamClosed:    false,
+		streamLocker:    streamLocker,
+		rch:             make(chan result[R], buf),
+		submitter:       submitter,
 	}
 }
 
 type futureImpl[R any] struct {
-	ctx                     context.Context
-	futureCtx               context.Context
-	futureCtxCancel         context.CancelFunc
-	futureDeadlineCtxCancel context.CancelFunc
-	stream                  bool
-	streamClosed            bool
-	streamLocker            *sync.RWMutex
-	rch                     chan Result[R]
-	submitter               ExecutorSubmitter
+	ctx             context.Context
+	futureCtx       context.Context
+	futureCtxCancel context.CancelFunc
+	stream          bool
+	streamClosed    bool
+	streamLocker    sync.Locker
+	rch             chan result[R]
+	submitter       TaskSubmitter
+	handler         ResultHandler[R]
 }
 
-func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
-	run := futureRunner[R]{
-		ctx:            f.futureCtx,
-		cancel:         f.futureCtxCancel,
-		deadlineCancel: f.futureDeadlineCtxCancel,
-		stream:         f.stream,
-		rch:            f.rch,
-		handler:        handler,
-	}
-	f.submitter.Submit(f.ctx, run)
-}
-
-func (f *futureImpl[R]) Await() (v R, err error) {
-	ch := make(chan Result[R], 1)
-	var handler ResultHandler[R] = func(ctx context.Context, result R, err error) {
-		ch <- newResult[R](result, err)
-		close(ch)
-	}
-	run := futureRunner[R]{
-		ctx:            f.futureCtx,
-		cancel:         f.futureCtxCancel,
-		deadlineCancel: f.futureDeadlineCtxCancel,
-		stream:         f.stream,
-		rch:            f.rch,
-		handler:        handler,
-	}
-	f.submitter.Submit(f.ctx, run)
-	ar := <-ch
-	v = ar.Result()
-	err = ar.Cause()
-	return
-}
-
-func (f *futureImpl[R]) Complete(r R, err error) {
-	if f.stream {
-		f.streamLocker.RLock()
-		if f.streamClosed {
-			tryCloseResultWhenUnexpectedlyErrorOccur(newResult[R](r, err))
-			f.streamLocker.RUnlock()
-			return
-		}
-	}
-	f.rch <- newResult[R](r, err)
-	if f.stream {
-		f.streamLocker.RUnlock()
-	} else {
-		close(f.rch)
-	}
-}
-
-func (f *futureImpl[R]) Succeed(r R) {
-	if f.stream {
-		f.streamLocker.RLock()
-		if f.streamClosed {
-			tryCloseResultWhenUnexpectedlyErrorOccur(newSucceedResult[R](r))
-			f.streamLocker.RUnlock()
-			return
-		}
-	}
-	f.rch <- newSucceedResult[R](r)
-	if f.stream {
-		f.streamLocker.RUnlock()
-	} else {
-		close(f.rch)
-	}
-}
-
-func (f *futureImpl[R]) Fail(cause error) {
-	if f.stream {
-		f.streamLocker.RLock()
-		if f.streamClosed {
-			f.streamLocker.RUnlock()
-			return
-		}
-	}
-	f.rch <- newFailedResult[R](cause)
-	if f.stream {
-		f.streamLocker.RUnlock()
-	} else {
-		close(f.rch)
-	}
-}
-
-func (f *futureImpl[R]) Cancel() {
-	if f.stream {
-		f.streamLocker.Lock()
-		if f.streamClosed {
-			f.streamLocker.Unlock()
-			return
-		}
-	}
-	f.futureCtxCancel()
-	if f.stream {
-		f.streamClosed = true
-		f.streamLocker.Unlock()
-	}
-	close(f.rch)
-}
-
-func (f *futureImpl[R]) SetDeadline(t time.Time) {
-	f.futureCtx, f.futureDeadlineCtxCancel = context.WithDeadline(f.futureCtx, t)
-}
-
-func (f *futureImpl[R]) Future() (future Future[R]) {
-	future = f
-	return
-}
-
-type futureRunner[R any] struct {
-	ctx            context.Context
-	cancel         context.CancelFunc
-	deadlineCancel context.CancelFunc
-	stream         bool
-	rch            <-chan Result[R]
-	handler        ResultHandler[R]
-}
-
-func (run futureRunner[R]) Run(ctx context.Context) {
-	futureCtx := run.ctx
-	futureCtxCancel := run.cancel
-	rch := run.rch
+func (f *futureImpl[R]) handle() {
+	futureCtx := f.futureCtx
+	rch := f.rch
 	stopped := false
 	isUnexpectedError := false
 	for {
 		select {
-		case <-ctx.Done():
-			run.handler(ctx, *(new(R)), ctx.Err())
+		case <-f.ctx.Done():
+			f.handler(f.ctx, *(new(R)), f.ctx.Err())
 			stopped = true
 			isUnexpectedError = true
 			break
 		case <-futureCtx.Done():
-			run.handler(ctx, *(new(R)), futureCtx.Err())
+			f.handler(f.ctx, *(new(R)), futureCtx.Err())
 			stopped = true
 			isUnexpectedError = true
 			break
 		case ar, ok := <-rch:
 			if !ok {
-				if !run.stream {
-					run.handler(ctx, *(new(R)), ErrFutureWasClosed)
-				}
+				f.handler(f.ctx, *(new(R)), context.Canceled)
 				stopped = true
 				break
 			}
-			if ar.Succeed() {
-				run.handler(ctx, ar.Result(), nil)
-			} else {
-				run.handler(ctx, *(new(R)), ar.Cause())
-			}
-			if !run.stream {
+			f.handler(f.ctx, ar.entry, ar.cause)
+			if !f.stream {
 				stopped = true
 			}
 			break
@@ -275,8 +145,129 @@ func (run futureRunner[R]) Run(ctx context.Context) {
 			tryCloseResultWhenUnexpectedlyErrorOccur(ar)
 		}
 	}
-	futureCtxCancel()
-	if run.deadlineCancel != nil {
-		run.deadlineCancel()
+	if f.futureCtxCancel != nil {
+		f.futureCtxCancel()
 	}
+	f.clean()
+}
+
+func (f *futureImpl[R]) clean() {
+	f.futureCtx = nil
+	f.futureCtxCancel = nil
+	f.rch = nil
+	f.submitter = nil
+	f.handler = nil
+}
+
+func (f *futureImpl[R]) OnComplete(handler ResultHandler[R]) {
+	f.handler = handler
+	f.submitter.Submit(f.handle)
+}
+
+func (f *futureImpl[R]) Await() (v R, err error) {
+	ch := make(chan result[R], 1)
+	var handler ResultHandler[R] = func(ctx context.Context, r R, cause error) {
+		ch <- result[R]{
+			entry: r,
+			cause: cause,
+		}
+		close(ch)
+	}
+	f.handler = handler
+	f.submitter.Submit(f.handle)
+	ar := <-ch
+	v = ar.entry
+	err = ar.cause
+	return
+}
+
+func (f *futureImpl[R]) Complete(r R, err error) {
+	if f.stream {
+		f.streamLocker.Lock()
+		if f.streamClosed {
+			tryCloseResultWhenUnexpectedlyErrorOccur(result[R]{
+				entry: r,
+				cause: err,
+			})
+			f.streamLocker.Unlock()
+			return
+		}
+	}
+	f.rch <- result[R]{
+		entry: r,
+		cause: err,
+	}
+	if f.stream {
+		f.streamLocker.Unlock()
+	} else {
+		close(f.rch)
+	}
+}
+
+func (f *futureImpl[R]) Succeed(r R) {
+	if f.stream {
+		f.streamLocker.Lock()
+		if f.streamClosed {
+			tryCloseResultWhenUnexpectedlyErrorOccur(result[R]{
+				entry: r,
+				cause: nil,
+			})
+			f.streamLocker.Unlock()
+			return
+		}
+	}
+	f.rch <- result[R]{
+		entry: r,
+		cause: nil,
+	}
+	if f.stream {
+		f.streamLocker.Unlock()
+	} else {
+		close(f.rch)
+	}
+}
+
+func (f *futureImpl[R]) Fail(cause error) {
+	if f.stream {
+		f.streamLocker.Lock()
+		if f.streamClosed {
+			f.streamLocker.Unlock()
+			return
+		}
+	}
+	f.rch <- result[R]{
+		cause: cause,
+	}
+	if f.stream {
+		f.streamLocker.Unlock()
+	} else {
+		close(f.rch)
+	}
+}
+
+func (f *futureImpl[R]) Cancel() {
+	if f.stream {
+		f.streamLocker.Lock()
+		if f.streamClosed {
+			f.streamLocker.Unlock()
+			return
+		}
+	}
+	if f.stream {
+		f.streamClosed = true
+		f.streamLocker.Unlock()
+	}
+	if f.futureCtxCancel != nil {
+		f.futureCtxCancel()
+	}
+	close(f.rch)
+}
+
+func (f *futureImpl[R]) SetDeadline(deadline time.Time) {
+	f.futureCtx, f.futureCtxCancel = context.WithDeadline(f.futureCtx, deadline)
+}
+
+func (f *futureImpl[R]) Future() (future Future[R]) {
+	future = f
+	return
 }

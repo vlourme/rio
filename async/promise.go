@@ -36,7 +36,7 @@ type Promise[R any] interface {
 // 当 Promise.Complete ，Promise.Succeed ，Promise.Fail 后，不必再 Promise.Cancel 来关闭它。
 func TryPromise[T any](ctx context.Context) (promise Promise[T], ok bool) {
 	exec := From(ctx)
-	submitter, has := exec.GetExecutorSubmitter()
+	submitter, has := exec.TryGetTaskSubmitter()
 	if has {
 		promise = newPromise[T](ctx, submitter)
 		ok = true
@@ -67,6 +67,6 @@ func MustPromise[T any](ctx context.Context) (promise Promise[T], err error) {
 	return
 }
 
-func newPromise[R any](ctx context.Context, submitter ExecutorSubmitter) Promise[R] {
+func newPromise[R any](ctx context.Context, submitter TaskSubmitter) Promise[R] {
 	return newFuture[R](ctx, submitter, 1, false)
 }

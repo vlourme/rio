@@ -14,6 +14,7 @@ type Option func(*Options) error
 type Options struct {
 	MaxGoroutines            int
 	MaxGoroutineIdleDuration time.Duration
+	CloseTimeout             time.Duration
 }
 
 func MaxGoroutines(max int) Option {
@@ -32,6 +33,16 @@ func MaxGoroutineIdleDuration(d time.Duration) Option {
 			d = defaultMaxGoroutineIdleDuration
 		}
 		o.MaxGoroutineIdleDuration = d
+		return nil
+	}
+}
+
+func WithCloseTimeout(timeout time.Duration) Option {
+	return func(o *Options) error {
+		if timeout < 1 {
+			timeout = 0
+		}
+		o.CloseTimeout = timeout
 		return nil
 	}
 }
