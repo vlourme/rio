@@ -57,10 +57,17 @@ func (decoder *LengthFieldDecoder[T]) Decode(inbound transport.Inbound) (message
 		err = io.ErrUnexpectedEOF
 		return
 	}
-
+	if bufLen < lengthFieldSize {
+		// not full
+		next = true
+		return
+	}
 	lengthField := buf.Peek(lengthFieldSize)
 	size := int(binary.BigEndian.Uint64(lengthField))
-
+	if size == 0 {
+		next = decoder.infinite
+		return
+	}
 	if bufLen-lengthFieldSize < size {
 		// not full
 		next = true
@@ -85,7 +92,7 @@ func (decoder *LengthFieldDecoder[T]) Decode(inbound transport.Inbound) (message
 func LengthFieldEncode(ctx context.Context, writer FutureWriter, p []byte) (future async.Future[transport.Outbound]) {
 	pLen := len(p)
 	if pLen == 0 {
-		future = async.FailedImmediately[transport.Outbound](ctx, errors.New("empty packet"))
+		future = async.FailedImmediately[transport.Outbound](ctx, errors.New("codec: empty packet"))
 		return
 	}
 	b := make([]byte, lengthFieldSize+pLen)

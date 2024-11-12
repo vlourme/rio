@@ -13,7 +13,7 @@ import (
 func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6only bool, err error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
-		err = errors.New("invalid addr")
+		err = errors.New("sockets: invalid addr")
 		return
 	}
 	// unix
@@ -32,7 +32,7 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		return
 	}
 	if !ap.IsValid() {
-		err = errors.New("invalid addr")
+		err = errors.New("sockets: invalid addr")
 		return
 	}
 	ip := ap.Addr().AsSlice()
@@ -64,7 +64,7 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		break
 	case "tcp4":
 		if ipv6only {
-			err = errors.New("tcp4 is not supported on IPv4")
+			err = errors.New("sockets: tcp4 is not supported on IPv4")
 			return
 		}
 		if ipLen == 0 {
@@ -79,7 +79,7 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		break
 	case "tcp6":
 		if ipv6only {
-			err = errors.New("tcp6 is not supported on IPv6")
+			err = errors.New("sockets: tcp6 is not supported on IPv6")
 			return
 		}
 		v = &net.TCPAddr{
@@ -111,7 +111,7 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		break
 	case "udp4":
 		if ipv6only {
-			err = errors.New("udp4 is not supported on IPv4")
+			err = errors.New("sockets: udp4 is not supported on IPv4")
 			return
 		}
 		if ipLen == 0 {
@@ -126,7 +126,7 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		break
 	case "udp6":
 		if ipv6only {
-			err = errors.New("udp6 is not supported on IPv6")
+			err = errors.New("sockets: udp6 is not supported on IPv6")
 			return
 		}
 		v = &net.UDPAddr{
@@ -143,12 +143,12 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 func ParseAddrPort(addr string) (addrPort netip.AddrPort, err error) {
 	i := strings.LastIndexByte(addr, ':')
 	if i == -1 {
-		err = errors.New("not an ip:port")
+		err = errors.New("sockets: not an ip:port")
 		return
 	}
 	ip, port := addr[:i], addr[i+1:]
 	if len(port) == 0 {
-		err = errors.New("no port")
+		err = errors.New("sockets: no port")
 		return
 	}
 	if len(ip) == 0 {
@@ -156,14 +156,14 @@ func ParseAddrPort(addr string) (addrPort netip.AddrPort, err error) {
 	} else {
 		if ip[0] == '[' {
 			if len(ip) < 2 || ip[len(ip)-1] != ']' {
-				err = errors.New("invalid ipv6")
+				err = errors.New("sockets: invalid ipv6")
 				return
 			}
 		}
 	}
 	portNum, portErr := strconv.Atoi(port)
 	if portErr != nil {
-		err = errors.New("invalid port")
+		err = errors.New("sockets: invalid port")
 		return
 	}
 	addr = fmt.Sprintf("%s:%d", ip, portNum)

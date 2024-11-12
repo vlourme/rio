@@ -82,12 +82,12 @@ func With(ctx context.Context, bucket *Bucket) context.Context {
 func From(ctx context.Context) *Bucket {
 	value := ctx.Value(key)
 	if value == nil {
-		panic("get bucket from context failed cause there is no bucket in context")
+		panic("timeslimiter: get bucket from context failed cause there is no bucket in context")
 		return nil
 	}
 	bucket, ok := value.(*Bucket)
 	if !ok {
-		panic("get bucket from context failed  cause the value is not a *Bucket")
+		panic("timeslimiter: get bucket from context failed  cause the value is not a *Bucket")
 		return nil
 	}
 	return bucket

@@ -53,7 +53,7 @@ type buffer struct {
 
 func (buf *buffer) Allocate(size int) (p []byte) {
 	if !buf.canWrite() {
-		panic("bytebuffurpool.Buffer: cannot apply area for write, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
+		panic("bytebuffurpool: cannot allocate area for write, cause prev Allocate() was not finished, please call AllocatedWrote() after the area was wrote")
 		return
 	}
 	if size < 1 {
@@ -170,7 +170,7 @@ func (buf *buffer) Read(p []byte) (n int, err error) {
 
 func (buf *buffer) Write(p []byte) (n int, err error) {
 	if !buf.canWrite() {
-		panic("bytebuffurpool.Buffer: cannot write, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
+		panic("bytebuffurpool: cannot allocate area for write, cause prev Allocate() was not finished, please call AllocatedWrote() after the area was wrote")
 		return
 	}
 	n = len(p)
@@ -185,7 +185,7 @@ func (buf *buffer) Write(p []byte) (n int, err error) {
 
 func (buf *buffer) WriteString(s string) (n int, err error) {
 	if !buf.canWrite() {
-		panic("bytebuffurpool.Buffer: cannot write string, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
+		panic("bytebuffurpool: cannot allocate area for write, cause prev Allocate() was not finished, please call AllocatedWrote() after the area was wrote")
 		return
 	}
 	p := unsafe.Slice(unsafe.StringData(s), len(s))
@@ -195,7 +195,7 @@ func (buf *buffer) WriteString(s string) (n int, err error) {
 
 func (buf *buffer) WriteByte(c byte) (err error) {
 	if !buf.canWrite() {
-		panic("bytebuffurpool.Buffer: cannot write byte, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
+		panic("bytebuffurpool: cannot allocate area for write, cause prev Allocate() was not finished, please call AllocatedWrote() after the area was wrote")
 		return
 	}
 	if buf.Available() < 1 {
@@ -209,7 +209,7 @@ func (buf *buffer) WriteByte(c byte) (err error) {
 
 func (buf *buffer) WriteRune(r rune) (n int, err error) {
 	if !buf.canWrite() {
-		panic("bytebuffurpool.Buffer: cannot write rune, cause prev ApplyAreaForWrite was not finished, please call finish() after the area was wrote")
+		panic("bytebuffurpool: cannot allocate area for write, cause prev Allocate() was not finished, please call AllocatedWrote() after the area was wrote")
 		return
 	}
 	if uint32(r) < utf8.RuneSelf {

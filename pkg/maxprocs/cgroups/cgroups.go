@@ -104,7 +104,7 @@ const (
 	cpuMaxPeriodIndexV2
 )
 
-var ErrNotV2 = errors.New("not using cgroups2")
+var ErrNotV2 = errors.New("cgroup: not using cgroups2")
 
 type CGroupsV2 struct {
 	mountPoint string
@@ -185,7 +185,7 @@ func (cg *CGroupsV2) CPUQuota() (quota float64, ok bool, err error) {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) == 0 || len(fields) > 2 {
 			quota = -1
-			err = errors.New("invalid format")
+			err = errors.New("cgroup: invalid format")
 			return
 		}
 
@@ -213,7 +213,7 @@ func (cg *CGroupsV2) CPUQuota() (quota float64, ok bool, err error) {
 
 			if period == 0 {
 				quota = -1
-				err = errors.New("zero value for period is not allowed")
+				err = errors.New("cgroup: zero value for period is not allowed")
 				return
 			}
 		}

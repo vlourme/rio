@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrFutureWasClosed = errors.New("rio: promise was closed")
+	ErrFutureWasClosed = errors.New("async: promise was closed")
 )
 
 // Future
@@ -34,7 +34,7 @@ type Awaitable[R any] interface {
 func Await[R any](future Future[R]) (v R, err error) {
 	awaitable, ok := future.(Awaitable[R])
 	if !ok {
-		err = errors.New("rio: future is not a Awaitable[R]")
+		err = errors.New("async: future is not a Awaitable[R]")
 		return
 	}
 	v, err = awaitable.Await()

@@ -16,7 +16,7 @@ func From(ctx context.Context) Executors {
 	if ok && exec != nil {
 		return exec
 	}
-	panic("rio: there is no executors in context")
+	panic("async: there is no executors in context")
 	return nil
 }
 

@@ -13,7 +13,7 @@ func ListenUPD(network string, address string, _ Options) (conn UDPConnection, e
 	}
 	udpAddr, isUDPAddr := addr.(*net.UDPAddr)
 	if !isUDPAddr {
-		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a UDP address")}
+		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("sockets: not a UDP address")}
 		return
 	}
 	conn, err = listenUDP(network, family, udpAddr, ipv6only, 0)

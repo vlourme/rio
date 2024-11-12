@@ -104,7 +104,7 @@ func New(options ...Option) Executors {
 		for _, option := range options {
 			optErr := option(&opt)
 			if optErr != nil {
-				panic(fmt.Errorf("rio: new executors failed, %v", optErr))
+				panic(fmt.Errorf("async: new executors failed, %v", optErr))
 				return nil
 			}
 		}
@@ -112,7 +112,7 @@ func New(options ...Option) Executors {
 	exec := &executors{
 		maxExecutorsCount:       int64(opt.MaxExecutors),
 		maxExecutorIdleDuration: opt.MaxExecutorIdleDuration,
-		locker:                  sync.Mutex{},
+		locker:                  new(sync.Mutex),
 		running:                 0,
 		ready:                   nil,
 		stopCh:                  nil,
@@ -126,7 +126,7 @@ func New(options ...Option) Executors {
 type executors struct {
 	maxExecutorsCount       int64
 	maxExecutorIdleDuration time.Duration
-	locker                  sync.Mutex
+	locker                  sync.Locker
 	running                 int64
 	ready                   []*executorSubmitterImpl
 	stopCh                  chan struct{}
@@ -148,7 +148,7 @@ func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bo
 }
 
 var (
-	ErrExecutorsWasClosed = errors.New("executors were closed")
+	ErrExecutorsWasClosed = errors.New("async: executors were closed")
 )
 
 func (exec *executors) Execute(ctx context.Context, runnable Runnable) (err error) {

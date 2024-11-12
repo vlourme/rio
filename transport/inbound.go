@@ -31,7 +31,7 @@ func (buf *inboundBuffer) Allocate(size int) (p []byte) {
 		buf.b = bytebufferpool.Get()
 	}
 	if buf.b.WritePending() {
-		panic("rio: buffer already allocated a piece bytes")
+		panic("transport: buffer already allocated a piece bytes")
 		return
 	}
 	p = buf.b.Allocate(size)

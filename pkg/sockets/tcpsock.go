@@ -13,7 +13,7 @@ func ListenTCP(network string, address string, opt Options) (ln TCPListener, err
 	}
 	tcpAddr, isTCPAddr := addr.(*net.TCPAddr)
 	if !isTCPAddr {
-		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("not a TCP address")}
+		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: errors.New("sockets: not a TCP address")}
 		return
 	}
 	proto := 0
@@ -32,7 +32,7 @@ func DialTCP(network string, address string, opt Options, handler TCPDialHandler
 	}
 	tcpAddr, isTCPAddr := addr.(*net.TCPAddr)
 	if !isTCPAddr {
-		handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: errors.New("not a TCP address")})
+		handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: errors.New("sockets: not a TCP address")})
 		return
 	}
 	proto := 0

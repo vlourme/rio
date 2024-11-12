@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	ErrEmptyPacket = errors.New("rio: empty packet")
+	ErrEmptyPacket = errors.New("sockets: empty packet")
 )
 
 type ReadHandler func(n int, err error)

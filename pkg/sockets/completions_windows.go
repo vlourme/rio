@@ -21,7 +21,7 @@ var (
 
 func createSubIoCompletionPort(handle windows.Handle) (windows.Handle, error) {
 	if iocp == windows.InvalidHandle {
-		return windows.InvalidHandle, errors.New("root iocp handle was not init")
+		return windows.InvalidHandle, errors.New("sockets: root iocp handle was not init")
 	}
 	return windows.CreateIoCompletionPort(handle, iocp, key, 0)
 }
@@ -30,12 +30,12 @@ func (com *completions) poll() {
 	var data windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &data)
 	if startupErr != nil {
-		panic(fmt.Sprintf("sockets completions poll failed: %v", startupErr))
+		panic(fmt.Sprintf("sockets: sockets completions poll failed: %v", startupErr))
 		return
 	}
 	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, 0)
 	if createIOCPErr != nil {
-		panic(fmt.Sprintf("sockets completions poll failed: %v", createIOCPErr))
+		panic(fmt.Sprintf("sockets: sockets completions poll failed: %v", createIOCPErr))
 		return
 	}
 	iocp = cphandle
