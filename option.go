@@ -16,8 +16,8 @@ type Options struct {
 	parallelAcceptors                int
 	maxConnections                   int64
 	maxConnectionsLimiterWaitTimeout time.Duration
-	maxExecutors                     int
-	maxExecutorIdleDuration          time.Duration
+	maxGoroutines                    int
+	maxGoroutineIdleDuration         time.Duration
 	tlsConfig                        *tls.Config
 	multipathTCP                     bool
 }
@@ -75,16 +75,16 @@ func WithMultipathTCP() Option {
 	}
 }
 
-func WithMaxExecutors(maxExecutors int) Option {
+func WithMaxGoroutines(maxExecutors int) Option {
 	return func(options *Options) (err error) {
-		options.maxExecutors = maxExecutors
+		options.maxGoroutines = maxExecutors
 		return
 	}
 }
 
-func WithMaxExecutorIdleDuration(duration time.Duration) Option {
+func WithMaxGoroutineIdleDuration(duration time.Duration) Option {
 	return func(options *Options) (err error) {
-		options.maxExecutorIdleDuration = duration
+		options.maxGoroutineIdleDuration = duration
 		return
 	}
 }

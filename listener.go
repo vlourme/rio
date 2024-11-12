@@ -32,8 +32,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		parallelAcceptors:                runtime.NumCPU() * 2,
 		maxConnections:                   DefaultMaxConnections,
 		maxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
-		maxExecutors:                     0,
-		maxExecutorIdleDuration:          0,
+		maxGoroutines:                    0,
+		maxGoroutineIdleDuration:         0,
 		tlsConfig:                        nil,
 		multipathTCP:                     false,
 	}
@@ -54,11 +54,11 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
 	// executors
 	executorsOptions := make([]async.Option, 0, 1)
-	if opt.maxExecutors > 0 {
-		executorsOptions = append(executorsOptions, async.MaxExecutors(opt.maxExecutors))
+	if opt.maxGoroutines > 0 {
+		executorsOptions = append(executorsOptions, async.MaxGoroutines(opt.maxGoroutines))
 	}
-	if opt.maxExecutorIdleDuration > 0 {
-		executorsOptions = append(executorsOptions, async.MaxIdleExecutorDuration(opt.maxExecutorIdleDuration))
+	if opt.maxGoroutineIdleDuration > 0 {
+		executorsOptions = append(executorsOptions, async.MaxGoroutineIdleDuration(opt.maxGoroutineIdleDuration))
 	}
 	executors := async.New(executorsOptions...)
 	ctx = async.With(ctx, executors)

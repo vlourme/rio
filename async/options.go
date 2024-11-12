@@ -5,33 +5,33 @@ import (
 )
 
 const (
-	defaultMaxExecutors            = 256 * 1024
-	defaultMaxExecutorIdleDuration = 10 * time.Second
+	defaultMaxGoroutines            = 256 * 1024
+	defaultMaxGoroutineIdleDuration = 10 * time.Second
 )
 
 type Option func(*Options) error
 
 type Options struct {
-	MaxExecutors            int
-	MaxExecutorIdleDuration time.Duration
+	MaxGoroutines            int
+	MaxGoroutineIdleDuration time.Duration
 }
 
-func MaxExecutors(max int) Option {
+func MaxGoroutines(max int) Option {
 	return func(o *Options) error {
 		if max < 1 {
-			max = defaultMaxExecutors
+			max = defaultMaxGoroutines
 		}
-		o.MaxExecutors = max
+		o.MaxGoroutines = max
 		return nil
 	}
 }
 
-func MaxIdleExecutorDuration(d time.Duration) Option {
+func MaxGoroutineIdleDuration(d time.Duration) Option {
 	return func(o *Options) error {
 		if d < 1 {
-			d = defaultMaxExecutorIdleDuration
+			d = defaultMaxGoroutineIdleDuration
 		}
-		o.MaxExecutorIdleDuration = d
+		o.MaxGoroutineIdleDuration = d
 		return nil
 	}
 }

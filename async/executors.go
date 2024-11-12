@@ -97,8 +97,8 @@ func (c *counter) Wait() {
 
 func New(options ...Option) Executors {
 	opt := Options{
-		MaxExecutors:            defaultMaxExecutors,
-		MaxExecutorIdleDuration: defaultMaxExecutorIdleDuration,
+		MaxGoroutines:            defaultMaxGoroutines,
+		MaxGoroutineIdleDuration: defaultMaxGoroutineIdleDuration,
 	}
 	if options != nil {
 		for _, option := range options {
@@ -110,28 +110,28 @@ func New(options ...Option) Executors {
 		}
 	}
 	exec := &executors{
-		maxExecutorsCount:       int64(opt.MaxExecutors),
-		maxExecutorIdleDuration: opt.MaxExecutorIdleDuration,
-		locker:                  new(sync.Mutex),
-		running:                 0,
-		ready:                   nil,
-		stopCh:                  nil,
-		submitters:              sync.Pool{},
-		goroutines:              new(counter),
+		maxGoroutines:            int64(opt.MaxGoroutines),
+		maxGoroutineIdleDuration: opt.MaxGoroutineIdleDuration,
+		locker:                   new(sync.Mutex),
+		running:                  0,
+		ready:                    nil,
+		stopCh:                   nil,
+		submitters:               sync.Pool{},
+		goroutines:               new(counter),
 	}
 	exec.start()
 	return exec
 }
 
 type executors struct {
-	maxExecutorsCount       int64
-	maxExecutorIdleDuration time.Duration
-	locker                  sync.Locker
-	running                 int64
-	ready                   []*executorSubmitterImpl
-	stopCh                  chan struct{}
-	submitters              sync.Pool
-	goroutines              *counter
+	maxGoroutines            int64
+	maxGoroutineIdleDuration time.Duration
+	locker                   sync.Locker
+	running                  int64
+	ready                    []*executorSubmitterImpl
+	stopCh                   chan struct{}
+	submitters               sync.Pool
+	goroutines               *counter
 }
 
 func (exec *executors) TryExecute(ctx context.Context, runnable Runnable) (ok bool) {
@@ -192,7 +192,7 @@ func (exec *executors) ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitt
 func (exec *executors) Available() (ok bool) {
 	exec.locker.Lock()
 	if n := len(exec.ready) - 1; n < 0 {
-		if exec.goroutines.Value() < exec.maxExecutorsCount {
+		if exec.goroutines.Value() < exec.maxGoroutines {
 			ok = true
 		}
 	} else {
@@ -235,7 +235,7 @@ func (exec *executors) start() {
 	}
 	go func(exec *executors) {
 		var scratch []*executorSubmitterImpl
-		maxExecutorIdleDuration := exec.maxExecutorIdleDuration
+		maxExecutorIdleDuration := exec.maxGoroutineIdleDuration
 		stopped := false
 		timer := time.NewTimer(maxExecutorIdleDuration)
 		for {
@@ -260,7 +260,7 @@ func (exec *executors) clean(scratch *[]*executorSubmitterImpl) {
 	if atomic.LoadInt64(&exec.running) == 0 {
 		return
 	}
-	maxExecutorIdleDuration := exec.maxExecutorIdleDuration
+	maxExecutorIdleDuration := exec.maxGoroutineIdleDuration
 	criticalTime := time.Now().Add(-maxExecutorIdleDuration)
 	exec.locker.Lock()
 	ready := exec.ready
@@ -301,7 +301,7 @@ func (exec *executors) getSubmitter() *executorSubmitterImpl {
 	ready := exec.ready
 	n := len(ready) - 1
 	if n < 0 {
-		if exec.goroutines.Value() < exec.maxExecutorsCount {
+		if exec.goroutines.Value() < exec.maxGoroutines {
 			createExecutor = true
 			exec.goroutines.Incr()
 		}
