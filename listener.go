@@ -112,5 +112,5 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 }
 
 func IsClosed(err error) bool {
-	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, async.ErrFutureWasClosed)
+	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled)
 }
