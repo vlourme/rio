@@ -37,7 +37,6 @@ type Executors interface {
 	Execute(ctx context.Context, runnable Runnable) (err error)
 	GetExecutorSubmitter() (submitter ExecutorSubmitter, has bool)
 	ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter)
-	Available() (ok bool)
 	Close()
 	CloseGracefully()
 }
@@ -186,19 +185,6 @@ func (exec *executors) GetExecutorSubmitter() (submitter ExecutorSubmitter, has 
 
 func (exec *executors) ReleaseNotUsedExecutorSubmitter(submitter ExecutorSubmitter) {
 	exec.release(submitter.(*executorSubmitterImpl))
-	return
-}
-
-func (exec *executors) Available() (ok bool) {
-	exec.locker.Lock()
-	if n := len(exec.ready) - 1; n < 0 {
-		if exec.goroutines.Value() < exec.maxGoroutines {
-			ok = true
-		}
-	} else {
-		ok = true
-	}
-	exec.locker.Unlock()
 	return
 }
 
