@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/async"
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -168,6 +169,13 @@ func BenchmarkTryPromise(b *testing.B) {
 	// BenchmarkTryPromise-20    	 1843843	       640.5 ns/op	     552 B/op	       9 allocs/op
 }
 
+type Run struct {
+}
+
+func (r *Run) Run(ctx context.Context) {
+	rand.Int()
+}
+
 func BenchmarkExec(b *testing.B) {
 	b.ReportAllocs()
 	p := async.New()
@@ -175,14 +183,14 @@ func BenchmarkExec(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_ = p.Execute(ctx, async.RunnableFunc(func(ctx context.Context) {
-			}))
+			_ = p.Execute(ctx, new(Run))
 		}
 	})
 	p.CloseGracefully()
 	// async better than ants
 	// async
 	// BenchmarkExec-20    	 2346141	       438.3 ns/op	      40 B/op	       2 allocs/op
+	// BenchmarkExec-20    	 2765719	       440.4 ns/op	      32 B/op	       1 allocs/op
 	// ants
 	// BenchmarkANTS-20    	 2408452	       500.5 ns/op	      16 B/op	       1 allocs/op
 }
