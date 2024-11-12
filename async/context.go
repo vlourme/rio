@@ -27,3 +27,20 @@ func IsCanceled(err error) bool {
 func IsTimeout(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded)
 }
+
+func TryExecute(ctx context.Context, task func()) bool {
+	if task == nil {
+		return false
+	}
+	exec := From(ctx)
+	return exec.TryExecute(ctx, task)
+}
+
+func Execute(ctx context.Context, task func()) (err error) {
+	if task == nil {
+		return
+	}
+	exec := From(ctx)
+	err = exec.Execute(ctx, task)
+	return
+}
