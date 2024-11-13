@@ -3,7 +3,6 @@ package sockets
 import (
 	"errors"
 	"net"
-	"net/netip"
 	"time"
 )
 
@@ -14,6 +13,9 @@ var (
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
 
+// todo
+// sockets 里进行抽象化与具象化，外面在根据 network 进行类型转换
+// tcp | unix
 type Connection interface {
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
@@ -23,6 +25,27 @@ type Connection interface {
 	Read(p []byte, handler ReadHandler)
 	Write(p []byte, handler WriteHandler)
 	Close() (err error)
+}
+
+type AcceptHandler func(conn Connection, err error)
+
+type Listener interface {
+	Addr() (addr net.Addr)
+	Accept() (handler AcceptHandler)
+	Close() (err error)
+}
+
+type ReadFromHandler func(n int, addr net.Addr, err error)
+type ReadMsgHandler func(n int, oobn int, flags int, addr net.Addr, err error)
+type WriteMsgHandler func(n int, oobn int, err error)
+
+// udp | unixgram | ip
+type PacketConnection interface {
+	Connection
+	ReadFrom(p []byte, handler ReadFromHandler)
+	WriteTo(p []byte, addr net.Addr, handler WriteHandler)
+	ReadMsg(p []byte, oob []byte, handler ReadMsgHandler)
+	WriteMsg(p []byte, oob []byte, addr net.Addr, handler WriteMsgHandler)
 }
 
 type TCPAcceptHandler func(conn TCPConnection, err error)
@@ -43,19 +66,7 @@ type TCPConnection interface {
 	SetKeepAlivePeriod(period time.Duration) (err error)
 }
 
-type ReadFromHandler func(n int, addr net.Addr, err error)
-
-type PacketConnection interface {
-	Connection
-	ReadFrom(p []byte, handler ReadFromHandler)
-	WriteTo(p []byte, addr net.Addr, handler WriteHandler)
-}
-
-type ReadFromUDPHandler func(n int, addr *net.UDPAddr, err error)
-type ReadFromUDPAddrPortHandler func(n int, addr netip.AddrPort, err error)
 type ReadMsgUDPHandler func(n int, oobn int, flags int, addr *net.UDPAddr, err error)
-type ReadMsgUDPAddrPortHandler func(n int, oobn int, flags int, addr netip.AddrPort, err error)
-type WriteMsgHandler func(n int, oobn int, err error)
 
 type UDPConnection interface {
 	PacketConnection

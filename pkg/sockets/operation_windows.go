@@ -28,20 +28,17 @@ type operation struct {
 	bufs   []windows.WSABuf
 	qty    uint32
 	// fields used only by net callback
-	tcpAcceptHandler           TCPAcceptHandler
-	tcpConnectHandler          TCPDialHandler
-	unixAcceptHandler          UnixAcceptHandler
-	unixConnectHandler         UnixDialHandler
-	readHandler                ReadHandler
-	writeHandler               WriteHandler
-	readFromHandler            ReadFromHandler
-	readFromUDPHandler         ReadFromUDPHandler
-	readFromUDPAddrPortHandler ReadFromUDPAddrPortHandler
-	readMsgUDPHandler          ReadMsgUDPHandler
-	readMsgUDPAddrPortHandler  ReadMsgUDPAddrPortHandler
-	writeMsgHandler            WriteMsgHandler
-	readFromUnixHandler        ReadFromUnixHandler
-	readMsgUnixHandler         ReadMsgUnixHandler
+	tcpAcceptHandler    TCPAcceptHandler
+	tcpConnectHandler   TCPDialHandler
+	unixAcceptHandler   UnixAcceptHandler
+	unixConnectHandler  UnixDialHandler
+	readHandler         ReadHandler
+	writeHandler        WriteHandler
+	readFromHandler     ReadFromHandler
+	readMsgUDPHandler   ReadMsgUDPHandler
+	writeMsgHandler     WriteMsgHandler
+	readFromUnixHandler ReadFromUnixHandler
+	readMsgUnixHandler  ReadMsgUnixHandler
 }
 
 func (op *operation) complete(qty int, err error) {
