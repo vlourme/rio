@@ -4,18 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/codec"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp"
 	"sync"
 	"testing"
 )
 
 func TestLengthFieldDecode(t *testing.T) {
 	ctx := context.Background()
-	exec := async.New()
+	exec := rxp.New()
 	defer exec.Close()
-	ctx = async.With(ctx, exec)
+	ctx = rxp.With(ctx, exec)
 
 	b := []byte("hello world")
 	p := make([]byte, 8+len(b))

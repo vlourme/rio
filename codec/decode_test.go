@@ -2,8 +2,8 @@ package codec_test
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp/async"
 )
 
 func newFakeReader(ctx context.Context, p []byte) *FakeReader {

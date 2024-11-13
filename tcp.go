@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"github.com/brickingsoft/rio/async"
-	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
 )
@@ -79,10 +79,9 @@ type tcpListener struct {
 	inner                         sockets.TCPListener
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
-	executors                     async.Executors
+	executors                     rxp.Executors
 	tlsConfig                     *tls.Config
-	promises                      []async.Promise[Connection]
-	maxprocsUndo                  maxprocs.Undo
+	promises                      acceptorPromises
 }
 
 func (ln *tcpListener) Addr() (addr net.Addr) {
@@ -103,7 +102,7 @@ func (ln *tcpListener) Accept() (future async.Future[Connection]) {
 		ln.acceptOne(promise, 0)
 		ln.promises[i] = promise
 	}
-	future = async.Group[Connection](ln.promises)
+	future = ln.promises
 	return
 }
 
@@ -113,8 +112,14 @@ func (ln *tcpListener) Close() (err error) {
 	}
 	ln.cancel()
 	err = ln.inner.Close()
-	ln.executors.CloseGracefully()
-	ln.maxprocsUndo()
+	closeExecErr := ln.executors.CloseGracefully()
+	if closeExecErr != nil {
+		if err == nil {
+			err = closeExecErr
+		} else {
+			err = errors.Join(err, closeExecErr)
+		}
+	}
 	return
 }
 
@@ -156,4 +161,16 @@ func (ln *tcpListener) acceptOne(streamPromise async.Promise[Connection], limite
 		ln.acceptOne(streamPromise, 0)
 		return
 	})
+}
+
+type acceptorPromises []async.Promise[Connection]
+
+func (aps acceptorPromises) Len() int {
+	return len(aps)
+}
+
+func (aps acceptorPromises) OnComplete(handler async.ResultHandler[Connection]) {
+	for _, promise := range aps {
+		promise.Future().OnComplete(handler)
+	}
 }

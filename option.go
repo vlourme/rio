@@ -2,6 +2,8 @@ package rio
 
 import (
 	"crypto/tls"
+	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"runtime"
 	"time"
 )
@@ -12,28 +14,40 @@ const (
 )
 
 type Options struct {
-	minGOMAXPROCS                    int
+	ro                               rxp.Options
 	parallelAcceptors                int
 	maxConnections                   int64
 	maxConnectionsLimiterWaitTimeout time.Duration
-	maxGoroutines                    int
-	maxGoroutineIdleDuration         time.Duration
 	tlsConfig                        *tls.Config
 	multipathTCP                     bool
 }
 
-type Option func(options *Options) (err error)
-
-func WithMinGOMAXPROCS(min int) Option {
-	return func(options *Options) (err error) {
-		if min > 2 {
-			options.minGOMAXPROCS = min
-		}
-		return
+func (options *Options) AsRxpOptions() []rxp.Option {
+	opts := make([]rxp.Option, 0, 1)
+	if n := options.ro.MaxprocsOptions.MinGOMAXPROCS; n > 0 {
+		opts = append(opts, rxp.MinGOMAXPROCS(n))
 	}
+	if fn := options.ro.MaxprocsOptions.Procs; fn != nil {
+		opts = append(opts, rxp.Procs(fn))
+	}
+	if fn := options.ro.MaxprocsOptions.RoundQuotaFunc; fn != nil {
+		opts = append(opts, rxp.RoundQuotaFunc(fn))
+	}
+	if n := options.ro.MaxGoroutines; n > 0 {
+		opts = append(opts, rxp.MaxGoroutines(n))
+	}
+	if n := options.ro.MaxReadyGoroutinesIdleDuration; n > 0 {
+		opts = append(opts, rxp.MaxReadyGoroutinesIdleDuration(n))
+	}
+	if n := options.ro.CloseTimeout; n > 0 {
+		opts = append(opts, rxp.WithCloseTimeout(n))
+	}
+	return opts
 }
 
-func WithParallelAcceptors(parallelAcceptors int) Option {
+type Option func(options *Options) (err error)
+
+func ParallelAcceptors(parallelAcceptors int) Option {
 	return func(options *Options) (err error) {
 		cpuNum := runtime.NumCPU() * 2
 		if parallelAcceptors < 1 || cpuNum < parallelAcceptors {
@@ -44,7 +58,7 @@ func WithParallelAcceptors(parallelAcceptors int) Option {
 	}
 }
 
-func WithMaxConnections(maxConnections int64) Option {
+func MaxConnections(maxConnections int64) Option {
 	return func(options *Options) (err error) {
 		if maxConnections > 0 {
 			options.maxConnections = maxConnections
@@ -53,7 +67,7 @@ func WithMaxConnections(maxConnections int64) Option {
 	}
 }
 
-func WithMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
+func MaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
 	return func(options *Options) (err error) {
 		if maxConnectionsLimiterWaitTimeout > 0 {
 			options.maxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
@@ -62,29 +76,63 @@ func WithMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.
 	}
 }
 
-func WithTLSConfig(config *tls.Config) Option {
+func TLSConfig(config *tls.Config) Option {
 	return func(options *Options) (err error) {
 		options.tlsConfig = config
 		return
 	}
 }
-func WithMultipathTCP() Option {
+func MultipathTCP() Option {
 	return func(options *Options) (err error) {
 		options.multipathTCP = true
 		return
 	}
 }
 
-func WithMaxGoroutines(maxExecutors int) Option {
-	return func(options *Options) (err error) {
-		options.maxGoroutines = maxExecutors
-		return
+// MinGOMAXPROCS
+// 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。
+func MinGOMAXPROCS(n int) Option {
+	return func(options *Options) error {
+		return rxp.MinGOMAXPROCS(n)(&options.ro)
 	}
 }
 
-func WithMaxGoroutineIdleDuration(duration time.Duration) Option {
-	return func(options *Options) (err error) {
-		options.maxGoroutineIdleDuration = duration
-		return
+// Procs
+// 设置最大 GOMAXPROCS 构建函数。
+func Procs(fn maxprocs.ProcsFunc) Option {
+	return func(options *Options) error {
+		return rxp.Procs(fn)(&options.ro)
+	}
+}
+
+// RoundQuotaFunc
+// 设置整数配额函数
+func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
+	return func(options *Options) error {
+		return rxp.RoundQuotaFunc(fn)(&options.ro)
+	}
+}
+
+// MaxGoroutines
+// 设置最大协程数
+func MaxGoroutines(n int) Option {
+	return func(options *Options) error {
+		return rxp.MaxGoroutines(n)(&options.ro)
+	}
+}
+
+// MaxReadyGoroutinesIdleDuration
+// 设置准备中协程最大闲置时长
+func MaxReadyGoroutinesIdleDuration(d time.Duration) Option {
+	return func(options *Options) error {
+		return rxp.MaxReadyGoroutinesIdleDuration(d)(&options.ro)
+	}
+}
+
+// WithCloseTimeout
+// 设置关闭超时时长
+func WithCloseTimeout(timeout time.Duration) Option {
+	return func(options *Options) error {
+		return rxp.WithCloseTimeout(timeout)(&options.ro)
 	}
 }

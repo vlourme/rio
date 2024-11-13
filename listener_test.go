@@ -13,8 +13,8 @@ func TestListen(t *testing.T) {
 	ln, lnErr := rio.Listen(
 		ctx,
 		"tcp", ":9000",
-		rio.WithParallelAcceptors(1),
-		rio.WithMaxConnections(10),
+		rio.ParallelAcceptors(1),
+		rio.MaxConnections(10),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)

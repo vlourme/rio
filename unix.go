@@ -3,12 +3,13 @@ package rio
 import (
 	"context"
 	"crypto/tls"
-	"github.com/brickingsoft/rio/async"
-	"github.com/brickingsoft/rio/pkg/maxprocs"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
 )
@@ -113,10 +114,9 @@ type unixListener struct {
 	inner                         sockets.UnixListener
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
-	executors                     async.Executors
+	executors                     rxp.Executors
 	tlsConfig                     *tls.Config
-	promises                      []async.Promise[Connection]
-	maxprocsUndo                  maxprocs.Undo
+	promises                      acceptorPromises
 }
 
 func (ln *unixListener) Addr() (addr net.Addr) {
@@ -137,7 +137,7 @@ func (ln *unixListener) Accept() (future async.Future[Connection]) {
 		ln.acceptOne(promise, 0)
 		ln.promises[i] = promise
 	}
-	future = async.Group[Connection](ln.promises)
+	future = ln.promises
 	return
 }
 
@@ -147,8 +147,14 @@ func (ln *unixListener) Close() (err error) {
 	}
 	ln.cancel()
 	err = ln.inner.Close()
-	ln.executors.CloseGracefully()
-	ln.maxprocsUndo()
+	closeExecErr := ln.executors.CloseGracefully()
+	if closeExecErr != nil {
+		if err == nil {
+			err = closeExecErr
+		} else {
+			err = errors.Join(err, closeExecErr)
+		}
+	}
 	return
 }
 

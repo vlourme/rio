@@ -3,10 +3,10 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/async"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
 )

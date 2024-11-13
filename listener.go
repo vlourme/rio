@@ -3,10 +3,10 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/async"
-	"github.com/brickingsoft/rio/pkg/maxprocs"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/async"
 	"net"
 	"runtime"
 )
@@ -28,12 +28,10 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	opt := Options{
-		minGOMAXPROCS:                    0,
+		ro:                               rxp.Options{},
 		parallelAcceptors:                runtime.NumCPU() * 2,
 		maxConnections:                   DefaultMaxConnections,
 		maxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
-		maxGoroutines:                    0,
-		maxGoroutineIdleDuration:         0,
 		tlsConfig:                        nil,
 		multipathTCP:                     false,
 	}
@@ -43,25 +41,13 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			return
 		}
 	}
-	// maxprocs
-	maxprocsUndo, enableMaxprocsErr := maxprocs.Enable(maxprocs.Min(opt.minGOMAXPROCS))
-	if enableMaxprocsErr != nil {
-		err = enableMaxprocsErr
-		return
-	}
+	// executors
+	executors := rxp.New(opt.AsRxpOptions()...)
+	ctx = rxp.With(ctx, executors)
 	// connections limiter
 	connectionsLimiter := timeslimiter.New(opt.maxConnections)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
-	// executors
-	executorsOptions := make([]async.Option, 0, 1)
-	if opt.maxGoroutines > 0 {
-		executorsOptions = append(executorsOptions, async.MaxGoroutines(opt.maxGoroutines))
-	}
-	if opt.maxGoroutineIdleDuration > 0 {
-		executorsOptions = append(executorsOptions, async.MaxGoroutineIdleDuration(opt.maxGoroutineIdleDuration))
-	}
-	executors := async.New(executorsOptions...)
-	ctx = async.With(ctx, executors)
+
 	// listen
 	switch network {
 	case "tcp", "tcp4", "tcp6":
@@ -82,7 +68,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			executors:                     executors,
 			tlsConfig:                     opt.tlsConfig,
 			promises:                      make([]async.Promise[Connection], opt.parallelAcceptors),
-			maxprocsUndo:                  maxprocsUndo,
 		}
 		break
 	case "unix":
@@ -101,7 +86,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			executors:                     executors,
 			tlsConfig:                     opt.tlsConfig,
 			promises:                      make([]async.Promise[Connection], opt.parallelAcceptors),
-			maxprocsUndo:                  maxprocsUndo,
 		}
 		break
 	default:
