@@ -13,7 +13,7 @@ func TestListenUPD(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	defer func(conn sockets.UDPConnection) {
+	defer func(conn sockets.PacketConnection) {
 		closeErr := conn.Close()
 		if closeErr != nil {
 			t.Error(closeErr)
@@ -21,7 +21,7 @@ func TestListenUPD(t *testing.T) {
 	}(conn)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	go func(conn sockets.UDPConnection) {
+	go func(conn sockets.PacketConnection) {
 		p := make([]byte, 1024)
 		conn.ReadFrom(p, func(n int, addr net.Addr, err error) {
 			t.Log("srv read:", n, addr, err, string(p[:n]))

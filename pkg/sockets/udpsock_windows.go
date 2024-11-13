@@ -11,7 +11,7 @@ import (
 	"unsafe"
 )
 
-func listenUDP(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int) (conn UDPConnection, err error) {
+func listenUDP(network string, family int, addr *net.UDPAddr, ipv6only bool, proto int) (conn PacketConnection, err error) {
 	conn, err = newUDPConnection(network, family, addr, ipv6only, proto)
 	return
 }
@@ -103,7 +103,7 @@ func (conn *udpConnection) WriteTo(p []byte, addr net.Addr, handler WriteHandler
 	return
 }
 
-func (conn *udpConnection) ReadMsgUDP(p []byte, oob []byte, handler ReadMsgUDPHandler) {
+func (conn *udpConnection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, 0, 0, nil, ErrEmptyPacket)
@@ -121,19 +121,19 @@ func (conn *udpConnection) ReadMsgUDP(p []byte, oob []byte, handler ReadMsgUDPHa
 		conn.rop.rsa = new(windows.RawSockaddrAny)
 	}
 	conn.rop.rsan = int32(unsafe.Sizeof(*conn.rop.rsa))
-	conn.rop.readMsgUDPHandler = handler
+	conn.rop.readMsgHandler = handler
 	err := windows.WSARecvMsg(conn.fd, &conn.rop.msg, &conn.rop.qty, &conn.rop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		if errors.Is(windows.ERROR_TIMEOUT, err) {
 			err = context.DeadlineExceeded
 		}
 		handler(0, 0, 0, nil, wrapSyscallError("WSARecvMsg", err))
-		conn.rop.readMsgUDPHandler = nil
+		conn.rop.readMsgHandler = nil
 	}
 	return
 }
 
-func (conn *udpConnection) WriteMsgUDP(p []byte, oob []byte, addr *net.UDPAddr, handler WriteMsgHandler) {
+func (conn *udpConnection) WriteMsg(p []byte, oob []byte, addr net.Addr, handler WriteMsgHandler) {
 	//TODO implement me
 	panic("implement me")
 }

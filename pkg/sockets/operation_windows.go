@@ -35,7 +35,7 @@ type operation struct {
 	readHandler         ReadHandler
 	writeHandler        WriteHandler
 	readFromHandler     ReadFromHandler
-	readMsgUDPHandler   ReadMsgUDPHandler
+	readMsgHandler      ReadMsgHandler
 	writeMsgHandler     WriteMsgHandler
 	readFromUnixHandler ReadFromUnixHandler
 	readMsgUnixHandler  ReadMsgUnixHandler
