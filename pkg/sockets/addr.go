@@ -16,6 +16,7 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		err = errors.New("sockets: invalid addr")
 		return
 	}
+	// todo handle IP
 	// unix
 	if network == "unix" || network == "unixgram" || network == "unixpacket" {
 		v, err = net.ResolveUnixAddr(network, addr)

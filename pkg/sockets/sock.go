@@ -13,9 +13,6 @@ var (
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
 
-// todo
-// sockets 里进行抽象化与具象化，外面在根据 network 进行类型转换
-// tcp | unix
 type Connection interface {
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
@@ -27,36 +24,7 @@ type Connection interface {
 	Close() (err error)
 }
 
-type AcceptHandler func(conn Connection, err error)
-
-type Listener interface {
-	Addr() (addr net.Addr)
-	Accept() (handler AcceptHandler)
-	Close() (err error)
-}
-
-type ReadFromHandler func(n int, addr net.Addr, err error)
-type ReadMsgHandler func(n int, oobn int, flags int, addr net.Addr, err error)
-type WriteMsgHandler func(n int, oobn int, err error)
-
-// udp | unixgram | ip
-type PacketConnection interface {
-	Connection
-	ReadFrom(p []byte, handler ReadFromHandler)
-	WriteTo(p []byte, addr net.Addr, handler WriteHandler)
-	ReadMsg(p []byte, oob []byte, handler ReadMsgHandler)
-	WriteMsg(p []byte, oob []byte, addr net.Addr, handler WriteMsgHandler)
-}
-
-type TCPAcceptHandler func(conn TCPConnection, err error)
-
-type TCPListener interface {
-	Addr() (addr net.Addr)
-	Accept(handler TCPAcceptHandler)
-	Close() (err error)
-}
-
-type TCPDialHandler func(conn TCPConnection, err error)
+// *********************************************************************************************************************
 
 type TCPConnection interface {
 	Connection
@@ -66,50 +34,50 @@ type TCPConnection interface {
 	SetKeepAlivePeriod(period time.Duration) (err error)
 }
 
-type ReadMsgUDPHandler func(n int, oobn int, flags int, addr *net.UDPAddr, err error)
+// *********************************************************************************************************************
 
-type UDPConnection interface {
-	PacketConnection
-	ReadMsgUDP(p []byte, oob []byte, handler ReadMsgUDPHandler)
-	WriteMsgUDP(p []byte, oob []byte, addr *net.UDPAddr, handler WriteMsgHandler)
-}
+type AcceptHandler func(conn Connection, err error)
 
-type ReadFromUnixHandler func(n int, addr *net.UnixAddr, err error)
-type ReadMsgUnixHandler func(n int, oob []byte, flags int, addr *net.UnixAddr, err error)
-
-type UnixConnection interface {
-	Connection
-	PacketConnection
-	// ReadFromUnix acts like [UnixConn.ReadFrom] but returns a [UnixAddr].
-	ReadFromUnix(p []byte, handler ReadFromUnixHandler)
-	// ReadMsgUnix reads a message from c, copying the payload into b and
-	// the associated out-of-band data into oob. It returns the number of
-	// bytes copied into b, the number of bytes copied into oob, the flags
-	// that were set on the message and the source address of the message.
-	//
-	// Note that if len(b) == 0 and len(oob) > 0, this function will still
-	// read (and discard) 1 byte from the connection.
-	ReadMsgUnix(p []byte, handler ReadMsgUnixHandler)
-	// WriteToUnix acts like [UnixConn.WriteTo] but takes a [UnixAddr].
-	WriteToUnix(p []byte, addr *net.UnixAddr, handler WriteHandler)
-	// WriteMsgUnix writes a message to addr via c, copying the payload
-	// from b and the associated out-of-band data from oob. It returns the
-	// number of payload and out-of-band bytes written.
-	//
-	// Note that if len(b) == 0 and len(oob) > 0, this function will still
-	// write 1 byte to the connection.
-	WriteMsgUnix(b, oob []byte, addr *net.UnixAddr, handler WriteMsgHandler)
-}
-
-type UnixDialHandler func(conn UnixConnection, err error)
-
-type UnixAcceptHandler func(conn UnixConnection, err error)
-
-type UnixListener interface {
+type Listener interface {
 	Addr() (addr net.Addr)
-	AcceptUnix(handler UnixAcceptHandler)
+	Accept(handler AcceptHandler)
 	Close() (err error)
 }
 
-type IPConnection interface {
+// *********************************************************************************************************************
+
+type ReadFromHandler func(n int, addr net.Addr, err error)
+type ReadMsgHandler func(n int, oobn int, flags int, addr net.Addr, err error)
+type WriteMsgHandler func(n int, oobn int, err error)
+
+type PacketConnection interface {
+	Connection
+	ReadFrom(p []byte, handler ReadFromHandler)
+	WriteTo(p []byte, addr net.Addr, handler WriteHandler)
+	ReadMsg(p []byte, oob []byte, handler ReadMsgHandler)
+	WriteMsg(p []byte, oob []byte, addr net.Addr, handler WriteMsgHandler)
+}
+
+// *********************************************************************************************************************
+
+type DialHandler func(conn Connection, err error)
+
+func Dial(network string, address string, opt Options, handler DialHandler) {
+	addr, family, ipv6only, addrErr := GetAddrAndFamily(network, address)
+	if addrErr != nil {
+		handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: addrErr})
+		return
+	}
+	proto := 0
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		if opt.MultipathTCP {
+			proto = tryGetMultipathTCPProto()
+		}
+		break
+	default:
+		break
+	}
+	connect(network, family, addr, ipv6only, proto, handler)
+	return
 }

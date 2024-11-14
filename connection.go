@@ -29,9 +29,9 @@ const (
 	defaultReadBufferSize = 1024
 )
 
-func newConnection(ctx context.Context, inner sockets.Connection) (conn connection) {
+func newConnection(ctx context.Context, inner sockets.Connection) (conn *connection) {
 	connCtx, cancel := context.WithCancel(ctx)
-	conn = connection{
+	conn = &connection{
 		ctx:    connCtx,
 		cancel: cancel,
 		inner:  inner,

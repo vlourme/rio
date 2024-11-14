@@ -1,48 +1,36 @@
 package sockets
 
 const (
-	tcpAccept OperationMode = iota + 1
-	tcpConnect
-	unixAccept
-	unixConnect
+	accept OperationMode = iota + 1
+	dial
 	read
 	write
 	readFrom
 	writeTo
-	readMsgUDP
+	readMsg
 	writeMsg
-	readFromUnix
-	readMsgUnix
 )
 
 type OperationMode int
 
 func (op OperationMode) String() string {
 	switch op {
-	case tcpAccept:
-		return "tcpAccept"
-	case tcpConnect:
-		return "tcpConnect"
-	case unixAccept:
-		return "unixAccept"
-	case unixConnect:
-		return "unixConnect"
+	case accept:
+		return "accept"
+	case dial:
+		return "dial"
 	case read:
 		return "read"
 	case write:
 		return "write"
-	case writeTo:
-		return "writeTo"
-	case writeMsg:
-		return "writeMsg"
 	case readFrom:
 		return "readFrom"
-	case readFromUnix:
-		return "readFromUnix"
-	case readMsgUDP:
-		return "readMsgUDP"
-	case readMsgUnix:
-		return "readMsgUnix"
+	case writeTo:
+		return "writeTo"
+	case readMsg:
+		return "readMsg"
+	case writeMsg:
+		return "writeMsg"
 	default:
 		return "unknown"
 	}

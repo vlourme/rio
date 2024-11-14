@@ -7,65 +7,6 @@ import (
 	"net"
 )
 
-func sockaddrToTCPAddr(sa windows.Sockaddr) (addr *net.TCPAddr) {
-	switch sa := sa.(type) {
-	case *windows.SockaddrInet4:
-		addr = &net.TCPAddr{
-			IP:   append([]byte{}, sa.Addr[:]...),
-			Port: sa.Port,
-		}
-	case *windows.SockaddrInet6:
-		var zone string
-		if sa.ZoneId != 0 {
-			if ifi, err := net.InterfaceByIndex(int(sa.ZoneId)); err == nil {
-				zone = ifi.Name
-			}
-		}
-		if zone == "" && sa.ZoneId != 0 {
-		}
-		addr = &net.TCPAddr{
-			IP:   append([]byte{}, sa.Addr[:]...),
-			Port: sa.Port,
-			Zone: zone,
-		}
-	}
-	return
-}
-
-func sockaddrToUnixAddr(sa windows.Sockaddr) net.Addr {
-	var a net.Addr
-	switch sa := sa.(type) {
-	case *windows.SockaddrUnix:
-		a = &net.UnixAddr{Net: "unix", Name: sa.Name}
-	}
-	return a
-}
-
-func sockaddrToUDPAddr(sa windows.Sockaddr) (addr *net.UDPAddr) {
-	switch sa := sa.(type) {
-	case *windows.SockaddrInet4:
-		addr = &net.UDPAddr{
-			IP:   append([]byte{}, sa.Addr[:]...),
-			Port: sa.Port,
-		}
-	case *windows.SockaddrInet6:
-		var zone string
-		if sa.ZoneId != 0 {
-			if ifi, err := net.InterfaceByIndex(int(sa.ZoneId)); err == nil {
-				zone = ifi.Name
-			}
-		}
-		if zone == "" && sa.ZoneId != 0 {
-		}
-		addr = &net.UDPAddr{
-			IP:   append([]byte{}, sa.Addr[:]...),
-			Port: sa.Port,
-			Zone: zone,
-		}
-	}
-	return
-}
-
 func sockaddrToAddr(network string, sa windows.Sockaddr) (addr net.Addr) {
 	switch sa := sa.(type) {
 	case *windows.SockaddrInet4:
