@@ -144,15 +144,15 @@ func (conn *connection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
 	}
 	conn.rop.mode = readMsg
 	conn.rop.InitMsg(p, oob)
+	if conn.rop.rsa == nil {
+		conn.rop.rsa = new(windows.RawSockaddrAny)
+	}
 	conn.rop.msg.Name = (*syscall.RawSockaddrAny)(unsafe.Pointer(conn.rop.rsa))
 	conn.rop.msg.Namelen = int32(unsafe.Sizeof(*conn.rop.rsa))
 	conn.rop.msg.Flags = uint32(0)
 	// handle unix
-	if conn.family == windows.AF_INET {
+	if conn.family == windows.AF_UNIX {
 		conn.rop.flags = readMsgFlags
-	}
-	if conn.rop.rsa == nil {
-		conn.rop.rsa = new(windows.RawSockaddrAny)
 	}
 	conn.rop.rsan = int32(unsafe.Sizeof(*conn.rop.rsa))
 	conn.rop.readMsgHandler = handler
