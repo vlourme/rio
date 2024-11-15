@@ -28,9 +28,7 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 		return
 	}
 
-	conn = &packetConnection{
-		connection: *newConnection(ctx, inner),
-	}
+	conn = newPacketConnection(ctx, inner)
 	return
 }
 
@@ -41,6 +39,13 @@ type PacketConnection interface {
 	SetReadMsgOOBBufferSize(size int)
 	ReadMsg() (future async.Future[transport.MsgInbound])
 	WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.MsgOutbound])
+}
+
+func newPacketConnection(ctx context.Context, inner sockets.PacketConnection) (conn PacketConnection) {
+	conn = &packetConnection{
+		connection: *newConnection(ctx, inner),
+	}
+	return
 }
 
 type packetConnection struct {

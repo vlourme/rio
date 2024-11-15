@@ -64,6 +64,7 @@ func TestTCP(t *testing.T) {
 		return
 	}
 	defer ln.Close()
+
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			if rio.IsClosed(err) {
@@ -95,6 +96,35 @@ func TestTCP(t *testing.T) {
 			})
 		})
 	})
+
+	//executors := rxp.New()
+	//defer executors.Close()
+	//ctx = rxp.With(ctx, executors)
+	//
+	//rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+	//	if err != nil {
+	//		t.Error("dial:", err)
+	//		return
+	//	}
+	//	conn.Write([]byte("hello world")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+	//		if err != nil {
+	//			t.Error("cli rite:", err)
+	//			return
+	//		}
+	//		t.Log("write:", out.Wrote())
+	//		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+	//			if err != nil {
+	//				t.Error("cli read:", err)
+	//				return
+	//			}
+	//			t.Log("cli read:", in.Received(), string(in.Reader().Peek(100)))
+	//			return
+	//		})
+	//	})
+	//})
+	//
+	//time.Sleep(1 * time.Second)
+
 	conn, dialErr := net.Dial("tcp", ":9000")
 	if dialErr != nil {
 		t.Error(dialErr)
