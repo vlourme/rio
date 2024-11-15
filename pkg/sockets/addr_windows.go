@@ -144,7 +144,7 @@ func sockaddrUnixToRaw(rsa *windows.RawSockaddrAny, sa *windows.SockaddrUnix) in
 	*rsa = windows.RawSockaddrAny{}
 	raw := (*windows.RawSockaddrUnix)(unsafe.Pointer(rsa))
 	raw.Family = windows.AF_UNIX
-	path := make([]byte, 0, len(sa.Name))
+	path := make([]byte, len(sa.Name))
 	copy(path, sa.Name)
 	n := 0
 	for n < len(path) && path[n] != 0 {
