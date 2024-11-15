@@ -5,7 +5,9 @@ import (
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp"
 	"net"
+	"sync"
 	"testing"
 )
 
@@ -98,52 +100,62 @@ func TestTCP(t *testing.T) {
 		})
 	})
 
-	//executors := rxp.New()
-	//defer executors.Close()
-	//ctx = rxp.With(ctx, executors)
-	//
-	//rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
-	//	if err != nil {
-	//		t.Error("dial:", err)
-	//		return
-	//	}
-	//	conn.Write([]byte("hello world")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
-	//		if err != nil {
-	//			t.Error("cli rite:", err)
-	//			return
-	//		}
-	//		t.Log("write:", out.Wrote())
-	//		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
-	//			if err != nil {
-	//				t.Error("cli read:", err)
-	//				return
-	//			}
-	//			t.Log("cli read:", in.Received(), string(in.Reader().Peek(100)))
-	//			return
-	//		})
-	//	})
-	//})
+	executors := rxp.New()
+	ctx = rxp.With(ctx, executors)
+
+	wg := new(sync.WaitGroup)
+
+	wg.Add(1)
+	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+		if err != nil {
+			wg.Done()
+			t.Error("dial:", err)
+			return
+		}
+		conn.Write([]byte("hello world")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+			if err != nil {
+				wg.Done()
+
+				t.Error("cli write:", err)
+				return
+			}
+			t.Log("cli write:", out.Wrote())
+			conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+				if err != nil {
+					wg.Done()
+					t.Error("cli read:", err)
+					return
+				}
+				t.Log("cli read:", in.Received(), string(in.Reader().Peek(100)))
+				wg.Done()
+				return
+			})
+		})
+	})
+
+	wg.Wait()
+	executors.Close()
 	//
 	//time.Sleep(1 * time.Second)
 
-	cli, dialErr := net.Dial("tcp", ":9000")
-	if dialErr != nil {
-		t.Error(dialErr)
-		return
-	}
-	defer cli.Close()
-	wn, wErr := cli.Write([]byte("hello world"))
-	if wErr != nil {
-		t.Error("client write:", wErr)
-		return
-	}
-	t.Log("client write:", wn)
-	p := make([]byte, 1024)
-	rn, rErr := cli.Read(p)
-	if rErr != nil {
-		t.Error("client read:", rErr)
-		return
-	}
-	t.Log("client read:", rn, string(p))
+	//cli, dialErr := net.Dial("tcp", ":9000")
+	//if dialErr != nil {
+	//	t.Error(dialErr)
+	//	return
+	//}
+	//defer cli.Close()
+	//wn, wErr := cli.Write([]byte("hello world"))
+	//if wErr != nil {
+	//	t.Error("client write:", wErr)
+	//	return
+	//}
+	//t.Log("client write:", wn)
+	//p := make([]byte, 1024)
+	//rn, rErr := cli.Read(p)
+	//if rErr != nil {
+	//	t.Error("client read:", rErr)
+	//	return
+	//}
+	//t.Log("client read:", rn, string(p))
 
 }
