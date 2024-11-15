@@ -13,7 +13,7 @@ func TestListenTCP(t *testing.T) {
 	ctx := context.Background()
 	ln, lnErr := rio.Listen(
 		ctx,
-		"tcp", ":9000",
+		"tcp", "127.0.0.1:9000",
 		rio.ParallelAcceptors(1),
 		rio.MaxConnections(10),
 	)
@@ -67,9 +67,11 @@ func TestTCP(t *testing.T) {
 
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			t.Error("srv accept:", rio.IsClosed(err), err)
-			// todo fix future bug
-			// err is canceled
+			if rio.IsClosed(err) {
+				t.Log("closed")
+			} else {
+				t.Error("srv accept:", rio.IsClosed(err), err)
+			}
 			return
 		}
 		t.Log("srv accept:", conn.RemoteAddr(), err)
@@ -124,23 +126,24 @@ func TestTCP(t *testing.T) {
 	//
 	//time.Sleep(1 * time.Second)
 
-	conn, dialErr := net.Dial("tcp", ":9000")
+	cli, dialErr := net.Dial("tcp", ":9000")
 	if dialErr != nil {
 		t.Error(dialErr)
 		return
 	}
-	defer conn.Close()
-	wn, wErr := conn.Write([]byte("hello world"))
+	defer cli.Close()
+	wn, wErr := cli.Write([]byte("hello world"))
 	if wErr != nil {
 		t.Error("client write:", wErr)
 		return
 	}
 	t.Log("client write:", wn)
 	p := make([]byte, 1024)
-	rn, rErr := conn.Read(p)
+	rn, rErr := cli.Read(p)
 	if rErr != nil {
 		t.Error("client read:", rErr)
 		return
 	}
 	t.Log("client read:", rn, string(p))
+
 }

@@ -42,8 +42,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	executors := rxp.New(opt.AsRxpOptions()...)
 	ctx = rxp.With(ctx, executors)
 	// connections limiter
+
 	connectionsLimiter := timeslimiter.New(opt.MaxConnections)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
+	if opt.MaxConnections > 0 && opt.MaxConnections < int64(opt.ParallelAcceptors) {
+		opt.ParallelAcceptors = int(opt.MaxConnections)
+	}
 
 	// listen
 	inner, innerErr := sockets.Listen(network, addr, sockets.Options{
@@ -54,10 +58,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		err = errors.Join(errors.New("rio: listen failed"), innerErr)
 		return
 	}
-	lnCtx, lnCtxCancel := context.WithCancel(ctx)
 	ln = &listener{
-		ctx:                           lnCtx,
-		cancel:                        lnCtxCancel,
+		ctx:                           ctx,
 		network:                       network,
 		inner:                         inner,
 		connectionsLimiter:            connectionsLimiter,
@@ -71,7 +73,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 
 type listener struct {
 	ctx                           context.Context
-	cancel                        context.CancelFunc
 	network                       string
 	inner                         sockets.Listener
 	connectionsLimiter            *timeslimiter.Bucket
@@ -101,7 +102,7 @@ func (ln *listener) Accept() (future async.Future[Connection]) {
 		ln.promises[i] = promise
 		futures[i] = promise.Future()
 	}
-	future = async.Group[Connection](futures)
+	future = async.JoinStreamFutures[Connection](futures)
 	return
 }
 
@@ -109,7 +110,6 @@ func (ln *listener) Close() (err error) {
 	for _, promise := range ln.promises {
 		promise.Cancel()
 	}
-	ln.cancel()
 	err = ln.inner.Close()
 	closeExecErr := ln.executors.CloseGracefully()
 	if closeExecErr != nil {
@@ -158,11 +158,11 @@ func (ln *listener) acceptOne(streamPromise async.Promise[Connection], limitedTi
 		var conn Connection
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
-			conn = newTCPConnection(ctx, sock)
+			conn = newTCPConnection(ln.ctx, sock)
 			streamPromise.Succeed(conn)
 			break
 		case "unix", "unixpacket":
-			conn = newUnixConnection(ctx, sock)
+			conn = newUnixConnection(ln.ctx, sock)
 			streamPromise.Succeed(conn)
 			break
 		default:
