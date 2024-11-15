@@ -8,7 +8,6 @@ import (
 
 type UPDConnection interface {
 	PacketConnection
-
 	ReadMsgUDP() (future async.Future[transport.MsgInbound])
 	WriteMsgUDP(p []byte, oob []byte, addr *net.UDPAddr) (future async.Future[transport.MsgOutbound])
 }
