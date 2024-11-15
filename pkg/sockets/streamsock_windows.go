@@ -76,7 +76,9 @@ type listener struct {
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
-	addr = ln.addr
+	if ln.family == windows.AF_UNIX {
+		addr = ln.addr
+	}
 	return
 }
 
