@@ -1,5 +1,8 @@
 package sockets
 
+import "net"
+
 type Options struct {
-	MultipathTCP bool
+	MultipathTCP            bool
+	DialPacketConnLocalAddr net.Addr
 }

@@ -11,21 +11,36 @@ import (
 	"unsafe"
 )
 
-func newPacketConnection(network string, family int, addr net.Addr, ipv6only bool, proto int) (pc PacketConnection, err error) {
+func newPacketConnection(network string, family int, sotype int, laddr net.Addr, raddr net.Addr, ipv6only bool, proto int) (pc PacketConnection, err error) {
 	// conn
-	conn, connErr := newConnection(network, family, windows.SOCK_DGRAM, proto, ipv6only)
+	conn, connErr := newConnection(network, family, sotype, proto, ipv6only)
 	if connErr != nil {
 		err = connErr
 		return
 	}
-	// bind
-	lsa := addrToSockaddr(family, addr)
-	bindErr := windows.Bind(conn.fd, lsa)
-	if bindErr != nil {
-		err = bindErr
-		_ = windows.Closesocket(conn.fd)
-		return
+	if laddr != nil {
+		lsa := addrToSockaddr(family, laddr)
+		bindErr := windows.Bind(conn.fd, lsa)
+		if bindErr != nil {
+			err = bindErr
+			_ = windows.Closesocket(conn.fd)
+			return
+		}
+		conn.localAddr = laddr
 	}
+	if raddr != nil {
+		rsa := addrToSockaddr(family, raddr)
+		connectErr := windows.Connect(conn.fd, rsa)
+		if connectErr != nil {
+			err = wrapSyscallError("connect", connectErr)
+			_ = windows.Closesocket(conn.fd)
+			return
+		}
+		conn.remoteAddr = raddr
+		lsa, _ := windows.Getsockname(conn.fd)
+		conn.localAddr = sockaddrToAddr(network, lsa)
+	}
+
 	// CreateIoCompletionPort
 	cphandle, createErr := createSubIoCompletionPort(conn.fd)
 	if createErr != nil {
@@ -34,6 +49,7 @@ func newPacketConnection(network string, family int, addr net.Addr, ipv6only boo
 		return
 	}
 	conn.cphandle = cphandle
+
 	// as packet conn
 	pc = conn
 	return
