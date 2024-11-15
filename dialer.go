@@ -5,9 +5,25 @@ import (
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
+	"runtime"
+	"sync"
+)
+
+var (
+	defaultExecutors           rxp.Executors = nil
+	createDefaultExecutorsOnce sync.Once
 )
 
 func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
+	_, exist := rxp.TryFrom(ctx)
+	if !exist {
+		createDefaultExecutorsOnce.Do(func() {
+			defaultExecutors = rxp.New()
+			runtime.SetFinalizer(defaultExecutors, defaultExecutors.Close)
+		})
+		ctx = rxp.With(ctx, defaultExecutors)
+	}
+
 	opts := Options{}
 	for _, o := range options {
 		err := o(&opts)
