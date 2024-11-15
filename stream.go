@@ -25,12 +25,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	opt := Options{
-		ro:                               rxp.Options{},
-		parallelAcceptors:                runtime.NumCPU() * 2,
-		maxConnections:                   DefaultMaxConnections,
-		maxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
-		tlsConfig:                        nil,
-		multipathTCP:                     false,
+		RxpOptions:                       rxp.Options{},
+		ParallelAcceptors:                runtime.NumCPU() * 2,
+		MaxConnections:                   DefaultMaxConnections,
+		MaxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
+		TLSConfig:                        nil,
+		MultipathTCP:                     false,
 	}
 	for _, option := range options {
 		err = option(&opt)
@@ -42,12 +42,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	executors := rxp.New(opt.AsRxpOptions()...)
 	ctx = rxp.With(ctx, executors)
 	// connections limiter
-	connectionsLimiter := timeslimiter.New(opt.maxConnections)
+	connectionsLimiter := timeslimiter.New(opt.MaxConnections)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
 
 	// listen
 	inner, innerErr := sockets.Listen(network, addr, sockets.Options{
-		MultipathTCP: opt.multipathTCP,
+		MultipathTCP: opt.MultipathTCP,
 	})
 	if innerErr != nil {
 		_ = executors.Close()
@@ -61,10 +61,10 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		network:                       network,
 		inner:                         inner,
 		connectionsLimiter:            connectionsLimiter,
-		connectionsLimiterWaitTimeout: opt.maxConnectionsLimiterWaitTimeout,
+		connectionsLimiterWaitTimeout: opt.MaxConnectionsLimiterWaitTimeout,
 		executors:                     executors,
-		tlsConfig:                     opt.tlsConfig,
-		promises:                      make([]async.Promise[Connection], opt.parallelAcceptors),
+		tlsConfig:                     opt.TLSConfig,
+		promises:                      make([]async.Promise[Connection], opt.ParallelAcceptors),
 	}
 	return
 }
