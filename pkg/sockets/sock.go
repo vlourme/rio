@@ -44,6 +44,11 @@ type Listener interface {
 	Close() (err error)
 }
 
+type UnixListener interface {
+	Listener
+	SetUnlinkOnClose(unlink bool)
+}
+
 // *********************************************************************************************************************
 
 type ReadFromHandler func(n int, addr net.Addr, err error)
