@@ -38,7 +38,7 @@ type PacketConnection interface {
 	Connection
 	ReadFrom() (future async.Future[transport.PacketInbound])
 	WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound])
-	SetReadMsgUDPOOBBufferSize(size int)
+	SetReadMsgOOBBufferSize(size int)
 	ReadMsg() (future async.Future[transport.MsgInbound])
 	WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.MsgOutbound])
 }
@@ -57,7 +57,7 @@ func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Fut
 	panic("implement me")
 }
 
-func (conn *packetConnection) SetReadMsgUDPOOBBufferSize(size int) {
+func (conn *packetConnection) SetReadMsgOOBBufferSize(size int) {
 	//TODO implement me
 	panic("implement me")
 }
