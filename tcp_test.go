@@ -68,6 +68,8 @@ func TestTCP(t *testing.T) {
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			t.Error("srv accept:", rio.IsClosed(err), err)
+			// todo fix future bug
+			// err is canceled
 			return
 		}
 		t.Log("srv accept:", conn.RemoteAddr(), err)
@@ -77,7 +79,6 @@ func TestTCP(t *testing.T) {
 				_ = conn.Close()
 				return
 			}
-			// todo fix future bug
 			n := in.Received()
 			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
