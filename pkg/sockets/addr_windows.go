@@ -5,6 +5,8 @@ package sockets
 import (
 	"golang.org/x/sys/windows"
 	"net"
+	"syscall"
+	"unsafe"
 )
 
 func sockaddrToAddr(network string, sa windows.Sockaddr) (addr net.Addr) {
@@ -113,4 +115,58 @@ func addrToSockaddr(family int, a net.Addr) (sa windows.Sockaddr) {
 		break
 	}
 	return
+}
+
+func sockaddrInet4ToRaw(rsa *windows.RawSockaddrAny, sa *windows.SockaddrInet4) int32 {
+	*rsa = windows.RawSockaddrAny{}
+	raw := (*windows.RawSockaddrInet4)(unsafe.Pointer(rsa))
+	raw.Family = windows.AF_INET
+	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
+	p[0] = byte(sa.Port >> 8)
+	p[1] = byte(sa.Port)
+	raw.Addr = sa.Addr
+	return int32(unsafe.Sizeof(*raw))
+}
+
+func sockaddrInet6ToRaw(rsa *windows.RawSockaddrAny, sa *windows.SockaddrInet6) int32 {
+	*rsa = windows.RawSockaddrAny{}
+	raw := (*windows.RawSockaddrInet6)(unsafe.Pointer(rsa))
+	raw.Family = windows.AF_INET6
+	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
+	p[0] = byte(sa.Port >> 8)
+	p[1] = byte(sa.Port)
+	raw.Scope_id = sa.ZoneId
+	raw.Addr = sa.Addr
+	return int32(unsafe.Sizeof(*raw))
+}
+
+func sockaddrUnixToRaw(rsa *windows.RawSockaddrAny, sa *windows.SockaddrUnix) int32 {
+	*rsa = windows.RawSockaddrAny{}
+	raw := (*windows.RawSockaddrUnix)(unsafe.Pointer(rsa))
+	raw.Family = windows.AF_UNIX
+	path := make([]byte, 0, len(sa.Name))
+	copy(path, sa.Name)
+	n := 0
+	for n < len(path) && path[n] != 0 {
+		n++
+	}
+	pp := []int8(unsafe.Slice((*int8)(unsafe.Pointer(&path[0])), n))
+	copy(raw.Path[:], pp)
+	return int32(unsafe.Sizeof(*raw))
+}
+
+func sockaddrToRaw(rsa *windows.RawSockaddrAny, sa windows.Sockaddr) (int32, error) {
+	switch sa := sa.(type) {
+	case *windows.SockaddrInet4:
+		sz := sockaddrInet4ToRaw(rsa, sa)
+		return sz, nil
+	case *windows.SockaddrInet6:
+		sz := sockaddrInet6ToRaw(rsa, sa)
+		return sz, nil
+	case *windows.SockaddrUnix:
+		sz := sockaddrUnixToRaw(rsa, sa)
+		return sz, nil
+	default:
+		return 0, syscall.EWINDOWS
+	}
 }
