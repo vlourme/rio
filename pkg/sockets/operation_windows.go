@@ -5,6 +5,7 @@ package sockets
 import (
 	"golang.org/x/sys/windows"
 	"io"
+	"unsafe"
 )
 
 type operation struct {
@@ -96,6 +97,16 @@ func (op *operation) InitMsg(p []byte, oob []byte) {
 	if len(oob) != 0 {
 		op.msg.Control.Buf = &oob[0]
 	}
+}
+
+func (op *operation) OOB() (oob []byte) {
+	if op.mode != readMsg {
+		oob = make([]byte, 0, 1)
+		return
+	}
+	oobLen := int(op.msg.Control.Len)
+	oob = unsafe.Slice(op.msg.Control.Buf, oobLen)
+	return
 }
 
 func (op *operation) InitBuf(buf []byte) {
