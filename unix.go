@@ -17,7 +17,7 @@ type UnixConnection interface {
 	PacketConnection
 }
 
-func newUnixConnection(ctx context.Context, conn sockets.Connection) (uc *unixConnection) {
+func newUnixConnection(ctx context.Context, inner sockets.Connection) (uc *unixConnection) {
 	return
 }
 
