@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -64,17 +65,23 @@ func newListener(network string, family int, addr net.Addr, ipv6only bool, proto
 }
 
 type listener struct {
-	cphandle windows.Handle
-	fd       windows.Handle
-	family   int
-	ipv6only bool
-	net      string
-	addr     net.Addr
+	cphandle   windows.Handle
+	fd         windows.Handle
+	family     int
+	ipv6only   bool
+	net        string
+	addr       net.Addr
+	unlink     bool
+	unlinkOnce sync.Once
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
 	addr = ln.addr
 	return
+}
+
+func (ln *listener) SetUnlinkOnClose(unlink bool) {
+	ln.unlink = unlink
 }
 
 func (ln *listener) Accept(handler AcceptHandler) {
@@ -111,6 +118,17 @@ func (ln *listener) Accept(handler AcceptHandler) {
 }
 
 func (ln *listener) Close() (err error) {
+	// check unix
+	if ln.family == windows.AF_UNIX {
+		ln.unlinkOnce.Do(func() {
+			unixAddr, isUnix := ln.addr.(*net.UnixAddr)
+			if isUnix {
+				if path := unixAddr.String(); path[0] != '@' && ln.unlink {
+					_ = windows.Unlink(path)
+				}
+			}
+		})
+	}
 	// close socket
 	closeSockErr := windows.Closesocket(ln.fd)
 	if closeSockErr != nil {
