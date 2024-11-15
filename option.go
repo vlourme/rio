@@ -2,8 +2,10 @@ package rio
 
 import (
 	"crypto/tls"
+	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
+	"net"
 	"runtime"
 	"time"
 )
@@ -14,32 +16,33 @@ const (
 )
 
 type Options struct {
-	ro                               rxp.Options
-	parallelAcceptors                int
-	maxConnections                   int64
-	maxConnectionsLimiterWaitTimeout time.Duration
-	tlsConfig                        *tls.Config
-	multipathTCP                     bool
+	RxpOptions                       rxp.Options
+	ParallelAcceptors                int
+	MaxConnections                   int64
+	MaxConnectionsLimiterWaitTimeout time.Duration
+	TLSConfig                        *tls.Config
+	MultipathTCP                     bool
+	DialPacketConnLocalAddr          net.Addr
 }
 
 func (options *Options) AsRxpOptions() []rxp.Option {
 	opts := make([]rxp.Option, 0, 1)
-	if n := options.ro.MaxprocsOptions.MinGOMAXPROCS; n > 0 {
+	if n := options.RxpOptions.MaxprocsOptions.MinGOMAXPROCS; n > 0 {
 		opts = append(opts, rxp.MinGOMAXPROCS(n))
 	}
-	if fn := options.ro.MaxprocsOptions.Procs; fn != nil {
+	if fn := options.RxpOptions.MaxprocsOptions.Procs; fn != nil {
 		opts = append(opts, rxp.Procs(fn))
 	}
-	if fn := options.ro.MaxprocsOptions.RoundQuotaFunc; fn != nil {
+	if fn := options.RxpOptions.MaxprocsOptions.RoundQuotaFunc; fn != nil {
 		opts = append(opts, rxp.RoundQuotaFunc(fn))
 	}
-	if n := options.ro.MaxGoroutines; n > 0 {
+	if n := options.RxpOptions.MaxGoroutines; n > 0 {
 		opts = append(opts, rxp.MaxGoroutines(n))
 	}
-	if n := options.ro.MaxReadyGoroutinesIdleDuration; n > 0 {
+	if n := options.RxpOptions.MaxReadyGoroutinesIdleDuration; n > 0 {
 		opts = append(opts, rxp.MaxReadyGoroutinesIdleDuration(n))
 	}
-	if n := options.ro.CloseTimeout; n > 0 {
+	if n := options.RxpOptions.CloseTimeout; n > 0 {
 		opts = append(opts, rxp.WithCloseTimeout(n))
 	}
 	return opts
@@ -53,7 +56,7 @@ func ParallelAcceptors(parallelAcceptors int) Option {
 		if parallelAcceptors < 1 || cpuNum < parallelAcceptors {
 			parallelAcceptors = cpuNum
 		}
-		options.parallelAcceptors = parallelAcceptors
+		options.ParallelAcceptors = parallelAcceptors
 		return
 	}
 }
@@ -61,7 +64,7 @@ func ParallelAcceptors(parallelAcceptors int) Option {
 func MaxConnections(maxConnections int64) Option {
 	return func(options *Options) (err error) {
 		if maxConnections > 0 {
-			options.maxConnections = maxConnections
+			options.MaxConnections = maxConnections
 		}
 		return
 	}
@@ -70,7 +73,7 @@ func MaxConnections(maxConnections int64) Option {
 func MaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
 	return func(options *Options) (err error) {
 		if maxConnectionsLimiterWaitTimeout > 0 {
-			options.maxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
+			options.MaxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
 		}
 		return
 	}
@@ -78,13 +81,21 @@ func MaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Dura
 
 func TLSConfig(config *tls.Config) Option {
 	return func(options *Options) (err error) {
-		options.tlsConfig = config
+		options.TLSConfig = config
 		return
 	}
 }
+
 func MultipathTCP() Option {
 	return func(options *Options) (err error) {
-		options.multipathTCP = true
+		options.MultipathTCP = true
+		return
+	}
+}
+
+func WithDialPacketConnLocalAddr(network string, addr string) Option {
+	return func(options *Options) (err error) {
+		options.DialPacketConnLocalAddr, _, _, err = sockets.GetAddrAndFamily(network, addr)
 		return
 	}
 }
@@ -93,7 +104,7 @@ func MultipathTCP() Option {
 // 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。
 func MinGOMAXPROCS(n int) Option {
 	return func(options *Options) error {
-		return rxp.MinGOMAXPROCS(n)(&options.ro)
+		return rxp.MinGOMAXPROCS(n)(&options.RxpOptions)
 	}
 }
 
@@ -101,7 +112,7 @@ func MinGOMAXPROCS(n int) Option {
 // 设置最大 GOMAXPROCS 构建函数。
 func Procs(fn maxprocs.ProcsFunc) Option {
 	return func(options *Options) error {
-		return rxp.Procs(fn)(&options.ro)
+		return rxp.Procs(fn)(&options.RxpOptions)
 	}
 }
 
@@ -109,7 +120,7 @@ func Procs(fn maxprocs.ProcsFunc) Option {
 // 设置整数配额函数
 func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 	return func(options *Options) error {
-		return rxp.RoundQuotaFunc(fn)(&options.ro)
+		return rxp.RoundQuotaFunc(fn)(&options.RxpOptions)
 	}
 }
 
@@ -117,7 +128,7 @@ func RoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 // 设置最大协程数
 func MaxGoroutines(n int) Option {
 	return func(options *Options) error {
-		return rxp.MaxGoroutines(n)(&options.ro)
+		return rxp.MaxGoroutines(n)(&options.RxpOptions)
 	}
 }
 
@@ -125,7 +136,7 @@ func MaxGoroutines(n int) Option {
 // 设置准备中协程最大闲置时长
 func MaxReadyGoroutinesIdleDuration(d time.Duration) Option {
 	return func(options *Options) error {
-		return rxp.MaxReadyGoroutinesIdleDuration(d)(&options.ro)
+		return rxp.MaxReadyGoroutinesIdleDuration(d)(&options.RxpOptions)
 	}
 }
 
@@ -133,6 +144,6 @@ func MaxReadyGoroutinesIdleDuration(d time.Duration) Option {
 // 设置关闭超时时长
 func WithCloseTimeout(timeout time.Duration) Option {
 	return func(options *Options) error {
-		return rxp.WithCloseTimeout(timeout)(&options.ro)
+		return rxp.WithCloseTimeout(timeout)(&options.RxpOptions)
 	}
 }
