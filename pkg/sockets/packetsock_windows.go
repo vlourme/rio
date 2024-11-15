@@ -147,6 +147,10 @@ func (conn *connection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
 	conn.rop.msg.Name = (*syscall.RawSockaddrAny)(unsafe.Pointer(conn.rop.rsa))
 	conn.rop.msg.Namelen = int32(unsafe.Sizeof(*conn.rop.rsa))
 	conn.rop.msg.Flags = uint32(0)
+	// handle unix
+	if conn.family == windows.AF_INET {
+		conn.rop.flags = readMsgFlags
+	}
 	if conn.rop.rsa == nil {
 		conn.rop.rsa = new(windows.RawSockaddrAny)
 	}
@@ -164,18 +168,97 @@ func (conn *connection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
 }
 
 func (op *operation) completeReadMsg(qty int, err error) {
-	// todo
-	panic("implement me")
+	sockaddr, sockaddrErr := op.rsa.Sockaddr()
+	if sockaddrErr != nil {
+		op.readMsgHandler(qty, 0, 0, nil, sockaddrErr)
+		op.readMsgHandler = nil
+		return
+	}
+	addr := sockaddrToAddr(op.conn.net, sockaddr)
+	if err != nil {
+		op.readMsgHandler(qty, 0, 0, addr, &net.OpError{
+			Op:     op.mode.String(),
+			Net:    op.conn.net,
+			Source: op.conn.localAddr,
+			Addr:   addr,
+			Err:    err,
+		})
+		op.readMsgHandler = nil
+		return
+	}
+	oobn := int(op.msg.Control.Len)
+	flags := int(op.msg.Flags)
+	if op.conn.family == windows.AF_UNIX {
+		if readMsgFlags == 0 && oobn > 0 {
+			oob := op.OOB()
+			setReadMsgCloseOnExec(oob[:oobn])
+		}
+	}
+	op.readMsgHandler(qty, oobn, flags, addr, nil)
+	op.readMsgHandler = nil
 	return
 }
 
 func (conn *connection) WriteMsg(p []byte, oob []byte, addr net.Addr, handler WriteMsgHandler) {
-	//TODO implement me
-	panic("implement me")
+	pLen := len(p)
+	if pLen == 0 {
+		handler(0, 0, ErrEmptyPacket)
+		return
+	}
+	if pLen > maxRW {
+		p = p[:maxRW]
+	}
+	conn.wop.mode = writeMsg
+	conn.wop.InitMsg(p, oob)
+	if addr != nil {
+		if conn.wop.rsa == nil {
+			conn.wop.rsa = new(windows.RawSockaddrAny)
+		}
+		sa := addrToSockaddr(conn.family, addr)
+		addrLen, addrErr := sockaddrToRaw(conn.wop.rsa, sa)
+		if addrErr != nil {
+			handler(0, 0, addrErr)
+			return
+		}
+
+		conn.wop.msg.Name = (*syscall.RawSockaddrAny)(unsafe.Pointer(conn.wop.rsa))
+		conn.wop.msg.Namelen = addrLen
+	}
+	conn.wop.writeMsgHandler = handler
+
+	err := windows.WSASendMsg(conn.fd, &conn.wop.msg, 0, &conn.wop.qty, &conn.wop.overlapped, nil)
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		if errors.Is(windows.ERROR_TIMEOUT, err) {
+			err = context.DeadlineExceeded
+		}
+		handler(0, 0, wrapSyscallError("WSASendMsg", err))
+		conn.wop.writeMsgHandler = nil
+	}
+
+	return
 }
 
 func (op *operation) completeWriteMsg(qty int, err error) {
-	// todo
-	panic("implement me")
+	sockaddr, sockaddrErr := op.rsa.Sockaddr()
+	if sockaddrErr != nil {
+		op.writeMsgHandler(qty, 0, sockaddrErr)
+		op.writeMsgHandler = nil
+		return
+	}
+	addr := sockaddrToAddr(op.conn.net, sockaddr)
+	if err != nil {
+		op.writeMsgHandler(qty, 0, &net.OpError{
+			Op:     op.mode.String(),
+			Net:    op.conn.net,
+			Source: op.conn.localAddr,
+			Addr:   addr,
+			Err:    err,
+		})
+		op.writeMsgHandler = nil
+		return
+	}
+	oobn := int(op.msg.Control.Len)
+	op.writeMsgHandler(qty, oobn, nil)
+	op.writeMsgHandler = nil
 	return
 }
