@@ -24,6 +24,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// opt
 	opt := Options{
 		RxpOptions:                       rxp.Options{},
 		ParallelAcceptors:                runtime.NumCPU() * 2,
@@ -41,15 +42,17 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	// executors
 	executors := rxp.New(opt.AsRxpOptions()...)
 	ctx = rxp.With(ctx, executors)
+	// parallel acceptors
+	parallelAcceptors := opt.ParallelAcceptors
 	// connections limiter
-
-	connectionsLimiter := timeslimiter.New(opt.MaxConnections)
+	maxConnections := opt.MaxConnections
+	connectionsLimiter := timeslimiter.New(maxConnections)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
-	if opt.MaxConnections > 0 && opt.MaxConnections < int64(opt.ParallelAcceptors) {
-		opt.ParallelAcceptors = int(opt.MaxConnections)
+	if maxConnections > 0 && maxConnections < int64(parallelAcceptors) {
+		parallelAcceptors = int(maxConnections)
 	}
 
-	// listen
+	// sockets listen
 	inner, innerErr := sockets.Listen(network, addr, sockets.Options{
 		MultipathTCP: opt.MultipathTCP,
 	})
@@ -58,27 +61,47 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		err = errors.Join(errors.New("rio: listen failed"), innerErr)
 		return
 	}
+
+	// listen ctx
+	lnCTX, lnCancel := context.WithCancel(ctx)
+
+	// conn promise
+	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](lnCTX, parallelAcceptors, 8)
+	if acceptorPromiseErr != nil {
+		_ = executors.Close()
+		lnCancel()
+		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
+		return
+	}
+
+	// create
 	ln = &listener{
-		ctx:                           ctx,
+		ctx:                           lnCTX,
+		cancel:                        lnCancel,
 		network:                       network,
 		inner:                         inner,
 		connectionsLimiter:            connectionsLimiter,
 		connectionsLimiterWaitTimeout: opt.MaxConnectionsLimiterWaitTimeout,
 		executors:                     executors,
 		tlsConfig:                     opt.TLSConfig,
-		promises:                      make([]async.Promise[Connection], opt.ParallelAcceptors),
+		parallelAcceptors:             parallelAcceptors,
+		acceptorPromises:              acceptorPromises,
+		promises:                      make([]async.Promise[Connection], parallelAcceptors),
 	}
 	return
 }
 
 type listener struct {
 	ctx                           context.Context
+	cancel                        context.CancelFunc
 	network                       string
 	inner                         sockets.Listener
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
 	executors                     rxp.Executors
 	tlsConfig                     *tls.Config
+	parallelAcceptors             int
+	acceptorPromises              async.Promise[Connection]
 	promises                      []async.Promise[Connection]
 }
 
@@ -88,28 +111,15 @@ func (ln *listener) Addr() (addr net.Addr) {
 }
 
 func (ln *listener) Accept() (future async.Future[Connection]) {
-	ctx := ln.ctx
-	promisesLen := len(ln.promises)
-	futures := make([]async.Future[Connection], promisesLen)
-	for i := 0; i < promisesLen; i++ {
-		promise, promiseErr := async.MustStreamPromise[Connection](ctx, 8)
-		if promiseErr != nil {
-			future = async.FailedImmediately[Connection](ctx, promiseErr)
-			_ = ln.Close()
-			return
-		}
-		ln.acceptOne(promise, 0)
-		ln.promises[i] = promise
-		futures[i] = promise.Future()
+	for i := 0; i < ln.parallelAcceptors; i++ {
+		ln.acceptOne(0)
 	}
-	future = async.JoinStreamFutures[Connection](futures)
+	future = ln.acceptorPromises.Future()
 	return
 }
 
 func (ln *listener) Close() (err error) {
-	for _, promise := range ln.promises {
-		promise.Cancel()
-	}
+	ln.acceptorPromises.Cancel()
 	err = ln.inner.Close()
 	closeExecErr := ln.executors.CloseGracefully()
 	if closeExecErr != nil {
@@ -119,6 +129,7 @@ func (ln *listener) Close() (err error) {
 			err = errors.Join(err, closeExecErr)
 		}
 	}
+	ln.cancel()
 	return
 }
 
@@ -130,9 +141,9 @@ const (
 	ms10 = 10 * time.Millisecond
 )
 
-func (ln *listener) acceptOne(streamPromise async.Promise[Connection], limitedTimes int) {
+func (ln *listener) acceptOne(limitedTimes int) {
 	if !ln.ok() {
-		streamPromise.Fail(ErrClosed)
+		ln.acceptorPromises.Fail(ErrClosed)
 		return
 	}
 	if limitedTimes > 9 {
@@ -144,12 +155,12 @@ func (ln *listener) acceptOne(streamPromise async.Promise[Connection], limitedTi
 	cancel()
 	if waitErr != nil {
 		limitedTimes++
-		ln.acceptOne(streamPromise, limitedTimes)
+		ln.acceptOne(limitedTimes)
 		return
 	}
 	ln.inner.Accept(func(sock sockets.Connection, err error) {
 		if err != nil {
-			streamPromise.Fail(err)
+			ln.acceptorPromises.Fail(err)
 			return
 		}
 		if ln.tlsConfig != nil {
@@ -159,19 +170,19 @@ func (ln *listener) acceptOne(streamPromise async.Promise[Connection], limitedTi
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
 			conn = newTCPConnection(ln.ctx, sock)
-			streamPromise.Succeed(conn)
+			ln.acceptorPromises.Succeed(conn)
 			break
 		case "unix", "unixpacket":
 			conn = newUnixConnection(ln.ctx, sock)
-			streamPromise.Succeed(conn)
+			ln.acceptorPromises.Succeed(conn)
 			break
 		default:
 			// not matched, so close it
 			_ = sock.Close()
-			streamPromise.Fail(ErrNetworkDisMatched)
+			ln.acceptorPromises.Fail(ErrNetworkDisMatched)
 			break
 		}
-		ln.acceptOne(streamPromise, 0)
+		ln.acceptOne(0)
 		return
 	})
 }
