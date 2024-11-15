@@ -16,11 +16,24 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		err = errors.New("sockets: invalid addr")
 		return
 	}
-	// todo handle IP
+	// ip
+	if network == "ip" || network == "ipv4" || network == "ipv6" {
+		v, err = net.ResolveIPAddr(network, addr)
+		if err != nil {
+			return
+		}
+		if v.Network() == "ipv6" {
+			family = syscall.AF_INET6
+		} else {
+			family = syscall.AF_INET
+		}
+		family = syscall.AF_INET
+		return
+	}
 	// unix
 	if network == "unix" || network == "unixgram" || network == "unixpacket" {
 		v, err = net.ResolveUnixAddr(network, addr)
-		if err == nil {
+		if err != nil {
 			return
 		}
 		family = syscall.AF_UNIX
