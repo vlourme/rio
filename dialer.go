@@ -16,10 +16,9 @@ var (
 )
 
 func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
-
-	opts := Options{}
+	opts := &Options{}
 	for _, o := range options {
-		err := o(&opts)
+		err := o(opts)
 		if err != nil {
 			future = async.FailedImmediately[Connection](ctx, err)
 			return
@@ -35,7 +34,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				defaultExecutors = rxp.New()
 				runtime.KeepAlive(defaultExecutors)
 				runtime.SetFinalizer(&defaultExecutors, func() {
-					_ = defaultExecutors.Close()
+					_ = defaultExecutors.CloseGracefully()
 				})
 			})
 			ctx = rxp.With(ctx, defaultExecutors)
@@ -48,12 +47,11 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		return
 	}
 
-	socketOpts := sockets.Options{
-		MultipathTCP:            opts.MultipathTCP,
-		DialPacketConnLocalAddr: opts.DialPacketConnLocalAddr,
-	}
-
 	executed := rxp.TryExecute(ctx, func() {
+		socketOpts := sockets.Options{
+			MultipathTCP:            opts.MultipathTCP,
+			DialPacketConnLocalAddr: opts.DialPacketConnLocalAddr,
+		}
 		sockets.Dial(network, address, socketOpts, func(inner sockets.Connection, err error) {
 			if err != nil {
 				promise.Fail(err)
@@ -64,10 +62,10 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				promise.Succeed(newTCPConnection(ctx, inner))
 				break
 			case "udp", "udp4", "udp6":
-				// todo
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
+					break
 				}
 				promise.Succeed(newPacketConnection(ctx, packetInner))
 				break
@@ -78,6 +76,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				// todo
 				break
 			}
+			return
 		})
 	})
 

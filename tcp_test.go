@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
-	"github.com/brickingsoft/rxp"
 	"net"
 	"sync"
 	"testing"
@@ -58,8 +57,28 @@ func TestListenTCP(t *testing.T) {
 	}
 }
 
+func withWG(ctx context.Context) context.Context {
+	return context.WithValue(ctx, "wg", new(sync.WaitGroup))
+}
+
+func wgAdd(ctx context.Context) {
+	wg := ctx.Value("wg").(*sync.WaitGroup)
+	wg.Add(1)
+}
+
+func wgDown(ctx context.Context) {
+	wg := ctx.Value("wg").(*sync.WaitGroup)
+	wg.Done()
+}
+
+func wgWait(ctx context.Context) {
+	wg := ctx.Value("wg").(*sync.WaitGroup)
+	wg.Wait()
+}
+
 func TestTCP(t *testing.T) {
 	ctx := context.Background()
+
 	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(1))
 	if lnErr != nil {
 		t.Error(lnErr)
@@ -100,39 +119,35 @@ func TestTCP(t *testing.T) {
 		})
 	})
 
-	executors := rxp.New()
-	ctx = rxp.With(ctx, executors)
-
-	wg := new(sync.WaitGroup)
-
-	wg.Add(1)
+	ctx = withWG(ctx)
+	wgAdd(ctx)
+	//
 	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+		defer wgDown(ctx)
 		if err != nil {
-			wg.Done()
-			t.Error("dial:", err)
+			t.Error("cli dial:", err)
 			return
 		}
-		conn.Write([]byte("hello world")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+		wgAdd(ctx)
+		conn.Write([]byte("hello word")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+			defer wgDown(ctx)
 			if err != nil {
-				wg.Done()
-
 				t.Error("cli write:", err)
 				return
 			}
 			t.Log("cli write:", out.Wrote())
+			wgAdd(ctx)
 			conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+				defer wgDown(ctx)
 				if err != nil {
-					wg.Done()
 					t.Error("cli read:", err)
 					return
 				}
-				t.Log("cli read:", in.Received(), string(in.Reader().Peek(100)))
-				wg.Done()
-				return
+				t.Log("cli read:", in.Received(), string(in.Reader().Peek(in.Received())))
 			})
 		})
 	})
 
-	wg.Wait()
-	executors.Close()
+	wgWait(ctx)
+
 }
