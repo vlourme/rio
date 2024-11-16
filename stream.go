@@ -62,11 +62,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		return
 	}
 	// handle unix
-	if network == "unix" || network == "unixgram" || network == "unixpacket" {
+	if network == "unix" || network == "unixpacket" {
 		if opt.UnixListenerUnlinkOnClose {
 			unixListener, ok := inner.(sockets.UnixListener)
 			if !ok {
 				_ = executors.Close()
+				_ = inner.Close()
 				err = errors.Join(errors.New("rio: listen failed"), errors.New("unix listener is not a unix socket"))
 				return
 			}
