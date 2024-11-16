@@ -79,14 +79,18 @@ func With(ctx context.Context, bucket *Bucket) context.Context {
 	return context.WithValue(ctx, key, bucket)
 }
 
-func From(ctx context.Context) *Bucket {
+func TryFrom(ctx context.Context) (bucket *Bucket, has bool) {
 	value := ctx.Value(key)
 	if value == nil {
-		panic("timeslimiter: get bucket from context failed cause there is no bucket in context")
-		return nil
+		return
 	}
-	bucket, ok := value.(*Bucket)
-	if !ok {
+	bucket, has = value.(*Bucket)
+	return
+}
+
+func From(ctx context.Context) *Bucket {
+	bucket, has := TryFrom(ctx)
+	if !has {
 		panic("timeslimiter: get bucket from context failed  cause the value is not a *Bucket")
 		return nil
 	}
@@ -102,6 +106,13 @@ func Wait(ctx context.Context) (err error) {
 func Revert(ctx context.Context) {
 	bucket := From(ctx)
 	bucket.Revert()
+}
+
+func TryRevert(ctx context.Context) {
+	bucket, has := TryFrom(ctx)
+	if has {
+		bucket.Revert()
+	}
 }
 
 func Tokens(ctx context.Context) int64 {
