@@ -25,6 +25,8 @@ type Options struct {
 	MultipathTCP                     bool
 	DialPacketConnLocalAddr          net.Addr
 	UnixListenerUnlinkOnClose        bool
+	DefaultStreamReadTimeout         time.Duration
+	DefaultStreamWriteTimeout        time.Duration
 }
 
 func (options *Options) AsRxpOptions() []rxp.Option {
@@ -182,6 +184,28 @@ func WithCloseTimeout(timeout time.Duration) Option {
 func WithUnixListenerUnlinkOnClose() Option {
 	return func(options *Options) (err error) {
 		options.UnixListenerUnlinkOnClose = true
+		return
+	}
+}
+
+// WithDefaultStreamReadTimeout
+// 设置默认流链接读超时。
+func WithDefaultStreamReadTimeout(d time.Duration) Option {
+	return func(options *Options) (err error) {
+		if d > 0 {
+			options.DefaultStreamReadTimeout = d
+		}
+		return
+	}
+}
+
+// WithDefaultStreamWriteTimeout
+// 设置默认流链接写超时。
+func WithDefaultStreamWriteTimeout(d time.Duration) Option {
+	return func(options *Options) (err error) {
+		if d > 0 {
+			options.DefaultStreamWriteTimeout = d
+		}
 		return
 	}
 }
