@@ -119,11 +119,11 @@ func (ln *listener) Accept(handler AcceptHandler) {
 
 func (ln *listener) Close() (err error) {
 	// check unix
-	if ln.family == windows.AF_UNIX {
+	if ln.family == windows.AF_UNIX && ln.unlink {
 		ln.unlinkOnce.Do(func() {
 			unixAddr, isUnix := ln.addr.(*net.UnixAddr)
 			if isUnix {
-				if path := unixAddr.String(); path[0] != '@' && ln.unlink {
+				if path := unixAddr.String(); path[0] != '@' {
 					_ = windows.Unlink(path)
 				}
 			}
