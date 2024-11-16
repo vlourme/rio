@@ -194,6 +194,6 @@ func (conn *connection) Close() (err error) {
 	conn.cancel()
 	err = conn.inner.Close()
 	conn.rb.Close()
-	timeslimiter.Revert(conn.ctx)
+	timeslimiter.TryRevert(conn.ctx)
 	return
 }
