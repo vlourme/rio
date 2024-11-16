@@ -16,8 +16,8 @@ func TestListenTCP(t *testing.T) {
 	ln, lnErr := rio.Listen(
 		ctx,
 		"tcp", "127.0.0.1:9000",
-		rio.ParallelAcceptors(1),
-		rio.MaxConnections(10),
+		rio.WithParallelAcceptors(1),
+		rio.WithMaxConnections(10),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)
@@ -60,7 +60,7 @@ func TestListenTCP(t *testing.T) {
 
 func TestTCP(t *testing.T) {
 	ctx := context.Background()
-	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.ParallelAcceptors(1))
+	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(1))
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
@@ -135,27 +135,4 @@ func TestTCP(t *testing.T) {
 
 	wg.Wait()
 	executors.Close()
-	//
-	//time.Sleep(1 * time.Second)
-
-	//cli, dialErr := net.Dial("tcp", ":9000")
-	//if dialErr != nil {
-	//	t.Error(dialErr)
-	//	return
-	//}
-	//defer cli.Close()
-	//wn, wErr := cli.Write([]byte("hello world"))
-	//if wErr != nil {
-	//	t.Error("client write:", wErr)
-	//	return
-	//}
-	//t.Log("client write:", wn)
-	//p := make([]byte, 1024)
-	//rn, rErr := cli.Read(p)
-	//if rErr != nil {
-	//	t.Error("client read:", rErr)
-	//	return
-	//}
-	//t.Log("client read:", rn, string(p))
-
 }
