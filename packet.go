@@ -2,8 +2,10 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
@@ -11,21 +13,21 @@ import (
 
 // ListenPacket
 func ListenPacket(ctx context.Context, network string, addr string, options ...Option) (conn PacketConnection, err error) {
-	opts := Options{}
+	opt := Options{}
 	for _, o := range options {
-		err = o(&opts)
+		err = o(&opt)
 		if err != nil {
 			return
 		}
 	}
-	socketOpts := sockets.Options{
-		MultipathTCP:            opts.MultipathTCP,
-		DialPacketConnLocalAddr: opts.DialPacketConnLocalAddr,
-	}
+	// executors
+	executors := rxp.New(opt.AsRxpOptions()...)
+	ctx = rxp.With(ctx, executors)
 
-	inner, innerErr := sockets.ListenPacket(network, addr, socketOpts)
+	inner, innerErr := sockets.ListenPacket(network, addr, sockets.Options{})
 	if innerErr != nil {
-		err = innerErr
+		_ = executors.Close()
+		err = errors.Join(errors.New("rio: listen packet failed"), innerErr)
 		return
 	}
 
@@ -69,8 +71,6 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrBusy)
 		return
 	}
-	timeout := time.Now().Add(conn.rto)
-	promise.SetDeadline(timeout)
 	p := conn.rb.Allocate(conn.rbs)
 	conn.inner.ReadFrom(p, func(n int, addr net.Addr, err error) {
 		conn.rb.AllocatedWrote(n)
