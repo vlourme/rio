@@ -2,6 +2,7 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
@@ -19,7 +20,10 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	if !exist {
 		createDefaultExecutorsOnce.Do(func() {
 			defaultExecutors = rxp.New()
-			runtime.SetFinalizer(defaultExecutors, defaultExecutors.Close)
+			runtime.KeepAlive(defaultExecutors)
+			runtime.SetFinalizer(&defaultExecutors, func() {
+				_ = defaultExecutors.Close()
+			})
 		})
 		ctx = rxp.With(ctx, defaultExecutors)
 	}
@@ -56,6 +60,11 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				break
 			case "udp", "udp4", "udp6":
 				// todo
+				packetInner, ok := inner.(sockets.PacketConnection)
+				if !ok {
+					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
+				}
+				promise.Succeed(newPacketConnection(ctx, packetInner))
 				break
 			case "unix", "unixgram", "unixpacket":
 				// todo
