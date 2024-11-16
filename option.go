@@ -16,7 +16,8 @@ const (
 )
 
 type Options struct {
-	RxpOptions                       rxp.Options
+	ExecutorsOptions                 rxp.Options
+	ExtraExecutors                   rxp.Executors
 	ParallelAcceptors                int
 	MaxConnections                   int64
 	MaxConnectionsLimiterWaitTimeout time.Duration
@@ -28,28 +29,37 @@ type Options struct {
 
 func (options *Options) AsRxpOptions() []rxp.Option {
 	opts := make([]rxp.Option, 0, 1)
-	if n := options.RxpOptions.MaxprocsOptions.MinGOMAXPROCS; n > 0 {
+	if n := options.ExecutorsOptions.MaxprocsOptions.MinGOMAXPROCS; n > 0 {
 		opts = append(opts, rxp.MinGOMAXPROCS(n))
 	}
-	if fn := options.RxpOptions.MaxprocsOptions.Procs; fn != nil {
+	if fn := options.ExecutorsOptions.MaxprocsOptions.Procs; fn != nil {
 		opts = append(opts, rxp.Procs(fn))
 	}
-	if fn := options.RxpOptions.MaxprocsOptions.RoundQuotaFunc; fn != nil {
+	if fn := options.ExecutorsOptions.MaxprocsOptions.RoundQuotaFunc; fn != nil {
 		opts = append(opts, rxp.RoundQuotaFunc(fn))
 	}
-	if n := options.RxpOptions.MaxGoroutines; n > 0 {
+	if n := options.ExecutorsOptions.MaxGoroutines; n > 0 {
 		opts = append(opts, rxp.MaxGoroutines(n))
 	}
-	if n := options.RxpOptions.MaxReadyGoroutinesIdleDuration; n > 0 {
+	if n := options.ExecutorsOptions.MaxReadyGoroutinesIdleDuration; n > 0 {
 		opts = append(opts, rxp.MaxReadyGoroutinesIdleDuration(n))
 	}
-	if n := options.RxpOptions.CloseTimeout; n > 0 {
+	if n := options.ExecutorsOptions.CloseTimeout; n > 0 {
 		opts = append(opts, rxp.WithCloseTimeout(n))
 	}
 	return opts
 }
 
 type Option func(options *Options) (err error)
+
+// WithExtraExecutors
+// 设置外部 rxp.Executors
+func WithExtraExecutors(executor rxp.Executors) Option {
+	return func(options *Options) (err error) {
+		options.ExtraExecutors = executor
+		return
+	}
+}
 
 // WithParallelAcceptors
 // 设置并行链接接受器数量。
@@ -123,7 +133,7 @@ func WithDialPacketConnLocalAddr(network string, addr string) Option {
 // 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。
 func WithMinGOMAXPROCS(n int) Option {
 	return func(options *Options) error {
-		return rxp.MinGOMAXPROCS(n)(&options.RxpOptions)
+		return rxp.MinGOMAXPROCS(n)(&options.ExecutorsOptions)
 	}
 }
 
@@ -131,7 +141,7 @@ func WithMinGOMAXPROCS(n int) Option {
 // 设置最大 GOMAXPROCS 构建函数。
 func WithProcsFunc(fn maxprocs.ProcsFunc) Option {
 	return func(options *Options) error {
-		return rxp.Procs(fn)(&options.RxpOptions)
+		return rxp.Procs(fn)(&options.ExecutorsOptions)
 	}
 }
 
@@ -139,7 +149,7 @@ func WithProcsFunc(fn maxprocs.ProcsFunc) Option {
 // 设置整数配额函数
 func WithRoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 	return func(options *Options) error {
-		return rxp.RoundQuotaFunc(fn)(&options.RxpOptions)
+		return rxp.RoundQuotaFunc(fn)(&options.ExecutorsOptions)
 	}
 }
 
@@ -147,7 +157,7 @@ func WithRoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
 // 设置最大协程数
 func WithMaxGoroutines(n int) Option {
 	return func(options *Options) error {
-		return rxp.MaxGoroutines(n)(&options.RxpOptions)
+		return rxp.MaxGoroutines(n)(&options.ExecutorsOptions)
 	}
 }
 
@@ -155,7 +165,7 @@ func WithMaxGoroutines(n int) Option {
 // 设置准备中协程最大闲置时长
 func WithMaxReadyGoroutinesIdleDuration(d time.Duration) Option {
 	return func(options *Options) error {
-		return rxp.MaxReadyGoroutinesIdleDuration(d)(&options.RxpOptions)
+		return rxp.MaxReadyGoroutinesIdleDuration(d)(&options.ExecutorsOptions)
 	}
 }
 
@@ -163,7 +173,7 @@ func WithMaxReadyGoroutinesIdleDuration(d time.Duration) Option {
 // 设置关闭超时时长
 func WithCloseTimeout(timeout time.Duration) Option {
 	return func(options *Options) error {
-		return rxp.WithCloseTimeout(timeout)(&options.RxpOptions)
+		return rxp.WithCloseTimeout(timeout)(&options.ExecutorsOptions)
 	}
 }
 

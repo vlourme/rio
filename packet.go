@@ -20,18 +20,25 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 			return
 		}
 	}
-	// executors
-	executors := rxp.New(opt.AsRxpOptions()...)
-	ctx = rxp.With(ctx, executors)
 
+	// executors
+	executors := opt.ExtraExecutors
+	hasExtraExecutors := executors != nil
+	if !hasExtraExecutors {
+		executors = rxp.New(opt.AsRxpOptions()...)
+	}
+	ctx = rxp.With(ctx, executors)
+	// inner
 	inner, innerErr := sockets.ListenPacket(network, addr, sockets.Options{})
 	if innerErr != nil {
-		_ = executors.Close()
+		if !hasExtraExecutors {
+			_ = executors.Close()
+		}
 		err = errors.Join(errors.New("rio: listen packet failed"), innerErr)
 		return
 	}
 
-	conn = newPacketConnection(ctx, inner)
+	conn = newListenedPacketConnection(ctx, inner, executors, !hasExtraExecutors)
 	return
 }
 
@@ -48,21 +55,37 @@ const (
 	defaultOOBBufferSize = 1024
 )
 
+func newListenedPacketConnection(ctx context.Context, inner sockets.PacketConnection, executors rxp.Executors, ownedExecutors bool) (conn PacketConnection) {
+	conn = &packetConnection{
+		connection:     *newConnection(ctx, inner),
+		executors:      executors,
+		ownedExecutors: ownedExecutors,
+		inner:          inner,
+		oob:            transport.NewInboundBuffer(),
+		oobn:           defaultOOBBufferSize,
+	}
+	return
+}
+
 func newPacketConnection(ctx context.Context, inner sockets.PacketConnection) (conn PacketConnection) {
 	conn = &packetConnection{
-		connection: *newConnection(ctx, inner),
-		inner:      inner,
-		oob:        transport.NewInboundBuffer(),
-		oobn:       defaultOOBBufferSize,
+		connection:     *newConnection(ctx, inner),
+		executors:      nil,
+		ownedExecutors: false,
+		inner:          inner,
+		oob:            transport.NewInboundBuffer(),
+		oobn:           defaultOOBBufferSize,
 	}
 	return
 }
 
 type packetConnection struct {
 	connection
-	inner sockets.PacketConnection
-	oob   transport.InboundBuffer
-	oobn  int
+	executors      rxp.Executors
+	ownedExecutors bool
+	inner          sockets.PacketConnection
+	oob            transport.InboundBuffer
+	oobn           int
 }
 
 func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
@@ -205,5 +228,20 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) Close() (err error) {
+	err = conn.connection.Close()
+	if conn.ownedExecutors {
+		closeExecErr := conn.executors.CloseGracefully()
+		if closeExecErr != nil {
+			if err == nil {
+				err = closeExecErr
+			} else {
+				err = errors.Join(err, closeExecErr)
+			}
+		}
+	}
 	return
 }

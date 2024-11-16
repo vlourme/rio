@@ -16,17 +16,6 @@ var (
 )
 
 func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
-	_, exist := rxp.TryFrom(ctx)
-	if !exist {
-		createDefaultExecutorsOnce.Do(func() {
-			defaultExecutors = rxp.New()
-			runtime.KeepAlive(defaultExecutors)
-			runtime.SetFinalizer(&defaultExecutors, func() {
-				_ = defaultExecutors.Close()
-			})
-		})
-		ctx = rxp.With(ctx, defaultExecutors)
-	}
 
 	opts := Options{}
 	for _, o := range options {
@@ -34,6 +23,22 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		if err != nil {
 			future = async.FailedImmediately[Connection](ctx, err)
 			return
+		}
+	}
+
+	_, exist := rxp.TryFrom(ctx)
+	if !exist {
+		if opts.ExtraExecutors != nil {
+			ctx = rxp.With(ctx, opts.ExtraExecutors)
+		} else {
+			createDefaultExecutorsOnce.Do(func() {
+				defaultExecutors = rxp.New()
+				runtime.KeepAlive(defaultExecutors)
+				runtime.SetFinalizer(&defaultExecutors, func() {
+					_ = defaultExecutors.Close()
+				})
+			})
+			ctx = rxp.With(ctx, defaultExecutors)
 		}
 	}
 

@@ -26,7 +26,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 	// opt
 	opt := Options{
-		RxpOptions:                       rxp.Options{},
+		ExecutorsOptions:                 rxp.Options{},
+		ExtraExecutors:                   nil,
 		ParallelAcceptors:                runtime.NumCPU() * 2,
 		MaxConnections:                   DefaultMaxConnections,
 		MaxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
@@ -40,8 +41,13 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		}
 	}
 	// executors
-	executors := rxp.New(opt.AsRxpOptions()...)
+	executors := opt.ExtraExecutors
+	hasExtraExecutors := executors != nil
+	if !hasExtraExecutors {
+		executors = rxp.New(opt.AsRxpOptions()...)
+	}
 	ctx = rxp.With(ctx, executors)
+
 	// parallel acceptors
 	parallelAcceptors := opt.ParallelAcceptors
 	// connections limiter
@@ -57,7 +63,9 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		MultipathTCP: opt.MultipathTCP,
 	})
 	if innerErr != nil {
-		_ = executors.Close()
+		if !hasExtraExecutors {
+			_ = executors.Close()
+		}
 		err = errors.Join(errors.New("rio: listen failed"), innerErr)
 		return
 	}
@@ -66,7 +74,9 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		if opt.UnixListenerUnlinkOnClose {
 			unixListener, ok := inner.(sockets.UnixListener)
 			if !ok {
-				_ = executors.Close()
+				if !hasExtraExecutors {
+					_ = executors.Close()
+				}
 				_ = inner.Close()
 				err = errors.Join(errors.New("rio: listen failed"), errors.New("unix listener is not a unix socket"))
 				return
@@ -81,7 +91,9 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	// conn promise
 	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](lnCTX, parallelAcceptors, 8)
 	if acceptorPromiseErr != nil {
-		_ = executors.Close()
+		if !hasExtraExecutors {
+			_ = executors.Close()
+		}
 		lnCancel()
 		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
 		return
@@ -96,6 +108,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		connectionsLimiter:            connectionsLimiter,
 		connectionsLimiterWaitTimeout: opt.MaxConnectionsLimiterWaitTimeout,
 		executors:                     executors,
+		ownedExecutors:                !hasExtraExecutors,
 		tlsConfig:                     opt.TLSConfig,
 		parallelAcceptors:             parallelAcceptors,
 		acceptorPromises:              acceptorPromises,
@@ -112,6 +125,7 @@ type listener struct {
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
 	executors                     rxp.Executors
+	ownedExecutors                bool
 	tlsConfig                     *tls.Config
 	parallelAcceptors             int
 	acceptorPromises              async.Promise[Connection]
@@ -134,12 +148,14 @@ func (ln *listener) Accept() (future async.Future[Connection]) {
 func (ln *listener) Close() (err error) {
 	ln.acceptorPromises.Cancel()
 	err = ln.inner.Close()
-	closeExecErr := ln.executors.CloseGracefully()
-	if closeExecErr != nil {
-		if err == nil {
-			err = closeExecErr
-		} else {
-			err = errors.Join(err, closeExecErr)
+	if ln.ownedExecutors {
+		closeExecErr := ln.executors.CloseGracefully()
+		if closeExecErr != nil {
+			if err == nil {
+				err = closeExecErr
+			} else {
+				err = errors.Join(err, closeExecErr)
+			}
 		}
 	}
 	ln.cancel()
