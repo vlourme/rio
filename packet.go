@@ -94,6 +94,12 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrBusy)
 		return
 	}
+
+	if conn.rto > 0 {
+		timeout := time.Now().Add(conn.rto)
+		promise.SetDeadline(timeout)
+	}
+
 	p := conn.rb.Allocate(conn.rbs)
 	conn.inner.ReadFrom(p, func(n int, addr net.Addr, err error) {
 		conn.rb.AllocatedWrote(n)
@@ -125,39 +131,27 @@ func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Fut
 		return
 	}
 
-	timeout := time.Now().Add(conn.wto)
-	promise.SetDeadline(timeout)
-
-	conn.writeTo(p, 0, addr, promise)
-
-	future = promise.Future()
-	return
-}
-
-func (conn *packetConnection) writeTo(p []byte, wrote int, addr net.Addr, promise async.Promise[transport.Outbound]) {
-	if err := conn.ctx.Err(); err != nil {
-		outbound := transport.NewOutBound(wrote, err)
-		promise.Succeed(outbound)
-		return
+	if conn.wto > 0 {
+		timeout := time.Now().Add(conn.wto)
+		promise.SetDeadline(timeout)
 	}
+
 	conn.inner.WriteTo(p, addr, func(n int, err error) {
 		if err != nil {
-			if wrote == 0 {
+			if n == 0 {
 				promise.Fail(err)
 			} else {
-				outbound := transport.NewOutBound(wrote, err)
+				outbound := transport.NewOutBound(n, err)
 				promise.Succeed(outbound)
 			}
 			return
 		}
-		if n == len(p) {
-			outbound := transport.NewOutBound(wrote+n, nil)
-			promise.Succeed(outbound)
-			return
-		}
-		conn.writeTo(p[n:], wrote+n, addr, promise)
+		outbound := transport.NewOutBound(n, nil)
+		promise.Succeed(outbound)
 		return
 	})
+
+	future = promise.Future()
 	return
 }
 
@@ -174,8 +168,12 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrBusy)
 		return
 	}
-	timeout := time.Now().Add(conn.rto)
-	promise.SetDeadline(timeout)
+
+	if conn.rto > 0 {
+		timeout := time.Now().Add(conn.rto)
+		promise.SetDeadline(timeout)
+	}
+
 	p := conn.rb.Allocate(conn.rbs)
 	oob := conn.oob.Allocate(conn.oobn)
 	conn.inner.ReadMsg(p, oob, func(n int, oobn int, flags int, addr net.Addr, err error) {
@@ -209,8 +207,10 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 		return
 	}
 
-	timeout := time.Now().Add(conn.wto)
-	promise.SetDeadline(timeout)
+	if conn.wto > 0 {
+		timeout := time.Now().Add(conn.wto)
+		promise.SetDeadline(timeout)
+	}
 
 	conn.inner.WriteMsg(p, oob, addr, func(n int, oobn int, err error) {
 		if err != nil {
