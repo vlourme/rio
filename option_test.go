@@ -11,9 +11,9 @@ import (
 func TestOptions_AsRxpOptions(t *testing.T) {
 	opts := make([]rio.Option, 0, 1)
 	opts = append(opts, rio.WithCloseTimeout(1*time.Second))
-	opts = append(opts, rio.MaxGoroutines(10))
-	opts = append(opts, rio.MaxReadyGoroutinesIdleDuration(2*time.Second))
-	opts = append(opts, rio.MinGOMAXPROCS(3))
+	opts = append(opts, rio.WithMaxGoroutines(10))
+	opts = append(opts, rio.WithMaxReadyGoroutinesIdleDuration(2*time.Second))
+	opts = append(opts, rio.WithMinGOMAXPROCS(3))
 
 	options := rio.Options{}
 	for _, opt := range opts {
