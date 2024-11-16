@@ -10,8 +10,6 @@ type UnixConnection interface {
 }
 
 func newUnixConnection(ctx context.Context, inner sockets.Connection) (conn UnixConnection) {
-	conn = &packetConnection{
-		connection: *newConnection(ctx, inner),
-	}
+	conn = newPacketConnection(ctx, inner.(sockets.PacketConnection))
 	return
 }
