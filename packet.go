@@ -6,10 +6,10 @@ import (
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
+	"time"
 )
 
 // ListenPacket
-// "udp", "udp4", "udp6", "unixgram", "ip"
 func ListenPacket(ctx context.Context, network string, addr string, options ...Option) (conn PacketConnection, err error) {
 	opts := Options{}
 	for _, o := range options {
@@ -22,6 +22,7 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 		MultipathTCP:            opts.MultipathTCP,
 		DialPacketConnLocalAddr: opts.DialPacketConnLocalAddr,
 	}
+
 	inner, innerErr := sockets.ListenPacket(network, addr, socketOpts)
 	if innerErr != nil {
 		err = innerErr
@@ -37,42 +38,172 @@ type PacketConnection interface {
 	ReadFrom() (future async.Future[transport.PacketInbound])
 	WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound])
 	SetReadMsgOOBBufferSize(size int)
-	ReadMsg() (future async.Future[transport.MsgInbound])
-	WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.MsgOutbound])
+	ReadMsg() (future async.Future[transport.PacketMsgInbound])
+	WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound])
 }
+
+const (
+	defaultOOBBufferSize = 1024
+)
 
 func newPacketConnection(ctx context.Context, inner sockets.PacketConnection) (conn PacketConnection) {
 	conn = &packetConnection{
 		connection: *newConnection(ctx, inner),
+		inner:      inner,
+		oob:        transport.NewInboundBuffer(),
+		oobn:       defaultOOBBufferSize,
 	}
 	return
 }
 
 type packetConnection struct {
 	connection
+	inner sockets.PacketConnection
+	oob   transport.InboundBuffer
+	oobn  int
 }
 
 func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
-	//TODO implement me
-	panic("implement me")
+	promise, ok := async.TryPromise[transport.PacketInbound](conn.ctx)
+	if !ok {
+		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrBusy)
+		return
+	}
+	timeout := time.Now().Add(conn.rto)
+	promise.SetDeadline(timeout)
+	p := conn.rb.Allocate(conn.rbs)
+	conn.inner.ReadFrom(p, func(n int, addr net.Addr, err error) {
+		conn.rb.AllocatedWrote(n)
+		if err != nil {
+			promise.Fail(err)
+			return
+		}
+		inbound := transport.NewPacketInbound(conn.rb, addr, n)
+		promise.Succeed(inbound)
+		return
+	})
+	future = promise.Future()
+	return
 }
 
 func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound]) {
-	//TODO implement me
-	panic("implement me")
+	if len(p) == 0 {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrEmptyPacket)
+		return
+	}
+	if addr == nil {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrNilAddr)
+		return
+	}
+
+	promise, ok := async.TryPromise[transport.Outbound](conn.ctx)
+	if !ok {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
+		return
+	}
+
+	timeout := time.Now().Add(conn.wto)
+	promise.SetDeadline(timeout)
+
+	conn.writeTo(p, 0, addr, promise)
+
+	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) writeTo(p []byte, wrote int, addr net.Addr, promise async.Promise[transport.Outbound]) {
+	if err := conn.ctx.Err(); err != nil {
+		outbound := transport.NewOutBound(wrote, err)
+		promise.Succeed(outbound)
+		return
+	}
+	conn.inner.WriteTo(p, addr, func(n int, err error) {
+		if err != nil {
+			if wrote == 0 {
+				promise.Fail(err)
+			} else {
+				outbound := transport.NewOutBound(wrote, err)
+				promise.Succeed(outbound)
+			}
+			return
+		}
+		if n == len(p) {
+			outbound := transport.NewOutBound(wrote+n, nil)
+			promise.Succeed(outbound)
+			return
+		}
+		conn.writeTo(p[n:], wrote+n, addr, promise)
+		return
+	})
+	return
 }
 
 func (conn *packetConnection) SetReadMsgOOBBufferSize(size int) {
-	//TODO implement me
-	panic("implement me")
+	if size < 1 {
+		return
+	}
+	conn.oobn = size
 }
 
-func (conn *packetConnection) ReadMsg() (future async.Future[transport.MsgInbound]) {
-	//TODO implement me
-	panic("implement me")
+func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsgInbound]) {
+	promise, ok := async.TryPromise[transport.PacketMsgInbound](conn.ctx)
+	if !ok {
+		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrBusy)
+		return
+	}
+	timeout := time.Now().Add(conn.rto)
+	promise.SetDeadline(timeout)
+	p := conn.rb.Allocate(conn.rbs)
+	oob := conn.oob.Allocate(conn.oobn)
+	conn.inner.ReadMsg(p, oob, func(n int, oobn int, flags int, addr net.Addr, err error) {
+		conn.rb.AllocatedWrote(n)
+		conn.oob.AllocatedWrote(oobn)
+		if err != nil {
+			promise.Fail(err)
+			return
+		}
+		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
+		promise.Succeed(inbound)
+		return
+	})
+	future = promise.Future()
+	return
 }
 
-func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.MsgOutbound]) {
-	//TODO implement me
-	panic("implement me")
+func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound]) {
+	if len(p) == 0 {
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrEmptyPacket)
+		return
+	}
+	if addr == nil {
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrNilAddr)
+		return
+	}
+
+	promise, ok := async.TryPromise[transport.PacketMsgOutbound](conn.ctx)
+	if !ok {
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrBusy)
+		return
+	}
+
+	timeout := time.Now().Add(conn.wto)
+	promise.SetDeadline(timeout)
+
+	conn.inner.WriteMsg(p, oob, addr, func(n int, oobn int, err error) {
+		if err != nil {
+			if n == 0 {
+				promise.Fail(err)
+			} else {
+				outbound := transport.NewPacketMsgOutbound(n, oobn, err)
+				promise.Succeed(outbound)
+			}
+			return
+		}
+		outbound := transport.NewPacketMsgOutbound(n, oobn, nil)
+		promise.Succeed(outbound)
+		return
+	})
+
+	future = promise.Future()
+	return
 }
