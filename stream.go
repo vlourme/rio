@@ -61,6 +61,18 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		err = errors.Join(errors.New("rio: listen failed"), innerErr)
 		return
 	}
+	// handle unix
+	if network == "unix" || network == "unixgram" || network == "unixpacket" {
+		if opt.UnixListenerUnlinkOnClose {
+			unixListener, ok := inner.(sockets.UnixListener)
+			if !ok {
+				_ = executors.Close()
+				err = errors.Join(errors.New("rio: listen failed"), errors.New("unix listener is not a unix socket"))
+				return
+			}
+			unixListener.SetUnlinkOnClose(opt.UnixListenerUnlinkOnClose)
+		}
+	}
 
 	// listen ctx
 	lnCTX, lnCancel := context.WithCancel(ctx)
@@ -112,7 +124,7 @@ func (ln *listener) Addr() (addr net.Addr) {
 
 func (ln *listener) Accept() (future async.Future[Connection]) {
 	for i := 0; i < ln.parallelAcceptors; i++ {
-		ln.acceptOne(0)
+		ln.acceptOne()
 	}
 	future = ln.acceptorPromises.Future()
 	return
@@ -137,25 +149,18 @@ func (ln *listener) ok() bool {
 	return ln.ctx.Err() == nil
 }
 
-const (
-	ms10 = 10 * time.Millisecond
-)
-
-func (ln *listener) acceptOne(limitedTimes int) {
+func (ln *listener) acceptOne() {
 	if !ln.ok() {
 		ln.acceptorPromises.Fail(ErrClosed)
 		return
 	}
-	if limitedTimes > 9 {
-		time.Sleep(ms10)
-		limitedTimes = 0
-	}
+
 	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
 	waitErr := ln.connectionsLimiter.Wait(ctx)
 	cancel()
 	if waitErr != nil {
-		limitedTimes++
-		ln.acceptOne(limitedTimes)
+		// not handle waitErr
+		// when ln ctx canceled, then ln is closed
 		return
 	}
 	ln.inner.Accept(func(sock sockets.Connection, err error) {
@@ -182,7 +187,7 @@ func (ln *listener) acceptOne(limitedTimes int) {
 			ln.acceptorPromises.Fail(ErrNetworkDisMatched)
 			break
 		}
-		ln.acceptOne(0)
+		ln.acceptOne()
 		return
 	})
 }
