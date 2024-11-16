@@ -25,7 +25,6 @@ type Connection interface {
 }
 
 const (
-	defaultRWTimeout      = 15 * time.Second
 	defaultReadBufferSize = 1024
 )
 
@@ -37,8 +36,8 @@ func newConnection(ctx context.Context, inner sockets.Connection) (conn *connect
 		inner:  inner,
 		rb:     transport.NewInboundBuffer(),
 		rbs:    defaultReadBufferSize,
-		rto:    defaultRWTimeout,
-		wto:    defaultRWTimeout,
+		rto:    0,
+		wto:    0,
 	}
 	return
 }
@@ -125,8 +124,12 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		future = async.FailedImmediately[transport.Inbound](conn.ctx, ErrBusy)
 		return
 	}
-	timeout := time.Now().Add(conn.rto)
-	promise.SetDeadline(timeout)
+
+	if conn.rto > 0 {
+		timeout := time.Now().Add(conn.rto)
+		promise.SetDeadline(timeout)
+	}
+
 	p := conn.rb.Allocate(conn.rbs)
 	conn.inner.Read(p, func(n int, err error) {
 		conn.rb.AllocatedWrote(n)
@@ -154,39 +157,27 @@ func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]
 		return
 	}
 
-	timeout := time.Now().Add(conn.wto)
-	promise.SetDeadline(timeout)
-
-	conn.write(p, 0, promise)
-
-	future = promise.Future()
-	return
-}
-
-func (conn *connection) write(p []byte, wrote int, promise async.Promise[transport.Outbound]) {
-	if err := conn.ctx.Err(); err != nil {
-		outbound := transport.NewOutBound(wrote, err)
-		promise.Succeed(outbound)
-		return
+	if conn.wto > 0 {
+		timeout := time.Now().Add(conn.wto)
+		promise.SetDeadline(timeout)
 	}
+
 	conn.inner.Write(p, func(n int, err error) {
 		if err != nil {
-			if wrote == 0 {
+			if n == 0 {
 				promise.Fail(err)
 			} else {
-				outbound := transport.NewOutBound(wrote, err)
+				outbound := transport.NewOutBound(n, err)
 				promise.Succeed(outbound)
 			}
 			return
 		}
-		if n == len(p) {
-			outbound := transport.NewOutBound(wrote+n, nil)
-			promise.Succeed(outbound)
-			return
-		}
-		conn.write(p[n:], wrote+n, promise)
+		outbound := transport.NewOutBound(n, err)
+		promise.Succeed(outbound)
 		return
 	})
+
+	future = promise.Future()
 	return
 }
 
