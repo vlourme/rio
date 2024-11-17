@@ -69,10 +69,20 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				promise.Succeed(newPacketConnection(ctx, packetInner))
 				break
 			case "unix", "unixgram", "unixpacket":
-				// todo
+				packetInner, ok := inner.(sockets.PacketConnection)
+				if !ok {
+					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
+					break
+				}
+				promise.Succeed(newUnixConnection(ctx, packetInner))
 				break
 			case "ip", "ip4", "ip6":
-				// todo
+				packetInner, ok := inner.(sockets.PacketConnection)
+				if !ok {
+					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
+					break
+				}
+				promise.Succeed(newIPConnection(ctx, packetInner))
 				break
 			}
 			return
