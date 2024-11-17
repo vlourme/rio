@@ -209,3 +209,15 @@ func WithDefaultStreamWriteTimeout(d time.Duration) Option {
 		return
 	}
 }
+
+type CompletionInitOptions struct {
+	sockets.CompletionOptions
+}
+
+// InitCompletion
+// 初始化完成器的选项。
+//
+// 注意：这必须在程序最开始就完成初始化，且完成后固化，无法再修改。
+func InitCompletion(option CompletionInitOptions) {
+	sockets.SetInitCompletionOptions(option.CompletionOptions)
+}

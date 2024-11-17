@@ -282,7 +282,7 @@ func connect(network string, family int, addr net.Addr, ipv6only bool, proto int
 		return
 	}
 	// CreateIoCompletionPort
-	cphandle, createErr := windows.CreateIoCompletionPort(conn.fd, iocp, key, 0)
+	cphandle, createErr := createSubIoCompletionPort(conn.fd)
 	if createErr != nil {
 		_ = conn.Close()
 		handler(nil, wrapSyscallError("createIoCompletionPort", createErr))
