@@ -15,7 +15,7 @@ func ListenPacket(network string, address string, _ Options) (conn PacketConnect
 	case "unixgram":
 		sotype = windows.SOCK_DGRAM
 		break
-	case "ip":
+	case "ip", "ip4", "ip6":
 		sotype = windows.SOCK_RAW
 		break
 	default:
