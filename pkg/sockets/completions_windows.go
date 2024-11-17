@@ -54,6 +54,7 @@ func (com *completions) poll() {
 				}
 				op := (*operation)(unsafe.Pointer(overlapped))
 				op.complete(int(qty), getQueuedCompletionStatusErr)
+				runtime.KeepAlive(op.conn)
 			}
 			threads.Done()
 		}()

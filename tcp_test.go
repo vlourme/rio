@@ -66,7 +66,7 @@ func wgAdd(ctx context.Context) {
 	wg.Add(1)
 }
 
-func wgDown(ctx context.Context) {
+func wgDone(ctx context.Context) {
 	wg := ctx.Value("wg").(*sync.WaitGroup)
 	wg.Done()
 }
@@ -123,14 +123,14 @@ func TestTCP(t *testing.T) {
 	wgAdd(ctx)
 	//
 	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
-		defer wgDown(ctx)
+		defer wgDone(ctx)
 		if err != nil {
 			t.Error("cli dial:", err)
 			return
 		}
 		wgAdd(ctx)
 		conn.Write([]byte("hello word")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
-			defer wgDown(ctx)
+			defer wgDone(ctx)
 			if err != nil {
 				t.Error("cli write:", err)
 				return
@@ -138,7 +138,7 @@ func TestTCP(t *testing.T) {
 			t.Log("cli write:", out.Wrote())
 			wgAdd(ctx)
 			conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
-				defer wgDown(ctx)
+				defer wgDone(ctx)
 				if err != nil {
 					t.Error("cli read:", err)
 					return

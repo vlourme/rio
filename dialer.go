@@ -33,9 +33,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			createDefaultExecutorsOnce.Do(func() {
 				defaultExecutors = rxp.New()
 				runtime.KeepAlive(defaultExecutors)
-				runtime.SetFinalizer(&defaultExecutors, func() {
-					_ = defaultExecutors.CloseGracefully()
-				})
+				runtime.SetFinalizer(defaultExecutors, rxp.Executors.Close)
 			})
 			ctx = rxp.With(ctx, defaultExecutors)
 		}
@@ -46,6 +44,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		future = async.FailedImmediately[Connection](ctx, ErrBusy)
 		return
 	}
+	future = promise.Future()
 
 	executed := rxp.TryExecute(ctx, func() {
 		socketOpts := sockets.Options{
@@ -79,8 +78,6 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			return
 		})
 	})
-
-	future = promise.Future()
 
 	if !executed {
 		promise.Fail(ErrBusy)

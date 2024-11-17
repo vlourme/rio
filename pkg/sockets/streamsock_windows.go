@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"unsafe"
 )
@@ -59,6 +60,7 @@ func newListener(network string, family int, addr net.Addr, ipv6only bool, proto
 		net:      network,
 		addr:     addr,
 	}
+	runtime.SetFinalizer(ln, (*listener).Close)
 	return
 }
 
@@ -82,6 +84,27 @@ func (ln *listener) Addr() (addr net.Addr) {
 
 func (ln *listener) SetUnlinkOnClose(unlink bool) {
 	ln.unlink = unlink
+}
+
+func (ln *listener) Close() (err error) {
+	runtime.SetFinalizer(ln, nil)
+	// check unix
+	if ln.family == windows.AF_UNIX && ln.unlink {
+		ln.unlinkOnce.Do(func() {
+			unixAddr, isUnix := ln.addr.(*net.UnixAddr)
+			if isUnix {
+				if path := unixAddr.String(); path[0] != '@' {
+					_ = windows.Unlink(path)
+				}
+			}
+		})
+	}
+	// close socket
+	closeSockErr := windows.Closesocket(ln.fd)
+	if closeSockErr != nil {
+		err = wrapSyscallError("closesocket", closeSockErr)
+	}
+	return
 }
 
 func (ln *listener) Accept(handler AcceptHandler) {
@@ -111,36 +134,17 @@ func (ln *listener) Accept(handler AcceptHandler) {
 		&conn.rop.qty, overlapped,
 	)
 	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
-		_ = windows.Closesocket(conn.fd)
+		_ = conn.Close()
 		handler(nil, wrapSyscallError("AcceptEx", acceptErr))
 		conn.rop.acceptHandler = nil
 	}
-}
-
-func (ln *listener) Close() (err error) {
-	// check unix
-	if ln.family == windows.AF_UNIX && ln.unlink {
-		ln.unlinkOnce.Do(func() {
-			unixAddr, isUnix := ln.addr.(*net.UnixAddr)
-			if isUnix {
-				if path := unixAddr.String(); path[0] != '@' {
-					_ = windows.Unlink(path)
-				}
-			}
-		})
-	}
-	// close socket
-	closeSockErr := windows.Closesocket(ln.fd)
-	if closeSockErr != nil {
-		err = wrapSyscallError("closesocket", closeSockErr)
-	}
-	return
 }
 
 func (op *operation) completeAccept(_ int, err error) {
 	if err != nil {
 		op.acceptHandler(nil, os.NewSyscallError("AcceptEx", err))
 		op.acceptHandler = nil
+		_ = op.conn.Close()
 		return
 	}
 	conn := op.conn
@@ -154,6 +158,7 @@ func (op *operation) completeAccept(_ int, err error) {
 	if setAcceptSocketOptErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
 		op.acceptHandler = nil
+		_ = op.conn.Close()
 		return
 	}
 	// get addr
@@ -161,6 +166,7 @@ func (op *operation) completeAccept(_ int, err error) {
 	if lsaErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("getsockname", lsaErr))
 		op.acceptHandler = nil
+		_ = op.conn.Close()
 		return
 	}
 	la := sockaddrToAddr(conn.net, lsa)
@@ -169,6 +175,7 @@ func (op *operation) completeAccept(_ int, err error) {
 	if rsaErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("getsockname", rsaErr))
 		op.acceptHandler = nil
+		_ = op.conn.Close()
 		return
 	}
 	ra := sockaddrToAddr(conn.net, rsa)
@@ -178,9 +185,12 @@ func (op *operation) completeAccept(_ int, err error) {
 	if createErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
 		op.acceptHandler = nil
+		_ = op.conn.Close()
 		return
 	}
 	conn.cphandle = cphandle
+	// connected
+	conn.connected.Store(true)
 	// callback
 	op.acceptHandler(conn, nil)
 	op.acceptHandler = nil

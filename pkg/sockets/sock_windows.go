@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
+	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -50,7 +52,8 @@ func newConnection(network string, family int, sotype int, protocol int, ipv6onl
 		return
 	}
 	// conn
-	conn = &connection{net: network, fd: fd, family: family, sotype: sotype, ipv6only: ipv6only}
+	conn = &connection{net: network, fd: fd, family: family, sotype: sotype, ipv6only: ipv6only, connected: atomic.Bool{}}
+	runtime.SetFinalizer(conn, (*connection).Close)
 	conn.rop.conn = conn
 	conn.wop.conn = conn
 	conn.zeroReadIsEOF = sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW
@@ -67,8 +70,13 @@ type connection struct {
 	net           string
 	localAddr     net.Addr
 	remoteAddr    net.Addr
+	connected     atomic.Bool
 	rop           operation
 	wop           operation
+}
+
+func (conn *connection) ok() bool {
+	return conn != nil && conn.connected.Load()
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {
@@ -120,8 +128,11 @@ func (conn *connection) SetWriteDeadline(_ time.Time) (err error) {
 }
 
 func (conn *connection) Close() (err error) {
+	runtime.SetFinalizer(conn, nil)
 	_ = windows.Shutdown(conn.fd, 2)
 	err = windows.Closesocket(conn.fd)
+	runtime.KeepAlive(conn)
+	conn.fd = 0
 	if err != nil {
 		err = &net.OpError{
 			Op:     "close",
@@ -158,6 +169,10 @@ func (conn *connection) SetKeepAlivePeriod(period time.Duration) (err error) {
 }
 
 func (conn *connection) Read(p []byte, handler ReadHandler) {
+	if !conn.ok() {
+		handler(0, wrapSyscallError("WSARecv", syscall.EINVAL))
+		return
+	}
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, ErrEmptyPacket)
@@ -198,6 +213,10 @@ func (op *operation) completeRead(qty int, err error) {
 }
 
 func (conn *connection) Write(p []byte, handler WriteHandler) {
+	if !conn.ok() {
+		handler(0, wrapSyscallError("WSASend", syscall.EINVAL))
+		return
+	}
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, ErrEmptyPacket)
@@ -258,14 +277,14 @@ func connect(network string, family int, addr net.Addr, ipv6only bool, proto int
 	// bind
 	bindErr := windows.Bind(conn.fd, lsa)
 	if bindErr != nil {
-		_ = windows.Closesocket(conn.fd)
+		_ = conn.Close()
 		handler(nil, os.NewSyscallError("bind", bindErr))
 		return
 	}
 	// CreateIoCompletionPort
 	cphandle, createErr := windows.CreateIoCompletionPort(conn.fd, iocp, key, 0)
 	if createErr != nil {
-		_ = windows.Closesocket(conn.fd)
+		_ = conn.Close()
 		handler(nil, wrapSyscallError("createIoCompletionPort", createErr))
 		conn.rop.dialHandler = nil
 		return
@@ -278,7 +297,7 @@ func connect(network string, family int, addr net.Addr, ipv6only bool, proto int
 	// dial
 	connectErr := windows.ConnectEx(conn.fd, rsa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, windows.ERROR_IO_PENDING) {
-		_ = windows.Closesocket(conn.fd)
+		_ = conn.Close()
 		handler(nil, wrapSyscallError("ConnectEx", connectErr))
 		conn.rop.dialHandler = nil
 		return
@@ -321,6 +340,8 @@ func (op *operation) completeDial(_ int, err error) {
 	}
 	ra := sockaddrToAddr(conn.net, rsa)
 	conn.remoteAddr = ra
+	// connected
+	conn.connected.Store(true)
 	// callback
 	op.dialHandler(conn, nil)
 	op.dialHandler = nil

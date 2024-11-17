@@ -4,6 +4,7 @@ import (
 	"errors"
 	"golang.org/x/sys/windows"
 	"net"
+	"runtime"
 	"time"
 )
 
@@ -147,6 +148,7 @@ func Dial(network string, address string, opt Options, handler DialHandler) {
 			return
 		}
 		handler(conn, nil)
+		runtime.KeepAlive(conn)
 		break
 	case "ip", "ip4", "ip6":
 		laddr := opt.DialPacketConnLocalAddr
@@ -168,6 +170,7 @@ func Dial(network string, address string, opt Options, handler DialHandler) {
 			return
 		}
 		handler(conn, nil)
+		runtime.KeepAlive(conn)
 		break
 	default:
 		handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: raddr, Err: errors.New("invalid network")})

@@ -23,7 +23,7 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 		bindErr := windows.Bind(conn.fd, lsa)
 		if bindErr != nil {
 			err = bindErr
-			_ = windows.Closesocket(conn.fd)
+			_ = conn.Close()
 			return
 		}
 		conn.localAddr = laddr
@@ -33,7 +33,7 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 		connectErr := windows.Connect(conn.fd, rsa)
 		if connectErr != nil {
 			err = wrapSyscallError("connect", connectErr)
-			_ = windows.Closesocket(conn.fd)
+			_ = conn.Close()
 			return
 		}
 		conn.remoteAddr = raddr
@@ -44,18 +44,23 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 	// CreateIoCompletionPort
 	cphandle, createErr := createSubIoCompletionPort(conn.fd)
 	if createErr != nil {
-		_ = windows.Closesocket(conn.fd)
+		_ = conn.Close()
 		err = createErr
 		return
 	}
 	conn.cphandle = cphandle
-
+	// connected
+	conn.connected.Store(true)
 	// as packet conn
 	pc = conn
 	return
 }
 
 func (conn *connection) ReadFrom(p []byte, handler ReadFromHandler) {
+	if !conn.ok() {
+		handler(0, nil, wrapSyscallError("WSARecvFrom", syscall.EINVAL))
+		return
+	}
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, nil, ErrEmptyPacket)
@@ -108,6 +113,10 @@ func (op *operation) completeReadFrom(qty int, err error) {
 }
 
 func (conn *connection) WriteTo(p []byte, addr net.Addr, handler WriteHandler) {
+	if !conn.ok() {
+		handler(0, wrapSyscallError("WSASend", syscall.EINVAL))
+		return
+	}
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, ErrEmptyPacket)
@@ -150,6 +159,10 @@ func (op *operation) completeWriteTo(qty int, err error) {
 }
 
 func (conn *connection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
+	if !conn.ok() {
+		handler(0, 0, 0, nil, wrapSyscallError("WSARecvMsg", syscall.EINVAL))
+		return
+	}
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, 0, 0, nil, ErrEmptyPacket)
@@ -216,6 +229,10 @@ func (op *operation) completeReadMsg(qty int, err error) {
 }
 
 func (conn *connection) WriteMsg(p []byte, oob []byte, addr net.Addr, handler WriteMsgHandler) {
+	if !conn.ok() {
+		handler(0, 0, wrapSyscallError("WSASendMsg", syscall.EINVAL))
+		return
+	}
 	pLen := len(p)
 	if pLen == 0 {
 		handler(0, 0, ErrEmptyPacket)

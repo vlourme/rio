@@ -4,7 +4,7 @@ import "runtime"
 
 func init() {
 	com = new(completions)
+	runtime.SetFinalizer(com, (*completions).shutdown)
 	com.poll()
 	runtime.KeepAlive(com)
-	runtime.SetFinalizer(com, com.shutdown)
 }
