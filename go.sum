@@ -1,6 +1,4 @@
-github.com/brickingsoft/rxp v1.2.1 h1:hGb6fzrKDqFmEyjdwUdZLgkGGHB6eoCiJ9KdlLzivME=
-github.com/brickingsoft/rxp v1.2.1/go.mod h1:HYh1V8mVmyHEcCuW2AbVUH1AGTQKwXYwNFaBqq21BUI=
-github.com/brickingsoft/rxp v1.3.0 h1:iQdQLaIPQhaTT45fgxpCppN/0WwtX63digWnQ8pkPZg=
-github.com/brickingsoft/rxp v1.3.0/go.mod h1:HYh1V8mVmyHEcCuW2AbVUH1AGTQKwXYwNFaBqq21BUI=
+github.com/brickingsoft/rxp v1.3.2 h1:GY2QAnouHXsKmlccZ30mrHWtO1kSNIT9vtket4s7i8Q=
+github.com/brickingsoft/rxp v1.3.2/go.mod h1:HYh1V8mVmyHEcCuW2AbVUH1AGTQKwXYwNFaBqq21BUI=
 golang.org/x/sys v0.27.0 h1:wBqf8DvsY9Y/2P8gAfPDEYNuS30J4lPHJxXSb/nJZ+s=
 golang.org/x/sys v0.27.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
