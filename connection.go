@@ -181,6 +181,9 @@ func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]
 func (conn *connection) Close() (future async.Future[async.Void]) {
 	promise, promiseErr := async.MustPromise[async.Void](conn.ctx)
 	if promiseErr != nil {
+		conn.inner.Close(func(err error) {})
+		conn.rb.Close()
+		timeslimiter.TryRevert(conn.ctx)
 		future = async.FailedImmediately[async.Void](conn.ctx, promiseErr)
 		return
 	}
