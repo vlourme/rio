@@ -20,7 +20,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 	_, exist := rxp.TryFrom(ctx)
 	if !exist {
-		ctx = rxp.With(ctx, Executors())
+		ctx = rxp.With(ctx, getExecutors())
 	}
 
 	promise, promiseOk := async.TryPromise[Connection](ctx)
