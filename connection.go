@@ -21,7 +21,7 @@ type Connection interface {
 	SetReadBufferSize(size int)
 	Read() (future async.Future[transport.Inbound])
 	Write(p []byte) (future async.Future[transport.Outbound])
-	Close() (err error)
+	Close() (future async.Future[async.Void])
 }
 
 const (
@@ -29,27 +29,24 @@ const (
 )
 
 func newConnection(ctx context.Context, inner sockets.Connection) (conn *connection) {
-	connCtx, cancel := context.WithCancel(ctx)
 	conn = &connection{
-		ctx:    connCtx,
-		cancel: cancel,
-		inner:  inner,
-		rb:     transport.NewInboundBuffer(),
-		rbs:    defaultReadBufferSize,
-		rto:    0,
-		wto:    0,
+		ctx:   ctx,
+		inner: inner,
+		rb:    transport.NewInboundBuffer(),
+		rbs:   defaultReadBufferSize,
+		rto:   0,
+		wto:   0,
 	}
 	return
 }
 
 type connection struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	inner  sockets.Connection
-	rb     transport.InboundBuffer
-	rbs    int
-	rto    time.Duration
-	wto    time.Duration
+	ctx   context.Context
+	inner sockets.Connection
+	rb    transport.InboundBuffer
+	rbs   int
+	rto   time.Duration
+	wto   time.Duration
 }
 
 func (conn *connection) Context() (ctx context.Context) {
@@ -181,10 +178,21 @@ func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]
 	return
 }
 
-func (conn *connection) Close() (err error) {
-	conn.cancel()
-	err = conn.inner.Close()
-	conn.rb.Close()
-	timeslimiter.TryRevert(conn.ctx)
+func (conn *connection) Close() (future async.Future[async.Void]) {
+	promise, promiseErr := async.MustPromise[async.Void](conn.ctx)
+	if promiseErr != nil {
+		future = async.FailedImmediately[async.Void](conn.ctx, promiseErr)
+		return
+	}
+	conn.inner.Close(func(err error) {
+		if err != nil {
+			promise.Fail(err)
+		} else {
+			promise.Succeed(async.Void{})
+		}
+		conn.rb.Close()
+		timeslimiter.TryRevert(conn.ctx)
+	})
+	future = promise.Future()
 	return
 }

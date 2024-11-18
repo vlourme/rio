@@ -14,6 +14,7 @@ var (
 
 type ReadHandler func(n int, err error)
 type WriteHandler func(n int, err error)
+type CloseHandler func(err error)
 
 type Connection interface {
 	LocalAddr() (addr net.Addr)
@@ -23,7 +24,7 @@ type Connection interface {
 	SetWriteDeadline(deadline time.Time) (err error)
 	Read(p []byte, handler ReadHandler)
 	Write(p []byte, handler WriteHandler)
-	Close() (err error)
+	Close(handler CloseHandler)
 }
 
 // *********************************************************************************************************************
@@ -43,7 +44,7 @@ type AcceptHandler func(conn Connection, err error)
 type Listener interface {
 	Addr() (addr net.Addr)
 	Accept(handler AcceptHandler)
-	Close() (err error)
+	Close(handler CloseHandler)
 }
 
 type UnixListener interface {

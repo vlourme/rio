@@ -41,7 +41,7 @@ func (conn *Connection) Write(p []byte, handler sockets.WriteHandler) {
 	panic("implement me")
 }
 
-func (conn *Connection) Close() (err error) {
+func (conn *Connection) Close(handler sockets.CloseHandler) {
 	//TODO implement me
 	panic("implement me")
 }

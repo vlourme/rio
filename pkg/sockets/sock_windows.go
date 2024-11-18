@@ -53,7 +53,7 @@ func newConnection(network string, family int, sotype int, protocol int, ipv6onl
 	}
 	// conn
 	conn = &connection{net: network, fd: fd, family: family, sotype: sotype, ipv6only: ipv6only, connected: atomic.Bool{}}
-	runtime.SetFinalizer(conn, (*connection).Close)
+	runtime.SetFinalizer(conn, (*connection).Closesocket)
 	conn.rop.conn = conn
 	conn.wop.conn = conn
 	conn.zeroReadIsEOF = sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW
@@ -127,7 +127,15 @@ func (conn *connection) SetWriteDeadline(_ time.Time) (err error) {
 	return
 }
 
-func (conn *connection) Close() (err error) {
+func (conn *connection) Close(handler CloseHandler) {
+	err := conn.Closesocket()
+	if handler != nil {
+		handler(err)
+	}
+	return
+}
+
+func (conn *connection) Closesocket() (err error) {
 	runtime.SetFinalizer(conn, nil)
 	_ = windows.Shutdown(conn.fd, 2)
 	err = windows.Closesocket(conn.fd)
@@ -277,14 +285,14 @@ func connect(network string, family int, addr net.Addr, ipv6only bool, proto int
 	// bind
 	bindErr := windows.Bind(conn.fd, lsa)
 	if bindErr != nil {
-		_ = conn.Close()
+		_ = conn.Closesocket()
 		handler(nil, os.NewSyscallError("bind", bindErr))
 		return
 	}
 	// CreateIoCompletionPort
 	cphandle, createErr := createSubIoCompletionPort(conn.fd)
 	if createErr != nil {
-		_ = conn.Close()
+		_ = conn.Closesocket()
 		handler(nil, wrapSyscallError("createIoCompletionPort", createErr))
 		conn.rop.dialHandler = nil
 		return
@@ -297,7 +305,7 @@ func connect(network string, family int, addr net.Addr, ipv6only bool, proto int
 	// dial
 	connectErr := windows.ConnectEx(conn.fd, rsa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, windows.ERROR_IO_PENDING) {
-		_ = conn.Close()
+		_ = conn.Closesocket()
 		handler(nil, wrapSyscallError("ConnectEx", connectErr))
 		conn.rop.dialHandler = nil
 		return

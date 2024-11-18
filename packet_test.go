@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp/async"
 	"testing"
 )
 
@@ -16,7 +17,13 @@ func TestListenPacket(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	defer srv.Close()
+	defer func() {
+		srv.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+			if cause != nil {
+				t.Error(cause)
+			}
+		})
+	}()
 
 	wgAdd(ctx)
 	srv.ReadFrom().OnComplete(func(ctx context.Context, entry transport.PacketInbound, cause error) {
@@ -61,6 +68,11 @@ func TestListenPacket(t *testing.T) {
 					return
 				}
 				t.Log("cli read:", string(entry.Reader().Peek(entry.Received())))
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					if cause != nil {
+						t.Error("cli close:", cause)
+					}
+				})
 			})
 		})
 	})

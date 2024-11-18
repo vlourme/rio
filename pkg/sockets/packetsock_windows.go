@@ -23,7 +23,7 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 		bindErr := windows.Bind(conn.fd, lsa)
 		if bindErr != nil {
 			err = bindErr
-			_ = conn.Close()
+			_ = conn.Closesocket()
 			return
 		}
 		conn.localAddr = laddr
@@ -33,7 +33,7 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 		connectErr := windows.Connect(conn.fd, rsa)
 		if connectErr != nil {
 			err = wrapSyscallError("connect", connectErr)
-			_ = conn.Close()
+			_ = conn.Closesocket()
 			return
 		}
 		conn.remoteAddr = raddr
@@ -44,7 +44,7 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 	// CreateIoCompletionPort
 	cphandle, createErr := createSubIoCompletionPort(conn.fd)
 	if createErr != nil {
-		_ = conn.Close()
+		_ = conn.Closesocket()
 		err = createErr
 		return
 	}

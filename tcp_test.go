@@ -5,6 +5,7 @@ import (
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp/async"
 	"net"
 	"sync"
 	"testing"
@@ -33,10 +34,11 @@ func TestListenTCP(t *testing.T) {
 		}
 		t.Log("accepted:", timeslimiter.Tokens(ctx), addr, err, ctx.Err())
 		if conn != nil {
-			err = conn.Close()
-			if err != nil {
-				t.Error("srv close conn err:", err)
-			}
+			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+				if cause != nil {
+					t.Error("srv close conn err:", cause)
+				}
+			})
 		}
 	})
 	for i := 0; i < 10; i++ {
@@ -51,10 +53,11 @@ func TestListenTCP(t *testing.T) {
 			t.Error("cli close conn err:", err)
 		}
 	}
-	closeErr := ln.Close()
-	if closeErr != nil {
-		t.Error(closeErr)
-	}
+	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+		if cause != nil {
+			t.Error("ln close close err:", cause)
+		}
+	})
 }
 
 func withWG(ctx context.Context) context.Context {
@@ -84,7 +87,13 @@ func TestTCP(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	defer ln.Close()
+	defer func() {
+		ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+			if cause != nil {
+				t.Error("ln close err:", cause)
+			}
+		})
+	}()
 
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
@@ -111,10 +120,11 @@ func TestTCP(t *testing.T) {
 					return
 				}
 				t.Log("srv write:", out.Wrote())
-				closeErr := conn.Close()
-				if closeErr != nil {
-					t.Error("srv close:", closeErr)
-				}
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					if cause != nil {
+						t.Error("srv close:", cause)
+					}
+				})
 			})
 		})
 	})
