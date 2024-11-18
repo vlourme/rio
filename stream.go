@@ -17,6 +17,11 @@ import (
 
 type Listener interface {
 	Addr() (addr net.Addr)
+	// Accept
+	// 准备接收一个链接
+	//
+	// 接收器是一个流，无需多次调用，当关闭时会返回一个 context.Canceled 错误。
+	// 注意：当具备并行接收时，未来的 handler 是线程不安全的。
 	Accept() (future async.Future[Connection])
 	Close() (future async.Future[async.Void])
 }
