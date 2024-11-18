@@ -22,7 +22,7 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 	}
 
 	// executors
-	ctx = rxp.With(ctx, Executors())
+	ctx = rxp.With(ctx, getExecutors())
 	// inner
 	inner, innerErr := sockets.ListenPacket(network, addr, sockets.Options{})
 	if innerErr != nil {
