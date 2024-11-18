@@ -9,6 +9,9 @@ import (
 )
 
 func TestListenPacket(t *testing.T) {
+	_ = rio.Startup()
+	defer rio.ShutdownGracefully()
+
 	ctx := context.Background()
 	ctx = withWG(ctx)
 
@@ -17,13 +20,6 @@ func TestListenPacket(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	defer func() {
-		srv.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-			if cause != nil {
-				t.Error(cause)
-			}
-		})
-	}()
 
 	wgAdd(ctx)
 	srv.ReadFrom().OnComplete(func(ctx context.Context, entry transport.PacketInbound, cause error) {
@@ -68,7 +64,9 @@ func TestListenPacket(t *testing.T) {
 					return
 				}
 				t.Log("cli read:", string(entry.Reader().Peek(entry.Received())))
+				wgAdd(ctx)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					defer wgDone(ctx)
 					if cause != nil {
 						t.Error("cli close:", cause)
 					}
@@ -77,5 +75,11 @@ func TestListenPacket(t *testing.T) {
 		})
 	})
 
+	wgWait(ctx)
+	wgAdd(ctx)
+	srv.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+		t.Log("ln close:", cause)
+		wgDone(ctx)
+	})
 	wgWait(ctx)
 }

@@ -13,6 +13,8 @@ import (
 
 func TestListenTCP(t *testing.T) {
 	ctx := context.Background()
+	ctx = withWG(ctx)
+
 	ln, lnErr := rio.Listen(
 		ctx,
 		"tcp", "127.0.0.1:9000",
@@ -23,24 +25,31 @@ func TestListenTCP(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
+
+	wgAdd(ctx)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			t.Log("accepted:", timeslimiter.Tokens(ctx), err, ctx.Err())
+			t.Log("accepted:", timeslimiter.Tokens(ctx), rio.IsClosed(err), err, ctx.Err())
+			wgDone(ctx)
 			return
 		}
+
 		var addr net.Addr
 		if conn != nil {
 			addr = conn.RemoteAddr()
 		}
 		t.Log("accepted:", timeslimiter.Tokens(ctx), addr, err, ctx.Err())
+		wgAdd(ctx)
 		if conn != nil {
 			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 				if cause != nil {
 					t.Error("srv close conn err:", cause)
 				}
+				wgDone(ctx)
 			})
 		}
 	})
+
 	for i := 0; i < 10; i++ {
 		conn, dialErr := net.Dial("tcp", ":9000")
 		if dialErr != nil {
@@ -53,11 +62,15 @@ func TestListenTCP(t *testing.T) {
 			t.Error("cli close conn err:", err)
 		}
 	}
+
+	wgAdd(ctx)
 	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		if cause != nil {
 			t.Error("ln close close err:", cause)
 		}
+		wgDone(ctx)
 	})
+	wgWait(ctx)
 }
 
 func withWG(ctx context.Context) context.Context {
@@ -86,7 +99,7 @@ func TestTCP(t *testing.T) {
 	ctx := context.Background()
 	ctx = withWG(ctx)
 
-	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(1))
+	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(10))
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
@@ -103,6 +116,7 @@ func TestTCP(t *testing.T) {
 			return
 		}
 		wgDone(ctx)
+
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
 		wgAdd(ctx)
