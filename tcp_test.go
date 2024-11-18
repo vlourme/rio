@@ -144,6 +144,7 @@ func TestTCP(t *testing.T) {
 					return
 				}
 				t.Log("cli read:", in.Received(), string(in.Reader().Peek(in.Received())))
+				conn.Close()
 			})
 		})
 	})
