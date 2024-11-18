@@ -70,11 +70,11 @@ func (com *Completions) run() {
 				// handle iocp errors
 				if getQueuedCompletionStatusErr != nil {
 					if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_TIMEOUT) {
-						getQueuedCompletionStatusErr = errors.Join(ErrCompleteFailed, getQueuedCompletionStatusErr)
+						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
 					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_OPERATION_ABORTED) {
-						getQueuedCompletionStatusErr = errors.Join(ErrCompleteFailed, getQueuedCompletionStatusErr)
+						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
 					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_IO_INCOMPLETE) {
-						getQueuedCompletionStatusErr = errors.Join(ErrCompleteFailed, getQueuedCompletionStatusErr)
+						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
 					}
 				}
 				// convert to op

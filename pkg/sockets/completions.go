@@ -7,11 +7,11 @@ import (
 )
 
 var (
-	ErrCompleteFailed = errors.New("sockets: complete failed")
+	ErrUnexpectedCompletion = errors.New("sockets: unexpected completion error")
 )
 
-func IsCompleteFailed(err error) bool {
-	return errors.Is(err, ErrCompleteFailed)
+func IsUnexpectedCompletionError(err error) bool {
+	return errors.Is(err, ErrUnexpectedCompletion)
 }
 
 var (
