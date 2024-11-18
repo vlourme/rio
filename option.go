@@ -3,8 +3,6 @@ package rio
 import (
 	"crypto/tls"
 	"github.com/brickingsoft/rio/pkg/sockets"
-	"github.com/brickingsoft/rxp"
-	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"net"
 	"runtime"
 	"time"
@@ -16,8 +14,6 @@ const (
 )
 
 type Options struct {
-	ExecutorsOptions                 rxp.Options
-	ExtraExecutors                   rxp.Executors
 	ParallelAcceptors                int
 	MaxConnections                   int64
 	MaxConnectionsLimiterWaitTimeout time.Duration
@@ -29,39 +25,7 @@ type Options struct {
 	DefaultStreamWriteTimeout        time.Duration
 }
 
-func (options *Options) AsRxpOptions() []rxp.Option {
-	opts := make([]rxp.Option, 0, 1)
-	if n := options.ExecutorsOptions.MaxprocsOptions.MinGOMAXPROCS; n > 0 {
-		opts = append(opts, rxp.MinGOMAXPROCS(n))
-	}
-	if fn := options.ExecutorsOptions.MaxprocsOptions.Procs; fn != nil {
-		opts = append(opts, rxp.Procs(fn))
-	}
-	if fn := options.ExecutorsOptions.MaxprocsOptions.RoundQuotaFunc; fn != nil {
-		opts = append(opts, rxp.RoundQuotaFunc(fn))
-	}
-	if n := options.ExecutorsOptions.MaxGoroutines; n > 0 {
-		opts = append(opts, rxp.MaxGoroutines(n))
-	}
-	if n := options.ExecutorsOptions.MaxReadyGoroutinesIdleDuration; n > 0 {
-		opts = append(opts, rxp.MaxReadyGoroutinesIdleDuration(n))
-	}
-	if n := options.ExecutorsOptions.CloseTimeout; n > 0 {
-		opts = append(opts, rxp.WithCloseTimeout(n))
-	}
-	return opts
-}
-
 type Option func(options *Options) (err error)
-
-// WithExtraExecutors
-// 设置外部 rxp.Executors
-func WithExtraExecutors(executor rxp.Executors) Option {
-	return func(options *Options) (err error) {
-		options.ExtraExecutors = executor
-		return
-	}
-}
 
 // WithParallelAcceptors
 // 设置并行链接接受器数量。
@@ -128,54 +92,6 @@ func WithDialPacketConnLocalAddr(network string, addr string) Option {
 	return func(options *Options) (err error) {
 		options.DialPacketConnLocalAddr, _, _, err = sockets.GetAddrAndFamily(network, addr)
 		return
-	}
-}
-
-// WithMinGOMAXPROCS
-// 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。
-func WithMinGOMAXPROCS(n int) Option {
-	return func(options *Options) error {
-		return rxp.MinGOMAXPROCS(n)(&options.ExecutorsOptions)
-	}
-}
-
-// WithProcsFunc
-// 设置最大 GOMAXPROCS 构建函数。
-func WithProcsFunc(fn maxprocs.ProcsFunc) Option {
-	return func(options *Options) error {
-		return rxp.Procs(fn)(&options.ExecutorsOptions)
-	}
-}
-
-// WithRoundQuotaFunc
-// 设置整数配额函数
-func WithRoundQuotaFunc(fn maxprocs.RoundQuotaFunc) Option {
-	return func(options *Options) error {
-		return rxp.RoundQuotaFunc(fn)(&options.ExecutorsOptions)
-	}
-}
-
-// WithMaxGoroutines
-// 设置最大协程数
-func WithMaxGoroutines(n int) Option {
-	return func(options *Options) error {
-		return rxp.MaxGoroutines(n)(&options.ExecutorsOptions)
-	}
-}
-
-// WithMaxReadyGoroutinesIdleDuration
-// 设置准备中协程最大闲置时长
-func WithMaxReadyGoroutinesIdleDuration(d time.Duration) Option {
-	return func(options *Options) error {
-		return rxp.MaxReadyGoroutinesIdleDuration(d)(&options.ExecutorsOptions)
-	}
-}
-
-// WithCloseTimeout
-// 设置关闭超时时长
-func WithCloseTimeout(timeout time.Duration) Option {
-	return func(options *Options) error {
-		return rxp.WithCloseTimeout(timeout)(&options.ExecutorsOptions)
 	}
 }
 
