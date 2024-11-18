@@ -1,18 +1,34 @@
 package sockets
 
 import (
+	"errors"
 	"runtime"
 	"sync"
 )
 
 var (
-	comOptions                 = CompletionOptions{}
-	comCreateOnce              = sync.Once{}
-	com           *completions = nil
+	ErrCompleteFailed = errors.New("sockets: complete failed")
 )
 
-func SetInitCompletionOptions(options CompletionOptions) {
-	comOptions = options
+func IsCompleteFailed(err error) bool {
+	return errors.Is(err, ErrCompleteFailed)
+}
+
+var (
+	comOnce              = sync.Once{}
+	com     *Completions = nil
+)
+
+func Startup(options CompletionOptions) {
+	com = &Completions{
+		fd:      ^uintptr(0),
+		options: options,
+	}
+	com.run()
+}
+
+func Shutdown() {
+	getCompletions().shutdown()
 }
 
 type CompletionOptions struct {
@@ -29,27 +45,29 @@ type CompletionOptions struct {
 	ThreadIdle uint32
 }
 
-func getCompletions() *completions {
-	comCreateOnce.Do(func() {
-		com = &completions{
-			fd:      ^uintptr(0),
-			options: comOptions,
+func getCompletions() *Completions {
+	comOnce.Do(func() {
+		if com == nil {
+			com = &Completions{
+				fd:      ^uintptr(0),
+				options: CompletionOptions{},
+			}
+			runtime.SetFinalizer(com, (*Completions).shutdown)
+			com.run()
 		}
-		runtime.SetFinalizer(com, (*completions).shutdown)
-		com.run()
 	})
 	return com
 }
 
-type completions struct {
+type Completions struct {
 	fd      uintptr
 	options CompletionOptions
 }
 
-func (com *completions) Fd() uintptr {
+func (com *Completions) Fd() uintptr {
 	return com.fd
 }
 
-func (com *completions) Options() CompletionOptions {
+func (com *Completions) Options() CompletionOptions {
 	return com.options
 }

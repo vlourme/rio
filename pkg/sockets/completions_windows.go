@@ -3,7 +3,6 @@
 package sockets
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
@@ -30,23 +29,23 @@ func createSubIoCompletionPort(handle windows.Handle) (windows.Handle, error) {
 	return windows.CreateIoCompletionPort(handle, fd, key, 0)
 }
 
-func (com *completions) run() {
+func (com *Completions) run() {
 	var data windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &data)
 	if startupErr != nil {
-		panic(fmt.Sprintf("sockets: sockets completions poll failed: %v", startupErr))
+		panic(fmt.Sprintf("sockets: sockets Completions poll failed: %v", startupErr))
 		return
 	}
 
 	options := com.Options()
-	// threadcnt
+	// threadCount
 	threadCount = options.ThreadCPU
 	if threadCount == 0 {
 		threadCount = dwordMax
 	}
 	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, threadCount)
 	if createIOCPErr != nil {
-		panic(fmt.Sprintf("sockets: sockets completions poll failed: %v", createIOCPErr))
+		panic(fmt.Sprintf("sockets: sockets Completions poll failed: %v", createIOCPErr))
 		return
 	}
 	com.fd = uintptr(cphandle)
@@ -59,7 +58,7 @@ func (com *completions) run() {
 
 	for i := uint32(0); i < pollersNum; i++ {
 		pollersWG.Add(1)
-		go func(com *completions) {
+		go func(com *Completions) {
 			fd := windows.Handle(com.Fd())
 			for {
 				var qty uint32
@@ -68,9 +67,17 @@ func (com *completions) run() {
 				if qty == 0 && overlapped == nil { // exit
 					break
 				}
-				if errors.Is(windows.ERROR_TIMEOUT, getQueuedCompletionStatusErr) {
-					getQueuedCompletionStatusErr = context.DeadlineExceeded
+				// handle iocp errors
+				if getQueuedCompletionStatusErr != nil {
+					if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_TIMEOUT) {
+						getQueuedCompletionStatusErr = errors.Join(ErrCompleteFailed, getQueuedCompletionStatusErr)
+					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_OPERATION_ABORTED) {
+						getQueuedCompletionStatusErr = errors.Join(ErrCompleteFailed, getQueuedCompletionStatusErr)
+					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_IO_INCOMPLETE) {
+						getQueuedCompletionStatusErr = errors.Join(ErrCompleteFailed, getQueuedCompletionStatusErr)
+					}
 				}
+				// convert to op
 				op := (*operation)(unsafe.Pointer(overlapped))
 				op.complete(int(qty), getQueuedCompletionStatusErr)
 				runtime.KeepAlive(op.conn)
@@ -81,7 +88,9 @@ func (com *completions) run() {
 	}
 }
 
-func (com *completions) shutdown() {
+func (com *Completions) shutdown() {
+	runtime.SetFinalizer(com, nil)
+
 	fd := windows.Handle(com.Fd())
 	if fd == windows.InvalidHandle {
 		return
