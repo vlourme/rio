@@ -101,6 +101,7 @@ func (ln *listener) Close() (err error) {
 	}
 	// close socket
 	closeSockErr := windows.Closesocket(ln.fd)
+	runtime.KeepAlive(ln)
 	if closeSockErr != nil {
 		err = wrapSyscallError("closesocket", closeSockErr)
 	}
