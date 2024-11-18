@@ -170,7 +170,8 @@ func (ln *listener) acceptOne() {
 	}
 	ln.inner.Accept(func(sock sockets.Connection, err error) {
 		if err != nil {
-			if sockets.IsUnexpectedCompletionError(err) {
+			if !ln.ok() && sockets.IsUnexpectedCompletionError(err) {
+				// discard errors when ln was closed
 				return
 			}
 			ln.acceptorPromises.Fail(err)
