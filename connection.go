@@ -143,11 +143,16 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 }
 
 func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]) {
-	if len(p) == 0 {
+	pLen := len(p)
+	if pLen == 0 {
 		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrEmptyPacket)
 		return
 	}
+	future = conn.write(p, pLen, 0)
+	return
+}
 
+func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Future[transport.Outbound]) {
 	promise, ok := async.TryPromise[transport.Outbound](conn.ctx)
 	if !ok {
 		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
@@ -159,18 +164,37 @@ func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]
 		promise.SetDeadline(timeout)
 	}
 
-	conn.inner.Write(p, func(n int, err error) {
+	conn.inner.Write(p[wrote:], func(n int, err error) {
 		if err != nil {
 			if n == 0 {
 				promise.Fail(err)
 			} else {
-				outbound := transport.NewOutBound(n, err)
+				outbound := transport.NewOutBound(wrote+n, err)
 				promise.Succeed(outbound)
 			}
 			return
 		}
-		outbound := transport.NewOutBound(n, err)
-		promise.Succeed(outbound)
+
+		nn := wrote + n
+
+		if nn == pLen {
+			outbound := transport.NewOutBound(nn, nil)
+			promise.Succeed(outbound)
+			return
+		}
+
+		conn.write(p, pLen, nn).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+			if cause != nil {
+				if nn > 0 {
+					outbound := transport.NewOutBound(nn, cause)
+					promise.Succeed(outbound)
+					return
+				}
+				promise.Fail(cause)
+				return
+			}
+			promise.Succeed(entry)
+		})
 		return
 	})
 
