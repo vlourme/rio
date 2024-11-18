@@ -6,13 +6,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
-	"runtime"
-	"sync"
-)
-
-var (
-	defaultExecutors           rxp.Executors = nil
-	createDefaultExecutorsOnce sync.Once
 )
 
 func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
@@ -27,16 +20,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 	_, exist := rxp.TryFrom(ctx)
 	if !exist {
-		if opts.ExtraExecutors != nil {
-			ctx = rxp.With(ctx, opts.ExtraExecutors)
-		} else {
-			createDefaultExecutorsOnce.Do(func() {
-				defaultExecutors = rxp.New()
-				runtime.KeepAlive(defaultExecutors)
-				runtime.SetFinalizer(defaultExecutors, rxp.Executors.Close)
-			})
-			ctx = rxp.With(ctx, defaultExecutors)
-		}
+		ctx = rxp.With(ctx, Executors())
 	}
 
 	promise, promiseOk := async.TryPromise[Connection](ctx)
