@@ -11,6 +11,7 @@ import (
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -75,7 +76,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 
 	// executors
-	ctx = rxp.With(ctx, Executors())
+	ctx = rxp.With(ctx, getExecutors())
 
 	// conn promise
 	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, 8)
@@ -83,10 +84,14 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
 		return
 	}
+	// running
+	running := new(atomic.Bool)
+	running.Store(true)
 
 	// create
 	ln = &listener{
 		ctx:                           ctx,
+		running:                       running,
 		network:                       network,
 		inner:                         inner,
 		connectionsLimiter:            connectionsLimiter,
@@ -102,6 +107,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 
 type listener struct {
 	ctx                           context.Context
+	running                       *atomic.Bool
 	network                       string
 	inner                         sockets.Listener
 	connectionsLimiter            *timeslimiter.Bucket
@@ -127,6 +133,10 @@ func (ln *listener) Accept() (future async.Future[Connection]) {
 }
 
 func (ln *listener) Close() (future async.Future[async.Void]) {
+	if !ln.running.Load() {
+		return
+	}
+	ln.running.Store(false)
 	promise := async.UnlimitedPromise[async.Void](ln.ctx)
 	ln.inner.Close(func(err error) {
 		ln.acceptorPromises.Cancel()
@@ -142,7 +152,7 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 }
 
 func (ln *listener) ok() bool {
-	return ln.ctx.Err() == nil
+	return ln.ctx.Err() == nil && ln.running.Load()
 }
 
 func (ln *listener) acceptOne() {
@@ -161,6 +171,9 @@ func (ln *listener) acceptOne() {
 	}
 	ln.inner.Accept(func(sock sockets.Connection, err error) {
 		if err != nil {
+			if sockets.IsCompleteFailed(err) {
+				return
+			}
 			ln.acceptorPromises.Fail(err)
 			return
 		}
@@ -192,7 +205,7 @@ func (ln *listener) acceptOne() {
 		default:
 			// not matched, so close it
 			sock.Close(func(err error) {})
-			ln.acceptorPromises.Fail(ErrNetworkDisMatched)
+			ln.acceptorPromises.Fail(ErrNetworkUnmatched)
 			break
 		}
 		ln.acceptOne()
