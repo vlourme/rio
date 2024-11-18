@@ -127,14 +127,7 @@ func (ln *listener) Accept() (future async.Future[Connection]) {
 }
 
 func (ln *listener) Close() (future async.Future[async.Void]) {
-	promise, promiseErr := async.MustPromise[async.Void](ln.ctx)
-	if promiseErr != nil {
-		ln.inner.Close(func(err error) {})
-		ln.acceptorPromises.Cancel()
-		future = async.FailedImmediately[async.Void](ln.ctx, promiseErr)
-		return
-	}
-
+	promise := async.UnlimitedPromise[async.Void](ln.ctx)
 	ln.inner.Close(func(err error) {
 		ln.acceptorPromises.Cancel()
 		if err != nil {
@@ -144,7 +137,6 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 		}
 		return
 	})
-
 	future = promise.Future()
 	return
 }

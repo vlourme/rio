@@ -208,14 +208,7 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 }
 
 func (conn *packetConnection) Close() (future async.Future[async.Void]) {
-	promise, promiseErr := async.MustPromise[async.Void](conn.ctx)
-	if promiseErr != nil {
-		conn.connection.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-			conn.oob.Close()
-		})
-		future = async.FailedImmediately[async.Void](conn.ctx, promiseErr)
-		return
-	}
+	promise := async.UnlimitedPromise[async.Void](conn.ctx)
 	conn.connection.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		if cause != nil {
 			promise.Fail(cause)
