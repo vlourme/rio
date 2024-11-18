@@ -15,10 +15,10 @@ import (
 const dwordMax = 0xffffffff
 
 var (
-	key       uintptr         = 0
-	threads   *sync.WaitGroup = &sync.WaitGroup{}
-	pollers   uint32          = 0
-	threadcnt uint32          = 0
+	key         uintptr         = 0
+	pollersWG   *sync.WaitGroup = &sync.WaitGroup{}
+	pollersNum  uint32          = 0
+	threadCount uint32          = 0
 )
 
 func createSubIoCompletionPort(handle windows.Handle) (windows.Handle, error) {
@@ -40,11 +40,11 @@ func (com *completions) run() {
 
 	options := com.Options()
 	// threadcnt
-	threadcnt = options.ThreadCPU
-	if threadcnt == 0 {
-		threadcnt = dwordMax
+	threadCount = options.ThreadCPU
+	if threadCount == 0 {
+		threadCount = dwordMax
 	}
-	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, threadcnt)
+	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, threadCount)
 	if createIOCPErr != nil {
 		panic(fmt.Sprintf("sockets: sockets completions poll failed: %v", createIOCPErr))
 		return
@@ -52,13 +52,13 @@ func (com *completions) run() {
 	com.fd = uintptr(cphandle)
 
 	// pollers
-	pollers = options.Pollers
-	if pollers < 1 {
-		pollers = uint32(runtime.NumCPU() * 2)
+	pollersNum = options.Pollers
+	if pollersNum < 1 {
+		pollersNum = uint32(runtime.NumCPU() * 2)
 	}
 
-	for i := uint32(0); i < pollers; i++ {
-		threads.Add(1)
+	for i := uint32(0); i < pollersNum; i++ {
+		pollersWG.Add(1)
 		go func(com *completions) {
 			fd := windows.Handle(com.Fd())
 			for {
@@ -75,10 +75,10 @@ func (com *completions) run() {
 				op.complete(int(qty), getQueuedCompletionStatusErr)
 				runtime.KeepAlive(op.conn)
 			}
-			threads.Done()
+			pollersWG.Done()
+			runtime.KeepAlive(com)
 		}(com)
 	}
-	runtime.KeepAlive(com)
 }
 
 func (com *completions) shutdown() {
@@ -86,9 +86,9 @@ func (com *completions) shutdown() {
 	if fd == windows.InvalidHandle {
 		return
 	}
-	for i := uint32(0); i < pollers; i++ {
+	for i := uint32(0); i < pollersNum; i++ {
 		_ = windows.PostQueuedCompletionStatus(fd, 0, key, nil)
 	}
-	threads.Wait()
+	pollersWG.Wait()
 	com.fd = ^uintptr(0)
 }
