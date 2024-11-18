@@ -79,7 +79,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	ctx = rxp.With(ctx, getExecutors())
 
 	// conn promise
-	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, 8)
+	acceptorPromises, acceptorPromiseErr := async.UnlimitedStreamPromises[Connection](ctx, parallelAcceptors, 8)
 	if acceptorPromiseErr != nil {
 		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
 		return
@@ -157,7 +157,6 @@ func (ln *listener) ok() bool {
 
 func (ln *listener) acceptOne() {
 	if !ln.ok() {
-		ln.acceptorPromises.Fail(ErrClosed)
 		return
 	}
 
