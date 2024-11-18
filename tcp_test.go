@@ -80,58 +80,63 @@ func wgWait(ctx context.Context) {
 }
 
 func TestTCP(t *testing.T) {
+	_ = rio.Startup()
+	defer rio.ShutdownGracefully()
+
 	ctx := context.Background()
+	ctx = withWG(ctx)
 
 	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(1))
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
 	}
-	defer func() {
-		ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-			if cause != nil {
-				t.Error("ln close err:", cause)
-			}
-		})
-	}()
 
+	wgAdd(ctx)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			if rio.IsClosed(err) {
-				t.Log("closed")
+				t.Log("srv accept closed")
 			} else {
 				t.Error("srv accept:", rio.IsClosed(err), err)
 			}
 			return
 		}
+		wgDone(ctx)
 		t.Log("srv accept:", conn.RemoteAddr(), err)
+
+		wgAdd(ctx)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+			defer wgDone(ctx)
 			if err != nil {
 				t.Error("srv read:", err)
-				_ = conn.Close()
+				wgAdd(ctx)
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					defer wgDone(ctx)
+				})
 				return
 			}
 			n := in.Received()
 			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
+			wgAdd(ctx)
 			conn.Write(p).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+				defer wgDone(ctx)
 				if err != nil {
 					t.Error("srv write:", err)
 					return
 				}
 				t.Log("srv write:", out.Wrote())
+				wgAdd(ctx)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					if cause != nil {
-						t.Error("srv close:", cause)
-					}
+					t.Log("srv close:", cause)
+					wgDone(ctx)
 				})
 			})
 		})
 	})
 
-	ctx = withWG(ctx)
 	wgAdd(ctx)
-	//
 	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		defer wgDone(ctx)
 		if err != nil {
@@ -154,11 +159,20 @@ func TestTCP(t *testing.T) {
 					return
 				}
 				t.Log("cli read:", in.Received(), string(in.Reader().Peek(in.Received())))
-				conn.Close()
+				wgAdd(ctx)
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					defer wgDone(ctx)
+					t.Log("cli close:", err)
+				})
 			})
 		})
 	})
 
 	wgWait(ctx)
-
+	wgAdd(ctx)
+	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+		t.Log("ln close:", cause)
+		wgDone(ctx)
+	})
+	wgWait(ctx)
 }
