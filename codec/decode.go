@@ -14,19 +14,8 @@ type Decoder[T any] interface {
 	Decode(inbound transport.Inbound) (message T, next bool, err error)
 }
 
-func Decode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T]) (future async.Future[T]) {
-	promise, promiseErr := async.MustPromise[T](ctx)
-	if promiseErr != nil {
-		future = async.FailedImmediately[T](ctx, promiseErr)
-		return
-	}
-	decode[T](reader, decoder, promise)
-	future = promise.Future()
-	return
-}
-
-func StreamDecode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T], buf int) (future async.Future[T]) {
-	promise, promiseErr := async.MustStreamPromise[T](ctx, buf)
+func Decode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
+	promise, promiseErr := async.Make[T](ctx, options...)
 	if promiseErr != nil {
 		future = async.FailedImmediately[T](ctx, promiseErr)
 		return

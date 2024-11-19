@@ -13,19 +13,11 @@ const (
 	lengthFieldSize = 8
 )
 
-func LengthFieldDecode(ctx context.Context, reader FutureReader) (future async.Future[[]byte]) {
+func LengthFieldDecode(ctx context.Context, reader FutureReader, options ...async.Option) (future async.Future[[]byte]) {
 	decoder := LengthFieldDecoder[[]byte]{
 		infinite: false,
 	}
-	future = Decode[[]byte](ctx, reader, &decoder)
-	return
-}
-
-func LengthFieldStreamDecode(ctx context.Context, reader FutureReader, buf int) (future async.Future[[]byte]) {
-	decoder := LengthFieldDecoder[[]byte]{
-		infinite: true,
-	}
-	future = StreamDecode[[]byte](ctx, reader, &decoder, buf)
+	future = Decode[[]byte](ctx, reader, &decoder, options...)
 	return
 }
 
