@@ -15,5 +15,5 @@ var (
 )
 
 func IsClosed(err error) bool {
-	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, async.EOF)
+	return errors.Is(err, async.EOF) || errors.Is(err, async.UnexpectedEOF) || errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled)
 }
