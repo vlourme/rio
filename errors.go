@@ -3,6 +3,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rxp/async"
 )
 
 var (
@@ -14,5 +15,5 @@ var (
 )
 
 func IsClosed(err error) bool {
-	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled)
+	return errors.Is(err, ErrClosed) || errors.Is(err, context.Canceled) || errors.Is(err, async.EOF)
 }
