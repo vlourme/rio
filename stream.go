@@ -41,6 +41,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		UnixListenerUnlinkOnClose:        false,
 		DefaultStreamReadTimeout:         0,
 		DefaultStreamWriteTimeout:        0,
+		PromiseMakeOptions:               make([]async.Option, 0, 1),
 	}
 	for _, option := range options {
 		err = option(&opt)
@@ -84,7 +85,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	ctx = rxp.With(ctx, getExecutors())
 
 	// conn promise
-	acceptorPromises, acceptorPromiseErr := async.UnlimitedStreamPromises[Connection](ctx, parallelAcceptors)
+	acceptorPromises, acceptorPromiseErr := async.DirectStreamPromises[Connection](ctx, parallelAcceptors)
 	if acceptorPromiseErr != nil {
 		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
 		return
@@ -92,6 +93,12 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	// running
 	running := new(atomic.Bool)
 	running.Store(true)
+
+	// promise make options
+	promiseMakeOptions := opt.PromiseMakeOptions
+	if len(promiseMakeOptions) > 0 {
+		ctx = async.WithOptions(ctx, promiseMakeOptions...)
+	}
 
 	// create
 	ln = &listener{

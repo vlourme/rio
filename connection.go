@@ -116,9 +116,13 @@ func (conn *connection) SetReadBufferSize(size int) {
 }
 
 func (conn *connection) Read() (future async.Future[transport.Inbound]) {
-	promise, ok := async.TryPromise[transport.Inbound](conn.ctx)
-	if !ok {
-		future = async.FailedImmediately[transport.Inbound](conn.ctx, ErrBusy)
+	promise, promiseErr := async.Make[transport.Inbound](conn.ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[transport.Inbound](conn.ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[transport.Inbound](conn.ctx, promiseErr)
+		}
 		return
 	}
 
@@ -153,9 +157,13 @@ func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]
 }
 
 func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Future[transport.Outbound]) {
-	promise, ok := async.TryPromise[transport.Outbound](conn.ctx)
-	if !ok {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		}
 		return
 	}
 

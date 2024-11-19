@@ -65,9 +65,13 @@ type packetConnection struct {
 }
 
 func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
-	promise, ok := async.TryPromise[transport.PacketInbound](conn.ctx)
-	if !ok {
-		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrBusy)
+	promise, promiseErr := async.Make[transport.PacketInbound](conn.ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[transport.PacketInbound](conn.ctx, promiseErr)
+		}
 		return
 	}
 
@@ -101,9 +105,13 @@ func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Fut
 		return
 	}
 
-	promise, ok := async.TryPromise[transport.Outbound](conn.ctx)
-	if !ok {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		}
 		return
 	}
 
@@ -139,9 +147,13 @@ func (conn *packetConnection) SetReadMsgOOBBufferSize(size int) {
 }
 
 func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsgInbound]) {
-	promise, ok := async.TryPromise[transport.PacketMsgInbound](conn.ctx)
-	if !ok {
-		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrBusy)
+	promise, promiseErr := async.Make[transport.PacketMsgInbound](conn.ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, promiseErr)
+		}
 		return
 	}
 
@@ -177,9 +189,13 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 		return
 	}
 
-	promise, ok := async.TryPromise[transport.PacketMsgOutbound](conn.ctx)
-	if !ok {
-		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrBusy)
+	promise, promiseErr := async.Make[transport.PacketMsgOutbound](conn.ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, promiseErr)
+		}
 		return
 	}
 

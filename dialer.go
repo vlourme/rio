@@ -18,14 +18,25 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		}
 	}
 
+	// exec
 	_, exist := rxp.TryFrom(ctx)
 	if !exist {
 		ctx = rxp.With(ctx, getExecutors())
 	}
 
-	promise, promiseOk := async.TryPromise[Connection](ctx)
-	if !promiseOk {
-		future = async.FailedImmediately[Connection](ctx, ErrBusy)
+	// promise make options
+	promiseMakeOptions := opts.PromiseMakeOptions
+	if len(promiseMakeOptions) > 0 {
+		ctx = async.WithOptions(ctx, promiseMakeOptions...)
+	}
+
+	promise, promiseErr := async.Make[Connection](ctx)
+	if promiseErr != nil {
+		if async.IsBusy(promiseErr) {
+			future = async.FailedImmediately[Connection](ctx, ErrBusy)
+		} else {
+			future = async.FailedImmediately[Connection](ctx, promiseErr)
+		}
 		return
 	}
 	future = promise.Future()

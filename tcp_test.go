@@ -99,7 +99,11 @@ func TestTCP(t *testing.T) {
 	ctx := context.Background()
 	ctx = withWG(ctx)
 
-	ln, lnErr := rio.Listen(ctx, "tcp", ":9000", rio.WithParallelAcceptors(10))
+	ln, lnErr := rio.Listen(ctx,
+		"tcp", ":9000",
+		rio.WithParallelAcceptors(10),
+		rio.WithPromiseMakeOptions(async.WithDirectMode()),
+	)
 	if lnErr != nil {
 		t.Error(lnErr)
 		return

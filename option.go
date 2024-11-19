@@ -3,6 +3,7 @@ package rio
 import (
 	"crypto/tls"
 	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rxp/async"
 	"net"
 	"runtime"
 	"time"
@@ -23,6 +24,7 @@ type Options struct {
 	UnixListenerUnlinkOnClose        bool
 	DefaultStreamReadTimeout         time.Duration
 	DefaultStreamWriteTimeout        time.Duration
+	PromiseMakeOptions               []async.Option
 }
 
 type Option func(options *Options) (err error)
@@ -122,6 +124,15 @@ func WithDefaultStreamWriteTimeout(d time.Duration) Option {
 		if d > 0 {
 			options.DefaultStreamWriteTimeout = d
 		}
+		return
+	}
+}
+
+// WithPromiseMakeOptions
+// 设置默认许诺构建选项。
+func WithPromiseMakeOptions(promiseMakeOptions ...async.Option) Option {
+	return func(options *Options) (err error) {
+		options.PromiseMakeOptions = append(options.PromiseMakeOptions, promiseMakeOptions...)
 		return
 	}
 }
