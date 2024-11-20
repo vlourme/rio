@@ -3,6 +3,7 @@
 package sockets
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
@@ -70,10 +71,10 @@ func (com *Completions) run() {
 				// handle iocp errors
 				if getQueuedCompletionStatusErr != nil {
 					if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_TIMEOUT) {
-						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
+						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr, context.DeadlineExceeded)
 					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_OPERATION_ABORTED) {
-						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
-					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_IO_INCOMPLETE) {
+						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr, context.Canceled)
+					} else {
 						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
 					}
 				}
