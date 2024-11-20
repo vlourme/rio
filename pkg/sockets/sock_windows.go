@@ -87,6 +87,22 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 	return
 }
 
+func (conn *connection) SetReadBuffer(n int) (err error) {
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVBUF, n)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+	}
+	return
+}
+
+func (conn *connection) SetWriteBuffer(n int) (err error) {
+	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_SNDBUF, n)
+	if err != nil {
+		err = wrapSyscallError("setsockopt", err)
+	}
+	return
+}
+
 func (conn *connection) SetReadTimeout(_ time.Duration) (err error) {
 	//millis := 0
 	//if d > 0 {

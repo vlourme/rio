@@ -19,8 +19,11 @@ type Options struct {
 	StreamListenerAcceptMaxConnections                   int64
 	StreamListenerAcceptMaxConnectionsLimiterWaitTimeout time.Duration
 	StreamUnixListenerUnlinkOnClose                      bool
-	ConnDefaultReadTimeout                               time.Duration
-	ConnDefaultWriteTimeout                              time.Duration
+	DefaultConnReadTimeout                               time.Duration
+	DefaultConnWriteTimeout                              time.Duration
+	DefaultConnReadBufferSize                            int
+	DefaultConnWriteBufferSize                           int
+	DefaultInboundBufferSize                             int
 	TLSConfig                                            *tls.Config
 	MultipathTCP                                         bool
 	DialPacketConnLocalAddr                              net.Addr
@@ -106,24 +109,58 @@ func WithDialPacketConnLocalAddr(network string, addr string) Option {
 	}
 }
 
-// WithConnDefaultReadTimeout
+// WithDefaultConnReadTimeout
 // 设置默认流链接读超时。
-func WithConnDefaultReadTimeout(d time.Duration) Option {
+func WithDefaultConnReadTimeout(d time.Duration) Option {
 	return func(options *Options) (err error) {
 		if d > 0 {
-			options.ConnDefaultReadTimeout = d
+			options.DefaultConnReadTimeout = d
 		}
 		return
 	}
 }
 
-// WithConnDefaultWriteTimeout
+// WithDefaultConnWriteTimeout
 // 设置默认流链接写超时。
-func WithConnDefaultWriteTimeout(d time.Duration) Option {
+func WithDefaultConnWriteTimeout(d time.Duration) Option {
 	return func(options *Options) (err error) {
 		if d > 0 {
-			options.ConnDefaultWriteTimeout = d
+			options.DefaultConnWriteTimeout = d
 		}
+		return
+	}
+}
+
+// WithDefaultConnReadBufferSize
+// 设置默认读缓冲区大小。
+func WithDefaultConnReadBufferSize(n int) Option {
+	return func(options *Options) (err error) {
+		if n > 0 {
+			options.DefaultConnReadBufferSize = n
+		}
+		return
+	}
+}
+
+// WithDefaultConnWriteBufferSize
+// 设置默认写缓冲区大小。
+func WithDefaultConnWriteBufferSize(n int) Option {
+	return func(options *Options) (err error) {
+		if n > 0 {
+			options.DefaultConnWriteBufferSize = n
+		}
+		return
+	}
+}
+
+// WithDefaultInboundBufferSize
+// 设置默认入站缓冲区大小。
+func WithDefaultInboundBufferSize(n int) Option {
+	return func(options *Options) (err error) {
+		if n < 1 {
+			return
+		}
+		options.DefaultInboundBufferSize = n
 		return
 	}
 }

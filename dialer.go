@@ -51,35 +51,79 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				promise.Fail(err)
 				return
 			}
+
+			var conn Connection
+
 			switch network {
 			case "tcp", "tcp4", "tcp6":
-				promise.Succeed(newTCPConnection(ctx, inner))
+				conn = newTCPConnection(ctx, inner)
 				break
 			case "udp", "udp4", "udp6":
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
+					inner.Close(func(err error) {})
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
 					break
 				}
-				promise.Succeed(newPacketConnection(ctx, packetInner))
+				conn = newPacketConnection(ctx, packetInner)
 				break
 			case "unix", "unixgram", "unixpacket":
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
+					inner.Close(func(err error) {})
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
 					break
 				}
-				promise.Succeed(newUnixConnection(ctx, packetInner))
+				conn = newUnixConnection(ctx, packetInner)
 				break
 			case "ip", "ip4", "ip6":
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
+					inner.Close(func(err error) {})
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
 					break
 				}
-				promise.Succeed(newIPConnection(ctx, packetInner))
+				conn = newIPConnection(ctx, packetInner)
 				break
 			}
+
+			if n := opts.DefaultConnReadTimeout; n > 0 {
+				err = conn.SetReadTimeout(n)
+				if err != nil {
+					conn.Close().OnComplete(async.DiscardVoidHandler)
+					promise.Fail(err)
+					return
+				}
+			}
+			if n := opts.DefaultConnWriteTimeout; n > 0 {
+				err = conn.SetWriteTimeout(n)
+				if err != nil {
+					conn.Close().OnComplete(async.DiscardVoidHandler)
+					promise.Fail(err)
+					return
+				}
+			}
+			if n := opts.DefaultConnReadBufferSize; n > 0 {
+				err = conn.SetReadBuffer(n)
+				if err != nil {
+					conn.Close().OnComplete(async.DiscardVoidHandler)
+					promise.Fail(err)
+					return
+				}
+			}
+			if n := opts.DefaultConnWriteBufferSize; n > 0 {
+				err = conn.SetWriteBuffer(n)
+				if err != nil {
+					conn.Close().OnComplete(async.DiscardVoidHandler)
+					promise.Fail(err)
+					return
+				}
+			}
+			if n := opts.DefaultInboundBufferSize; n > 0 {
+				conn.SetInboundBuffer(n)
+			}
+
+			promise.Succeed(conn)
 			return
 		})
 	})

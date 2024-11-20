@@ -21,6 +21,8 @@ type Connection interface {
 	RemoteAddr() (addr net.Addr)
 	SetReadTimeout(d time.Duration) (err error)
 	SetWriteTimeout(d time.Duration) (err error)
+	SetReadBuffer(n int) (err error)
+	SetWriteBuffer(n int) (err error)
 	Read(p []byte, handler ReadHandler)
 	Write(p []byte, handler WriteHandler)
 	Close(handler CloseHandler)

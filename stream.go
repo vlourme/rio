@@ -39,8 +39,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		MultipathTCP:                    false,
 		DialPacketConnLocalAddr:         nil,
 		StreamUnixListenerUnlinkOnClose: false,
-		ConnDefaultReadTimeout:          0,
-		ConnDefaultWriteTimeout:         0,
+		DefaultConnReadTimeout:          0,
+		DefaultConnWriteTimeout:         0,
 		PromiseMakeOptions:              make([]async.Option, 0, 1),
 	}
 	for _, option := range options {
@@ -109,8 +109,11 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		connectionsLimiter:            connectionsLimiter,
 		connectionsLimiterWaitTimeout: opt.StreamListenerAcceptMaxConnectionsLimiterWaitTimeout,
 		tlsConfig:                     opt.TLSConfig,
-		defaultReadTimeout:            opt.ConnDefaultReadTimeout,
-		defaultWriteTimeout:           opt.ConnDefaultWriteTimeout,
+		defaultReadTimeout:            opt.DefaultConnReadTimeout,
+		defaultWriteTimeout:           opt.DefaultConnWriteTimeout,
+		defaultReadBuffer:             opt.DefaultConnReadBufferSize,
+		defaultWriteBuffer:            opt.DefaultConnWriteBufferSize,
+		defaultInboundBuffer:          opt.DefaultInboundBufferSize,
 		parallelAcceptors:             parallelAcceptors,
 		acceptorPromises:              acceptorPromises,
 	}
@@ -127,6 +130,9 @@ type listener struct {
 	tlsConfig                     *tls.Config
 	defaultReadTimeout            time.Duration
 	defaultWriteTimeout           time.Duration
+	defaultReadBuffer             int
+	defaultWriteBuffer            int
+	defaultInboundBuffer          int
 	parallelAcceptors             int
 	acceptorPromises              async.Promise[Connection]
 }
@@ -192,34 +198,59 @@ func (ln *listener) acceptOne() {
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
 		}
+
 		var conn Connection
+
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
 			conn = newTCPConnection(ln.ctx, sock)
-			if ln.defaultReadTimeout > 0 {
-				_ = conn.SetReadTimeout(ln.defaultReadTimeout)
-			}
-			if ln.defaultWriteTimeout > 0 {
-				_ = conn.SetWriteTimeout(ln.defaultWriteTimeout)
-			}
-			ln.acceptorPromises.Succeed(conn)
 			break
 		case "unix", "unixpacket":
 			conn = newUnixConnection(ln.ctx, sock)
-			if ln.defaultReadTimeout > 0 {
-				_ = conn.SetReadTimeout(ln.defaultReadTimeout)
-			}
-			if ln.defaultWriteTimeout > 0 {
-				_ = conn.SetWriteTimeout(ln.defaultWriteTimeout)
-			}
-			ln.acceptorPromises.Succeed(conn)
 			break
 		default:
 			// not matched, so close it
 			sock.Close(func(err error) {})
 			ln.acceptorPromises.Fail(ErrNetworkUnmatched)
-			break
+			return
 		}
+		// set default
+		if ln.defaultReadTimeout > 0 {
+			err = conn.SetReadTimeout(ln.defaultReadTimeout)
+			if err != nil {
+				conn.Close().OnComplete(async.DiscardVoidHandler)
+				ln.acceptorPromises.Fail(err)
+				return
+			}
+		}
+		if ln.defaultWriteTimeout > 0 {
+			err = conn.SetWriteTimeout(ln.defaultWriteTimeout)
+			if err != nil {
+				conn.Close().OnComplete(async.DiscardVoidHandler)
+				ln.acceptorPromises.Fail(err)
+				return
+			}
+		}
+		if ln.defaultReadBuffer > 0 {
+			err = conn.SetReadBuffer(ln.defaultReadBuffer)
+			if err != nil {
+				conn.Close().OnComplete(async.DiscardVoidHandler)
+				ln.acceptorPromises.Fail(err)
+				return
+			}
+		}
+		if ln.defaultWriteBuffer > 0 {
+			err = conn.SetWriteBuffer(ln.defaultWriteBuffer)
+			if err != nil {
+				conn.Close().OnComplete(async.DiscardVoidHandler)
+				ln.acceptorPromises.Fail(err)
+				return
+			}
+		}
+		if ln.defaultInboundBuffer != 0 {
+			conn.SetInboundBuffer(ln.defaultInboundBuffer)
+		}
+		ln.acceptorPromises.Succeed(conn)
 		ln.acceptOne()
 		return
 	})

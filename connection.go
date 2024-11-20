@@ -18,7 +18,9 @@ type Connection interface {
 	RemoteAddr() (addr net.Addr)
 	SetReadTimeout(d time.Duration) (err error)
 	SetWriteTimeout(d time.Duration) (err error)
-	SetReadBufferSize(size int)
+	SetReadBuffer(n int) (err error)
+	SetWriteBuffer(n int) (err error)
+	SetInboundBuffer(n int)
 	Read() (future async.Future[transport.Inbound])
 	Write(p []byte) (future async.Future[transport.Outbound])
 	Close() (future async.Future[async.Void])
@@ -81,12 +83,23 @@ func (conn *connection) SetReadTimeout(d time.Duration) (err error) {
 	conn.rto = d
 	return
 }
+
 func (conn *connection) SetWriteTimeout(d time.Duration) (err error) {
 	err = conn.inner.SetWriteTimeout(d)
 	return
 }
 
-func (conn *connection) SetReadBufferSize(size int) {
+func (conn *connection) SetReadBuffer(n int) (err error) {
+	err = conn.inner.SetReadBuffer(n)
+	return
+}
+
+func (conn *connection) SetWriteBuffer(n int) (err error) {
+	err = conn.inner.SetWriteBuffer(n)
+	return
+}
+
+func (conn *connection) SetInboundBuffer(size int) {
 	if size < 1 {
 		size = defaultReadBufferSize
 	}
