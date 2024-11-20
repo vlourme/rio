@@ -1,6 +1,9 @@
 package transport
 
-import "github.com/brickingsoft/rio/pkg/bytebufferpool"
+import (
+	"errors"
+	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+)
 
 type InboundReader interface {
 	Peek(n int) (p []byte)
@@ -12,7 +15,7 @@ type InboundReader interface {
 
 type InboundBuffer interface {
 	InboundReader
-	Allocate(size int) (p []byte)
+	Allocate(size int) (p []byte, err error)
 	AllocatedWrote(n int)
 	Write(p []byte) (n int, err error)
 	Close()
@@ -26,12 +29,12 @@ type inboundBuffer struct {
 	b bytebufferpool.Buffer
 }
 
-func (buf *inboundBuffer) Allocate(size int) (p []byte) {
+func (buf *inboundBuffer) Allocate(size int) (p []byte, err error) {
 	if buf.b == nil {
 		buf.b = bytebufferpool.Get()
 	}
 	if buf.b.WritePending() {
-		panic("transport: buffer already allocated a piece bytes")
+		err = errors.New("transport: buffer already allocated a piece bytes")
 		return
 	}
 	p = buf.b.Allocate(size)
@@ -54,6 +57,9 @@ func (buf *inboundBuffer) Write(p []byte) (n int, err error) {
 
 func (buf *inboundBuffer) Close() {
 	if buf.b != nil {
+		if buf.b.WritePending() {
+			buf.b.AllocatedWrote(0)
+		}
 		bytebufferpool.Put(buf.b)
 		buf.b = nil
 	}
