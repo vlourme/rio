@@ -18,8 +18,8 @@ func TestListenTCP(t *testing.T) {
 	ln, lnErr := rio.Listen(
 		ctx,
 		"tcp", "127.0.0.1:9000",
-		rio.WithParallelAcceptors(1),
-		rio.WithMaxConnections(10),
+		rio.WithStreamListenerParallelAcceptors(1),
+		rio.WithStreamListenerAcceptMaxConnections(10),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)
@@ -101,7 +101,7 @@ func TestTCP(t *testing.T) {
 
 	ln, lnErr := rio.Listen(ctx,
 		"tcp", ":9000",
-		rio.WithParallelAcceptors(10),
+		rio.WithStreamListenerParallelAcceptors(10),
 		rio.WithPromiseMakeOptions(async.WithDirectMode()),
 	)
 	if lnErr != nil {

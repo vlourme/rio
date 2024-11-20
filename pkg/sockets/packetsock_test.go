@@ -14,10 +14,11 @@ func TestPacket(t *testing.T) {
 		return
 	}
 	defer func(conn sockets.PacketConnection) {
-		closeErr := conn.Close()
-		if closeErr != nil {
-			t.Error(closeErr)
-		}
+		conn.Close(func(err error) {
+			if err != nil {
+				t.Error(err)
+			}
+		})
 	}(conn)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
@@ -63,10 +64,11 @@ func TestPacket_Msg(t *testing.T) {
 		return
 	}
 	defer func(conn sockets.PacketConnection) {
-		closeErr := conn.Close()
-		if closeErr != nil {
-			t.Error(closeErr)
-		}
+		conn.Close(func(err error) {
+			if err != nil {
+				t.Error(err)
+			}
+		})
 	}(conn)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
@@ -96,6 +98,17 @@ func TestPacket_Msg(t *testing.T) {
 			return
 		}
 		go func(pc sockets.PacketConnection) {
+			//pc.Write([]byte("oob....."), func(n int, wErr error) {
+			//	t.Log("cli write:", n, wErr)
+			//	go func(pc sockets.PacketConnection) {
+			//		p := make([]byte, 1024)
+			//		oob := make([]byte, 1024)
+			//		pc.ReadMsg(p, oob, func(n int, oobn int, flags int, rAddr net.Addr, err error) {
+			//			t.Log("cli read:", n, string(p[:n]), oobn, string(oob[:oobn]), flags, rAddr, err)
+			//			wg.Done()
+			//		})
+			//	}(pc)
+			//})
 			pc.WriteMsg([]byte("hello world"), []byte("oob"), addr, func(n int, oobn int, err error) {
 				t.Log("cli write:", n, oobn, err)
 				go func(pc sockets.PacketConnection) {

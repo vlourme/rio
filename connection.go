@@ -13,11 +13,11 @@ import (
 
 type Connection interface {
 	Context() (ctx context.Context)
+	ConfigContext(config func(ctx context.Context) context.Context)
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
-	SetDeadline(t time.Time) (err error)
-	SetReadDeadline(t time.Time) (err error)
-	SetWriteDeadline(t time.Time) (err error)
+	SetReadTimeout(d time.Duration) (err error)
+	SetWriteTimeout(d time.Duration) (err error)
 	SetReadBufferSize(size int)
 	Read() (future async.Future[transport.Inbound])
 	Write(p []byte) (future async.Future[transport.Outbound])
@@ -54,6 +54,18 @@ func (conn *connection) Context() (ctx context.Context) {
 	return
 }
 
+func (conn *connection) ConfigContext(config func(ctx context.Context) context.Context) {
+	if config == nil {
+		return
+	}
+	newCtx := config(conn.ctx)
+	if newCtx == nil {
+		return
+	}
+	conn.ctx = newCtx
+	return
+}
+
 func (conn *connection) LocalAddr() (addr net.Addr) {
 	addr = conn.inner.LocalAddr()
 	return
@@ -64,46 +76,13 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 	return
 }
 
-func (conn *connection) SetDeadline(t time.Time) (err error) {
-	timeout := time.Until(t)
-	if timeout < 1 {
-		err = errors.New("rio: deadline too short")
-		return
-	}
-	err = conn.inner.SetDeadline(t)
-	if err != nil {
-		return
-	}
-	conn.rto = timeout
-	conn.wto = timeout
+func (conn *connection) SetReadTimeout(d time.Duration) (err error) {
+	err = conn.inner.SetReadTimeout(d)
+	conn.rto = d
 	return
 }
-
-func (conn *connection) SetReadDeadline(t time.Time) (err error) {
-	timeout := time.Until(t)
-	if timeout < 1 {
-		err = errors.New("rio: deadline too short")
-		return
-	}
-	err = conn.inner.SetReadDeadline(t)
-	if err != nil {
-		return
-	}
-	conn.rto = timeout
-	return
-}
-
-func (conn *connection) SetWriteDeadline(t time.Time) (err error) {
-	timeout := time.Until(t)
-	if timeout < 1 {
-		err = errors.New("rio: deadline too short")
-		return
-	}
-	err = conn.inner.SetWriteDeadline(t)
-	if err != nil {
-		return
-	}
-	conn.wto = timeout
+func (conn *connection) SetWriteTimeout(d time.Duration) (err error) {
+	err = conn.inner.SetWriteTimeout(d)
 	return
 }
 
@@ -116,8 +95,14 @@ func (conn *connection) SetReadBufferSize(size int) {
 }
 
 func (conn *connection) Read() (future async.Future[transport.Inbound]) {
+	p, allocateErr := conn.rb.Allocate(conn.rbs)
+	if allocateErr != nil {
+		future = async.FailedImmediately[transport.Inbound](conn.ctx, errors.Join(ErrAllocate, allocateErr))
+		return
+	}
 	promise, promiseErr := async.Make[transport.Inbound](conn.ctx)
 	if promiseErr != nil {
+		conn.rb.AllocatedWrote(0)
 		if async.IsBusy(promiseErr) {
 			future = async.FailedImmediately[transport.Inbound](conn.ctx, ErrBusy)
 		} else {
@@ -131,13 +116,13 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		promise.SetDeadline(timeout)
 	}
 
-	p := conn.rb.Allocate(conn.rbs)
 	conn.inner.Read(p, func(n int, err error) {
-		conn.rb.AllocatedWrote(n)
 		if err != nil {
+			conn.rb.AllocatedWrote(0)
 			promise.Fail(err)
 			return
 		}
+		conn.rb.AllocatedWrote(n)
 		inbound := transport.NewInbound(conn.rb, n)
 		promise.Succeed(inbound)
 		return

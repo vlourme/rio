@@ -3,7 +3,6 @@
 package sockets
 
 import (
-	"context"
 	"errors"
 	"golang.org/x/sys/windows"
 	"net"
@@ -15,8 +14,7 @@ import (
 )
 
 const (
-	maxRW             = 1 << 30
-	defaultTCPTimeout = 1000 * time.Millisecond
+	maxRW = 1 << 30
 )
 
 func wrapSyscallError(name string, err error) error {
@@ -89,41 +87,22 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 	return
 }
 
-func (conn *connection) SetDeadline(deadline time.Time) (err error) {
-	timeout := deadline.Sub(time.Now())
-	if timeout == 0 {
-		timeout = defaultTCPTimeout
-	} else if timeout < 0 {
-		return nil
-	}
-	millis := int(roundDurationUp(timeout, time.Millisecond))
-	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVTIMEO, millis)
-	if err != nil {
-		err = wrapSyscallError("setsockopt", err)
-		return
-	}
-	// SO_SNDTIMEO was not supported
+func (conn *connection) SetReadTimeout(_ time.Duration) (err error) {
+	//millis := 0
+	//if d > 0 {
+	//	millis = int(roundDurationUp(d, time.Millisecond))
+	//}
+	//err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVTIMEO, millis)
+	//if err != nil {
+	//	err = wrapSyscallError("setsockopt", err)
+	//	return
+	//}
+	// async io do not support SO_RCVTIMEO
 	return
 }
 
-func (conn *connection) SetReadDeadline(deadline time.Time) (err error) {
-	timeout := deadline.Sub(time.Now())
-	if timeout == 0 {
-		timeout = defaultTCPTimeout
-	} else if timeout < 0 {
-		return nil
-	}
-	millis := int(roundDurationUp(timeout, time.Millisecond))
-	err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVTIMEO, millis)
-	if err != nil {
-		err = wrapSyscallError("setsockopt", err)
-		return
-	}
-	return
-}
-
-func (conn *connection) SetWriteDeadline(_ time.Time) (err error) {
-	// SO_SNDTIMEO was not supported
+func (conn *connection) SetWriteTimeout(_ time.Duration) (err error) {
+	// async io do not support SO_SNDTIMEO
 	return
 }
 
@@ -150,8 +129,6 @@ func (conn *connection) Closesocket() (err error) {
 			Err:    err,
 		}
 	}
-	conn.rop.conn = nil
-	conn.wop.conn = nil
 	return
 }
 
@@ -190,22 +167,25 @@ func (conn *connection) Read(p []byte, handler ReadHandler) {
 		pLen = maxRW
 	}
 	conn.rop.mode = read
-	conn.rop.buf.Buf = &p[0]
-	conn.rop.buf.Len = uint32(pLen)
+	conn.rop.InitBuf(p)
 	conn.rop.readHandler = handler
 	err := windows.WSARecv(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, &conn.rop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
+		err = &net.OpError{
+			Op:     read.String(),
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSARecv", err)),
 		}
-		handler(0, wrapSyscallError("WSARecv", err))
+		handler(0, err)
 		conn.rop.readHandler = nil
 	}
 }
 
 func (op *operation) completeRead(qty int, err error) {
 	if err != nil {
-		op.readHandler(0, &net.OpError{
+		op.readHandler(qty, &net.OpError{
 			Op:     op.mode.String(),
 			Net:    op.conn.net,
 			Source: op.conn.localAddr,
@@ -234,15 +214,18 @@ func (conn *connection) Write(p []byte, handler WriteHandler) {
 		pLen = maxRW
 	}
 	conn.wop.mode = write
-	conn.wop.buf.Buf = &p[0]
-	conn.wop.buf.Len = uint32(pLen)
+	conn.wop.InitBuf(p)
 	conn.wop.writeHandler = handler
 	err := windows.WSASend(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, &conn.wop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
+		err = &net.OpError{
+			Op:     write.String(),
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSASend", err)),
 		}
-		handler(0, wrapSyscallError("WSASend", err))
+		handler(0, err)
 		conn.wop.writeHandler = nil
 	}
 }
@@ -306,7 +289,14 @@ func connect(network string, family int, addr net.Addr, ipv6only bool, proto int
 	connectErr := windows.ConnectEx(conn.fd, rsa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, windows.ERROR_IO_PENDING) {
 		_ = conn.Closesocket()
-		handler(nil, wrapSyscallError("ConnectEx", connectErr))
+		err := &net.OpError{
+			Op:     dial.String(),
+			Net:    network,
+			Source: sockaddrToAddr("network", lsa),
+			Addr:   addr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("ConnectEx", connectErr)),
+		}
+		handler(nil, err)
 		conn.rop.dialHandler = nil
 		return
 	}

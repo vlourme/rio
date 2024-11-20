@@ -14,11 +14,11 @@ func TestListenTCP(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	err = ln.Close()
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
+	ln.Close(func(err error) {
+		if err != nil {
+			t.Error(err)
+		}
+	})
 }
 
 func TestTcpListener_Accept(t *testing.T) {
@@ -27,7 +27,9 @@ func TestTcpListener_Accept(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	defer ln.Close()
+	defer ln.Close(func(err error) {
+
+	})
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	ln.Accept(func(conn sockets.Connection, err error) {
@@ -37,10 +39,11 @@ func TestTcpListener_Accept(t *testing.T) {
 			return
 		}
 		t.Log("accepted!!!")
-		err = conn.Close()
-		if err != nil {
-			t.Error("accept close:", err)
-		}
+		conn.Close(func(err error) {
+			if err != nil {
+				t.Error("accept close:", err)
+			}
+		})
 	})
 	conn, dialErr := net.Dial("tcp", "127.0.0.1:9000")
 	if dialErr != nil {
@@ -57,7 +60,7 @@ func TestConnection_ReadAndWrite(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	defer ln.Close()
+	defer ln.Close(func(err error) {})
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	ln.Accept(func(conn sockets.Connection, err error) {
@@ -100,11 +103,12 @@ func TestDialTCP(t *testing.T) {
 		return
 	}
 	defer func() {
-		err = ln.Close()
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
+		ln.Close(func(err error) {
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+		})
 	}()
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
@@ -124,10 +128,11 @@ func TestDialTCP(t *testing.T) {
 			return
 		}
 		t.Log("cli: dialed!!!", conn.LocalAddr(), conn.RemoteAddr())
-		closeErr := conn.Close()
-		if closeErr != nil {
-			t.Error("cli: dial ->", closeErr)
-		}
+		conn.Close(func(err error) {
+			if err != nil {
+				t.Error("cli: dial ->", err)
+			}
+		})
 		return
 	})
 	wg.Wait()

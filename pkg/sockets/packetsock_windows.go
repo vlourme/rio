@@ -3,7 +3,6 @@
 package sockets
 
 import (
-	"context"
 	"errors"
 	"golang.org/x/sys/windows"
 	"net"
@@ -70,8 +69,7 @@ func (conn *connection) ReadFrom(p []byte, handler ReadFromHandler) {
 		p = p[:maxRW]
 	}
 	conn.rop.mode = readFrom
-	conn.rop.buf.Buf = &p[0]
-	conn.rop.buf.Len = uint32(pLen)
+	conn.rop.InitBuf(p)
 	if conn.rop.rsa == nil {
 		conn.rop.rsa = new(windows.RawSockaddrAny)
 	}
@@ -79,10 +77,14 @@ func (conn *connection) ReadFrom(p []byte, handler ReadFromHandler) {
 	conn.rop.readFromHandler = handler
 	err := windows.WSARecvFrom(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, conn.rop.rsa, &conn.rop.rsan, &conn.rop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
+		err = &net.OpError{
+			Op:     readFrom.String(),
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSARecvFrom", err)),
 		}
-		handler(0, nil, wrapSyscallError("WSARecvFrom", err))
+		handler(0, nil, err)
 		conn.rop.readFromHandler = nil
 	}
 	return
@@ -126,16 +128,19 @@ func (conn *connection) WriteTo(p []byte, addr net.Addr, handler WriteHandler) {
 		pLen = maxRW
 	}
 	conn.wop.mode = writeTo
-	conn.wop.buf.Buf = &p[0]
-	conn.wop.buf.Len = uint32(pLen)
+	conn.wop.InitBuf(p)
 	conn.wop.sa = addrToSockaddr(conn.family, addr)
 	conn.wop.writeHandler = handler
 	err := windows.WSASendto(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, conn.wop.sa, &conn.wop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
+		err = &net.OpError{
+			Op:     writeTo.String(),
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSASendto", err)),
 		}
-		handler(0, wrapSyscallError("WSASend", err))
+		handler(0, err)
 		conn.wop.writeHandler = nil
 	}
 	return
@@ -187,10 +192,14 @@ func (conn *connection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
 	conn.rop.readMsgHandler = handler
 	err := windows.WSARecvMsg(conn.fd, &conn.rop.msg, &conn.rop.qty, &conn.rop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
+		err = &net.OpError{
+			Op:     readMsg.String(),
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSARecvMsg", err)),
 		}
-		handler(0, 0, 0, nil, wrapSyscallError("WSARecvMsg", err))
+		handler(0, 0, 0, nil, err)
 		conn.rop.readMsgHandler = nil
 	}
 	return
@@ -258,13 +267,16 @@ func (conn *connection) WriteMsg(p []byte, oob []byte, addr net.Addr, handler Wr
 		conn.wop.msg.Namelen = addrLen
 	}
 	conn.wop.writeMsgHandler = handler
-
-	err := windows.WSASendMsg(conn.fd, &conn.wop.msg, 0, &conn.wop.qty, &conn.wop.overlapped, nil)
+	err := windows.WSASendMsg(conn.fd, &conn.wop.msg, conn.wop.flags, &conn.wop.qty, &conn.wop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		if errors.Is(windows.ERROR_TIMEOUT, err) {
-			err = context.DeadlineExceeded
+		err = &net.OpError{
+			Op:     writeMsg.String(),
+			Net:    conn.net,
+			Source: conn.localAddr,
+			Addr:   conn.remoteAddr,
+			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSASendMsg", err)),
 		}
-		handler(0, 0, wrapSyscallError("WSASendMsg", err))
+		handler(0, 0, err)
 		conn.wop.writeMsgHandler = nil
 	}
 
