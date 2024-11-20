@@ -1,9 +1,9 @@
 package process
 
-type PriorityLeven int
+type PriorityLevel int
 
 const (
-	NORM PriorityLeven = iota
+	NORM PriorityLevel = iota
 	HIGH
 	IDLE
 	REALTIME

@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-func SetCurrentProcessPriority(level PriorityLeven) (err error) {
+func SetCurrentProcessPriority(level PriorityLevel) (err error) {
 	pid := os.Getpid()
 	n := 0
 	switch level {
@@ -23,6 +23,8 @@ func SetCurrentProcessPriority(level PriorityLeven) (err error) {
 	case IDLE:
 		n = 15
 		break
+	default:
+		return errors.New("invalid priority level")
 	}
 	err = unix.Setpriority(unix.PRIO_PROCESS, pid, n)
 	return

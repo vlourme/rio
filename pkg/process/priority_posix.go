@@ -2,7 +2,7 @@
 
 package process
 
-func SetCurrentProcessPriority(level PriorityLeven) (err error) {
+func SetCurrentProcessPriority(level PriorityLevel) (err error) {
 
 	return
 }

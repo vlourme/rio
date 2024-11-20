@@ -3,6 +3,7 @@ package rio
 import (
 	"errors"
 	"fmt"
+	"github.com/brickingsoft/rio/pkg/process"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
@@ -22,7 +23,8 @@ func Startup(options ...StartupOption) (err error) {
 	for _, option := range options {
 		err = option(opts)
 		if err != nil {
-			return err
+			err = errors.Join(errors.New("rio: startup failed"), err)
+			return
 		}
 	}
 	// executors
@@ -31,12 +33,24 @@ func Startup(options ...StartupOption) (err error) {
 			switch e := r.(type) {
 			case error:
 				err = e
+				if err != nil {
+					err = errors.Join(errors.New("rio: startup failed"), err)
+					return
+				}
 				break
 			case string:
 				err = errors.New(e)
+				if err != nil {
+					err = errors.Join(errors.New("rio: startup failed"), err)
+					return
+				}
 				break
 			default:
 				err = errors.New(fmt.Sprintf("%+v", r))
+				if err != nil {
+					err = errors.Join(errors.New("rio: startup failed"), err)
+					return
+				}
 				break
 			}
 		}
@@ -45,6 +59,14 @@ func Startup(options ...StartupOption) (err error) {
 
 	// sockets.completions
 	sockets.Startup(opts.CompletionOptions)
+	// process
+	if opts.ProcessPriorityLevel != process.NORM {
+		err = process.SetCurrentProcessPriority(opts.ProcessPriorityLevel)
+		if err != nil {
+			err = errors.Join(errors.New("rio: startup failed"), err)
+			return
+		}
+	}
 	return
 }
 
@@ -75,11 +97,21 @@ func ShutdownGracefully() error {
 }
 
 type StartupOptions struct {
-	CompletionOptions sockets.CompletionOptions
-	ExecutorsOptions  []rxp.Option
+	ProcessPriorityLevel process.PriorityLevel
+	CompletionOptions    sockets.CompletionOptions
+	ExecutorsOptions     []rxp.Option
 }
 
 type StartupOption func(*StartupOptions) error
+
+// WithProcessPriorityLevel
+// 设置进程优先级，该程序需要对应的权限。
+func WithProcessPriorityLevel(level process.PriorityLevel) StartupOption {
+	return func(o *StartupOptions) error {
+		o.ProcessPriorityLevel = level
+		return nil
+	}
+}
 
 // WithMinGOMAXPROCS
 // 最小 GOMAXPROCS 值，只在 linux 环境下有效。一般用于 docker 容器环境。

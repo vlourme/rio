@@ -2,9 +2,12 @@
 
 package process
 
-import "golang.org/x/sys/windows"
+import (
+	"errors"
+	"golang.org/x/sys/windows"
+)
 
-func SetCurrentProcessPriority(level PriorityLeven) (err error) {
+func SetCurrentProcessPriority(level PriorityLevel) (err error) {
 	pid := windows.CurrentProcess()
 	n := uint32(0)
 	switch level {
@@ -20,6 +23,8 @@ func SetCurrentProcessPriority(level PriorityLeven) (err error) {
 	case IDLE:
 		n = windows.IDLE_PRIORITY_CLASS
 		break
+	default:
+		return errors.New("invalid priority level")
 	}
 	err = windows.SetPriorityClass(pid, n)
 	return
