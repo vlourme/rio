@@ -104,11 +104,29 @@ type StartupOptions struct {
 
 type StartupOption func(*StartupOptions) error
 
-// WithProcessPriorityLevel
-// 设置进程优先级，该程序需要对应的权限。
-func WithProcessPriorityLevel(level process.PriorityLevel) StartupOption {
+// WithProcessRealtimePriorityClass
+// 设置进程优先级为实时，该程序需要对应的权限。
+func WithProcessRealtimePriorityClass() StartupOption {
 	return func(o *StartupOptions) error {
-		o.ProcessPriorityLevel = level
+		o.ProcessPriorityLevel = process.REALTIME
+		return nil
+	}
+}
+
+// WithProcessHighPriorityClass
+// 设置进程优先级为高，该程序需要对应的权限。
+func WithProcessHighPriorityClass() StartupOption {
+	return func(o *StartupOptions) error {
+		o.ProcessPriorityLevel = process.HIGH
+		return nil
+	}
+}
+
+// WithProcessIdlePriorityClass
+// 设置进程优先级为闲置，该程序需要对应的权限。
+func WithProcessIdlePriorityClass() StartupOption {
+	return func(o *StartupOptions) error {
+		o.ProcessPriorityLevel = process.IDLE
 		return nil
 	}
 }
