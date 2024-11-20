@@ -32,16 +32,16 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 	// opt
 	opt := Options{
-		ParallelAcceptors:                runtime.NumCPU() * 2,
-		MaxConnections:                   DefaultMaxConnections,
-		MaxConnectionsLimiterWaitTimeout: DefaultMaxConnectionsLimiterWaitTimeout,
-		TLSConfig:                        nil,
-		MultipathTCP:                     false,
-		DialPacketConnLocalAddr:          nil,
-		UnixListenerUnlinkOnClose:        false,
-		DefaultStreamReadTimeout:         0,
-		DefaultStreamWriteTimeout:        0,
-		PromiseMakeOptions:               make([]async.Option, 0, 1),
+		StreamListenerParallelAcceptors:                      runtime.NumCPU() * 2,
+		StreamListenerAcceptMaxConnections:                   DefaultStreamListenerAcceptMaxConnections,
+		StreamListenerAcceptMaxConnectionsLimiterWaitTimeout: DefaultStreamListenerAcceptMaxConnectionsLimiterWaitTimeout,
+		TLSConfig:                       nil,
+		MultipathTCP:                    false,
+		DialPacketConnLocalAddr:         nil,
+		StreamUnixListenerUnlinkOnClose: false,
+		ConnDefaultReadTimeout:          0,
+		ConnDefaultWriteTimeout:         0,
+		PromiseMakeOptions:              make([]async.Option, 0, 1),
 	}
 	for _, option := range options {
 		err = option(&opt)
@@ -51,9 +51,9 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 
 	// parallel acceptors
-	parallelAcceptors := opt.ParallelAcceptors
+	parallelAcceptors := opt.StreamListenerParallelAcceptors
 	// connections limiter
-	maxConnections := opt.MaxConnections
+	maxConnections := opt.StreamListenerAcceptMaxConnections
 	connectionsLimiter := timeslimiter.New(maxConnections)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
 	if maxConnections > 0 && maxConnections < int64(parallelAcceptors) {
@@ -70,14 +70,14 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 	// handle unix
 	if network == "unix" || network == "unixpacket" {
-		if opt.UnixListenerUnlinkOnClose {
+		if opt.StreamUnixListenerUnlinkOnClose {
 			unixListener, ok := inner.(sockets.UnixListener)
 			if !ok {
 				inner.Close(nil)
 				err = errors.Join(errors.New("rio: listen failed"), errors.New("unix listener is not a unix socket"))
 				return
 			}
-			unixListener.SetUnlinkOnClose(opt.UnixListenerUnlinkOnClose)
+			unixListener.SetUnlinkOnClose(opt.StreamUnixListenerUnlinkOnClose)
 		}
 	}
 
@@ -107,10 +107,10 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		network:                       network,
 		inner:                         inner,
 		connectionsLimiter:            connectionsLimiter,
-		connectionsLimiterWaitTimeout: opt.MaxConnectionsLimiterWaitTimeout,
+		connectionsLimiterWaitTimeout: opt.StreamListenerAcceptMaxConnectionsLimiterWaitTimeout,
 		tlsConfig:                     opt.TLSConfig,
-		defaultReadTimeout:            opt.DefaultStreamReadTimeout,
-		defaultWriteTimeout:           opt.DefaultStreamWriteTimeout,
+		defaultReadTimeout:            opt.ConnDefaultReadTimeout,
+		defaultWriteTimeout:           opt.ConnDefaultWriteTimeout,
 		parallelAcceptors:             parallelAcceptors,
 		acceptorPromises:              acceptorPromises,
 	}
@@ -197,20 +197,20 @@ func (ln *listener) acceptOne() {
 		case "tcp", "tcp4", "tcp6":
 			conn = newTCPConnection(ln.ctx, sock)
 			if ln.defaultReadTimeout > 0 {
-				_ = conn.SetReadDeadline(time.Now().Add(ln.defaultReadTimeout))
+				_ = conn.SetReadTimeout(ln.defaultReadTimeout)
 			}
 			if ln.defaultWriteTimeout > 0 {
-				_ = conn.SetWriteDeadline(time.Now().Add(ln.defaultWriteTimeout))
+				_ = conn.SetWriteTimeout(ln.defaultWriteTimeout)
 			}
 			ln.acceptorPromises.Succeed(conn)
 			break
 		case "unix", "unixpacket":
 			conn = newUnixConnection(ln.ctx, sock)
 			if ln.defaultReadTimeout > 0 {
-				_ = conn.SetReadDeadline(time.Now().Add(ln.defaultReadTimeout))
+				_ = conn.SetReadTimeout(ln.defaultReadTimeout)
 			}
 			if ln.defaultWriteTimeout > 0 {
-				_ = conn.SetWriteDeadline(time.Now().Add(ln.defaultWriteTimeout))
+				_ = conn.SetWriteTimeout(ln.defaultWriteTimeout)
 			}
 			ln.acceptorPromises.Succeed(conn)
 			break
