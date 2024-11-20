@@ -10,62 +10,71 @@ import (
 )
 
 const (
-	DefaultMaxConnections                   = int64(0)
-	DefaultMaxConnectionsLimiterWaitTimeout = 500 * time.Millisecond
+	DefaultStreamListenerAcceptMaxConnections                   = int64(0)
+	DefaultStreamListenerAcceptMaxConnectionsLimiterWaitTimeout = 500 * time.Millisecond
 )
 
 type Options struct {
-	ParallelAcceptors                int
-	MaxConnections                   int64
-	MaxConnectionsLimiterWaitTimeout time.Duration
-	TLSConfig                        *tls.Config
-	MultipathTCP                     bool
-	DialPacketConnLocalAddr          net.Addr
-	UnixListenerUnlinkOnClose        bool
-	DefaultStreamReadTimeout         time.Duration
-	DefaultStreamWriteTimeout        time.Duration
-	PromiseMakeOptions               []async.Option
+	StreamListenerParallelAcceptors                      int
+	StreamListenerAcceptMaxConnections                   int64
+	StreamListenerAcceptMaxConnectionsLimiterWaitTimeout time.Duration
+	StreamUnixListenerUnlinkOnClose                      bool
+	ConnDefaultReadTimeout                               time.Duration
+	ConnDefaultWriteTimeout                              time.Duration
+	TLSConfig                                            *tls.Config
+	MultipathTCP                                         bool
+	DialPacketConnLocalAddr                              net.Addr
+	PromiseMakeOptions                                   []async.Option
 }
 
 type Option func(options *Options) (err error)
 
-// WithParallelAcceptors
+// WithStreamListenerParallelAcceptors
 // 设置并行链接接受器数量。
 //
 // 默认值为 runtime.NumCPU() * 2。
-// 注意：当值大于 Options.MaxConnections，即 WithMaxConnections 所设置的值。
+// 注意：当值大于 Options.StreamListenerAcceptMaxConnections，即 WithStreamListenerAcceptMaxConnections 所设置的值。
 // 则并行链接接受器数为最大链接数。
-func WithParallelAcceptors(parallelAcceptors int) Option {
+func WithStreamListenerParallelAcceptors(parallelAcceptors int) Option {
 	return func(options *Options) (err error) {
 		cpuNum := runtime.NumCPU() * 2
 		if parallelAcceptors < 1 || cpuNum < parallelAcceptors {
 			parallelAcceptors = cpuNum
 		}
-		options.ParallelAcceptors = parallelAcceptors
+		options.StreamListenerParallelAcceptors = parallelAcceptors
 		return
 	}
 }
 
-// WithMaxConnections
+// WithStreamListenerAcceptMaxConnections
 // 设置最大链接数。默认为0即无上限。
-func WithMaxConnections(maxConnections int64) Option {
+func WithStreamListenerAcceptMaxConnections(maxConnections int64) Option {
 	return func(options *Options) (err error) {
 		if maxConnections > 0 {
-			options.MaxConnections = maxConnections
+			options.StreamListenerAcceptMaxConnections = maxConnections
 		}
 		return
 	}
 }
 
-// WithMaxConnectionsLimiterWaitTimeout
+// WithStreamListenerAcceptMaxConnectionsLimiterWaitTimeout
 // 设置最大链接数限制器等待超时。默认为500毫秒。
 //
 // 当10次都没新链接，当前协程会被挂起。
-func WithMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
+func WithStreamListenerAcceptMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
 	return func(options *Options) (err error) {
 		if maxConnectionsLimiterWaitTimeout > 0 {
-			options.MaxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
+			options.StreamListenerAcceptMaxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
 		}
+		return
+	}
+}
+
+// WithStreamUnixListenerUnlinkOnClose
+// 设置unix监听器是否在关闭时取消地址链接。用于链接型地址。
+func WithStreamUnixListenerUnlinkOnClose() Option {
+	return func(options *Options) (err error) {
+		options.StreamUnixListenerUnlinkOnClose = true
 		return
 	}
 }
@@ -97,32 +106,23 @@ func WithDialPacketConnLocalAddr(network string, addr string) Option {
 	}
 }
 
-// WithUnixListenerUnlinkOnClose
-// 设置unix监听器是否在关闭时取消地址链接。用于链接型地址。
-func WithUnixListenerUnlinkOnClose() Option {
-	return func(options *Options) (err error) {
-		options.UnixListenerUnlinkOnClose = true
-		return
-	}
-}
-
-// WithDefaultStreamReadTimeout
+// WithConnDefaultReadTimeout
 // 设置默认流链接读超时。
-func WithDefaultStreamReadTimeout(d time.Duration) Option {
+func WithConnDefaultReadTimeout(d time.Duration) Option {
 	return func(options *Options) (err error) {
 		if d > 0 {
-			options.DefaultStreamReadTimeout = d
+			options.ConnDefaultReadTimeout = d
 		}
 		return
 	}
 }
 
-// WithDefaultStreamWriteTimeout
+// WithConnDefaultWriteTimeout
 // 设置默认流链接写超时。
-func WithDefaultStreamWriteTimeout(d time.Duration) Option {
+func WithConnDefaultWriteTimeout(d time.Duration) Option {
 	return func(options *Options) (err error) {
 		if d > 0 {
-			options.DefaultStreamWriteTimeout = d
+			options.ConnDefaultWriteTimeout = d
 		}
 		return
 	}
