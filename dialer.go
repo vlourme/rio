@@ -61,7 +61,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			case "udp", "udp4", "udp6":
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
-					inner.Close(func(err error) {})
+					go inner.Close(func(err error) {})
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
 					break
 				}
@@ -70,7 +70,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			case "unix", "unixgram", "unixpacket":
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
-					inner.Close(func(err error) {})
+					go inner.Close(func(err error) {})
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
 					break
 				}
@@ -79,7 +79,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			case "ip", "ip4", "ip6":
 				packetInner, ok := inner.(sockets.PacketConnection)
 				if !ok {
-					inner.Close(func(err error) {})
+					go inner.Close(func(err error) {})
 					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
 					break
 				}
