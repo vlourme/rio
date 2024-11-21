@@ -177,28 +177,34 @@ func (ln *listener) acceptOne() {
 	if !ln.ok() {
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
-	waitErr := ln.connectionsLimiter.Wait(ctx)
-	cancel()
+	limiterCtx, limiterCtxCancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
+	waitErr := ln.connectionsLimiter.Wait(limiterCtx)
+	limiterCtxCancel()
 	if waitErr != nil {
-		// not handle waitErr
-		// when ln ctx canceled, then ln is closed
+		if ln.ok() {
+			// just wait timeout
+			runtime.Gosched()
+		}
+		ln.acceptOne()
 		return
 	}
 	ln.inner.Accept(func(sock sockets.Connection, err error) {
 		if err != nil {
-			if !ln.ok() && sockets.IsUnexpectedCompletionError(err) {
+			ln.connectionsLimiter.Revert()
+			if !ln.ok() || sockets.IsUnexpectedCompletionError(err) {
 				// discard errors when ln was closed
 				return
 			}
 			ln.acceptorPromises.Fail(err)
+			ln.acceptOne()
 			return
 		}
+		// handle tls
 		if ln.tlsConfig != nil {
 			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
 		}
 
+		// create conn
 		var conn Connection
 
 		switch ln.network {
@@ -210,8 +216,10 @@ func (ln *listener) acceptOne() {
 			break
 		default:
 			// not matched, so close it
-			sock.Close(func(err error) {})
+			conn = newConnection(ln.ctx, sock)
+			conn.Close().OnComplete(async.DiscardVoidHandler)
 			ln.acceptorPromises.Fail(ErrNetworkUnmatched)
+			ln.acceptOne()
 			return
 		}
 		// set default
@@ -220,6 +228,7 @@ func (ln *listener) acceptOne() {
 			if err != nil {
 				conn.Close().OnComplete(async.DiscardVoidHandler)
 				ln.acceptorPromises.Fail(err)
+				ln.acceptOne()
 				return
 			}
 		}
@@ -228,6 +237,7 @@ func (ln *listener) acceptOne() {
 			if err != nil {
 				conn.Close().OnComplete(async.DiscardVoidHandler)
 				ln.acceptorPromises.Fail(err)
+				ln.acceptOne()
 				return
 			}
 		}
@@ -236,6 +246,7 @@ func (ln *listener) acceptOne() {
 			if err != nil {
 				conn.Close().OnComplete(async.DiscardVoidHandler)
 				ln.acceptorPromises.Fail(err)
+				ln.acceptOne()
 				return
 			}
 		}
@@ -244,6 +255,7 @@ func (ln *listener) acceptOne() {
 			if err != nil {
 				conn.Close().OnComplete(async.DiscardVoidHandler)
 				ln.acceptorPromises.Fail(err)
+				ln.acceptOne()
 				return
 			}
 		}
