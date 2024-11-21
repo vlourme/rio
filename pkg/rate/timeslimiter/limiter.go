@@ -38,8 +38,7 @@ func (bucket *Bucket) Wait(ctx context.Context) (err error) {
 			err = ctx.Err()
 			return
 		default:
-			n := bucket.tokens.Add(1)
-			if n <= bucket.upperbound {
+			if n := bucket.tokens.Add(1); n <= bucket.upperbound {
 				return
 			}
 			bucket.tokens.Add(-1)
@@ -116,6 +115,9 @@ func TryRevert(ctx context.Context) {
 }
 
 func Tokens(ctx context.Context) int64 {
-	bucket := From(ctx)
-	return bucket.Tokens()
+	bucket, has := TryFrom(ctx)
+	if has {
+		return bucket.Tokens()
+	}
+	return 0
 }
