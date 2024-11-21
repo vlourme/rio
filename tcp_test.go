@@ -19,7 +19,7 @@ func TestListenTCP(t *testing.T) {
 		ctx,
 		"tcp", "127.0.0.1:9000",
 		rio.WithStreamListenerParallelAcceptors(1),
-		rio.WithStreamListenerAcceptMaxConnections(10),
+		rio.WithStreamListenerAcceptMaxConnections(5),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)
