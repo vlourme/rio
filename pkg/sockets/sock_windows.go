@@ -80,6 +80,8 @@ type connection struct {
 	localAddr     net.Addr
 	remoteAddr    net.Addr
 	connected     atomic.Bool
+	rto           time.Duration
+	wto           time.Duration
 	rop           operation
 	wop           operation
 }
@@ -114,22 +116,13 @@ func (conn *connection) SetWriteBuffer(n int) (err error) {
 	return
 }
 
-func (conn *connection) SetReadTimeout(_ time.Duration) (err error) {
-	//millis := 0
-	//if d > 0 {
-	//	millis = int(roundDurationUp(d, time.Millisecond))
-	//}
-	//err = windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_RCVTIMEO, millis)
-	//if err != nil {
-	//	err = wrapSyscallError("setsockopt", err)
-	//	return
-	//}
-	// async io do not support SO_RCVTIMEO
+func (conn *connection) SetReadTimeout(d time.Duration) (err error) {
+	conn.rto = d
 	return
 }
 
-func (conn *connection) SetWriteTimeout(_ time.Duration) (err error) {
-	// async io do not support SO_SNDTIMEO
+func (conn *connection) SetWriteTimeout(d time.Duration) (err error) {
+	conn.wto = d
 	return
 }
 
@@ -196,8 +189,16 @@ func (conn *connection) Read(p []byte, handler ReadHandler) {
 	conn.rop.mode = read
 	conn.rop.InitBuf(p)
 	conn.rop.readHandler = handler
+
+	if timeout := conn.rto; timeout > 0 {
+		timer := getOperationTimer()
+		conn.rop.timer = timer
+		timer.Start(timeout, &conn.rop)
+	}
+
 	err := windows.WSARecv(conn.fd, &conn.rop.buf, 1, &conn.rop.qty, &conn.rop.flags, &conn.rop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		// handle err
 		err = &net.OpError{
 			Op:     read.String(),
 			Net:    conn.net,
@@ -206,7 +207,12 @@ func (conn *connection) Read(p []byte, handler ReadHandler) {
 			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSARecv", err)),
 		}
 		handler(0, err)
+		// clean
 		conn.rop.readHandler = nil
+		timer := conn.rop.timer
+		timer.Done()
+		putOperationTimer(timer)
+		conn.rop.timer = nil
 	}
 }
 
@@ -243,8 +249,16 @@ func (conn *connection) Write(p []byte, handler WriteHandler) {
 	conn.wop.mode = write
 	conn.wop.InitBuf(p)
 	conn.wop.writeHandler = handler
+
+	if timeout := conn.wto; timeout > 0 {
+		timer := getOperationTimer()
+		conn.wop.timer = timer
+		timer.Start(timeout, &conn.wop)
+	}
+
 	err := windows.WSASend(conn.fd, &conn.wop.buf, 1, &conn.wop.qty, conn.wop.flags, &conn.wop.overlapped, nil)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		// handle err
 		err = &net.OpError{
 			Op:     write.String(),
 			Net:    conn.net,
@@ -253,7 +267,12 @@ func (conn *connection) Write(p []byte, handler WriteHandler) {
 			Err:    errors.Join(ErrUnexpectedCompletion, wrapSyscallError("WSASend", err)),
 		}
 		handler(0, err)
+		// clean
 		conn.wop.writeHandler = nil
+		timer := conn.wop.timer
+		timer.Done()
+		putOperationTimer(timer)
+		conn.wop.timer = nil
 	}
 }
 

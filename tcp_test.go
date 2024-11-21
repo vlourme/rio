@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestListenTCP(t *testing.T) {
@@ -122,6 +123,8 @@ func TestTCP(t *testing.T) {
 		wgDone(ctx)
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
+
+		_ = conn.SetReadTimeout(500 * time.Millisecond)
 
 		wgAdd(ctx)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {

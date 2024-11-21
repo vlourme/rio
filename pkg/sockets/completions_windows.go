@@ -3,7 +3,6 @@
 package sockets
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
@@ -68,18 +67,28 @@ func (com *Completions) run() {
 				if qty == 0 && overlapped == nil { // exit
 					break
 				}
-				// handle iocp errors
-				if getQueuedCompletionStatusErr != nil {
-					if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_TIMEOUT) {
-						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr, context.DeadlineExceeded)
-					} else if errors.Is(getQueuedCompletionStatusErr, windows.ERROR_OPERATION_ABORTED) {
-						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr, context.Canceled)
-					} else {
-						getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
-					}
-				}
 				// convert to op
 				op := (*operation)(unsafe.Pointer(overlapped))
+				// handle iocp errors
+				if getQueuedCompletionStatusErr != nil {
+					// handle timeout
+					if timer := op.timer; timer != nil {
+						timer.Done()
+						putOperationTimer(timer)
+						op.timer = nil
+						if op.deadlineExceeded {
+							getQueuedCompletionStatusErr = errors.Join(ErrOperationDeadlineExceeded, getQueuedCompletionStatusErr)
+							op.deadlineExceeded = false
+						}
+					}
+					getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
+				} else {
+					if timer := op.timer; timer != nil {
+						timer.Done()
+						putOperationTimer(timer)
+						op.timer = nil
+					}
+				}
 				op.complete(int(qty), getQueuedCompletionStatusErr)
 				runtime.KeepAlive(op.conn)
 			}

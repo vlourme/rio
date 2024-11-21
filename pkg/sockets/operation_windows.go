@@ -33,6 +33,9 @@ type operation struct {
 	readFromHandler ReadFromHandler
 	readMsgHandler  ReadMsgHandler
 	writeMsgHandler WriteMsgHandler
+	// fields used by timout
+	timer            *operationTimer
+	deadlineExceeded bool
 }
 
 func (op *operation) complete(qty int, err error) {
@@ -65,6 +68,14 @@ func (op *operation) complete(qty int, err error) {
 		break
 	}
 	op.reset()
+}
+
+func (op *operation) Cancel() {
+	// only canceled succeed then deadline exceeded
+	// else the op was success handle and the overlapped will be not found in iocp
+	if err := windows.CancelIoEx(op.conn.fd, &op.overlapped); err == nil {
+		op.deadlineExceeded = true
+	}
 }
 
 func (op *operation) reset() {

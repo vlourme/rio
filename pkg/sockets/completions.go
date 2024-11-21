@@ -7,7 +7,8 @@ import (
 )
 
 var (
-	ErrUnexpectedCompletion = errors.New("sockets: unexpected completion error")
+	ErrUnexpectedCompletion      = errors.New("sockets: unexpected completion error")
+	ErrOperationDeadlineExceeded = errors.New("sockets: operation deadline exceeded")
 )
 
 func IsUnexpectedCompletionError(err error) bool {

@@ -8,7 +8,6 @@ import (
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
-	"time"
 )
 
 // ListenPacket
@@ -81,11 +80,6 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		return
 	}
 
-	if conn.rto > 0 {
-		timeout := time.Now().Add(conn.rto)
-		promise.SetDeadline(timeout)
-	}
-
 	conn.inner.ReadFrom(p, func(n int, addr net.Addr, err error) {
 		if err != nil {
 			conn.rb.AllocatedWrote(0)
@@ -119,11 +113,6 @@ func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Fut
 			future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
 		}
 		return
-	}
-
-	if conn.wto > 0 {
-		timeout := time.Now().Add(conn.wto)
-		promise.SetDeadline(timeout)
 	}
 
 	conn.inner.WriteTo(p, addr, func(n int, err error) {
@@ -176,11 +165,6 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		return
 	}
 
-	if conn.rto > 0 {
-		timeout := time.Now().Add(conn.rto)
-		promise.SetDeadline(timeout)
-	}
-
 	conn.inner.ReadMsg(p, oob, func(n int, oobn int, flags int, addr net.Addr, err error) {
 		if err != nil {
 			conn.rb.AllocatedWrote(0)
@@ -216,11 +200,6 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 			future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, promiseErr)
 		}
 		return
-	}
-
-	if conn.wto > 0 {
-		timeout := time.Now().Add(conn.wto)
-		promise.SetDeadline(timeout)
 	}
 
 	conn.inner.WriteMsg(p, oob, addr, func(n int, oobn int, err error) {

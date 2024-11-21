@@ -36,8 +36,6 @@ func newConnection(ctx context.Context, inner sockets.Connection) (conn *connect
 		inner: inner,
 		rb:    transport.NewInboundBuffer(),
 		rbs:   defaultReadBufferSize,
-		rto:   0,
-		wto:   0,
 	}
 	return
 }
@@ -47,8 +45,6 @@ type connection struct {
 	inner sockets.Connection
 	rb    transport.InboundBuffer
 	rbs   int
-	rto   time.Duration
-	wto   time.Duration
 }
 
 func (conn *connection) Context() (ctx context.Context) {
@@ -80,7 +76,6 @@ func (conn *connection) RemoteAddr() (addr net.Addr) {
 
 func (conn *connection) SetReadTimeout(d time.Duration) (err error) {
 	err = conn.inner.SetReadTimeout(d)
-	conn.rto = d
 	return
 }
 
@@ -124,11 +119,6 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		return
 	}
 
-	if conn.rto > 0 {
-		timeout := time.Now().Add(conn.rto)
-		promise.SetDeadline(timeout)
-	}
-
 	conn.inner.Read(p, func(n int, err error) {
 		if err != nil {
 			conn.rb.AllocatedWrote(0)
@@ -163,11 +153,6 @@ func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Futur
 			future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
 		}
 		return
-	}
-
-	if conn.wto > 0 {
-		timeout := time.Now().Add(conn.wto)
-		promise.SetDeadline(timeout)
 	}
 
 	conn.inner.Write(p[wrote:], func(n int, err error) {
