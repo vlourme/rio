@@ -27,6 +27,14 @@ func Startup(options ...StartupOption) (err error) {
 			return
 		}
 	}
+	// process
+	if opts.ProcessPriorityLevel != process.NORM {
+		err = process.SetCurrentProcessPriority(opts.ProcessPriorityLevel)
+		if err != nil {
+			err = errors.Join(errors.New("rio: startup failed"), err)
+			return
+		}
+	}
 	// executors
 	defer func() {
 		if r := recover(); r != nil {
@@ -59,14 +67,6 @@ func Startup(options ...StartupOption) (err error) {
 
 	// sockets.completions
 	sockets.Startup(opts.CompletionOptions)
-	// process
-	if opts.ProcessPriorityLevel != process.NORM {
-		err = process.SetCurrentProcessPriority(opts.ProcessPriorityLevel)
-		if err != nil {
-			err = errors.Join(errors.New("rio: startup failed"), err)
-			return
-		}
-	}
 	return
 }
 
