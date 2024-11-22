@@ -2,6 +2,10 @@ package bytebufferpool_test
 
 import (
 	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+	"math"
+	"os"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -48,4 +52,32 @@ func TestBuffer_Read(t *testing.T) {
 	p := make([]byte, 5)
 	buf.Read(p)
 	t.Log(string(p), string(buf.Peek(5)))
+}
+
+// BenchmarkBuffer_Read-20    	20722989	        60.08 ns/op	       0 B/op	       0 allocs/op
+func BenchmarkBuffer_Read(b *testing.B) {
+	buf := bytebufferpool.Get()
+	defer bytebufferpool.Put(buf)
+	pagesize := os.Getpagesize()
+	firstData := []byte(strings.Repeat("abcd", pagesize/8))
+	secondData := []byte(strings.Repeat("defg", pagesize/4))
+	p := make([]byte, pagesize)
+	_, _ = buf.Write(firstData)
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = buf.Write(secondData)
+		_, _ = buf.Read(p)
+	}
+}
+
+func TestGrow(t *testing.T) {
+	s := make([]byte, 8)
+	t.Log(cap(slices.Grow(s, 64)))
+}
+
+func TestXXX(t *testing.T) {
+	n := 0
+	pagesize := os.Getpagesize()
+	adjustedSize := int(math.Ceil(float64(n)/float64(pagesize)) * float64(pagesize))
+	t.Log(adjustedSize, n-adjustedSize, n)
 }
