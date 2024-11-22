@@ -39,17 +39,6 @@ func netSocket(family int, sotype int, protocol int, ipv6only bool) (fd windows.
 		_ = windows.Closesocket(fd)
 		return
 	}
-	// try set SO_BROADCAST
-	if sotype == syscall.SOCK_DGRAM {
-		if family == windows.AF_INET || family == windows.AF_INET6 {
-			setBroadcaseErr := windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_BROADCAST, 1)
-			if setBroadcaseErr != nil {
-				err = setBroadcaseErr
-				_ = windows.Closesocket(fd)
-				return
-			}
-		}
-	}
 	return
 }
 

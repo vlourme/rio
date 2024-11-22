@@ -144,7 +144,7 @@ func Dial(network string, address string, opt Options, handler DialHandler) {
 			handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: errors.New("invalid socket address type")})
 			return
 		}
-		conn, err := newPacketConnection(network, family, windows.SOCK_DGRAM, laddr, remoteAddr, ipv6only, 0)
+		conn, err := newPacketConnection(network, family, windows.SOCK_DGRAM, laddr, remoteAddr, ipv6only, 0, nil)
 		if err != nil {
 			handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: raddr, Err: err})
 			return
@@ -166,7 +166,7 @@ func Dial(network string, address string, opt Options, handler DialHandler) {
 			handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: errors.New("invalid socket address type")})
 			return
 		}
-		conn, err := newPacketConnection(network, family, windows.SOCK_RAW, laddr, remoteAddr, ipv6only, 0)
+		conn, err := newPacketConnection(network, family, windows.SOCK_RAW, laddr, remoteAddr, ipv6only, 0, nil)
 		if err != nil {
 			handler(nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: raddr, Err: err})
 			return

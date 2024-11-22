@@ -10,14 +10,38 @@ import (
 	"unsafe"
 )
 
-func newPacketConnection(network string, family int, sotype int, laddr net.Addr, raddr net.Addr, ipv6only bool, proto int) (pc PacketConnection, err error) {
+func newPacketConnection(network string, family int, sotype int, laddr net.Addr, raddr net.Addr, ipv6only bool, proto int, ifi *net.Interface) (pc PacketConnection, err error) {
 	// conn
 	conn, connErr := newConnection(network, family, sotype, proto, ipv6only)
 	if connErr != nil {
 		err = connErr
 		return
 	}
+	isListenMulticastUDP := false
+	var gaddr *net.UDPAddr
 	if laddr != nil {
+		udpAddr, isUdpAddr := laddr.(*net.UDPAddr)
+		if isUdpAddr {
+			if udpAddr.IP != nil && udpAddr.IP.IsMulticast() {
+				isListenMulticastUDP = true
+				gaddr = udpAddr
+				ludpaddr := *udpAddr
+				setDefaultMulticastSockoptsErr := windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_REUSEADDR, 1)
+				if setDefaultMulticastSockoptsErr != nil {
+					err = wrapSyscallError("setsockopt", setDefaultMulticastSockoptsErr)
+					_ = conn.Closesocket()
+					return
+				}
+				switch family {
+				case windows.AF_INET:
+					ludpaddr.IP = net.IPv4zero
+				case windows.AF_INET6:
+					ludpaddr.IP = net.IPv6unspecified
+				}
+				laddr = &ludpaddr
+			}
+		}
+
 		lsa := addrToSockaddr(family, laddr)
 		bindErr := windows.Bind(conn.fd, lsa)
 		if bindErr != nil {
@@ -28,6 +52,17 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 		conn.localAddr = laddr
 	}
 	if raddr != nil {
+		// try set SO_BROADCAST
+		if sotype == syscall.SOCK_DGRAM && (family == windows.AF_INET || family == windows.AF_INET6) {
+			setBroadcaseErr := windows.SetsockoptInt(conn.fd, windows.SOL_SOCKET, windows.SO_BROADCAST, 1)
+			if setBroadcaseErr != nil {
+				err = wrapSyscallError("setsockopt", setBroadcaseErr)
+				_ = conn.Closesocket()
+				return
+			}
+		}
+
+		// connect
 		rsa := addrToSockaddr(family, raddr)
 		connectErr := windows.Connect(conn.fd, rsa)
 		if connectErr != nil {
@@ -38,6 +73,41 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 		conn.remoteAddr = raddr
 		lsa, _ := windows.Getsockname(conn.fd)
 		conn.localAddr = sockaddrToAddr(network, lsa)
+	}
+
+	// listen multicast udp
+	if isListenMulticastUDP && gaddr != nil {
+		if ip4 := gaddr.IP.To4(); ip4 != nil {
+			if ifi != nil {
+				if err = setIPv4MulticastInterface(conn, ifi); err != nil {
+					_ = conn.Closesocket()
+					return
+				}
+			}
+			if err = setIPv4MulticastLoopback(conn, false); err != nil {
+				_ = conn.Closesocket()
+				return
+			}
+			if err = joinIPv4Group(conn, ifi, ip4); err != nil {
+				_ = conn.Closesocket()
+				return
+			}
+		} else {
+			if ifi != nil {
+				if err = setIPv6MulticastInterface(conn, ifi); err != nil {
+					_ = conn.Closesocket()
+					return
+				}
+			}
+			if err = setIPv6MulticastLoopback(conn, false); err != nil {
+				_ = conn.Closesocket()
+				return
+			}
+			if err = joinIPv6Group(conn, ifi, gaddr.IP); err != nil {
+				_ = conn.Closesocket()
+				return
+			}
+		}
 	}
 
 	// CreateIoCompletionPort

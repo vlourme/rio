@@ -57,6 +57,56 @@ func TestPacket(t *testing.T) {
 	wg.Wait()
 }
 
+func TestMulticastUDP(t *testing.T) {
+	conn, lnErr := sockets.ListenPacket("udp", "224.0.0.0:9000", sockets.Options{})
+	if lnErr != nil {
+		t.Error(lnErr)
+		return
+	}
+	defer func(conn sockets.PacketConnection) {
+		conn.Close(func(err error) {
+			if err != nil {
+				t.Error(err)
+			}
+		})
+	}(conn)
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
+	go func(conn sockets.PacketConnection) {
+		p := make([]byte, 1024)
+		conn.ReadFrom(p, func(n int, addr net.Addr, err error) {
+			t.Log("srv read:", n, addr, err, string(p[:n]))
+			go func(conn sockets.PacketConnection) {
+				conn.WriteTo(p[:n], addr, func(n int, err error) {
+					t.Log("srv write:", n, err)
+					wg.Done()
+				})
+			}(conn)
+		})
+	}(conn)
+
+	wg.Add(1)
+	sockets.Dial("udp", ":9000", sockets.Options{}, func(conn sockets.Connection, err error) {
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		go func(conn sockets.Connection) {
+			conn.Write([]byte("hello world"), func(n int, wErr error) {
+				t.Log("cli write:", n, wErr)
+				go func(conn sockets.Connection) {
+					p := make([]byte, 1024)
+					conn.Read(p, func(n int, rErr error) {
+						t.Log("cli read:", n, string(p[:n]), rErr)
+						wg.Done()
+					})
+				}(conn)
+			})
+		}(conn)
+	})
+	wg.Wait()
+}
+
 func TestPacket_Msg(t *testing.T) {
 	conn, lnErr := sockets.ListenPacket("udp", ":9000", sockets.Options{})
 	if lnErr != nil {

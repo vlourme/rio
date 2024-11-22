@@ -23,7 +23,11 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 	// executors
 	ctx = rxp.With(ctx, getExecutors())
 	// inner
-	inner, innerErr := sockets.ListenPacket(network, addr, sockets.Options{})
+	inner, innerErr := sockets.ListenPacket(network, addr, sockets.Options{
+		MultipathTCP:            false,
+		DialPacketConnLocalAddr: nil,
+		MulticastInterface:      opt.ListenMulticastUDPInterface,
+	})
 	if innerErr != nil {
 		err = errors.Join(errors.New("rio: listen packet failed"), innerErr)
 		return

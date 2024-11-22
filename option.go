@@ -28,6 +28,7 @@ type Options struct {
 	MultipathTCP                                         bool
 	DialPacketConnLocalAddr                              net.Addr
 	PromiseMakeOptions                                   []async.Option
+	ListenMulticastUDPInterface                          *net.Interface
 }
 
 type Option func(options *Options) (err error)
@@ -170,6 +171,15 @@ func WithDefaultInboundBufferSize(n int) Option {
 func WithPromiseMakeOptions(promiseMakeOptions ...async.Option) Option {
 	return func(options *Options) (err error) {
 		options.PromiseMakeOptions = append(options.PromiseMakeOptions, promiseMakeOptions...)
+		return
+	}
+}
+
+// WithListenMulticastUDPInterface
+// 设置组播UDP的网卡。
+func WithListenMulticastUDPInterface(iface *net.Interface) Option {
+	return func(options *Options) (err error) {
+		options.ListenMulticastUDPInterface = iface
 		return
 	}
 }
