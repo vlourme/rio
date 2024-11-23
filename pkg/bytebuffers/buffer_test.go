@@ -119,17 +119,3 @@ func BenchmarkBuffer(b *testing.B) {
 	}
 	b.ReportMetric(float64(failed.Load()), "failed")
 }
-
-func TestName(t *testing.T) {
-	minBitSize := 6
-	minSize := 1 << minBitSize
-	steps := 20
-
-	n := 1 << (minBitSize + steps - 1)
-	t.Log(n, n < 64*1024*1024, n/(1024*1024))
-
-	for i := 0; i < steps; i++ {
-		mm := minSize << i
-		t.Log(mm, mm/(1024*1024))
-	}
-}
