@@ -40,24 +40,6 @@ type inboundBuffer struct {
 	b bytebuffers.Buffer
 }
 
-func (buf *inboundBuffer) ReadBytes(delim byte) (line []byte, err error) {
-	if buf.b == nil {
-		err = io.EOF
-		return
-	}
-	line, err = buf.b.ReadBytes(delim)
-	return
-}
-
-func (buf *inboundBuffer) Index(delim byte) (i int) {
-	if buf.b == nil {
-		i = -1
-		return
-	}
-	i = buf.b.Index(delim)
-	return
-}
-
 func (buf *inboundBuffer) Allocate(size int) (p []byte, err error) {
 	if buf.b == nil {
 		buf.b = getBuffer()
@@ -83,16 +65,6 @@ func (buf *inboundBuffer) Write(p []byte) (n int, err error) {
 	}
 	n, err = buf.b.Write(p)
 	return
-}
-
-func (buf *inboundBuffer) Close() {
-	if buf.b != nil {
-		if buf.b.WritePending() {
-			_ = buf.b.AllocatedWrote(0)
-		}
-		putBuffer(buf.b)
-		buf.b = nil
-	}
 }
 
 func (buf *inboundBuffer) Peek(n int) (p []byte) {
@@ -132,10 +104,32 @@ func (buf *inboundBuffer) Discard(n int) {
 		return
 	}
 	_ = buf.b.Discard(n)
-	if buf.b.Len() == 0 {
+	if buf.b.Len() == 0 && !buf.b.WritePending() {
 		putBuffer(buf.b)
 		buf.b = nil
 	}
+	return
+}
+
+func (buf *inboundBuffer) ReadBytes(delim byte) (line []byte, err error) {
+	if buf.b == nil {
+		err = io.EOF
+		return
+	}
+	line, err = buf.b.ReadBytes(delim)
+	if buf.b.Len() == 0 && !buf.b.WritePending() {
+		putBuffer(buf.b)
+		buf.b = nil
+	}
+	return
+}
+
+func (buf *inboundBuffer) Index(delim byte) (i int) {
+	if buf.b == nil {
+		i = -1
+		return
+	}
+	i = buf.b.Index(delim)
 	return
 }
 
@@ -145,4 +139,16 @@ func (buf *inboundBuffer) Length() (n int) {
 	}
 	n = buf.b.Len()
 	return
+}
+
+func (buf *inboundBuffer) Close() {
+	if buf.b != nil {
+		if buf.b.WritePending() {
+			if awErr := buf.b.AllocatedWrote(0); awErr != nil {
+				return
+			}
+		}
+		putBuffer(buf.b)
+		buf.b = nil
+	}
 }
