@@ -1,6 +1,7 @@
 package bytebuffers_test
 
 import (
+	"bytes"
 	"github.com/brickingsoft/rio/pkg/bytebuffers"
 	"os"
 	"strings"
@@ -70,17 +71,18 @@ func TestBuffer_Write(t *testing.T) {
 		t.Fatal(wErr)
 	}
 	t.Log("w2", wn, buf.Len(), buf.Cap(), len(secondData)) // w2 4096 4608 8192 4096
-	p := make([]byte, pagesize)
+	p := make([]byte, pagesize/8)
 	rn, rErr := buf.Read(p)
 	if rErr != nil {
 		t.Fatal(rErr)
 	}
-	t.Log("r1", rn, buf.Len(), buf.Cap()) // r1 4096 512 8192
+	t.Log("r1", rn, buf.Len(), buf.Cap(), bytes.Equal(p, firstData)) // r1 4096 512 8192
+	p = make([]byte, pagesize)
 	rn, rErr = buf.Read(p)
 	if rErr != nil {
 		t.Fatal(rErr)
 	}
-	t.Log("r2", rn, buf.Len(), buf.Cap()) // r2 512 0 8192
+	t.Log("r2", rn, buf.Len(), buf.Cap(), bytes.Equal(p, secondData)) // r2 512 0 8192
 
 	wn, wErr = buf.Write(secondData)
 	if wErr != nil {

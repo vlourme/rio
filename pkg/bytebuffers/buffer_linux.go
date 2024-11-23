@@ -13,11 +13,18 @@ import (
 
 func (buf *buffer) Close() (err error) {
 	runtime.SetFinalizer(buf, nil)
+	buf.zero()
 	err = munmap(uintptr(unsafe.Pointer(&buf.b[0])), doubleSize(buf.c))
 	if err != nil {
 		err = fmt.Errorf("bytebuffers.Buffer: close failed, %v", err)
 	}
 	return
+}
+
+func (buf *buffer) zero() {
+	for i := 0; i < buf.c; i++ {
+		buf.b[i] = 0
+	}
 }
 
 func (buf *buffer) grow(n int) (err error) {
@@ -44,13 +51,28 @@ func (buf *buffer) grow(n int) (err error) {
 
 	// has no more place
 	adjustedSize := adjustBufferSize(n)
-
-	nb, nbErr := allocateBuffer(adjustedSize)
+	allocated := buf.c + adjustedSize
+	nb, nbErr := allocateBuffer(allocated)
 	if nbErr != nil {
 		err = nbErr
 		return
 	}
-	copy(nb, buf.b[buf.r:buf.w])
+
+	if buf.b != nil {
+		// cp into nb
+		copy(nb, buf.b[buf.r:buf.w])
+		// release ob
+		buf.zero()
+		ob := buf.b
+		oc := buf.c
+		err = munmap(uintptr(unsafe.Pointer(&ob[0])), doubleSize(oc))
+		if err != nil {
+			err = fmt.Errorf("bytebuffers.Buffer: grow failed, %v", err)
+			return
+		}
+	}
+
+	// link to nb
 	buf.b = nb
 	buf.w = buf.w - buf.r
 	buf.a = buf.w
@@ -89,20 +111,20 @@ func allocateBuffer(size int) (b []byte, err error) {
 
 	_, mmap1Err := mmap(vaddr, size, syscall.MAP_SHARED|syscall.MAP_FIXED, fdptr)
 	if mmap1Err != nil {
-		err = fmt.Errorf("first mmap first fixed failed, %v", mmap1Err)
+		err = fmt.Errorf("first mmap fixed failed, %v", mmap1Err)
 		return
 	}
 
 	_, mmap2Err := mmap(vaddr+uintptr(size), size, syscall.MAP_SHARED|syscall.MAP_FIXED, fdptr)
 	if mmap2Err != nil {
-		err = fmt.Errorf("first mmap second fixed failed, %v", mmap2Err)
+		err = fmt.Errorf("second mmap fixed failed, %v", mmap2Err)
 		return
 	}
 
 	_ = syscall.Close(fd)
 
 	bptr := (*byte)(unsafe.Pointer(vaddr))
-	b = unsafe.Slice(bptr, doubleSize(size))
+	b = unsafe.Slice(bptr, size)
 
 	return
 }
