@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/bytebuffers"
 	"io"
-	"os"
 )
 
 type InboundReader interface {
@@ -29,19 +28,11 @@ func NewInboundBuffer() InboundBuffer {
 	return new(inboundBuffer)
 }
 
-var (
-	pagesize   = os.Getpagesize()
-	pagesize16 = pagesize * 16
-)
-
 func getBuffer() bytebuffers.Buffer {
 	return bytebuffers.Get()
 }
 
 func putBuffer(buf bytebuffers.Buffer) {
-	if buf.Cap() > pagesize16 {
-		return
-	}
 	bytebuffers.Put(buf)
 }
 

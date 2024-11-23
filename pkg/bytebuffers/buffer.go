@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 )
 
 type Buffer interface {
@@ -23,12 +24,11 @@ type Buffer interface {
 	AllocatedWrote(n int) (err error)
 	WritePending() bool
 	Reset()
+	Close() (err error)
 }
 
 var (
-	pagesize        = os.Getpagesize()
-	halfPagesize    = pagesize / 2
-	quartorPagesize = halfPagesize / 2
+	pagesize = os.Getpagesize()
 )
 
 var (
@@ -61,6 +61,10 @@ func NewBufferWithSize(size int) Buffer {
 		panic(fmt.Sprintf("bytebuffers.Buffer: new buffer with size failed, %v", err))
 		return nil
 	}
+	runtime.SetFinalizer(b, func(buf *buffer) {
+		_ = buf.Close()
+		runtime.KeepAlive(buf)
+	})
 	return b
 }
 
@@ -242,31 +246,4 @@ func (buf *buffer) tryReset() {
 		buf.Reset()
 		return
 	}
-}
-
-func (buf *buffer) grow(n int) (err error) {
-	if n < 1 {
-		return
-	}
-	defer func() {
-		if recover() != nil {
-			err = ErrTooLarge
-		}
-	}()
-
-	n = n - buf.r
-	// left shift
-	copy(buf.b, buf.b[buf.r:buf.w])
-	buf.w -= buf.r
-	buf.a = buf.w
-	buf.r = 0
-	if n < 1 { // has place for n
-		return
-	}
-
-	// has no more place
-	adjustedSize := adjustBufferSize(n)
-	buf.b = append(buf.b, make([]byte, adjustedSize)...)
-	buf.c += adjustedSize
-	return
 }

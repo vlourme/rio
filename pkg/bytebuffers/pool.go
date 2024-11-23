@@ -1,6 +1,7 @@
 package bytebuffers
 
 import (
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,7 @@ func (p *BufferPool) Get() Buffer {
 
 func (p *BufferPool) Put(b Buffer) {
 	if b.Cap() > maxSize {
+		_ = b.Close()
 		return
 	}
 
@@ -56,7 +58,10 @@ func (p *BufferPool) Put(b Buffer) {
 	if size == 0 || b.Cap() <= size {
 		b.Reset()
 		p.pool.Put(b)
+	} else {
+		_ = b.Close()
 	}
+	runtime.KeepAlive(b)
 }
 
 func (p *BufferPool) index(n int) int {
