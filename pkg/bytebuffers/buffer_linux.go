@@ -78,7 +78,7 @@ func (buf *buffer) grow(n int) (err error) {
 	buf.a = buf.w
 	buf.r = 0
 
-	buf.c += adjustedSize
+	buf.c = allocated
 	return
 }
 
