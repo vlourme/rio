@@ -75,7 +75,7 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	}
 	promise, promiseErr := async.Make[transport.PacketInbound](conn.ctx)
 	if promiseErr != nil {
-		conn.rb.AllocatedWrote(0)
+		_ = conn.rb.AllocatedWrote(0)
 		if async.IsBusy(promiseErr) {
 			future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrBusy)
 		} else {
@@ -86,11 +86,16 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 
 	conn.inner.ReadFrom(p, func(n int, addr net.Addr, err error) {
 		if err != nil {
-			conn.rb.AllocatedWrote(0)
+			_ = conn.rb.AllocatedWrote(0)
 			promise.Fail(err)
 			return
 		}
-		conn.rb.AllocatedWrote(n)
+
+		if awErr := conn.rb.AllocatedWrote(n); awErr != nil {
+			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
+			return
+		}
+
 		inbound := transport.NewPacketInbound(conn.rb, addr, n)
 		promise.Succeed(inbound)
 		return
@@ -153,14 +158,14 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	}
 	oob, allocateOOBErr := conn.oob.Allocate(conn.oobn)
 	if allocateOOBErr != nil {
-		conn.rb.AllocatedWrote(0)
+		_ = conn.rb.AllocatedWrote(0)
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, errors.Join(ErrAllocate, allocateOOBErr))
 		return
 	}
 	promise, promiseErr := async.Make[transport.PacketMsgInbound](conn.ctx)
 	if promiseErr != nil {
-		conn.rb.AllocatedWrote(0)
-		conn.oob.AllocatedWrote(0)
+		_ = conn.rb.AllocatedWrote(0)
+		_ = conn.oob.AllocatedWrote(0)
 		if async.IsBusy(promiseErr) {
 			future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrBusy)
 		} else {
@@ -171,13 +176,19 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 
 	conn.inner.ReadMsg(p, oob, func(n int, oobn int, flags int, addr net.Addr, err error) {
 		if err != nil {
-			conn.rb.AllocatedWrote(0)
-			conn.oob.AllocatedWrote(0)
+			_ = conn.rb.AllocatedWrote(0)
+			_ = conn.oob.AllocatedWrote(0)
 			promise.Fail(err)
 			return
 		}
-		conn.rb.AllocatedWrote(n)
-		conn.oob.AllocatedWrote(oobn)
+		if awErr := conn.rb.AllocatedWrote(n); awErr != nil {
+			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
+			return
+		}
+		if awErr := conn.oob.AllocatedWrote(oobn); awErr != nil {
+			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
+			return
+		}
 		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
 		promise.Succeed(inbound)
 		return

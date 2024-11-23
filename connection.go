@@ -110,7 +110,7 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 	}
 	promise, promiseErr := async.Make[transport.Inbound](conn.ctx)
 	if promiseErr != nil {
-		conn.rb.AllocatedWrote(0)
+		_ = conn.rb.AllocatedWrote(0)
 		if async.IsBusy(promiseErr) {
 			future = async.FailedImmediately[transport.Inbound](conn.ctx, ErrBusy)
 		} else {
@@ -121,11 +121,14 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 
 	conn.inner.Read(p, func(n int, err error) {
 		if err != nil {
-			conn.rb.AllocatedWrote(0)
+			_ = conn.rb.AllocatedWrote(0)
 			promise.Fail(err)
 			return
 		}
-		conn.rb.AllocatedWrote(n)
+		if awErr := conn.rb.AllocatedWrote(n); awErr != nil {
+			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
+			return
+		}
 		inbound := transport.NewInbound(conn.rb, n)
 		promise.Succeed(inbound)
 		return

@@ -13,6 +13,7 @@ var (
 	ErrNetworkUnmatched = errors.New("rio: network is not matched")
 	ErrNilAddr          = errors.New("rio: addr is nil")
 	ErrAllocate         = errors.New("rio: allocate bytes failed")
+	ErrAllocateWrote    = errors.New("rio: allocate wrote failed")
 )
 
 func IsClosed(err error) bool {

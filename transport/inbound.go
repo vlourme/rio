@@ -2,7 +2,9 @@ package transport
 
 import (
 	"errors"
-	"github.com/brickingsoft/rio/pkg/bytebufferpool"
+	"github.com/brickingsoft/rio/pkg/bytebuffers"
+	"os"
+	"sync"
 )
 
 type InboundReader interface {
@@ -16,7 +18,7 @@ type InboundReader interface {
 type InboundBuffer interface {
 	InboundReader
 	Allocate(size int) (p []byte, err error)
-	AllocatedWrote(n int)
+	AllocatedWrote(n int) (err error)
 	Write(p []byte) (n int, err error)
 	Close()
 }
@@ -25,31 +27,52 @@ func NewInboundBuffer() InboundBuffer {
 	return new(inboundBuffer)
 }
 
+var (
+	inboundBufferPool = sync.Pool{
+		New: func() interface{} {
+			return bytebuffers.NewBuffer()
+		},
+	}
+	pagesize = os.Getpagesize()
+)
+
+func getBuffer() bytebuffers.Buffer {
+	return inboundBufferPool.Get().(bytebuffers.Buffer)
+}
+
+func putBuffer(buf bytebuffers.Buffer) {
+	if buf.Cap() > pagesize {
+		return
+	}
+	inboundBufferPool.Put(buf)
+}
+
 type inboundBuffer struct {
-	b bytebufferpool.Buffer
+	b bytebuffers.Buffer
 }
 
 func (buf *inboundBuffer) Allocate(size int) (p []byte, err error) {
 	if buf.b == nil {
-		buf.b = bytebufferpool.Get()
+		buf.b = getBuffer()
 	}
 	if buf.b.WritePending() {
 		err = errors.New("transport: buffer already allocated a piece bytes")
 		return
 	}
-	p = buf.b.Allocate(size)
+	p, err = buf.b.Allocate(size)
 	return
 }
 
-func (buf *inboundBuffer) AllocatedWrote(n int) {
+func (buf *inboundBuffer) AllocatedWrote(n int) (err error) {
 	if buf.b != nil {
-		buf.b.AllocatedWrote(n)
+		err = buf.b.AllocatedWrote(n)
 	}
+	return
 }
 
 func (buf *inboundBuffer) Write(p []byte) (n int, err error) {
 	if buf.b == nil {
-		buf.b = bytebufferpool.Get()
+		buf.b = getBuffer()
 	}
 	n, err = buf.b.Write(p)
 	return
@@ -58,9 +81,9 @@ func (buf *inboundBuffer) Write(p []byte) (n int, err error) {
 func (buf *inboundBuffer) Close() {
 	if buf.b != nil {
 		if buf.b.WritePending() {
-			buf.b.AllocatedWrote(0)
+			_ = buf.b.AllocatedWrote(0)
 		}
-		bytebufferpool.Put(buf.b)
+		putBuffer(buf.b)
 		buf.b = nil
 	}
 }
@@ -79,7 +102,7 @@ func (buf *inboundBuffer) Next(n int) (p []byte, err error) {
 	}
 	p, err = buf.b.Next(n)
 	if buf.b.Len() == 0 && !buf.b.WritePending() {
-		bytebufferpool.Put(buf.b)
+		putBuffer(buf.b)
 		buf.b = nil
 	}
 	return
@@ -91,7 +114,7 @@ func (buf *inboundBuffer) Read(p []byte) (n int, err error) {
 	}
 	n, err = buf.b.Read(p)
 	if buf.b.Len() == 0 && !buf.b.WritePending() {
-		bytebufferpool.Put(buf.b)
+		putBuffer(buf.b)
 		buf.b = nil
 	}
 	return
@@ -101,9 +124,9 @@ func (buf *inboundBuffer) Discard(n int) {
 	if buf.b == nil {
 		return
 	}
-	buf.b.Discard(n)
+	_ = buf.b.Discard(n)
 	if buf.b.Len() == 0 {
-		bytebufferpool.Put(buf.b)
+		putBuffer(buf.b)
 		buf.b = nil
 	}
 	return
