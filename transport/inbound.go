@@ -36,7 +36,8 @@ var (
 			return bytebuffers.NewBuffer()
 		},
 	}
-	pagesize = os.Getpagesize()
+	pagesize   = os.Getpagesize()
+	pagesize16 = pagesize * 16
 )
 
 func getBuffer() bytebuffers.Buffer {
@@ -44,7 +45,7 @@ func getBuffer() bytebuffers.Buffer {
 }
 
 func putBuffer(buf bytebuffers.Buffer) {
-	if buf.Cap() > pagesize {
+	if buf.Cap() > pagesize16 {
 		return
 	}
 	inboundBufferPool.Put(buf)
