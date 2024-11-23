@@ -11,6 +11,7 @@ const (
 	steps      = 20
 
 	minSize = 1 << minBitSize
+	maxSize = 64 * 1024 * 1024
 
 	calibrateCallsThreshold = 42000
 	maxPercentile           = 0.95
@@ -37,18 +38,21 @@ func (p *BufferPool) Get() Buffer {
 	if v != nil {
 		return v.(Buffer)
 	}
-	return NewBufferWitSize(int(atomic.LoadUint64(&p.defaultSize)))
+	return NewBufferWithSize(int(atomic.LoadUint64(&p.defaultSize)))
 }
 
 func (p *BufferPool) Put(b Buffer) {
+	if b.Cap() > maxSize {
+		return
+	}
 	idx := p.index(b.Len())
 
 	if atomic.AddUint64(&p.calls[idx], 1) > calibrateCallsThreshold {
 		p.calibrate()
 	}
 
-	maxSize := int(atomic.LoadUint64(&p.maxSize))
-	if maxSize == 0 || b.Cap() <= maxSize {
+	size := int(atomic.LoadUint64(&p.maxSize))
+	if size == 0 || b.Cap() <= size {
 		b.Reset()
 		p.pool.Put(b)
 	}

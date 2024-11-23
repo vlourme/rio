@@ -3,6 +3,7 @@ package transport
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/bytebuffers"
+	"io"
 	"os"
 	"sync"
 )
@@ -13,6 +14,8 @@ type InboundReader interface {
 	Read(p []byte) (n int, err error)
 	Discard(n int)
 	Length() (n int)
+	ReadBytes(delim byte) (line []byte, err error)
+	Index(delim byte) (i int)
 }
 
 type InboundBuffer interface {
@@ -49,6 +52,24 @@ func putBuffer(buf bytebuffers.Buffer) {
 
 type inboundBuffer struct {
 	b bytebuffers.Buffer
+}
+
+func (buf *inboundBuffer) ReadBytes(delim byte) (line []byte, err error) {
+	if buf.b == nil {
+		err = io.EOF
+		return
+	}
+	line, err = buf.b.ReadBytes(delim)
+	return
+}
+
+func (buf *inboundBuffer) Index(delim byte) (i int) {
+	if buf.b == nil {
+		i = -1
+		return
+	}
+	i = buf.b.Index(delim)
+	return
 }
 
 func (buf *inboundBuffer) Allocate(size int) (p []byte, err error) {
