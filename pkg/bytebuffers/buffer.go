@@ -213,8 +213,8 @@ func (buf *buffer) Allocate(size int) (p []byte, err error) {
 			return
 		}
 	}
-	buf.a += size
 	p = buf.b[buf.w : buf.w+size]
+	buf.a += size
 	return
 }
 
@@ -242,15 +242,6 @@ func (buf *buffer) tryReset() {
 		buf.Reset()
 		return
 	}
-	if buf.WritePending() {
-		return
-	}
-	if buf.r >= quartorPagesize {
-		copy(buf.b, buf.b[buf.r:buf.w])
-		buf.w -= buf.r
-		buf.a = buf.w
-		buf.r = 0
-	}
 }
 
 func (buf *buffer) grow(n int) (err error) {
@@ -263,6 +254,17 @@ func (buf *buffer) grow(n int) (err error) {
 		}
 	}()
 
+	n = n - buf.r
+	// left shift
+	copy(buf.b, buf.b[buf.r:buf.w])
+	buf.w -= buf.r
+	buf.a = buf.w
+	buf.r = 0
+	if n < 1 { // has place for n
+		return
+	}
+
+	// has no more place
 	adjustedSize := adjustBufferSize(n)
 	buf.b = append(buf.b, make([]byte, adjustedSize)...)
 	buf.c += adjustedSize

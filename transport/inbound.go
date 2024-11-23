@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/bytebuffers"
 	"io"
 	"os"
-	"sync"
 )
 
 type InboundReader interface {
@@ -31,24 +30,19 @@ func NewInboundBuffer() InboundBuffer {
 }
 
 var (
-	inboundBufferPool = sync.Pool{
-		New: func() interface{} {
-			return bytebuffers.NewBuffer()
-		},
-	}
 	pagesize   = os.Getpagesize()
 	pagesize16 = pagesize * 16
 )
 
 func getBuffer() bytebuffers.Buffer {
-	return inboundBufferPool.Get().(bytebuffers.Buffer)
+	return bytebuffers.Get()
 }
 
 func putBuffer(buf bytebuffers.Buffer) {
 	if buf.Cap() > pagesize16 {
 		return
 	}
-	inboundBufferPool.Put(buf)
+	bytebuffers.Put(buf)
 }
 
 type inboundBuffer struct {
