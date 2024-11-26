@@ -5,76 +5,10 @@ package aio
 import (
 	"errors"
 	"golang.org/x/sys/windows"
-	"net"
 	"os"
 	"syscall"
 	"unsafe"
 )
-
-func newListener(network string, family int, addr net.Addr, proto int) (fd NetFd, err error) {
-	// create listener sock
-	sock, sockErr := newSocket(family, windows.SOCK_STREAM, proto)
-	if sockErr != nil {
-		err = sockErr
-		return
-	}
-	// set default opts
-	setOptErr := setDefaultListenerSocketOpts(sock)
-	if setOptErr != nil {
-		err = setOptErr
-		return
-	}
-	handle := syscall.Handle(sock)
-	// bind
-	sockaddr := AddrToSockaddr(addr)
-	bindErr := syscall.Bind(handle, sockaddr)
-	if bindErr != nil {
-		err = os.NewSyscallError("bind", bindErr)
-		_ = syscall.Closesocket(handle)
-		return
-	}
-	// listen
-	listenErr := syscall.Listen(handle, windows.SOMAXCONN)
-	if listenErr != nil {
-		err = os.NewSyscallError("listen", listenErr)
-		_ = syscall.Closesocket(handle)
-		return
-	}
-	// lsa
-	lsa, getLSAErr := syscall.Getsockname(handle)
-	if getLSAErr != nil {
-		err = os.NewSyscallError("getsockname", getLSAErr)
-		_ = syscall.Closesocket(handle)
-		return
-	}
-	addr = SockaddrToAddr(network, lsa)
-
-	// create listener iocp
-	_, createListenIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
-	if createListenIOCPErr != nil {
-		err = os.NewSyscallError("CreateIoCompletionPort", createListenIOCPErr)
-		_ = syscall.Closesocket(handle)
-		return
-	}
-
-	// fd
-	sfd := &SocketFd{
-		handle:     sock,
-		network:    network,
-		family:     family,
-		socketType: syscall.SOCK_STREAM,
-		protocol:   proto,
-		localAddr:  addr,
-		remoteAddr: nil,
-		rop:        Operator{},
-		wop:        Operator{},
-	}
-	sfd.rop.fd = sfd
-	sfd.wop.fd = sfd
-
-	fd = sfd
-	return
-}
 
 func Accept(fd NetFd, cb OperationCallback) {
 	// conn
@@ -85,7 +19,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	}
 	// op
 	op := fd.ReadOperator()
-	op.userdata.Fd = &SocketFd{
+	op.userdata.Fd = &netFd{
 		handle:     sock,
 		network:    fd.Network(),
 		family:     fd.Family(),
@@ -145,7 +79,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 func completeAccept(result int, op *Operator, err error) {
 	userdata := op.userdata
 	// conn
-	conn, _ := userdata.Fd.(*SocketFd)
+	conn, _ := userdata.Fd.(*netFd)
 	connFd := syscall.Handle(conn.handle)
 	if err != nil {
 		_ = syscall.Closesocket(connFd)
