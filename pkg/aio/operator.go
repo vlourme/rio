@@ -122,16 +122,16 @@ func (msg *Msg) Addr() (addr net.Addr, err error) {
 
 type Userdata struct {
 	QTY     uint32
-	Buf     Buf
+	Buf     Buf // todo use msg insteadof ?
 	Msg     Msg
-	Flags   uint32
-	Buffers []Buf
-	Handle  Fd
+	Flags   uint32 // todo use msg insteadof ?
+	Buffers []Buf  // todo remove
+	Fd      Fd
 }
 
 type OperationCallback func(result int, userdata Userdata, err error)
 
-type OperatorCompletion func(result int, err error)
+type OperatorCompletion func(result int, op *Operator, err error)
 
 const (
 	accept OperatorMode = iota + 1
@@ -157,7 +157,7 @@ const (
 	sendMsgStr    = "send_msg"
 )
 
-type OperatorMode uint32
+type OperatorMode uint32 // todo remove cause not used
 
 func (mode OperatorMode) String() string {
 	switch mode {

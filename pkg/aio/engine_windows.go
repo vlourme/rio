@@ -76,22 +76,30 @@ func (engine *Engine) Start() {
 				if getQueuedCompletionStatusErr != nil {
 					// handle timeout
 					if timer := op.timer; timer != nil {
-						timer.Done()
-						if timer.deadlineExceeded {
+						if timer.DeadlineExceeded() {
 							getQueuedCompletionStatusErr = errors.Join(ErrOperationDeadlineExceeded, getQueuedCompletionStatusErr)
+						} else {
+							timer.Done()
 						}
+						putOperatorTimer(timer)
+						op.timer = nil
 					}
 					getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
+				} else {
+					// succeed and try close timer
+					if timer := op.timer; timer != nil {
+						timer.Done()
+						putOperatorTimer(timer)
+						op.timer = nil
+					}
 				}
-				if op.timer != nil {
-					timer := op.timer
-					timer.Done()
-					putOperatorTimer(timer)
-					op.timer = nil
-				}
+
 				// complete op
-				op.completion(int(qty), getQueuedCompletionStatusErr)
-				op.completion = nil
+				if completion := op.completion; completion != nil {
+					completion(int(qty), op, getQueuedCompletionStatusErr)
+					op.completion = nil
+				}
+				op.callback = nil
 
 				runtime.KeepAlive(op)
 			}

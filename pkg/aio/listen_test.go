@@ -20,18 +20,16 @@ func TestAccept(t *testing.T) {
 
 	wg := new(sync.WaitGroup)
 	loops := 3
-	op := lnFd.ReadOperator()
-	//ln.op = op
 
 	for i := 0; i < loops; i++ {
 		wg.Add(1)
-		go op.Accept(func(result int, userdata aio.Userdata, err error) {
+		go aio.Accept(lnFd, func(result int, userdata aio.Userdata, err error) {
 			defer wg.Done()
 			t.Log("srv accept:", result, err)
 			if err != nil {
 				return
 			}
-			connFd := userdata.Handle.Fd()
+			connFd := userdata.Fd.Fd()
 			_ = syscall.Closesocket(syscall.Handle(connFd))
 		})
 	}
@@ -45,6 +43,5 @@ func TestAccept(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		_ = conn.Close()
 	}
-	time.Sleep(time.Second)
 	wg.Wait()
 }

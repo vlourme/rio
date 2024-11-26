@@ -76,19 +76,16 @@ func newListener(network string, family int, addr net.Addr, proto int) (fd NetFd
 	return
 }
 
-func (op Operator) Accept(cb OperationCallback) {
-	fd, isNetFd := op.fd.(NetFd)
-	if !isNetFd {
-		cb(0, op.userdata, errors.Join(errors.New("aio: accept failed"), errors.New("fd is not net type")))
-		return
-	}
+func Accept(fd NetFd, cb OperationCallback) {
 	// conn
 	sock, sockErr := newSocket(fd.Family(), fd.SocketType(), fd.Protocol())
 	if sockErr != nil {
 		cb(0, Userdata{}, errors.Join(errors.New("aio: accept failed"), sockErr))
 		return
 	}
-	op.userdata.Handle = &SocketFd{
+	// op
+	op := fd.ReadOperator()
+	op.userdata.Fd = &SocketFd{
 		handle:     sock,
 		network:    fd.Network(),
 		family:     fd.Family(),
@@ -100,7 +97,7 @@ func (op Operator) Accept(cb OperationCallback) {
 	// callback
 	op.callback = cb
 	// completion
-	op.completion = op.completeAccept
+	op.completion = completeAccept
 
 	// overlapped
 	overlapped := &op.overlapped
@@ -115,7 +112,10 @@ func (op Operator) Accept(cb OperationCallback) {
 	if op.timeout > 0 {
 		timer := getOperatorTimer()
 		op.timer = timer
-		timer.Start(op.timeout, &op)
+		timer.Start(op.timeout, &operatorCanceler{
+			handle:     syscall.Handle(sock),
+			overlapped: overlapped,
+		})
 	}
 
 	// accept
@@ -142,15 +142,14 @@ func (op Operator) Accept(cb OperationCallback) {
 	return
 }
 
-func (op Operator) completeAccept(result int, err error) {
+func completeAccept(result int, op *Operator, err error) {
 	userdata := op.userdata
 	// conn
-	conn, _ := userdata.Handle.(*SocketFd)
+	conn, _ := userdata.Fd.(*SocketFd)
 	connFd := syscall.Handle(conn.handle)
 	if err != nil {
 		_ = syscall.Closesocket(connFd)
 		op.callback(result, userdata, os.NewSyscallError("iocp.AcceptEx", err))
-		op.callback = nil
 		return
 	}
 	// ln
@@ -175,7 +174,6 @@ func (op Operator) completeAccept(result int, err error) {
 	if lsaErr != nil {
 		_ = syscall.Closesocket(connFd)
 		op.callback(result, userdata, os.NewSyscallError("getsockname", lsaErr))
-		op.callback = nil
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)
@@ -186,7 +184,6 @@ func (op Operator) completeAccept(result int, err error) {
 	if rsaErr != nil {
 		_ = syscall.Closesocket(connFd)
 		op.callback(result, userdata, os.NewSyscallError("getsockname", rsaErr))
-		op.callback = nil
 		return
 	}
 	ra := SockaddrToAddr(ln.Network(), rsa)
@@ -202,6 +199,5 @@ func (op Operator) completeAccept(result int, err error) {
 
 	// callback
 	op.callback(conn.handle, userdata, err)
-	op.callback = nil
 	return
 }

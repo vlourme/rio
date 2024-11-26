@@ -13,146 +13,240 @@ import (
 func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6only bool, err error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
-		err = errors.New("sockets: invalid addr")
+		err = errors.New("sockets.GetAddrAndFamily: invalid addr")
 		return
 	}
-	// ip
-	if network == "ip" || network == "ipv4" || network == "ipv6" {
-		v, err = net.ResolveIPAddr(network, addr)
-		if err != nil {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		a, resolveErr := net.ResolveTCPAddr(network, addr)
+		if resolveErr != nil {
+			err = errors.New("sockets.GetAddrAndFamily: " + resolveErr.Error())
 			return
 		}
-		if v.Network() == "ipv6" {
+		if len(a.IP) == net.IPv6len {
 			family = syscall.AF_INET6
+			ipv6only = true
 		} else {
 			family = syscall.AF_INET
 		}
-		family = syscall.AF_INET
-		return
-	}
-	// unix
-	if network == "unix" || network == "unixgram" || network == "unixpacket" {
+		v = a
+		break
+	case "udp", "udp4", "udp6":
+		a, resolveErr := net.ResolveUDPAddr(network, addr)
+		if resolveErr != nil {
+			err = errors.New("sockets.GetAddrAndFamily: " + resolveErr.Error())
+			return
+		}
+		if len(a.IP) == net.IPv6len {
+			family = syscall.AF_INET6
+			ipv6only = true
+		} else {
+			family = syscall.AF_INET
+		}
+		v = a
+		break
+	case "ip", "ip4", "ip6":
+		a, resolveErr := net.ResolveIPAddr(network, addr)
+		if resolveErr != nil {
+			err = errors.New("sockets.GetAddrAndFamily: " + resolveErr.Error())
+			return
+		}
+		if len(a.IP) == net.IPv6len {
+			family = syscall.AF_INET6
+			ipv6only = true
+		} else {
+			family = syscall.AF_INET
+		}
+		v = a
+		break
+	case "unix", "unixgram", "unixpacket":
+		family = syscall.AF_UNIX
 		v, err = net.ResolveUnixAddr(network, addr)
 		if err != nil {
+			err = errors.New("sockets.GetAddrAndFamily: " + err.Error())
 			return
 		}
-		family = syscall.AF_UNIX
+		break
+	default:
+		err = errors.New("sockets.GetAddrAndFamily: invalid network")
 		return
-	}
-	// parse addr
-	ap, parseAddrErr := ParseAddrPort(addr)
-	if parseAddrErr != nil {
-		err = parseAddrErr
-		return
-	}
-	if !ap.IsValid() {
-		err = errors.New("sockets: invalid addr")
-		return
-	}
-	ip := ap.Addr().AsSlice()
-	ipLen := len(ip)
-	if ipLen == net.IPv6len {
-		ipv6only = true
-	}
-	port := int(ap.Port())
-	switch network {
-	case "tcp":
-		if ipv6only {
-			v = &net.TCPAddr{
-				IP:   ip,
-				Port: port,
-				Zone: ap.Addr().Zone(),
-			}
-			family = syscall.AF_INET6
-		} else {
-			if ipLen == 0 {
-				ip = net.IPv4zero
-			}
-			v = &net.TCPAddr{
-				IP:   ip,
-				Port: port,
-				Zone: "",
-			}
-			family = syscall.AF_INET
-		}
-		break
-	case "tcp4":
-		if ipv6only {
-			err = errors.New("sockets: tcp4 is not supported on IPv4")
-			return
-		}
-		if ipLen == 0 {
-			ip = net.IPv4zero
-		}
-		v = &net.TCPAddr{
-			IP:   ip,
-			Port: port,
-			Zone: "",
-		}
-		family = syscall.AF_INET
-		break
-	case "tcp6":
-		if ipv6only {
-			err = errors.New("sockets: tcp6 is not supported on IPv6")
-			return
-		}
-		v = &net.TCPAddr{
-			IP:   ip,
-			Port: port,
-			Zone: ap.Addr().Zone(),
-		}
-		family = syscall.AF_INET6
-		break
-	case "udp":
-		if ipv6only {
-			v = &net.UDPAddr{
-				IP:   ip,
-				Port: port,
-				Zone: ap.Addr().Zone(),
-			}
-			family = syscall.AF_INET6
-		} else {
-			if ipLen == 0 {
-				ip = net.IPv4zero
-			}
-			v = &net.UDPAddr{
-				IP:   ip,
-				Port: port,
-				Zone: "",
-			}
-			family = syscall.AF_INET
-		}
-		break
-	case "udp4":
-		if ipv6only {
-			err = errors.New("sockets: udp4 is not supported on IPv4")
-			return
-		}
-		if ipLen == 0 {
-			ip = net.IPv4zero
-		}
-		v = &net.UDPAddr{
-			IP:   ip,
-			Port: port,
-			Zone: "",
-		}
-		family = syscall.AF_INET
-		break
-	case "udp6":
-		if ipv6only {
-			err = errors.New("sockets: udp6 is not supported on IPv6")
-			return
-		}
-		v = &net.UDPAddr{
-			IP:   ip,
-			Port: port,
-			Zone: ap.Addr().Zone(),
-		}
-		family = syscall.AF_INET6
-		break
 	}
 	return
 }
+
+//
+//func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6only bool, err error) {
+//	addr = strings.TrimSpace(addr)
+//	if addr == "" {
+//		err = errors.New("sockets: invalid addr")
+//		return
+//	}
+//	switch network {
+//	case "tcp", "tcp4", "tcp6":
+//		a, resolveErr := net.ResolveTCPAddr(network, addr)
+//		if resolveErr != nil {
+//			err = resolveErr
+//			return
+//		}
+//		if a.AddrPort().Addr().Is6() {
+//			family = syscall.AF_INET6
+//			ipv6only = true
+//		} else {
+//			family = syscall.AF_INET
+//		}
+//		break
+//	case "udp", "udp4", "udp6":
+//		v, err = net.ResolveUDPAddr(network, addr)
+//		break
+//	case "ip", "ip4", "ip6":
+//		v, err = net.ResolveIPAddr(network, addr)
+//		break
+//	case "unix", "unixgram", "unixpacket":
+//		family = syscall.AF_UNIX
+//		v, err = net.ResolveUnixAddr(network, addr)
+//		break
+//	default:
+//		err = errors.New("sockets: invalid network")
+//		return
+//	}
+//
+//	// ip
+//	if network == "ip" || network == "ipv4" || network == "ipv6" {
+//		v, err = net.ResolveIPAddr(network, addr)
+//		if err != nil {
+//			return
+//		}
+//		if v.Network() == "ipv6" {
+//			family = syscall.AF_INET6
+//		} else {
+//			family = syscall.AF_INET
+//		}
+//		family = syscall.AF_INET
+//		return
+//	}
+//	// unix
+//	if network == "unix" || network == "unixgram" || network == "unixpacket" {
+//		v, err = net.ResolveUnixAddr(network, addr)
+//		if err != nil {
+//			return
+//		}
+//		family = syscall.AF_UNIX
+//		return
+//	}
+//	// parse addr
+//	ap, parseAddrErr := ParseAddrPort(addr)
+//	if parseAddrErr != nil {
+//		err = parseAddrErr
+//		return
+//	}
+//	if !ap.IsValid() {
+//		err = errors.New("sockets: invalid addr")
+//		return
+//	}
+//	ip := ap.Addr().AsSlice()
+//	ipLen := len(ip)
+//	if ipLen == net.IPv6len {
+//		ipv6only = true
+//	}
+//	port := int(ap.Port())
+//	switch network {
+//	case "tcp":
+//		if ipv6only {
+//			v = &net.TCPAddr{
+//				IP:   ip,
+//				Port: port,
+//				Zone: ap.Addr().Zone(),
+//			}
+//			family = syscall.AF_INET6
+//		} else {
+//			if ipLen == 0 {
+//				ip = net.IPv4zero
+//			}
+//			v = &net.TCPAddr{
+//				IP:   ip,
+//				Port: port,
+//				Zone: "",
+//			}
+//			family = syscall.AF_INET
+//		}
+//		break
+//	case "tcp4":
+//		if ipv6only {
+//			err = errors.New("sockets: tcp4 is not supported on IPv4")
+//			return
+//		}
+//		if ipLen == 0 {
+//			ip = net.IPv4zero
+//		}
+//		v = &net.TCPAddr{
+//			IP:   ip,
+//			Port: port,
+//			Zone: "",
+//		}
+//		family = syscall.AF_INET
+//		break
+//	case "tcp6":
+//		if ipv6only {
+//			err = errors.New("sockets: tcp6 is not supported on IPv6")
+//			return
+//		}
+//		v = &net.TCPAddr{
+//			IP:   ip,
+//			Port: port,
+//			Zone: ap.Addr().Zone(),
+//		}
+//		family = syscall.AF_INET6
+//		break
+//	case "udp":
+//		if ipv6only {
+//			v = &net.UDPAddr{
+//				IP:   ip,
+//				Port: port,
+//				Zone: ap.Addr().Zone(),
+//			}
+//			family = syscall.AF_INET6
+//		} else {
+//			if ipLen == 0 {
+//				ip = net.IPv4zero
+//			}
+//			v = &net.UDPAddr{
+//				IP:   ip,
+//				Port: port,
+//				Zone: "",
+//			}
+//			family = syscall.AF_INET
+//		}
+//		break
+//	case "udp4":
+//		if ipv6only {
+//			err = errors.New("sockets: udp4 is not supported on IPv4")
+//			return
+//		}
+//		if ipLen == 0 {
+//			ip = net.IPv4zero
+//		}
+//		v = &net.UDPAddr{
+//			IP:   ip,
+//			Port: port,
+//			Zone: "",
+//		}
+//		family = syscall.AF_INET
+//		break
+//	case "udp6":
+//		if ipv6only {
+//			err = errors.New("sockets: udp6 is not supported on IPv6")
+//			return
+//		}
+//		v = &net.UDPAddr{
+//			IP:   ip,
+//			Port: port,
+//			Zone: ap.Addr().Zone(),
+//		}
+//		family = syscall.AF_INET6
+//		break
+//	}
+//	return
+//}
 
 func ParseAddrPort(addr string) (addrPort netip.AddrPort, err error) {
 	i := strings.LastIndexByte(addr, ':')
@@ -182,5 +276,54 @@ func ParseAddrPort(addr string) (addrPort netip.AddrPort, err error) {
 	}
 	addr = fmt.Sprintf("%s:%d", ip, portNum)
 	addrPort, err = netip.ParseAddrPort(addr)
+	return
+}
+
+func SockaddrToAddr(network string, sa syscall.Sockaddr) (addr net.Addr) {
+	switch sa := sa.(type) {
+	case *syscall.SockaddrInet4:
+		switch network {
+		case "tcp", "tcp4":
+			addr = &net.TCPAddr{
+				IP:   append([]byte{}, sa.Addr[:]...),
+				Port: sa.Port,
+			}
+			break
+		case "udp", "udp4":
+			addr = &net.UDPAddr{
+				IP:   append([]byte{}, sa.Addr[:]...),
+				Port: sa.Port,
+			}
+			break
+		}
+	case *syscall.SockaddrInet6:
+		var zone string
+		if sa.ZoneId != 0 {
+			if ifi, err := net.InterfaceByIndex(int(sa.ZoneId)); err == nil {
+				zone = ifi.Name
+			}
+		}
+		if zone == "" && sa.ZoneId != 0 {
+		}
+		switch network {
+		case "tcp", "tcp6":
+			addr = &net.TCPAddr{
+				IP:   append([]byte{}, sa.Addr[:]...),
+				Port: sa.Port,
+				Zone: zone,
+			}
+			break
+		case "udp", "udp6":
+			addr = &net.UDPAddr{
+				IP:   append([]byte{}, sa.Addr[:]...),
+				Port: sa.Port,
+				Zone: zone,
+			}
+			break
+		}
+	case *syscall.SockaddrUnix:
+		addr = &net.UnixAddr{Net: network, Name: sa.Name}
+		break
+	}
 	return
 }

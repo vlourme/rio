@@ -315,13 +315,15 @@ func (conn *connection) ReadMsg(p []byte, oob []byte, handler ReadMsgHandler) {
 }
 
 func (op *operation) completeReadMsg(qty int, err error) {
-	sockaddr, sockaddrErr := op.rsa.Sockaddr()
+	sockaddr, sockaddrErr := op.msg.Name.Sockaddr()
+	//sockaddr, sockaddrErr := op.rsa.Sockaddr()
 	if sockaddrErr != nil {
 		op.readMsgHandler(qty, 0, 0, nil, sockaddrErr)
 		op.readMsgHandler = nil
 		return
 	}
-	addr := sockaddrToAddr(op.conn.net, sockaddr)
+	//addr := sockaddrToAddr(op.conn.net, sockaddr)
+	addr := SockaddrToAddr(op.conn.net, sockaddr)
 	if err != nil {
 		op.readMsgHandler(qty, 0, 0, addr, &net.OpError{
 			Op:     op.mode.String(),

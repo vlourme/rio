@@ -80,6 +80,12 @@ func (opt *operatorTimer) Done() {
 	opt.wg.Wait()
 }
 
+func (opt *operatorTimer) DeadlineExceeded() bool {
+	opt.locker.Lock()
+	defer opt.locker.Unlock()
+	return opt.deadlineExceeded
+}
+
 func (opt *operatorTimer) reset() {
 	opt.timer.Stop()
 	opt.stopped = false
