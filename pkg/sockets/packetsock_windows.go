@@ -36,7 +36,7 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 				case windows.AF_INET:
 					ludpaddr.IP = net.IPv4zero
 				case windows.AF_INET6:
-					ludpaddr.IP = net.IPv6unspecified
+					ludpaddr.IP = net.IPv6zero
 				}
 				laddr = &ludpaddr
 			}
