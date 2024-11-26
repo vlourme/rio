@@ -23,7 +23,7 @@ type FileFd interface {
 	Path() string
 }
 
-type SocketFd struct {
+type netFd struct {
 	handle     int
 	network    string
 	family     int
@@ -35,38 +35,38 @@ type SocketFd struct {
 	wop        Operator
 }
 
-func (s *SocketFd) Fd() int {
+func (s *netFd) Fd() int {
 	return s.handle
 }
 
-func (s *SocketFd) Network() string {
+func (s *netFd) Network() string {
 	return s.network
 }
 
-func (s *SocketFd) Family() int {
+func (s *netFd) Family() int {
 	return s.family
 }
 
-func (s *SocketFd) SocketType() int {
+func (s *netFd) SocketType() int {
 	return s.socketType
 }
 
-func (s *SocketFd) Protocol() int {
+func (s *netFd) Protocol() int {
 	return s.protocol
 }
 
-func (s *SocketFd) LocalAddr() net.Addr {
+func (s *netFd) LocalAddr() net.Addr {
 	return s.localAddr
 }
 
-func (s *SocketFd) RemoteAddr() net.Addr {
+func (s *netFd) RemoteAddr() net.Addr {
 	return s.remoteAddr
 }
 
-func (s *SocketFd) ReadOperator() Operator {
+func (s *netFd) ReadOperator() Operator {
 	return s.rop
 }
 
-func (s *SocketFd) WriteOperator() Operator {
+func (s *netFd) WriteOperator() Operator {
 	return s.wop
 }
