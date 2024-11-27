@@ -14,8 +14,12 @@ func ResolveAddr(network string, addr string) (v net.Addr, family int, ipv6only 
 		err = errors.New("aio.ResolveAddr: invalid addr")
 		return
 	}
+	proto := network
+	if colon := strings.IndexByte(network, ':'); colon > -1 {
+		proto = network[:colon]
+	}
 	ipv6only = strings.HasSuffix(network, "6")
-	switch network {
+	switch proto {
 	case "tcp", "tcp4", "tcp6":
 		a, resolveErr := net.ResolveTCPAddr(network, addr)
 		if resolveErr != nil {
@@ -111,6 +115,7 @@ func ResolveAddr(network string, addr string) (v net.Addr, family int, ipv6only 
 	}
 	return
 }
+
 func isZeros(p net.IP) bool {
 	for i := 0; i < len(p); i++ {
 		if p[i] != 0 {
@@ -118,6 +123,44 @@ func isZeros(p net.IP) bool {
 		}
 	}
 	return true
+}
+
+func ParseIpProto(network string) (n string, proto int, err error) {
+	i := strings.Index(network, ":")
+	if i < 0 {
+		n = network
+		return
+	}
+	n = network[:i]
+	protoName := network[i+1:]
+	proto0, idx, ok := dtoi(protoName)
+	if ok && idx == len(protoName) {
+		proto = proto0
+		return
+	}
+	p, getProtoErr := syscall.GetProtoByName(protoName)
+	if getProtoErr != nil {
+		err = errors.New("aio.ParseIpProto: " + getProtoErr.Error())
+		return
+	}
+	proto = int(p.Proto)
+	return
+}
+
+const big = 0xFFFFFF
+
+func dtoi(s string) (n int, i int, ok bool) {
+	n = 0
+	for i = 0; i < len(s) && '0' <= s[i] && s[i] <= '9'; i++ {
+		n = n*10 + int(s[i]-'0')
+		if n >= big {
+			return big, i, false
+		}
+	}
+	if i == 0 {
+		return 0, 0, false
+	}
+	return n, i, true
 }
 
 func SockaddrToAddr(network string, sa syscall.Sockaddr) (addr net.Addr) {
