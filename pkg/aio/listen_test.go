@@ -45,3 +45,16 @@ func TestAccept(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestListen(t *testing.T) {
+	aio.Startup(aio.Options{})
+	defer aio.Shutdown()
+	_, lnErr := aio.Listen("udp", ":9000", aio.ListenerOptions{
+		MultipathTCP:       false,
+		MulticastInterface: nil,
+	})
+	if lnErr != nil {
+		t.Error("ln failed:", lnErr)
+		return
+	}
+}
