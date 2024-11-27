@@ -71,8 +71,11 @@ func newPacketConnection(network string, family int, sotype int, laddr net.Addr,
 			return
 		}
 		conn.remoteAddr = raddr
-		lsa, _ := windows.Getsockname(conn.fd)
-		conn.localAddr = sockaddrToAddr(network, lsa)
+		if conn.localAddr == nil {
+			lsa, _ := windows.Getsockname(conn.fd)
+			conn.localAddr = sockaddrToAddr(network, lsa)
+		}
+
 	}
 
 	// listen multicast udp

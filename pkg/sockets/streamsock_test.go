@@ -112,7 +112,7 @@ func TestDialTCP(t *testing.T) {
 	}()
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	ln.Accept(func(conn sockets.Connection, err error) {
+	go ln.Accept(func(conn sockets.Connection, err error) {
 		defer wg.Done()
 		if err != nil {
 			t.Error("srv: accept ->", err)
@@ -121,7 +121,7 @@ func TestDialTCP(t *testing.T) {
 		t.Log("srv: accepted!!!", conn.LocalAddr(), conn.RemoteAddr())
 	})
 	wg.Add(1)
-	sockets.Dial("tcp", "127.0.0.1:9000", sockets.Options{}, func(conn sockets.Connection, err error) {
+	go sockets.Dial("tcp", "127.0.0.1:9000", sockets.Options{}, func(conn sockets.Connection, err error) {
 		defer wg.Done()
 		if err != nil {
 			t.Error("cli: dial ->", err)

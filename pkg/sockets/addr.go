@@ -13,49 +13,89 @@ import (
 func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6only bool, err error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
-		err = errors.New("sockets.GetAddrAndFamily: invalid addr")
+		err = errors.New("aio.ResolveAddr: invalid addr")
 		return
 	}
+	ipv6only = strings.HasSuffix(network, "6")
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		a, resolveErr := net.ResolveTCPAddr(network, addr)
 		if resolveErr != nil {
-			err = errors.New("sockets.GetAddrAndFamily: " + resolveErr.Error())
+			err = errors.New("aio.ResolveAddr: " + resolveErr.Error())
 			return
 		}
-		if len(a.IP) == net.IPv6len {
-			family = syscall.AF_INET6
-			ipv6only = true
-		} else {
+		if !ipv6only && a.AddrPort().Addr().Is4In6() {
+			a.IP = a.IP.To4()
+		}
+		switch len(a.IP) {
+		case net.IPv4len:
 			family = syscall.AF_INET
+			break
+		case net.IPv6len:
+			family = syscall.AF_INET6
+			break
+		case 0:
+			family = syscall.AF_INET
+			a.IP = net.IPv4zero.To4()
+			break
+		default:
+			err = errors.New("aio.ResolveAddr: invalid ip length")
+			return
 		}
 		v = a
 		break
 	case "udp", "udp4", "udp6":
 		a, resolveErr := net.ResolveUDPAddr(network, addr)
 		if resolveErr != nil {
-			err = errors.New("sockets.GetAddrAndFamily: " + resolveErr.Error())
+			err = errors.New("aio.ResolveAddr: " + resolveErr.Error())
 			return
 		}
-		if len(a.IP) == net.IPv6len {
-			family = syscall.AF_INET6
-			ipv6only = true
-		} else {
+		if !ipv6only && a.AddrPort().Addr().Is4In6() {
+			a.IP = a.IP.To4()
+		}
+		switch len(a.IP) {
+		case net.IPv4len:
 			family = syscall.AF_INET
+			break
+		case net.IPv6len:
+			family = syscall.AF_INET6
+			break
+		case 0:
+			family = syscall.AF_INET
+			a.IP = net.IPv4zero.To4()
+			break
+		default:
+			err = errors.New("aio.ResolveAddr: invalid ip length")
+			return
 		}
 		v = a
 		break
 	case "ip", "ip4", "ip6":
 		a, resolveErr := net.ResolveIPAddr(network, addr)
 		if resolveErr != nil {
-			err = errors.New("sockets.GetAddrAndFamily: " + resolveErr.Error())
+			err = errors.New("aio.ResolveAddr: " + resolveErr.Error())
 			return
 		}
-		if len(a.IP) == net.IPv6len {
-			family = syscall.AF_INET6
-			ipv6only = true
-		} else {
+		ipLen := len(a.IP)
+		if !ipv6only && ipLen == net.IPv6len {
+			if isZeros(a.IP[0:10]) && a.IP[10] == 0xff && a.IP[11] == 0xff {
+				a.IP = a.IP.To4()
+			}
+		}
+		switch ipLen {
+		case net.IPv4len:
 			family = syscall.AF_INET
+			break
+		case net.IPv6len:
+			family = syscall.AF_INET6
+			break
+		case 0:
+			family = syscall.AF_INET
+			a.IP = net.IPv4zero.To4()
+			break
+		default:
+			err = errors.New("aio.ResolveAddr: invalid ip length")
+			return
 		}
 		v = a
 		break
@@ -63,15 +103,24 @@ func GetAddrAndFamily(network string, addr string) (v net.Addr, family int, ipv6
 		family = syscall.AF_UNIX
 		v, err = net.ResolveUnixAddr(network, addr)
 		if err != nil {
-			err = errors.New("sockets.GetAddrAndFamily: " + err.Error())
+			err = errors.New("aio.ResolveAddr: " + err.Error())
 			return
 		}
 		break
 	default:
-		err = errors.New("sockets.GetAddrAndFamily: invalid network")
+		err = errors.New("aio.ResolveAddr: invalid network")
 		return
 	}
 	return
+}
+
+func isZeros(p net.IP) bool {
+	for i := 0; i < len(p); i++ {
+		if p[i] != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 //

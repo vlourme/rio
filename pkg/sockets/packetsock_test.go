@@ -36,7 +36,9 @@ func TestPacket(t *testing.T) {
 	}(conn)
 
 	wg.Add(1)
-	sockets.Dial("udp", ":9000", sockets.Options{}, func(conn sockets.Connection, err error) {
+	sockets.Dial("udp", ":9000", sockets.Options{
+		DialPacketConnLocalAddr: &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9002},
+	}, func(conn sockets.Connection, err error) {
 		if err != nil {
 			t.Error(err)
 			return
