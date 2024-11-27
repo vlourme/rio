@@ -2,9 +2,14 @@ package aio
 
 import (
 	"errors"
+	"io"
 	"net"
 	"syscall"
 	"unsafe"
+)
+
+const (
+	maxRW = 1 << 30
 )
 
 func NewBuf(b []byte) (buf Buf) {
@@ -129,3 +134,10 @@ type Userdata struct {
 type OperationCallback func(result int, userdata Userdata, err error)
 
 type OperatorCompletion func(result int, op *Operator, err error)
+
+func eofError(fd Fd, qty int, err error) error {
+	if qty == 0 && err == nil && fd.ZeroReadIsEOF() {
+		return io.EOF
+	}
+	return err
+}
