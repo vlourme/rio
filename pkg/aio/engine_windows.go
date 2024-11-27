@@ -37,7 +37,7 @@ func (engine *Engine) Start() {
 	var data windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &data)
 	if startupErr != nil {
-		panic(fmt.Sprintf("aio: engine start failed, %v", startupErr))
+		panic(fmt.Errorf("aio: engine start failed, %v", startupErr))
 		return
 	}
 
@@ -48,7 +48,7 @@ func (engine *Engine) Start() {
 	}
 	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, threadCount)
 	if createIOCPErr != nil {
-		panic(fmt.Sprintf("aio: engine start failed, %v", createIOCPErr))
+		panic(fmt.Errorf("aio: engine start failed, %v", createIOCPErr))
 		return
 	}
 	engine.fd = int(cphandle)
