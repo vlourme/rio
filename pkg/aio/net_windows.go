@@ -134,7 +134,7 @@ func newNetFd(network string, family int, sotype int, proto int, laddr net.Addr,
 		}
 	}
 
-	// create listener iocp
+	// create iocp
 	_, createListenIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createListenIOCPErr != nil {
 		err = os.NewSyscallError("CreateIoCompletionPort", createListenIOCPErr)
