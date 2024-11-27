@@ -190,7 +190,8 @@ func (op *operation) completeAccept(_ int, err error) {
 	ra := sockaddrToAddr(conn.net, rsa)
 	conn.remoteAddr = ra
 	// CreateIoCompletionPort
-	cphandle, createErr := windows.CreateIoCompletionPort(op.conn.fd, op.iocp, key, 0)
+	//cphandle, createErr := windows.CreateIoCompletionPort(op.conn.fd, op.iocp, key, 0)
+	cphandle, createErr := createSubIoCompletionPort(op.conn.fd)
 	if createErr != nil {
 		op.acceptHandler(nil, os.NewSyscallError("createIoCompletionPort", createErr))
 		op.acceptHandler = nil
