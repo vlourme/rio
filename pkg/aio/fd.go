@@ -1,11 +1,15 @@
 package aio
 
-import "net"
+import (
+	"net"
+	"syscall"
+)
 
 type Fd interface {
 	Fd() int
 	ReadOperator() Operator
 	WriteOperator() Operator
+	ZeroReadIsEOF() bool
 }
 
 type NetFd interface {
@@ -53,6 +57,10 @@ func (s *netFd) SocketType() int {
 
 func (s *netFd) Protocol() int {
 	return s.protocol
+}
+
+func (s *netFd) ZeroReadIsEOF() bool {
+	return s.socketType != syscall.SOCK_DGRAM && s.socketType != syscall.SOCK_RAW
 }
 
 func (s *netFd) LocalAddr() net.Addr {
