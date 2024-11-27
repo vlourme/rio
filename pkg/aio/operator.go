@@ -121,65 +121,11 @@ func (msg *Msg) Addr() (addr net.Addr, err error) {
 }
 
 type Userdata struct {
-	QTY     uint32
-	Buf     Buf // todo use msg insteadof ?
-	Msg     Msg
-	Flags   uint32 // todo use msg insteadof ?
-	Buffers []Buf  // todo remove
-	Fd      Fd
+	Fd  Fd
+	QTY uint32
+	Msg Msg
 }
 
 type OperationCallback func(result int, userdata Userdata, err error)
 
 type OperatorCompletion func(result int, op *Operator, err error)
-
-const (
-	accept OperatorMode = iota + 1
-	connect
-	disconnect
-	recv
-	send
-	recvFrom
-	sendTo
-	recvMsg
-	sendMsg
-)
-
-const (
-	acceptStr     = "accept"
-	connectStr    = "connect"
-	disconnectStr = "disconnect"
-	recvStr       = "recv"
-	sendStr       = "send"
-	recvFromStr   = "recv_from"
-	sendToStr     = "send_to"
-	recvMsgStr    = "recv_msg"
-	sendMsgStr    = "send_msg"
-)
-
-type OperatorMode uint32 // todo remove cause not used
-
-func (mode OperatorMode) String() string {
-	switch mode {
-	case accept:
-		return acceptStr
-	case connect:
-		return connectStr
-	case disconnect:
-		return disconnectStr
-	case recv:
-		return recvStr
-	case send:
-		return sendStr
-	case recvFrom:
-		return recvFromStr
-	case sendTo:
-		return sendToStr
-	case recvMsg:
-		return recvMsgStr
-	case sendMsg:
-		return sendMsgStr
-	default:
-		return "unknown"
-	}
-}
