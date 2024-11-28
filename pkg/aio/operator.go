@@ -71,6 +71,10 @@ func (msg *Msg) SetControl(b []byte) {
 	return
 }
 
+func (msg *Msg) ControlBytes() []byte {
+	return msg.Control.Bytes()
+}
+
 func (msg *Msg) SetAddr(addr net.Addr) {
 	sa := AddrToSockaddr(addr)
 	name, nameLen, rawErr := SockaddrToRaw(sa)
