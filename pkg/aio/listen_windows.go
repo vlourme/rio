@@ -272,6 +272,26 @@ func completeAccept(result int, op *Operator, err error) {
 	return
 }
 
+func SetReadBuffer(fd NetFd, n int) (err error) {
+	handle := syscall.Handle(fd.Fd())
+	err = syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF, n)
+	if err != nil {
+		err = os.NewSyscallError("setsockopt", err)
+		return
+	}
+	return
+}
+
+func SetWriteBuffer(fd NetFd, n int) (err error) {
+	handle := syscall.Handle(fd.Fd())
+	err = syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_SNDBUF, n)
+	if err != nil {
+		err = os.NewSyscallError("setsockopt", err)
+		return
+	}
+	return
+}
+
 func SetNoDelay(fd NetFd, noDelay bool) (err error) {
 	handle := syscall.Handle(fd.Fd())
 	err = syscall.SetsockoptInt(handle, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay))

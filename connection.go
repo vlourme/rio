@@ -85,12 +85,12 @@ func (conn *connection) SetWriteTimeout(d time.Duration) (err error) {
 }
 
 func (conn *connection) SetReadBuffer(n int) (err error) {
-	//err = conn.fd.SetReadBuffer(n)
+	err = aio.SetReadBuffer(conn.fd, n)
 	return
 }
 
 func (conn *connection) SetWriteBuffer(n int) (err error) {
-	//err = conn.fd.SetWriteBuffer(n)
+	err = aio.SetWriteBuffer(conn.fd, n)
 	return
 }
 

@@ -208,7 +208,7 @@ func (ln *listener) acceptOne() {
 			return
 		}
 		connFd := userdata.Fd.(aio.NetFd)
-		// handle tls
+		// todo: handle tls
 		if ln.tlsConfig != nil {
 			//sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
 		}
@@ -275,82 +275,4 @@ func (ln *listener) acceptOne() {
 		ln.acceptOne()
 		return
 	})
-	//ln.inner.Accept(func(sock sockets.Connection, err error) {
-	//	if err != nil {
-	//		ln.connectionsLimiter.Revert()
-	//		if !ln.ok() || sockets.IsUnexpectedCompletionError(err) {
-	//			// discard errors when ln was closed
-	//			return
-	//		}
-	//		ln.acceptorPromises.Fail(err)
-	//		ln.acceptOne()
-	//		return
-	//	}
-	//	// handle tls
-	//	if ln.tlsConfig != nil {
-	//		sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
-	//	}
-	//
-	//	// create conn
-	//	var conn Connection
-	//
-	//	switch ln.network {
-	//	case "tcp", "tcp4", "tcp6":
-	//		conn = newTCPConnection(ln.ctx, sock)
-	//		break
-	//	case "unix", "unixpacket":
-	//		conn = newUnixConnection(ln.ctx, sock)
-	//		break
-	//	default:
-	//		// not matched, so close it
-	//		conn = newConnection(ln.ctx, sock)
-	//		conn.Close().OnComplete(async.DiscardVoidHandler)
-	//		ln.acceptorPromises.Fail(ErrNetworkUnmatched)
-	//		ln.acceptOne()
-	//		return
-	//	}
-	//	// set default
-	//	if ln.defaultReadTimeout > 0 {
-	//		err = conn.SetReadTimeout(ln.defaultReadTimeout)
-	//		if err != nil {
-	//			conn.Close().OnComplete(async.DiscardVoidHandler)
-	//			ln.acceptorPromises.Fail(err)
-	//			ln.acceptOne()
-	//			return
-	//		}
-	//	}
-	//	if ln.defaultWriteTimeout > 0 {
-	//		err = conn.SetWriteTimeout(ln.defaultWriteTimeout)
-	//		if err != nil {
-	//			conn.Close().OnComplete(async.DiscardVoidHandler)
-	//			ln.acceptorPromises.Fail(err)
-	//			ln.acceptOne()
-	//			return
-	//		}
-	//	}
-	//	if ln.defaultReadBuffer > 0 {
-	//		err = conn.SetReadBuffer(ln.defaultReadBuffer)
-	//		if err != nil {
-	//			conn.Close().OnComplete(async.DiscardVoidHandler)
-	//			ln.acceptorPromises.Fail(err)
-	//			ln.acceptOne()
-	//			return
-	//		}
-	//	}
-	//	if ln.defaultWriteBuffer > 0 {
-	//		err = conn.SetWriteBuffer(ln.defaultWriteBuffer)
-	//		if err != nil {
-	//			conn.Close().OnComplete(async.DiscardVoidHandler)
-	//			ln.acceptorPromises.Fail(err)
-	//			ln.acceptOne()
-	//			return
-	//		}
-	//	}
-	//	if ln.defaultInboundBuffer != 0 {
-	//		conn.SetInboundBuffer(ln.defaultInboundBuffer)
-	//	}
-	//	ln.acceptorPromises.Succeed(conn)
-	//	ln.acceptOne()
-	//	return
-	//})
 }

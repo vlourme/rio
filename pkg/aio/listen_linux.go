@@ -18,6 +18,26 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 }
 
+func SetReadBuffer(fd NetFd, n int) (err error) {
+	handle := fd.Fd()
+	err = syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_RCVBUF, n)
+	if err != nil {
+		err = os.NewSyscallError("setsockopt", err)
+		return
+	}
+	return
+}
+
+func SetWriteBuffer(fd NetFd, n int) (err error) {
+	handle := fd.Fd()
+	err = syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_SNDBUF, n)
+	if err != nil {
+		err = os.NewSyscallError("setsockopt", err)
+		return
+	}
+	return
+}
+
 func SetNoDelay(fd NetFd, noDelay bool) (err error) {
 	handle := fd.Fd()
 	err = syscall.SetsockoptInt(handle, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay))
