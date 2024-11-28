@@ -141,35 +141,6 @@ func dtoi(s string) (n int, i int, ok bool) {
 	return n, i, true
 }
 
-var protocols = map[string]int{
-	"icmp":      1,
-	"igmp":      2,
-	"tcp":       6,
-	"udp":       17,
-	"ipv6-icmp": 58,
-}
-
-const maxProtoLength = len("RSVP-E2E-IGNORE") + 10 // with room to grow
-
-func lowerASCIIBytes(x []byte) {
-	for i, b := range x {
-		if 'A' <= b && b <= 'Z' {
-			x[i] += 'a' - 'A'
-		}
-	}
-}
-
-func lookupProtocolMap(name string) (int, error) {
-	var lowerProtocol [maxProtoLength]byte
-	n := copy(lowerProtocol[:], name)
-	lowerASCIIBytes(lowerProtocol[:n])
-	proto, found := protocols[string(lowerProtocol[:n])]
-	if !found || n != len(name) {
-		return 0, &net.AddrError{Err: "unknown IP protocol specified", Addr: name}
-	}
-	return proto, nil
-}
-
 func SockaddrToAddr(network string, sa syscall.Sockaddr) (addr net.Addr) {
 	switch sa := sa.(type) {
 	case *syscall.SockaddrInet4:
