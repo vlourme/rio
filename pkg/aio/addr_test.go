@@ -29,3 +29,17 @@ func TestAddrToSockaddr(t *testing.T) {
 func TestParseIpProto(t *testing.T) {
 	t.Log(aio.ParseIpProto("ip:tcp"))
 }
+
+func TestSockaddrToAddr(t *testing.T) {
+	addr, _, _, addErr := aio.ResolveAddr("tcp", "0.0.0.0:9000")
+	if addErr != nil {
+		t.Fatal(addErr)
+	}
+	sa := aio.AddrToSockaddr(addr)
+	rsa, rsaLen, rsaErr := aio.SockaddrToRaw(sa)
+	if rsaErr != nil {
+		t.Error(rsaErr)
+		return
+	}
+	t.Log(rsa, rsaLen)
+}

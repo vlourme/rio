@@ -4,9 +4,32 @@ package aio
 
 import (
 	"errors"
+	"strings"
 	"syscall"
 	"unsafe"
 )
+
+func ParseIpProto(network string) (n string, proto int, err error) {
+	i := strings.Index(network, ":")
+	if i < 0 {
+		n = network
+		return
+	}
+	n = network[:i]
+	protoName := network[i+1:]
+	proto0, idx, ok := dtoi(protoName)
+	if ok && idx == len(protoName) {
+		proto = proto0
+		return
+	}
+	p, getProtoErr := syscall.GetProtoByName(protoName)
+	if getProtoErr != nil {
+		err = errors.New("aio.ParseIpProto: " + getProtoErr.Error())
+		return
+	}
+	proto = int(p.Proto)
+	return
+}
 
 func SockaddrInet4ToRaw(sa *syscall.SockaddrInet4) (name *syscall.RawSockaddrAny, nameLen int32) {
 	name = &syscall.RawSockaddrAny{}
