@@ -67,3 +67,88 @@ func TestRecv(t *testing.T) {
 	t.Log("cli write:", wn)
 	wg.Wait()
 }
+
+func TestRecvFrom(t *testing.T) {
+	aio.Startup(aio.Options{})
+	defer aio.Shutdown()
+	lnFd, lnErr := aio.Listen("udp", ":9000", aio.ListenerOptions{})
+	if lnErr != nil {
+		t.Error("ln failed:", lnErr)
+		return
+	}
+	wg := new(sync.WaitGroup)
+
+	wg.Add(1)
+	b := make([]byte, 1024)
+	go aio.RecvFrom(lnFd, b, func(result int, userdata aio.Userdata, err error) {
+		defer wg.Done()
+		if err != nil {
+			t.Error("srv read:", err)
+			return
+		}
+		raddr, addrErr := userdata.Msg.Addr()
+		if addrErr != nil {
+			t.Error("srv read:", addrErr)
+			return
+		}
+		t.Log("srv read:", string(b[:result]), raddr)
+	})
+
+	conn, connErr := net.Dial("udp", "127.0.0.1:9000")
+	if connErr != nil {
+		t.Error("dial failed:", connErr)
+		return
+	}
+	defer conn.Close()
+
+	wn, wErr := conn.Write([]byte("hello world"))
+	if wErr != nil {
+		t.Error("write failed:", wErr)
+		return
+	}
+	t.Log("cli write:", wn)
+	wg.Wait()
+}
+
+func TestRecvMsg(t *testing.T) {
+	aio.Startup(aio.Options{})
+	defer aio.Shutdown()
+	lnFd, lnErr := aio.Listen("udp", ":9000", aio.ListenerOptions{})
+	if lnErr != nil {
+		t.Error("ln failed:", lnErr)
+		return
+	}
+	wg := new(sync.WaitGroup)
+
+	wg.Add(1)
+	b := make([]byte, 1024)
+	oob := make([]byte, 1024)
+	go aio.RecvMsg(lnFd, b, oob, func(result int, userdata aio.Userdata, err error) {
+		defer wg.Done()
+		if err != nil {
+			t.Error("srv read:", err)
+			return
+		}
+		raddr, addrErr := userdata.Msg.Addr()
+		if addrErr != nil {
+			t.Error("srv read:", addrErr)
+			return
+		}
+		t.Log("srv read:", string(b[:result]), raddr, userdata.Msg.Control.Bytes())
+	})
+
+	conn, connErr := net.Dial("udp", "127.0.0.1:9000")
+	if connErr != nil {
+		t.Error("dial failed:", connErr)
+		return
+	}
+	defer conn.Close()
+
+	wn, wErr := conn.Write([]byte("hello world"))
+	if wErr != nil {
+		t.Error("write failed:", wErr)
+		return
+	}
+	t.Log("cli write:", wn)
+	wg.Wait()
+}
