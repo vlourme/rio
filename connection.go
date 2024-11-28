@@ -3,8 +3,8 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
-	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -30,21 +30,21 @@ const (
 	defaultReadBufferSize = 1024
 )
 
-func newConnection(ctx context.Context, inner sockets.Connection) (conn *connection) {
+func newConnection(ctx context.Context, fd aio.NetFd) (conn *connection) {
 	conn = &connection{
-		ctx:   ctx,
-		inner: inner,
-		rb:    transport.NewInboundBuffer(),
-		rbs:   defaultReadBufferSize,
+		ctx: ctx,
+		fd:  fd,
+		rb:  transport.NewInboundBuffer(),
+		rbs: defaultReadBufferSize,
 	}
 	return
 }
 
 type connection struct {
-	ctx   context.Context
-	inner sockets.Connection
-	rb    transport.InboundBuffer
-	rbs   int
+	ctx context.Context
+	fd  aio.NetFd
+	rb  transport.InboundBuffer
+	rbs int
 }
 
 func (conn *connection) Context() (ctx context.Context) {
@@ -65,32 +65,32 @@ func (conn *connection) ConfigContext(config func(ctx context.Context) context.C
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {
-	addr = conn.inner.LocalAddr()
+	addr = conn.fd.LocalAddr()
 	return
 }
 
 func (conn *connection) RemoteAddr() (addr net.Addr) {
-	addr = conn.inner.RemoteAddr()
+	addr = conn.fd.RemoteAddr()
 	return
 }
 
 func (conn *connection) SetReadTimeout(d time.Duration) (err error) {
-	err = conn.inner.SetReadTimeout(d)
+	conn.fd.SetReadTimeout(d)
 	return
 }
 
 func (conn *connection) SetWriteTimeout(d time.Duration) (err error) {
-	err = conn.inner.SetWriteTimeout(d)
+	conn.fd.SetWriteTimeout(d)
 	return
 }
 
 func (conn *connection) SetReadBuffer(n int) (err error) {
-	err = conn.inner.SetReadBuffer(n)
+	//err = conn.fd.SetReadBuffer(n)
 	return
 }
 
 func (conn *connection) SetWriteBuffer(n int) (err error) {
-	err = conn.inner.SetWriteBuffer(n)
+	//err = conn.fd.SetWriteBuffer(n)
 	return
 }
 
@@ -119,7 +119,7 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		return
 	}
 
-	conn.inner.Read(p, func(n int, err error) {
+	aio.Recv(conn.fd, p, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			_ = conn.rb.AllocatedWrote(0)
 			promise.Fail(err)
@@ -133,6 +133,7 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		promise.Succeed(inbound)
 		return
 	})
+
 	future = promise.Future()
 	return
 }
@@ -158,7 +159,7 @@ func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Futur
 		return
 	}
 
-	conn.inner.Write(p[wrote:], func(n int, err error) {
+	aio.Send(conn.fd, p[wrote:], func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			if n == 0 {
 				promise.Fail(err)
@@ -176,7 +177,6 @@ func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Futur
 			promise.Succeed(outbound)
 			return
 		}
-
 		conn.write(p, pLen, nn).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
 			if cause != nil {
 				if nn > 0 {
@@ -198,7 +198,7 @@ func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Futur
 
 func (conn *connection) Close() (future async.Future[async.Void]) {
 	promise := async.UnlimitedPromise[async.Void](conn.ctx)
-	conn.inner.Close(func(err error) {
+	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			promise.Fail(err)
 		} else {
@@ -206,6 +206,7 @@ func (conn *connection) Close() (future async.Future[async.Void]) {
 		}
 		conn.rb.Close()
 		timeslimiter.TryRevert(conn.ctx)
+		return
 	})
 	future = promise.Future()
 	return

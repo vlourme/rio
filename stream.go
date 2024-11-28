@@ -4,14 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
-	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"runtime"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -61,23 +62,19 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	}
 
 	// sockets listen
-	inner, innerErr := sockets.Listen(network, addr, sockets.Options{
-		MultipathTCP: opt.MultipathTCP,
+	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
+		MultipathTCP:       opt.MultipathTCP,
+		MulticastInterface: nil,
 	})
-	if innerErr != nil {
-		err = errors.Join(errors.New("rio: listen failed"), innerErr)
+	if listenErr != nil {
+		err = errors.Join(errors.New("rio: listen failed"), listenErr)
 		return
 	}
 	// handle unix
+	unlinkOnClose := false
 	if network == "unix" || network == "unixpacket" {
 		if opt.StreamUnixListenerUnlinkOnClose {
-			unixListener, ok := inner.(sockets.UnixListener)
-			if !ok {
-				inner.Close(nil)
-				err = errors.Join(errors.New("rio: listen failed"), errors.New("unix listener is not a unix socket"))
-				return
-			}
-			unixListener.SetUnlinkOnClose(opt.StreamUnixListenerUnlinkOnClose)
+			unlinkOnClose = true
 		}
 	}
 
@@ -105,7 +102,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx:                           ctx,
 		running:                       running,
 		network:                       network,
-		inner:                         inner,
+		fd:                            fd,
+		unlinkOnClose:                 unlinkOnClose,
 		connectionsLimiter:            connectionsLimiter,
 		connectionsLimiterWaitTimeout: opt.StreamListenerAcceptMaxConnectionsLimiterWaitTimeout,
 		tlsConfig:                     opt.TLSConfig,
@@ -124,7 +122,8 @@ type listener struct {
 	ctx                           context.Context
 	running                       *atomic.Bool
 	network                       string
-	inner                         sockets.Listener
+	fd                            aio.NetFd
+	unlinkOnClose                 bool
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
 	tlsConfig                     *tls.Config
@@ -138,7 +137,7 @@ type listener struct {
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
-	addr = ln.inner.Addr()
+	addr = ln.fd.LocalAddr()
 	return
 }
 
@@ -156,7 +155,15 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	}
 	ln.running.Store(false)
 	promise := async.UnlimitedPromise[async.Void](ln.ctx)
-	ln.inner.Close(func(err error) {
+	if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
+		unixAddr, isUnix := ln.fd.LocalAddr().(*net.UnixAddr)
+		if isUnix {
+			if path := unixAddr.String(); path[0] != '@' {
+				_ = aio.Unlink(path)
+			}
+		}
+	}
+	aio.Close(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		ln.acceptorPromises.Cancel()
 		if err != nil {
 			promise.Fail(err)
@@ -188,7 +195,8 @@ func (ln *listener) acceptOne() {
 		ln.acceptOne()
 		return
 	}
-	ln.inner.Accept(func(sock sockets.Connection, err error) {
+
+	aio.Accept(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			ln.connectionsLimiter.Revert()
 			if !ln.ok() || sockets.IsUnexpectedCompletionError(err) {
@@ -199,9 +207,10 @@ func (ln *listener) acceptOne() {
 			ln.acceptOne()
 			return
 		}
+		connFd := userdata.Fd.(aio.NetFd)
 		// handle tls
 		if ln.tlsConfig != nil {
-			sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
+			//sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
 		}
 
 		// create conn
@@ -209,14 +218,14 @@ func (ln *listener) acceptOne() {
 
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
-			conn = newTCPConnection(ln.ctx, sock)
+			conn = newTCPConnection(ln.ctx, connFd)
 			break
 		case "unix", "unixpacket":
-			conn = newUnixConnection(ln.ctx, sock)
+			conn = newUnixConnection(ln.ctx, connFd)
 			break
 		default:
 			// not matched, so close it
-			conn = newConnection(ln.ctx, sock)
+			conn = newConnection(ln.ctx, connFd)
 			conn.Close().OnComplete(async.DiscardVoidHandler)
 			ln.acceptorPromises.Fail(ErrNetworkUnmatched)
 			ln.acceptOne()
@@ -266,4 +275,82 @@ func (ln *listener) acceptOne() {
 		ln.acceptOne()
 		return
 	})
+	//ln.inner.Accept(func(sock sockets.Connection, err error) {
+	//	if err != nil {
+	//		ln.connectionsLimiter.Revert()
+	//		if !ln.ok() || sockets.IsUnexpectedCompletionError(err) {
+	//			// discard errors when ln was closed
+	//			return
+	//		}
+	//		ln.acceptorPromises.Fail(err)
+	//		ln.acceptOne()
+	//		return
+	//	}
+	//	// handle tls
+	//	if ln.tlsConfig != nil {
+	//		sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
+	//	}
+	//
+	//	// create conn
+	//	var conn Connection
+	//
+	//	switch ln.network {
+	//	case "tcp", "tcp4", "tcp6":
+	//		conn = newTCPConnection(ln.ctx, sock)
+	//		break
+	//	case "unix", "unixpacket":
+	//		conn = newUnixConnection(ln.ctx, sock)
+	//		break
+	//	default:
+	//		// not matched, so close it
+	//		conn = newConnection(ln.ctx, sock)
+	//		conn.Close().OnComplete(async.DiscardVoidHandler)
+	//		ln.acceptorPromises.Fail(ErrNetworkUnmatched)
+	//		ln.acceptOne()
+	//		return
+	//	}
+	//	// set default
+	//	if ln.defaultReadTimeout > 0 {
+	//		err = conn.SetReadTimeout(ln.defaultReadTimeout)
+	//		if err != nil {
+	//			conn.Close().OnComplete(async.DiscardVoidHandler)
+	//			ln.acceptorPromises.Fail(err)
+	//			ln.acceptOne()
+	//			return
+	//		}
+	//	}
+	//	if ln.defaultWriteTimeout > 0 {
+	//		err = conn.SetWriteTimeout(ln.defaultWriteTimeout)
+	//		if err != nil {
+	//			conn.Close().OnComplete(async.DiscardVoidHandler)
+	//			ln.acceptorPromises.Fail(err)
+	//			ln.acceptOne()
+	//			return
+	//		}
+	//	}
+	//	if ln.defaultReadBuffer > 0 {
+	//		err = conn.SetReadBuffer(ln.defaultReadBuffer)
+	//		if err != nil {
+	//			conn.Close().OnComplete(async.DiscardVoidHandler)
+	//			ln.acceptorPromises.Fail(err)
+	//			ln.acceptOne()
+	//			return
+	//		}
+	//	}
+	//	if ln.defaultWriteBuffer > 0 {
+	//		err = conn.SetWriteBuffer(ln.defaultWriteBuffer)
+	//		if err != nil {
+	//			conn.Close().OnComplete(async.DiscardVoidHandler)
+	//			ln.acceptorPromises.Fail(err)
+	//			ln.acceptOne()
+	//			return
+	//		}
+	//	}
+	//	if ln.defaultInboundBuffer != 0 {
+	//		conn.SetInboundBuffer(ln.defaultInboundBuffer)
+	//	}
+	//	ln.acceptorPromises.Succeed(conn)
+	//	ln.acceptOne()
+	//	return
+	//})
 }

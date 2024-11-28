@@ -2,14 +2,14 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rio/pkg/aio"
 )
 
 type IPConnection interface {
 	PacketConnection
 }
 
-func newIPConnection(ctx context.Context, inner sockets.Connection) (conn IPConnection) {
-	conn = newPacketConnection(ctx, inner.(sockets.PacketConnection))
+func newIPConnection(ctx context.Context, fd aio.NetFd) (conn IPConnection) {
+	conn = newPacketConnection(ctx, fd)
 	return
 }

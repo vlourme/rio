@@ -3,12 +3,16 @@ package aio
 import (
 	"net"
 	"syscall"
+	"time"
 )
 
 type Fd interface {
 	Fd() int
 	ReadOperator() Operator
 	WriteOperator() Operator
+	SetOperatorTimeout(d time.Duration)
+	SetReadTimeout(d time.Duration)
+	SetWriteTimeout(d time.Duration)
 	ZeroReadIsEOF() bool
 }
 
@@ -73,6 +77,23 @@ func (s *netFd) RemoteAddr() net.Addr {
 
 func (s *netFd) ReadOperator() Operator {
 	return s.rop
+}
+
+func (s *netFd) SetOperatorTimeout(d time.Duration) {
+	s.SetReadTimeout(d)
+	s.SetWriteTimeout(d)
+}
+
+func (s *netFd) SetReadTimeout(d time.Duration) {
+	if d > 0 {
+		s.rop.timeout = d
+	}
+}
+
+func (s *netFd) SetWriteTimeout(d time.Duration) {
+	if d > 0 {
+		s.wop.timeout = d
+	}
 }
 
 func (s *netFd) WriteOperator() Operator {

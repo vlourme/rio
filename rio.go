@@ -3,6 +3,7 @@ package rio
 import (
 	"errors"
 	"fmt"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/process"
 	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
@@ -14,7 +15,7 @@ import (
 // Startup
 // 启动
 //
-// rio 是基于 rxp.Executors 与 sockets.Completions 的异步编程模式。
+// rio 是基于 rxp.Executors 与 aio.Engine 的异步编程模式。
 // 提供默认值，如果需要定制化，则使用 Startup 完成。
 //
 // 注意：必须在程序起始位置调用，否则无效。
@@ -66,7 +67,7 @@ func Startup(options ...StartupOption) (err error) {
 	executors = rxp.New(opts.ExecutorsOptions...)
 
 	// sockets.completions
-	sockets.Startup(opts.CompletionOptions)
+	aio.Startup(opts.AioOptions)
 	return
 }
 
@@ -98,7 +99,7 @@ func ShutdownGracefully() error {
 
 type StartupOptions struct {
 	ProcessPriorityLevel process.PriorityLevel
-	CompletionOptions    sockets.CompletionOptions
+	AioOptions           aio.Options
 	ExecutorsOptions     []rxp.Option
 }
 
@@ -185,37 +186,37 @@ func WithCloseTimeout(d time.Duration) StartupOption {
 	}
 }
 
-func WithPollersNum(n int) StartupOption {
+func WithAIOEngineCylinders(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.CompletionOptions.Pollers = uint32(n)
+			o.AioOptions.EngineCylinders = n
 		}
 		return nil
 	}
 }
 
-func WithFlags(n uint32) StartupOption {
+func WithAIOFlags(n uint32) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.CompletionOptions.Flags = n
+			o.AioOptions.Settings.Flags = n
 		}
 		return nil
 	}
 }
 
-func WithThreadCPU(n int) StartupOption {
+func WithAIOThreads(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.CompletionOptions.ThreadCPU = uint32(n)
+			o.AioOptions.Settings.Threads = uint32(n)
 		}
 		return nil
 	}
 }
 
-func WithThreadIdle(n int) StartupOption {
+func WithAIOThreadIdle(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.CompletionOptions.ThreadIdle = uint32(n)
+			o.AioOptions.Settings.ThreadIdle = uint32(n)
 		}
 		return nil
 	}

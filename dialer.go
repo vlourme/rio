@@ -2,8 +2,7 @@ package rio
 
 import (
 	"context"
-	"errors"
-	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 )
@@ -42,48 +41,30 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	future = promise.Future()
 
 	executed := rxp.TryExecute(ctx, func() {
-		socketOpts := sockets.Options{
-			MultipathTCP:            opts.MultipathTCP,
-			DialPacketConnLocalAddr: opts.DialPacketConnLocalAddr,
+		connectOpts := aio.ConnectOptions{
+			MultipathTCP: opts.MultipathTCP,
+			LocalAddr:    opts.DialPacketConnLocalAddr,
 		}
-		sockets.Dial(network, address, socketOpts, func(inner sockets.Connection, err error) {
+		aio.Connect(network, address, connectOpts, func(result int, userdata aio.Userdata, err error) {
 			if err != nil {
 				promise.Fail(err)
 				return
 			}
-
+			connFd := userdata.Fd.(aio.NetFd)
 			var conn Connection
 
 			switch network {
 			case "tcp", "tcp4", "tcp6":
-				conn = newTCPConnection(ctx, inner)
+				conn = newTCPConnection(ctx, connFd)
 				break
 			case "udp", "udp4", "udp6":
-				packetInner, ok := inner.(sockets.PacketConnection)
-				if !ok {
-					go inner.Close(func(err error) {})
-					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
-					break
-				}
-				conn = newPacketConnection(ctx, packetInner)
+				conn = newPacketConnection(ctx, connFd)
 				break
 			case "unix", "unixgram", "unixpacket":
-				packetInner, ok := inner.(sockets.PacketConnection)
-				if !ok {
-					go inner.Close(func(err error) {})
-					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
-					break
-				}
-				conn = newUnixConnection(ctx, packetInner)
+				conn = newUnixConnection(ctx, connFd)
 				break
 			case "ip", "ip4", "ip6":
-				packetInner, ok := inner.(sockets.PacketConnection)
-				if !ok {
-					go inner.Close(func(err error) {})
-					promise.Fail(errors.New("sockets.PacketConnection is not a sockets.PacketConnection"))
-					break
-				}
-				conn = newIPConnection(ctx, packetInner)
+				conn = newIPConnection(ctx, connFd)
 				break
 			}
 

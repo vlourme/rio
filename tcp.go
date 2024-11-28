@@ -2,8 +2,7 @@ package rio
 
 import (
 	"context"
-	"errors"
-	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"time"
 )
 
@@ -15,8 +14,8 @@ type TCPConnection interface {
 	SetKeepAlivePeriod(period time.Duration) (err error)
 }
 
-func newTCPConnection(ctx context.Context, inner sockets.Connection) (conn TCPConnection) {
-	c := newConnection(ctx, inner)
+func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
+	c := newConnection(ctx, fd)
 	conn = &tcpConnection{
 		connection: *c,
 	}
@@ -28,41 +27,21 @@ type tcpConnection struct {
 }
 
 func (conn *tcpConnection) SetNoDelay(noDelay bool) (err error) {
-	tcp, isTCP := conn.connection.inner.(sockets.TCPConnection)
-	if !isTCP {
-		err = errors.New("rio: not a TCP connection")
-		return
-	}
-	err = tcp.SetNoDelay(noDelay)
+	err = aio.SetNoDelay(conn.fd, noDelay)
 	return
 }
 
 func (conn *tcpConnection) SetLinger(sec int) (err error) {
-	tcp, isTCP := conn.connection.inner.(sockets.TCPConnection)
-	if !isTCP {
-		err = errors.New("rio: not a TCP connection")
-		return
-	}
-	err = tcp.SetLinger(sec)
+	err = aio.SetLinger(conn.fd, sec)
 	return
 }
 
 func (conn *tcpConnection) SetKeepAlive(keepalive bool) (err error) {
-	tcp, isTCP := conn.connection.inner.(sockets.TCPConnection)
-	if !isTCP {
-		err = errors.New("rio: not a TCP connection")
-		return
-	}
-	err = tcp.SetKeepAlive(keepalive)
+	err = aio.SetKeepAlive(conn.fd, keepalive)
 	return
 }
 
 func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) {
-	tcp, isTCP := conn.connection.inner.(sockets.TCPConnection)
-	if !isTCP {
-		err = errors.New("rio: not a TCP connection")
-		return
-	}
-	err = tcp.SetKeepAlivePeriod(period)
+	err = aio.SetKeepAlivePeriod(conn.fd, period)
 	return
 }

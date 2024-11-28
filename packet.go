@@ -3,7 +3,7 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/sockets"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
@@ -23,17 +23,17 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 	// executors
 	ctx = rxp.With(ctx, getExecutors())
 	// inner
-	inner, innerErr := sockets.ListenPacket(network, addr, sockets.Options{
-		MultipathTCP:            false,
-		DialPacketConnLocalAddr: nil,
-		MulticastInterface:      opt.ListenMulticastUDPInterface,
+	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
+		MultipathTCP:       false,
+		MulticastInterface: opt.ListenMulticastUDPInterface,
 	})
-	if innerErr != nil {
-		err = errors.Join(errors.New("rio: listen packet failed"), innerErr)
+
+	if listenErr != nil {
+		err = errors.Join(errors.New("rio: listen packet failed"), listenErr)
 		return
 	}
 
-	conn = newPacketConnection(ctx, inner)
+	conn = newPacketConnection(ctx, fd)
 	return
 }
 
@@ -50,10 +50,9 @@ const (
 	defaultOOBBufferSize = 1024
 )
 
-func newPacketConnection(ctx context.Context, inner sockets.PacketConnection) (conn PacketConnection) {
+func newPacketConnection(ctx context.Context, fd aio.NetFd) (conn PacketConnection) {
 	conn = &packetConnection{
-		connection: *newConnection(ctx, inner),
-		inner:      inner,
+		connection: *newConnection(ctx, fd),
 		oob:        transport.NewInboundBuffer(),
 		oobn:       defaultOOBBufferSize,
 	}
@@ -62,9 +61,8 @@ func newPacketConnection(ctx context.Context, inner sockets.PacketConnection) (c
 
 type packetConnection struct {
 	connection
-	inner sockets.PacketConnection
-	oob   transport.InboundBuffer
-	oobn  int
+	oob  transport.InboundBuffer
+	oobn int
 }
 
 func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
@@ -84,22 +82,26 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		return
 	}
 
-	conn.inner.ReadFrom(p, func(n int, addr net.Addr, err error) {
+	aio.RecvFrom(conn.fd, p, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			_ = conn.rb.AllocatedWrote(0)
 			promise.Fail(err)
 			return
 		}
-
 		if awErr := conn.rb.AllocatedWrote(n); awErr != nil {
 			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
 			return
 		}
-
+		addr, addrErr := userdata.Msg.Addr()
+		if addrErr != nil {
+			promise.Fail(addrErr)
+			return
+		}
 		inbound := transport.NewPacketInbound(conn.rb, addr, n)
 		promise.Succeed(inbound)
 		return
 	})
+
 	future = promise.Future()
 	return
 }
@@ -124,7 +126,7 @@ func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Fut
 		return
 	}
 
-	conn.inner.WriteTo(p, addr, func(n int, err error) {
+	aio.SendTo(conn.fd, p, addr, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			if n == 0 {
 				promise.Fail(err)
@@ -174,7 +176,7 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		return
 	}
 
-	conn.inner.ReadMsg(p, oob, func(n int, oobn int, flags int, addr net.Addr, err error) {
+	aio.RecvMsg(conn.fd, p, oob, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			_ = conn.rb.AllocatedWrote(0)
 			_ = conn.oob.AllocatedWrote(0)
@@ -185,14 +187,22 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
 			return
 		}
+		oobn := int(userdata.Msg.Control.Len)
 		if awErr := conn.oob.AllocatedWrote(oobn); awErr != nil {
 			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
 			return
 		}
+		addr, addrErr := userdata.Msg.Addr()
+		if addrErr != nil {
+			promise.Fail(addrErr)
+			return
+		}
+		flags := int(userdata.Msg.Flags)
 		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
 		promise.Succeed(inbound)
 		return
 	})
+
 	future = promise.Future()
 	return
 }
@@ -217,7 +227,8 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 		return
 	}
 
-	conn.inner.WriteMsg(p, oob, addr, func(n int, oobn int, err error) {
+	aio.SendMsg(conn.fd, p, oob, addr, func(n int, userdata aio.Userdata, err error) {
+		oobn := int(userdata.Msg.Control.Len)
 		if err != nil {
 			if n == 0 {
 				promise.Fail(err)
