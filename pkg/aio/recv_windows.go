@@ -10,17 +10,17 @@ import (
 )
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
+	// op
+	op := fd.ReadOperator()
+	// buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, Userdata{}, ErrEmptyBytes)
+		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > maxRW {
 		b = b[:maxRW]
 		bLen = maxRW
 	}
-	// op
-	op := fd.ReadOperator()
-	// buf
 	op.userdata.Msg.AppendBuffer(b)
 	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
 	// cb
@@ -70,17 +70,17 @@ func completeRecv(result int, op *Operator, err error) {
 }
 
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
+	// op
+	op := fd.ReadOperator()
+	// buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, Userdata{}, ErrEmptyBytes)
+		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > maxRW {
 		b = b[:maxRW]
 		bLen = maxRW
 	}
-	// op
-	op := fd.ReadOperator()
-	// buf
 	op.userdata.Msg.AppendBuffer(b)
 	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
 	// addr
@@ -136,19 +136,18 @@ func completeRecvFrom(result int, op *Operator, err error) {
 }
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
+	// op
+	op := fd.ReadOperator()
+	// buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, Userdata{}, ErrEmptyBytes)
+		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > maxRW {
 		b = b[:maxRW]
 		bLen = maxRW
 	}
-	// op
-	op := fd.ReadOperator()
-	// buf
 	op.userdata.Msg.AppendBuffer(b)
-	wsamsg := (*windows.WSAMsg)(unsafe.Pointer(&op.userdata.Msg))
 	op.userdata.Msg.SetControl(oob)
 	// addr
 	if op.userdata.Msg.Name == nil {
@@ -161,6 +160,8 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	if fd.Family() == syscall.AF_UNIX {
 		op.userdata.Msg.Flags = readMsgFlags
 	}
+
+	wsamsg := (*windows.WSAMsg)(unsafe.Pointer(&op.userdata.Msg))
 	// cb
 	op.callback = cb
 	// completion
