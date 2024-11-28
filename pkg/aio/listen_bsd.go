@@ -3,10 +3,20 @@
 package aio
 
 import (
+	"net"
 	"os"
 	"syscall"
 	"time"
 )
+
+func newListenerFd(network string, family int, sotype int, proto int, addr net.Addr, multicastInterface *net.Interface) (v *netFd, err error) {
+
+	return
+}
+
+func Accept(fd NetFd, cb OperationCallback) {
+
+}
 
 func SetNoDelay(fd NetFd, noDelay bool) (err error) {
 	handle := fd.Fd()

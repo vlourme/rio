@@ -2,6 +2,8 @@
 
 package aio
 
+import "net"
+
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 	return

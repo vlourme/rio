@@ -4,7 +4,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/aio"
 	"net"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -29,8 +28,12 @@ func TestAccept(t *testing.T) {
 			if err != nil {
 				return
 			}
-			connFd := userdata.Fd.Fd()
-			_ = syscall.Closesocket(syscall.Handle(connFd))
+			wg.Add(1)
+			connFd := userdata.Fd.(aio.NetFd)
+			go aio.Close(connFd, func(result int, userdata aio.Userdata, err error) {
+				defer wg.Done()
+				t.Log("srv close:", result, err)
+			})
 		})
 	}
 
