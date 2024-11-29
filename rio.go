@@ -193,30 +193,3 @@ func WithAIOEngineCylinders(n int) StartupOption {
 		return nil
 	}
 }
-
-func WithAIOFlags(n uint32) StartupOption {
-	return func(o *StartupOptions) error {
-		if n > 1 {
-			o.AIOOptions.Settings.Flags = n
-		}
-		return nil
-	}
-}
-
-func WithAIOThreads(n int) StartupOption {
-	return func(o *StartupOptions) error {
-		if n > 1 {
-			o.AIOOptions.Settings.Threads = uint32(n)
-		}
-		return nil
-	}
-}
-
-func WithAIOThreadIdle(n int) StartupOption {
-	return func(o *StartupOptions) error {
-		if n > 1 {
-			o.AIOOptions.Settings.ThreadIdle = uint32(n)
-		}
-		return nil
-	}
-}

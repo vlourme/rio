@@ -42,7 +42,8 @@ func (engine *Engine) Start() {
 	}
 
 	// threadCount
-	threadCount = engine.settings.Threads
+	settings := ResolveSettings[IOCPSettings](engine.settings)
+	threadCount = settings.ThreadCNT
 	if threadCount == 0 {
 		threadCount = dwordMax
 	}
@@ -121,4 +122,8 @@ func (engine *Engine) Stop() {
 	}
 	cylindersWG.Wait()
 	engine.fd = 0
+}
+
+type IOCPSettings struct {
+	ThreadCNT uint32
 }

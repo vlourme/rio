@@ -1,12 +1,16 @@
 package aio
 
 import (
+	"fmt"
+	"reflect"
 	"runtime"
 	"sync"
 )
 
 type Settings struct {
+	QueueSize  uint32
 	Flags      uint32
+	Features   uint32
 	Threads    uint32
 	ThreadIdle uint32
 }
@@ -17,13 +21,24 @@ type Options struct {
 	EngineCylinders int
 	// Settings
 	// AIO配置设置
-	Settings Settings
+	Settings any
+}
+
+func ResolveSettings[T any](settings any) T {
+	if settings == nil {
+		return *new(T)
+	}
+	s, ok := settings.(T)
+	if !ok {
+		panic(fmt.Errorf("aio: cannot resolve %s settings from %s", reflect.TypeOf(*new(T)), reflect.TypeOf(settings)))
+	}
+	return s
 }
 
 type Engine struct {
 	fd        int
 	cylinders int
-	settings  Settings
+	settings  any
 }
 
 var (
@@ -31,7 +46,7 @@ var (
 	_engine           *Engine = nil
 	_defaultOptions           = Options{
 		EngineCylinders: runtime.NumCPU() * 2,
-		Settings:        Settings{},
+		Settings:        nil,
 	}
 )
 

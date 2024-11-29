@@ -3,13 +3,18 @@
 package aio
 
 import (
+	"bufio"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
 
 func newListenerFd(network string, family int, sotype int, proto int, addr net.Addr, multicastInterface *net.Interface) (v *netFd, err error) {
+
+	// syscall.Listen(0, somaxconn)
 
 	return
 }
@@ -90,4 +95,46 @@ func SetKeepAlivePeriod(fd NetFd, period time.Duration) (err error) {
 		return
 	}
 	return
+}
+
+var (
+	somaxconn = maxListenerBacklog()
+)
+
+const (
+	maxUint16Value = 1<<16 - 1
+)
+
+func maxListenerBacklog() int {
+	fd, err := os.Open("/proc/sys/net/core/somaxconn")
+	if err != nil {
+		return syscall.SOMAXCONN
+	}
+	defer fd.Close()
+
+	rd := bufio.NewReader(fd)
+
+	line, err := rd.ReadString('\n')
+	if err != nil {
+		return syscall.SOMAXCONN
+	}
+
+	f := strings.Fields(line)
+	if len(f) < 1 {
+		return syscall.SOMAXCONN
+	}
+
+	value, err := strconv.Atoi(f[0])
+	if err != nil || value == 0 {
+		return syscall.SOMAXCONN
+	}
+
+	// Linux stores the backlog in a uint16.
+	// Truncate number to avoid wrapping.
+	// See issue 5030.
+	if value > maxUint16Value {
+		value = maxUint16Value
+	}
+
+	return value
 }
