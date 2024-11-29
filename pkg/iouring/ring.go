@@ -39,6 +39,7 @@ func CreateRing(entries uint32) (*Ring, error) {
 	)
 
 	err := ring.QueueInit(entries, flags)
+	ring.QueueInitParams()
 	if err != nil {
 		return nil, err
 	}

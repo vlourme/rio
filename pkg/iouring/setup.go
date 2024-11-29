@@ -35,15 +35,29 @@ type Params struct {
 	features     uint32
 	wqFd         uint32
 	resv         [3]uint32
-
-	sqOff SQRingOffsets
-	cqOff CQRingOffsets
+	sqOff        SQRingOffsets
+	cqOff        CQRingOffsets
 }
 
 // liburing: io_uring_setup - https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
-func Setup(entries uint32, p *Params) (uint, error) {
+func Setup1(entries uint32, p *Params) (uint, error) {
 	fd, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(p)), 0)
 	runtime.KeepAlive(p)
 
 	return uint(fd), errno
+}
+
+func Setup(entries uint32, flags uint32) (ring *Ring, err error) {
+
+	return
+}
+
+func SetupWithParam(entries uint32, param Params) (ring *Ring, err error) {
+
+	return
+}
+
+func SetupWithMem(entries uint32, param Params, mem *byte, memLen uint64) (ring *Ring, err error) {
+
+	return
 }
