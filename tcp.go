@@ -8,6 +8,7 @@ import (
 
 type TCPConnection interface {
 	Connection
+	MultipathTCP() bool
 	SetNoDelay(noDelay bool) (err error)
 	SetLinger(sec int) (err error)
 	SetKeepAlive(keepalive bool) (err error)
@@ -24,6 +25,10 @@ func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
 
 type tcpConnection struct {
 	connection
+}
+
+func (conn *tcpConnection) MultipathTCP() bool {
+	return aio.IsUsingMultipathTCP(conn.fd)
 }
 
 func (conn *tcpConnection) SetNoDelay(noDelay bool) (err error) {

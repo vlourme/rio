@@ -6,6 +6,7 @@ import (
 	"errors"
 	"golang.org/x/sys/unix"
 	"sync"
+	"syscall"
 )
 
 const (
@@ -70,4 +71,22 @@ func KernelVersion() (major, minor int) {
 	}
 
 	return values[0], values[1]
+}
+
+func hasFallenBack(fd NetFd) bool {
+	_, err := syscall.GetsockoptInt(fd.Fd(), _SOL_MPTCP, _MPTCP_INFO)
+	return err == syscall.EOPNOTSUPP || err == syscall.ENOPROTOOPT
+}
+
+func isUsingMPTCPProto(fd NetFd) bool {
+	proto, _ := syscall.GetsockoptInt(fd.Fd(), syscall.SOL_SOCKET, syscall.SO_PROTOCOL)
+	return proto == _IPPROTO_MPTCP
+}
+
+func IsUsingMultipathTCP(fd NetFd) bool {
+	if hasSOLMPTCP {
+		return !hasFallenBack(fd)
+	}
+
+	return isUsingMPTCPProto(fd)
 }

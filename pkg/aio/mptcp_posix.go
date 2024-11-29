@@ -9,3 +9,7 @@ func supportsMultipathTCP() bool {
 func tryGetMultipathTCPProto() int {
 	return 0
 }
+
+func IsUsingMultipathTCP(fd NetFd) bool {
+	return false
+}

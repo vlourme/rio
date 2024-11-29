@@ -5,37 +5,9 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/transport"
-	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 )
-
-// ListenPacket
-func ListenPacket(ctx context.Context, network string, addr string, options ...Option) (conn PacketConnection, err error) {
-	opt := Options{}
-	for _, o := range options {
-		err = o(&opt)
-		if err != nil {
-			return
-		}
-	}
-
-	// executors
-	ctx = rxp.With(ctx, getExecutors())
-	// inner
-	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
-		MultipathTCP:       false,
-		MulticastInterface: opt.ListenMulticastUDPInterface,
-	})
-
-	if listenErr != nil {
-		err = errors.Join(errors.New("rio: listen packet failed"), listenErr)
-		return
-	}
-
-	conn = newPacketConnection(ctx, fd)
-	return
-}
 
 type PacketConnection interface {
 	Connection
@@ -108,7 +80,7 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 
 func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound]) {
 	if len(p) == 0 {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrEmptyPacket)
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrEmptyBytes)
 		return
 	}
 	if addr == nil {
@@ -209,7 +181,7 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 
 func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound]) {
 	if len(p) == 0 {
-		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrEmptyPacket)
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrEmptyBytes)
 		return
 	}
 	if addr == nil {

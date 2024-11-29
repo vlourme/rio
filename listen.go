@@ -14,7 +14,75 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 )
+
+const (
+	defaultAcceptMaxConnections                   = int64(0)
+	defaultAcceptMaxConnectionsLimiterWaitTimeout = 500 * time.Millisecond
+)
+
+type ListenOptions struct {
+	Options
+	ParallelAcceptors                      int
+	AcceptMaxConnections                   int64
+	AcceptMaxConnectionsLimiterWaitTimeout time.Duration
+	UnixListenerUnlinkOnClose              bool
+}
+
+// WithParallelAcceptors
+// 设置并行链接接受器数量。
+//
+// 默认值为 runtime.NumCPU() * 2。
+// 注意：当值大于 ListenOptions.ParallelAcceptors，即 WithParallelAcceptors 所设置的值。
+// 则并行链接接受器数为最大链接数。
+func WithParallelAcceptors(parallelAcceptors int) Option {
+	return func(options *Options) (err error) {
+		cpuNum := runtime.NumCPU() * 2
+		if parallelAcceptors < 1 || cpuNum < parallelAcceptors {
+			parallelAcceptors = cpuNum
+		}
+		opts := (*ListenOptions)(unsafe.Pointer(options))
+		opts.ParallelAcceptors = parallelAcceptors
+		return
+	}
+}
+
+// WithAcceptMaxConnections
+// 设置最大链接数。默认为0即无上限。
+func WithAcceptMaxConnections(maxConnections int64) Option {
+	return func(options *Options) (err error) {
+		if maxConnections > 0 {
+			opts := (*ListenOptions)(unsafe.Pointer(options))
+			opts.AcceptMaxConnections = maxConnections
+		}
+		return
+	}
+}
+
+// WithAcceptMaxConnectionsLimiterWaitTimeout
+// 设置最大链接数限制器等待超时。默认为500毫秒。
+//
+// 当10次都没新链接，当前协程会被挂起。
+func WithAcceptMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
+	return func(options *Options) (err error) {
+		if maxConnectionsLimiterWaitTimeout > 0 {
+			opts := (*ListenOptions)(unsafe.Pointer(options))
+			opts.AcceptMaxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
+		}
+		return
+	}
+}
+
+// WithUnixListenerUnlinkOnClose
+// 设置unix监听器是否在关闭时取消地址链接。用于链接型地址。
+func WithUnixListenerUnlinkOnClose() Option {
+	return func(options *Options) (err error) {
+		opts := (*ListenOptions)(unsafe.Pointer(options))
+		opts.UnixListenerUnlinkOnClose = true
+		return
+	}
+}
 
 type Listener interface {
 	Addr() (addr net.Addr)
@@ -32,29 +100,33 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = context.Background()
 	}
 	// opt
-	opt := Options{
-		StreamListenerParallelAcceptors:                      runtime.NumCPU() * 2,
-		StreamListenerAcceptMaxConnections:                   DefaultStreamListenerAcceptMaxConnections,
-		StreamListenerAcceptMaxConnectionsLimiterWaitTimeout: DefaultStreamListenerAcceptMaxConnectionsLimiterWaitTimeout,
-		TLSConfig:                       nil,
-		MultipathTCP:                    false,
-		DialPacketConnLocalAddr:         nil,
-		StreamUnixListenerUnlinkOnClose: false,
-		DefaultConnReadTimeout:          0,
-		DefaultConnWriteTimeout:         0,
-		PromiseMakeOptions:              make([]async.Option, 0, 1),
+	opt := ListenOptions{
+		Options: Options{
+			DefaultConnReadTimeout:     0,
+			DefaultConnWriteTimeout:    0,
+			DefaultConnReadBufferSize:  0,
+			DefaultConnWriteBufferSize: 0,
+			DefaultInboundBufferSize:   0,
+			TLSConfig:                  nil,
+			MultipathTCP:               false,
+			PromiseMakeOptions:         make([]async.Option, 0, 1),
+		},
+		ParallelAcceptors:                      runtime.NumCPU() * 2,
+		AcceptMaxConnections:                   defaultAcceptMaxConnections,
+		AcceptMaxConnectionsLimiterWaitTimeout: defaultAcceptMaxConnectionsLimiterWaitTimeout,
+		UnixListenerUnlinkOnClose:              false,
 	}
 	for _, option := range options {
-		err = option(&opt)
+		err = option((*Options)(unsafe.Pointer(&opt)))
 		if err != nil {
 			return
 		}
 	}
 
 	// parallel acceptors
-	parallelAcceptors := opt.StreamListenerParallelAcceptors
+	parallelAcceptors := opt.ParallelAcceptors
 	// connections limiter
-	maxConnections := opt.StreamListenerAcceptMaxConnections
+	maxConnections := opt.AcceptMaxConnections
 	connectionsLimiter := timeslimiter.New(maxConnections)
 	ctx = timeslimiter.With(ctx, connectionsLimiter)
 	if maxConnections > 0 && maxConnections < int64(parallelAcceptors) {
@@ -67,13 +139,13 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		MulticastInterface: nil,
 	})
 	if listenErr != nil {
-		err = errors.Join(errors.New("rio: listen failed"), listenErr)
+		err = &net.OpError{Op: opListen, Net: network, Err: listenErr}
 		return
 	}
 	// handle unix
 	unlinkOnClose := false
 	if network == "unix" || network == "unixpacket" {
-		if opt.StreamUnixListenerUnlinkOnClose {
+		if opt.UnixListenerUnlinkOnClose {
 			unlinkOnClose = true
 		}
 	}
@@ -105,7 +177,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		fd:                            fd,
 		unlinkOnClose:                 unlinkOnClose,
 		connectionsLimiter:            connectionsLimiter,
-		connectionsLimiterWaitTimeout: opt.StreamListenerAcceptMaxConnectionsLimiterWaitTimeout,
+		connectionsLimiterWaitTimeout: opt.AcceptMaxConnectionsLimiterWaitTimeout,
 		tlsConfig:                     opt.TLSConfig,
 		defaultReadTimeout:            opt.DefaultConnReadTimeout,
 		defaultWriteTimeout:           opt.DefaultConnWriteTimeout,
@@ -166,7 +238,7 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	aio.Close(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		ln.acceptorPromises.Cancel()
 		if err != nil {
-			promise.Fail(err)
+			promise.Fail(newOpErr(opClose, ln.fd, err))
 		} else {
 			promise.Succeed(async.Void{})
 		}
@@ -203,15 +275,11 @@ func (ln *listener) acceptOne() {
 				// discard errors when ln was closed
 				return
 			}
-			ln.acceptorPromises.Fail(err)
+			ln.acceptorPromises.Fail(newOpErr(opAccept, ln.fd, err))
 			ln.acceptOne()
 			return
 		}
 		connFd := userdata.Fd.(aio.NetFd)
-		// todo: handle tls
-		if ln.tlsConfig != nil {
-			//sock = security.Serve(ln.ctx, sock, ln.tlsConfig).(sockets.Connection)
-		}
 
 		// create conn
 		var conn Connection
@@ -221,13 +289,13 @@ func (ln *listener) acceptOne() {
 			conn = newTCPConnection(ln.ctx, connFd)
 			break
 		case "unix", "unixpacket":
-			conn = newUnixConnection(ln.ctx, connFd)
+			conn = newPacketConnection(ln.ctx, connFd)
 			break
 		default:
 			// not matched, so close it
 			conn = newConnection(ln.ctx, connFd)
 			conn.Close().OnComplete(async.DiscardVoidHandler)
-			ln.acceptorPromises.Fail(ErrNetworkUnmatched)
+			ln.acceptorPromises.Fail(newOpErr(opAccept, ln.fd, ErrNetworkUnmatched))
 			ln.acceptOne()
 			return
 		}
@@ -271,8 +339,56 @@ func (ln *listener) acceptOne() {
 		if ln.defaultInboundBuffer != 0 {
 			conn.SetInboundBuffer(ln.defaultInboundBuffer)
 		}
+		// tls
+		if ln.tlsConfig != nil {
+			conn = serverTLS(conn, ln.tlsConfig)
+		}
 		ln.acceptorPromises.Succeed(conn)
 		ln.acceptOne()
 		return
 	})
+}
+
+// *********************************************************************************************************************
+
+type ListenPacketOptions struct {
+	Options
+	MulticastUDPInterface *net.Interface
+}
+
+// WithMulticastUDPInterface
+// 设置组播UDP的网卡。
+func WithMulticastUDPInterface(iface *net.Interface) Option {
+	return func(options *Options) (err error) {
+		opts := (*ListenPacketOptions)(unsafe.Pointer(options))
+		opts.MulticastUDPInterface = iface
+		return
+	}
+}
+
+// ListenPacket
+func ListenPacket(ctx context.Context, network string, addr string, options ...Option) (conn PacketConnection, err error) {
+	opts := ListenPacketOptions{}
+	for _, o := range options {
+		err = o((*Options)(unsafe.Pointer(&opts)))
+		if err != nil {
+			return
+		}
+	}
+
+	// executors
+	ctx = rxp.With(ctx, getExecutors())
+	// inner
+	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
+		MultipathTCP:       false,
+		MulticastInterface: opts.MulticastUDPInterface,
+	})
+
+	if listenErr != nil {
+		err = errors.Join(errors.New("rio: listen packet failed"), listenErr)
+		return
+	}
+
+	conn = newPacketConnection(ctx, fd)
+	return
 }

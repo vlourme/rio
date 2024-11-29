@@ -67,7 +67,7 @@ func Startup(options ...StartupOption) (err error) {
 	executors = rxp.New(opts.ExecutorsOptions...)
 
 	// sockets.completions
-	aio.Startup(opts.AioOptions)
+	aio.Startup(opts.AIOOptions)
 	return
 }
 
@@ -99,7 +99,7 @@ func ShutdownGracefully() error {
 
 type StartupOptions struct {
 	ProcessPriorityLevel process.PriorityLevel
-	AioOptions           aio.Options
+	AIOOptions           aio.Options
 	ExecutorsOptions     []rxp.Option
 }
 
@@ -189,7 +189,7 @@ func WithCloseTimeout(d time.Duration) StartupOption {
 func WithAIOEngineCylinders(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.AioOptions.EngineCylinders = n
+			o.AIOOptions.EngineCylinders = n
 		}
 		return nil
 	}
@@ -198,7 +198,7 @@ func WithAIOEngineCylinders(n int) StartupOption {
 func WithAIOFlags(n uint32) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.AioOptions.Settings.Flags = n
+			o.AIOOptions.Settings.Flags = n
 		}
 		return nil
 	}
@@ -207,7 +207,7 @@ func WithAIOFlags(n uint32) StartupOption {
 func WithAIOThreads(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.AioOptions.Settings.Threads = uint32(n)
+			o.AIOOptions.Settings.Threads = uint32(n)
 		}
 		return nil
 	}
@@ -216,7 +216,7 @@ func WithAIOThreads(n int) StartupOption {
 func WithAIOThreadIdle(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.AioOptions.Settings.ThreadIdle = uint32(n)
+			o.AIOOptions.Settings.ThreadIdle = uint32(n)
 		}
 		return nil
 	}
