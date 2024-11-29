@@ -3,7 +3,6 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -20,7 +19,7 @@ type DialOptions struct {
 func WithLocalAddr(network string, addr string) Option {
 	return func(options *Options) (err error) {
 		opts := (*DialOptions)(unsafe.Pointer(options))
-		opts.LocalAddr, _, _, err = sockets.GetAddrAndFamily(network, addr)
+		opts.LocalAddr, _, _, err = aio.ResolveAddr(network, addr)
 		return
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
-	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -271,7 +270,7 @@ func (ln *listener) acceptOne() {
 	aio.Accept(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			ln.connectionsLimiter.Revert()
-			if !ln.ok() || sockets.IsUnexpectedCompletionError(err) {
+			if !ln.ok() || aio.IsUnexpectedCompletionError(err) {
 				// discard errors when ln was closed
 				return
 			}

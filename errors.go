@@ -76,6 +76,24 @@ func IsErrAllocateWrote(err error) bool {
 	return errors.Is(err, ErrAllocateWrote)
 }
 
+func IsTimeout(err error) bool {
+	var opErr *net.OpError
+	isOpErr := errors.As(err, &opErr)
+	if isOpErr {
+		err = opErr.Err
+	}
+	return errors.Is(err, aio.ErrOperationDeadlineExceeded)
+}
+
+func IsUnexpectedCompletedError(err error) bool {
+	var opErr *net.OpError
+	isOpErr := errors.As(err, &opErr)
+	if isOpErr {
+		err = opErr.Err
+	}
+	return errors.Is(err, aio.ErrUnexpectedCompletion)
+}
+
 const (
 	opDial   = "dial"
 	opListen = "listen"

@@ -23,7 +23,7 @@ type Connection interface {
 	SetWriteBuffer(n int) (err error)
 	SetInboundBuffer(n int)
 	Read() (future async.Future[transport.Inbound])
-	Write(p []byte) (future async.Future[transport.Outbound])
+	Write(b []byte) (future async.Future[transport.Outbound])
 	Close() (future async.Future[async.Void])
 }
 
@@ -110,7 +110,7 @@ func (conn *connection) SetInboundBuffer(size int) {
 }
 
 func (conn *connection) Read() (future async.Future[transport.Inbound]) {
-	p, allocateErr := conn.rb.Allocate(conn.rbs)
+	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
 		future = async.FailedImmediately[transport.Inbound](conn.ctx, newOpErr(opRead, conn.fd, errors.Join(ErrAllocate, allocateErr)))
 		return
@@ -126,7 +126,7 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		return
 	}
 
-	aio.Recv(conn.fd, p, func(n int, userdata aio.Userdata, err error) {
+	aio.Recv(conn.fd, b, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			_ = conn.rb.AllocatedWrote(0)
 			if errors.Is(err, io.EOF) {
@@ -149,17 +149,17 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 	return
 }
 
-func (conn *connection) Write(p []byte) (future async.Future[transport.Outbound]) {
-	pLen := len(p)
-	if pLen == 0 {
+func (conn *connection) Write(b []byte) (future async.Future[transport.Outbound]) {
+	bLen := len(b)
+	if bLen == 0 {
 		future = async.FailedImmediately[transport.Outbound](conn.ctx, newOpErr(opWrite, conn.fd, ErrEmptyBytes))
 		return
 	}
-	future = conn.write(p, pLen, 0)
+	future = conn.write(b, bLen, 0)
 	return
 }
 
-func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Future[transport.Outbound]) {
+func (conn *connection) write(b []byte, bLen int, wrote int) (future async.Future[transport.Outbound]) {
 	promise, promiseErr := async.Make[transport.Outbound](conn.ctx)
 	if promiseErr != nil {
 		if async.IsBusy(promiseErr) {
@@ -170,7 +170,7 @@ func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Futur
 		return
 	}
 
-	aio.Send(conn.fd, p[wrote:], func(n int, userdata aio.Userdata, err error) {
+	aio.Send(conn.fd, b[wrote:], func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			if n == 0 {
 				promise.Fail(newOpErr(opWrite, conn.fd, err))
@@ -183,12 +183,12 @@ func (conn *connection) write(p []byte, pLen int, wrote int) (future async.Futur
 
 		nn := wrote + n
 
-		if nn == pLen {
+		if nn == bLen {
 			outbound := transport.NewOutBound(nn, nil)
 			promise.Succeed(outbound)
 			return
 		}
-		conn.write(p, pLen, nn).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+		conn.write(b, bLen, nn).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
 			if cause != nil {
 				if nn > 0 {
 					outbound := transport.NewOutBound(nn, newOpErr(opWrite, conn.fd, cause))

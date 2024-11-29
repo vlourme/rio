@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/process"
-	"github.com/brickingsoft/rio/pkg/sockets"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"runtime"
@@ -66,7 +65,7 @@ func Startup(options ...StartupOption) (err error) {
 	}()
 	executors = rxp.New(opts.ExecutorsOptions...)
 
-	// sockets.completions
+	// aio.completions
 	aio.Startup(opts.AIOOptions)
 	return
 }
@@ -80,7 +79,7 @@ func Startup(options ...StartupOption) (err error) {
 func Shutdown() error {
 	runtime.SetFinalizer(executors, nil)
 	err := getExecutors().Close()
-	sockets.Shutdown()
+	aio.Shutdown()
 	return err
 }
 
@@ -93,7 +92,7 @@ func Shutdown() error {
 func ShutdownGracefully() error {
 	runtime.SetFinalizer(executors, nil)
 	err := getExecutors().CloseGracefully()
-	sockets.Shutdown()
+	aio.Shutdown()
 	return err
 }
 

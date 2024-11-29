@@ -12,10 +12,10 @@ import (
 type PacketConnection interface {
 	Connection
 	ReadFrom() (future async.Future[transport.PacketInbound])
-	WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound])
+	WriteTo(b []byte, addr net.Addr) (future async.Future[transport.Outbound])
 	SetReadMsgOOBBufferSize(size int)
 	ReadMsg() (future async.Future[transport.PacketMsgInbound])
-	WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound])
+	WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound])
 }
 
 const (
@@ -38,7 +38,7 @@ type packetConnection struct {
 }
 
 func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
-	p, allocateErr := conn.rb.Allocate(conn.rbs)
+	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
 		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, errors.Join(ErrAllocate, allocateErr))
 		return
@@ -54,7 +54,7 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		return
 	}
 
-	aio.RecvFrom(conn.fd, p, func(n int, userdata aio.Userdata, err error) {
+	aio.RecvFrom(conn.fd, b, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			_ = conn.rb.AllocatedWrote(0)
 			promise.Fail(err)
@@ -78,8 +78,8 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	return
 }
 
-func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Future[transport.Outbound]) {
-	if len(p) == 0 {
+func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Future[transport.Outbound]) {
+	if len(b) == 0 {
 		future = async.FailedImmediately[transport.Outbound](conn.ctx, ErrEmptyBytes)
 		return
 	}
@@ -98,7 +98,7 @@ func (conn *packetConnection) WriteTo(p []byte, addr net.Addr) (future async.Fut
 		return
 	}
 
-	aio.SendTo(conn.fd, p, addr, func(n int, userdata aio.Userdata, err error) {
+	aio.SendTo(conn.fd, b, addr, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			if n == 0 {
 				promise.Fail(err)
@@ -125,7 +125,7 @@ func (conn *packetConnection) SetReadMsgOOBBufferSize(size int) {
 }
 
 func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsgInbound]) {
-	p, allocateErr := conn.rb.Allocate(conn.rbs)
+	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, errors.Join(ErrAllocate, allocateErr))
 		return
@@ -148,7 +148,7 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		return
 	}
 
-	aio.RecvMsg(conn.fd, p, oob, func(n int, userdata aio.Userdata, err error) {
+	aio.RecvMsg(conn.fd, b, oob, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
 			_ = conn.rb.AllocatedWrote(0)
 			_ = conn.oob.AllocatedWrote(0)
@@ -179,8 +179,8 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	return
 }
 
-func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound]) {
-	if len(p) == 0 {
+func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound]) {
+	if len(b) == 0 {
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrEmptyBytes)
 		return
 	}
@@ -199,7 +199,7 @@ func (conn *packetConnection) WriteMsg(p []byte, oob []byte, addr net.Addr) (fut
 		return
 	}
 
-	aio.SendMsg(conn.fd, p, oob, addr, func(n int, userdata aio.Userdata, err error) {
+	aio.SendMsg(conn.fd, b, oob, addr, func(n int, userdata aio.Userdata, err error) {
 		oobn := int(userdata.Msg.Control.Len)
 		if err != nil {
 			if n == 0 {
