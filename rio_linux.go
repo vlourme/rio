@@ -14,3 +14,17 @@ func WithIOURingSettings(settings IOURingSettings) StartupOption {
 		return nil
 	}
 }
+
+func WithSampleIOURingSettings(entries uint32, flags uint32) StartupOption {
+	return func(o *StartupOptions) error {
+		o.AIOOptions.Settings = IOURingSettings{
+			aio.IOURingSettings{
+				Entries: entries,
+				Param: aio.IOURingSetupParam{
+					Flags: flags,
+				},
+			},
+		}
+		return nil
+	}
+}
