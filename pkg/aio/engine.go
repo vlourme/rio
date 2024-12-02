@@ -2,20 +2,11 @@ package aio
 
 import (
 	"fmt"
-	"github.com/brickingsoft/rxp"
 	"reflect"
 	"runtime"
 	"sync"
 	"sync/atomic"
 )
-
-type Settings struct {
-	QueueSize  uint32
-	Flags      uint32
-	Features   uint32
-	Threads    uint32
-	ThreadIdle uint32
-}
 
 type Options struct {
 	// EngineCylinders
@@ -69,7 +60,6 @@ func newEngine(options Options) *Engine {
 		cylindersNum: int64(cylinders),
 		cylinders:    make([]Cylinder, cylinders),
 		wg:           new(sync.WaitGroup),
-		executors:    nil,
 	}
 	return _engine
 }
@@ -82,7 +72,6 @@ type Engine struct {
 	cylindersNum int64
 	cylinders    []Cylinder
 	wg           *sync.WaitGroup
-	executors    rxp.Executors
 }
 
 func (engine *Engine) next() Cylinder {
@@ -129,12 +118,6 @@ var (
 
 func Startup(options Options) {
 	_engine = newEngine(options)
-	_engine.Start()
-}
-
-func StartupWithExecutors(executors rxp.Executors, options Options) {
-	_engine = newEngine(options)
-	_engine.executors = executors
 	_engine.Start()
 }
 

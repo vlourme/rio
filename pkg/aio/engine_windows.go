@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
@@ -46,20 +45,10 @@ func (engine *Engine) Start() {
 	}
 	engine.fd = int(cphandle)
 	// cylinders
-	ctx := context.Background()
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder := newIOCPCylinder(cphandle)
 		engine.cylinders[i] = cylinder
-		if executors := engine.executors; executors != nil {
-			execErr := executors.UnlimitedExecute(ctx, func() {
-				cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
-			})
-			if execErr != nil {
-				panic(fmt.Errorf("aio: engine start failed, %v", execErr))
-			}
-		} else {
-			go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
-		}
+		go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
 	}
 }
 
