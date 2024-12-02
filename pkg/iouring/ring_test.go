@@ -54,8 +54,10 @@ func TestNewRing(t *testing.T) {
 			log.Panicf("Peeked %d, expected %d", peeked, batchSize)
 		}
 
-		count += uint64(peeked)
+		ring.WaitCQE()
 
+		count += uint64(peeked)
+		// 因为是环，不能指定一个被消费，只能指定到哪里被消费
 		ring.CQAdvance(uint32(submitted))
 
 		nowTime := time.Now().UnixNano()

@@ -60,7 +60,7 @@ func connect(network string, family int, sotype int, proto int, raddr net.Addr, 
 	}
 
 	// create iocp
-	_, createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
+	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
 		cb(0, Userdata{}, os.NewSyscallError("CreateIoCompletionPort", createIOCPErr))
@@ -112,7 +112,7 @@ func connectEx(network string, family int, sotype int, proto int, addr net.Addr,
 		return
 	}
 	// create iocp
-	_, createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
+	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
 		cb(0, Userdata{}, os.NewSyscallError("CreateIoCompletionPort", createIOCPErr))

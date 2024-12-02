@@ -120,7 +120,7 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 	}
 
 	// create iocp
-	_, createListenIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
+	createListenIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createListenIOCPErr != nil {
 		err = os.NewSyscallError("CreateIoCompletionPort", createListenIOCPErr)
 		_ = syscall.Closesocket(handle)
@@ -260,7 +260,7 @@ func completeAccept(result int, op *Operator, err error) {
 	conn.remoteAddr = ra
 
 	// create iocp
-	_, iocpErr := createSubIoCompletionPort(windows.Handle(connFd))
+	iocpErr := createSubIoCompletionPort(windows.Handle(connFd))
 	if iocpErr != nil {
 		_ = syscall.Closesocket(connFd)
 		op.callback(result, userdata, iocpErr)

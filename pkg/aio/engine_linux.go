@@ -10,6 +10,8 @@ import (
 func (engine *Engine) Start() {
 	// cpu num
 	cpuNum := runtime.NumCPU() * 2
+	// todo cylinders -> one cylinder one ring/iocp/kqueue loop
+	// todo op with ring -> load balance to load cylinder
 	settings := ResolveSettings[IOURingSettings](engine.settings)
 	// entries
 	entries := settings.Entries
@@ -174,6 +176,7 @@ const (
 	// FeatRegRegRing
 	// 如果设置了该标志，则 io_uring 支持通过 IORING_REGISTER_USE_REGISTERED_RING，使用注册环 fd 调用 io_uring_register(2)。自内核 6.3 起可用。
 	FeatRegRegRing
+	FeatRecvSendBundle
 	// FeatMinTimeout
 	// 如果设置了该标志，则 io_uring 支持传递最小批处理等待超时。详情请参见 io_uring_submit_and_wait_min_timeout(3) 。
 	FeatMinTimeout

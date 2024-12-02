@@ -9,7 +9,10 @@ import (
 )
 
 func TestAccept(t *testing.T) {
-	aio.Startup(aio.Options{})
+	aio.Startup(aio.Options{
+		EngineCylinders: 2,
+		Settings:        nil,
+	})
 	defer aio.Shutdown()
 	lnFd, lnErr := aio.Listen("tcp", ":9000", aio.ListenerOptions{})
 	if lnErr != nil {
