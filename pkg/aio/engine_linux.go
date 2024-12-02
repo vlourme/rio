@@ -3,10 +3,11 @@
 package aio
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"sync/atomic"
+	"syscall"
+	"unsafe"
 )
 
 func (engine *Engine) Start() {
@@ -19,9 +20,16 @@ func (engine *Engine) Start() {
 		cpuNum := runtime.NumCPU() * 2
 		entries = uint32(cpuNum * 1024)
 	}
+	// param
+	param := &settings.Param
+	// batch
+	batch := settings.Batch
+	if batch < 1 {
+		batch = uint32(runtime.NumCPU())
+	}
 	// cylinders
 	for i := 0; i < len(engine.cylinders); i++ {
-		cylinder, cylinderErr := newIOURingCylinder(entries, settings.Param)
+		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch)
 		if cylinderErr != nil {
 			panic(fmt.Errorf("aio: engine start failed, %v", cylinderErr))
 			return
@@ -29,60 +37,596 @@ func (engine *Engine) Start() {
 		engine.cylinders[i] = cylinder
 
 	}
-	ctx := context.Background()
 	for _, cylinder := range engine.cylinders {
-		if executors := engine.executors; executors != nil {
-			execErr := executors.UnlimitedExecute(ctx, func() {
-				cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
-			})
-			if execErr != nil {
-				panic(fmt.Errorf("aio: engine start failed, %v", execErr))
-			}
-		} else {
-			go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
-		}
+		go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
 	}
 }
 
 func (engine *Engine) Stop() {
+	runtime.SetFinalizer(engine, nil)
 
+	for _, cylinder := range engine.cylinders {
+		cylinder.Stop()
+	}
+	engine.wg.Wait()
 }
 
-func newIOURingCylinder(entries uint32, param IOURingSetupParam) (cylinder Cylinder, err error) {
+func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32) (cylinder Cylinder, err error) {
 	// setup
+	ring, ringErr := NewIOURing(entries, param)
+	if ringErr != nil {
+		err = ringErr
+		return
+	}
+	// cylinder
+	cylinder = &IOURingCylinder{
+		ring:  ring,
+		batch: batch,
+	}
 	return
 }
 
+// todo IOURing 单独结构， cylinder 管理 IOURing （batch，loop）
+// 关闭 loop 可以试一试 注册一个 op，然后当。。也不要，engine 不用 rxp，就rxp结束后必然是空的，就直接关闭
 type IOURingCylinder struct {
-	fd      int
-	actives int64
+	ring   *IOURing
+	batch  uint32
+	stopCh chan struct{}
 }
 
 func (cylinder *IOURingCylinder) Fd() int {
-	return cylinder.fd
+	return cylinder.ring.fd
 }
 
 func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
-	//TODO implement me
-	panic("implement me")
+	beg()
+	defer end()
+
+	ring := cylinder.ring
+	cqes := make([]*CompletionQueueEvent, cylinder.batch)
+	stopped := false
+	for {
+		select {
+		case <-cylinder.stopCh:
+			stopped = true
+			break
+		default:
+			peeked := ring.PeekBatchCQE(cqes)
+			for i := uint32(0); i < peeked; i++ {
+				cqe := cqes[i]
+				// get op from userdata
+				op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
+				// todo handle canceled
+				// todo 如果不返回的话，那么这里都是正确的结果，则改超时，cancel的同时 直接 completion（）
+				// timeout
+				if timer := op.timer; timer != nil {
+					timer.Done()
+					putOperatorTimer(timer)
+					op.timer = nil
+				}
+				// complete op
+				if completion := op.completion; completion != nil {
+					completion(int(cqe.Res), op, nil)
+					op.completion = nil
+				}
+				op.callback = nil
+				runtime.KeepAlive(op)
+			}
+			break
+		}
+		if stopped {
+			break
+		}
+	}
 }
 
 func (cylinder *IOURingCylinder) Stop() {
-	//TODO implement me
-	panic("implement me")
+	// break loop
+	close(cylinder.stopCh)
+	// queue exit
+	cylinder.ring.queueExit()
+	return
 }
 
-func (cylinder *IOURingCylinder) Up() {
-	atomic.AddInt64(&cylinder.actives, 1)
-}
+func (cylinder *IOURingCylinder) Up() {}
 
-func (cylinder *IOURingCylinder) Down() {
-	atomic.AddInt64(&cylinder.actives, -1)
-}
+func (cylinder *IOURingCylinder) Down() {}
 
 func (cylinder *IOURingCylinder) Actives() int64 {
-	return atomic.LoadInt64(&cylinder.actives)
+	return int64(cylinder.ring.sqSpaceLeft())
 }
+
+func NewIOURing(entries uint32, param *IOURingSetupParam) (*IOURing, error) {
+	ring := &IOURing{}
+	err := ring.setup(entries, param)
+	if err != nil {
+		return nil, err
+	}
+	return ring, nil
+}
+
+type IOURing struct {
+	sq       *SubmissionQueue
+	cq       *CompletionQueue
+	flags    uint32
+	fd       int
+	features uint32
+	enterFd  int
+	intFlags uint8
+	// nolint: unused
+	pad [3]uint8
+	// nolint: unused
+	pad2 uint32
+}
+
+func (ring *IOURing) GetSQE() *SubmissionQueueEntry {
+	sq := ring.sq
+	var head, next uint32
+	var shift int
+
+	if ring.flags&SetupSQE128 != 0 {
+		shift = 1
+	}
+	head = atomic.LoadUint32(sq.head)
+	next = sq.sqeTail + 1
+	if next-head <= *sq.ringEntries {
+		sqe := (*SubmissionQueueEntry)(
+			unsafe.Add(unsafe.Pointer(ring.sq.sqes),
+				uintptr((sq.sqeTail&*sq.ringMask)<<shift)*unsafe.Sizeof(SubmissionQueueEntry{})),
+		)
+		sq.sqeTail = next
+
+		return sqe
+	}
+
+	return nil
+}
+
+func (ring *IOURing) Submit() (uint, error) {
+	submitted := ring.flushSQ()
+	cqNeedsEnter := ring.cqNeedsEnter()
+
+	var flags uint32
+	var ret uint
+	var err error
+
+	flags = 0
+	if ring.sqNeedsEnter(submitted, &flags) || cqNeedsEnter {
+		if cqNeedsEnter {
+			flags |= EnterGetEvents
+		}
+		ret, err = ring.Enter(submitted, 0, flags, nil)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		ret = uint(submitted)
+	}
+
+	return ret, nil
+}
+
+func (ring *IOURing) PeekBatchCQE(cqes []*CompletionQueueEvent) (peeked uint32) {
+	cqesLen := uint32(len(cqes))
+	if cqesLen == 0 {
+		return
+	}
+	overflowChecked := false
+	shift := 0
+	if ring.flags&SetupCQE32 != 0 {
+		shift = 1
+	}
+	for {
+		ready := ring.cqReady()
+		if ready != 0 {
+			head := *ring.cq.head
+			mask := *ring.cq.ringMask
+			last := head + cqesLen
+			if cqesLen > ready {
+				peeked = ready
+			} else {
+				peeked = cqesLen
+			}
+			for i := 0; head != last; head, i = head+1, i+1 {
+				cqes[i] = (*CompletionQueueEvent)(
+					unsafe.Add(
+						unsafe.Pointer(ring.cq.cqes),
+						uintptr((head&mask)<<shift)*unsafe.Sizeof(CompletionQueueEvent{}),
+					),
+				)
+			}
+			break
+		}
+
+		if overflowChecked {
+			break
+		}
+
+		if ring.cqNeedsFlush() {
+			_, _ = ring.getEvents()
+			overflowChecked = true
+			continue
+		}
+	}
+
+	return
+}
+
+func (ring *IOURing) CQAdvance(n uint32) {
+	atomic.StoreUint32(ring.cq.head, *ring.cq.head+n)
+}
+
+func (ring *IOURing) Exit() {
+	ring.queueExit()
+}
+
+const (
+	sysSetup    = 425
+	sysEnter    = 426
+	sysRegister = 427
+)
+
+func (ring *IOURing) setup(entries uint32, param *IOURingSetupParam) (err error) {
+	fdPtr, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(param)), 0)
+	if errno != 0 {
+		err = errno
+		return
+	}
+
+	fd := int(fdPtr)
+
+	err = ring.queueMmap(fd, param)
+	if err != nil {
+		_ = syscall.Close(fd)
+		return
+	}
+
+	sqEntries := *ring.sq.ringEntries
+	for index := uint32(0); index < sqEntries; index++ {
+		*(*uint32)(
+			unsafe.Add(unsafe.Pointer(ring.sq.array),
+				index*uint32(unsafe.Sizeof(uint32(0))))) = index
+	}
+
+	ring.features = param.Features
+	ring.flags = param.Flags
+	ring.enterFd = fd
+
+	ring.fd = fd
+	return
+}
+
+func (ring *IOURing) queueExit() {
+	sq := ring.sq
+	if sq.ringSize == 0 {
+		sqeSize := unsafe.Sizeof(SubmissionQueueEntry{})
+		if ring.flags&SetupSQE128 != 0 {
+			sqeSize += 64
+		}
+		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), sqeSize*uintptr(*sq.ringEntries))
+
+	} else {
+		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), uintptr(*sq.ringEntries)*unsafe.Sizeof(SubmissionQueueEntry{}))
+	}
+
+	ring.queueMumap()
+	if fd := ring.fd; fd != 0 {
+		_ = syscall.Close(fd)
+	}
+}
+
+func (ring *IOURing) queueMmap(fd int, param *IOURingSetupParam) (err error) {
+
+	size := unsafe.Sizeof(CompletionQueueEvent{})
+	if param.Flags&SetupCQE32 != 0 {
+		size += unsafe.Sizeof(CompletionQueueEvent{})
+	}
+
+	sq := ring.sq
+	cq := ring.cq
+
+	sq.ringSize = uint(uintptr(param.SQOff.Array) + uintptr(param.SQEntries)*unsafe.Sizeof(uint32(0)))
+	cq.ringSize = uint(uintptr(param.CQOff.CQes) + uintptr(param.CQEntries)*size)
+
+	if param.Features&FeatSingleMMap != 0 {
+		if cq.ringSize > sq.ringSize {
+			sq.ringSize = cq.ringSize
+		}
+		cq.ringSize = sq.ringSize
+	}
+
+	ringPtr, mmapErr := mmap(0, uintptr(sq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
+		syscall.MAP_SHARED|syscall.MAP_POPULATE, fd,
+		int64(offSQRing))
+	if mmapErr != nil {
+		err = mmapErr
+		return
+	}
+	sq.ringPtr = unsafe.Pointer(ringPtr)
+
+	if param.Features&FeatSingleMMap != 0 {
+		cq.ringPtr = sq.ringPtr
+	} else {
+		ringPtr, mmapErr = mmap(0, uintptr(cq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
+			syscall.MAP_SHARED|syscall.MAP_POPULATE, fd,
+			int64(offCQRing))
+		if mmapErr != nil {
+			cq.ringPtr = nil
+			ring.queueMumap()
+			err = mmapErr
+			return
+		}
+		cq.ringPtr = unsafe.Pointer(ringPtr)
+	}
+
+	size = unsafe.Sizeof(SubmissionQueueEntry{})
+	if param.Flags&SetupSQE128 != 0 {
+		size += 64
+	}
+	ringPtr, mmapErr = mmap(0, size*uintptr(param.SQEntries), syscall.PROT_READ|syscall.PROT_WRITE,
+		syscall.MAP_SHARED|syscall.MAP_POPULATE, fd, int64(offSQEs))
+	if mmapErr != nil {
+		ring.queueMumap()
+		err = mmapErr
+		return
+	}
+	sq.sqes = (*SubmissionQueueEntry)(unsafe.Pointer(ringPtr))
+
+	// setup queue
+	sq.head = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Head)))
+	sq.tail = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Tail)))
+	sq.ringMask = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingMask)))
+	sq.ringEntries = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingEntries)))
+	sq.flags = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Flags)))
+	sq.dropped = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Dropped)))
+	sq.array = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Array)))
+
+	cq.head = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Head)))
+	cq.tail = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Tail)))
+	cq.ringMask = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.RingMask)))
+	cq.ringEntries = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.RingEntries)))
+	cq.overflow = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Overflow)))
+	cq.cqes = (*CompletionQueueEvent)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.CQes)))
+	if param.CQOff.Flags != 0 {
+		cq.flags = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Flags)))
+	}
+	return
+}
+
+func (ring *IOURing) queueMumap() {
+	sq := ring.sq
+	if sq.ringSize > 0 {
+		_ = munmap(uintptr(sq.ringPtr), uintptr(sq.ringSize))
+	}
+	cq := ring.cq
+	if uintptr(cq.ringPtr) != 0 && cq.ringSize > 0 && cq.ringPtr != sq.ringPtr {
+		_ = munmap(uintptr(cq.ringPtr), uintptr(cq.ringSize))
+	}
+	return
+}
+
+func (ring *IOURing) sqNeedsEnter(submit uint32, flags *uint32) bool {
+	if submit == 0 {
+		return false
+	}
+
+	if (ring.flags & SetupSQPoll) == 0 {
+		return true
+	}
+
+	if atomic.LoadUint32(ring.sq.flags)&SQNeedWakeup != 0 {
+		*flags |= EnterSQWakeup
+
+		return true
+	}
+
+	return false
+}
+
+func (ring *IOURing) flushSQ() uint32 {
+	sq := ring.sq
+	tail := sq.sqeTail
+
+	if sq.sqeHead != tail {
+		sq.sqeHead = tail
+		atomic.StoreUint32(sq.tail, tail)
+	}
+
+	return tail - atomic.LoadUint32(sq.head)
+}
+
+func (ring *IOURing) sqReady() uint32 {
+	khead := *ring.sq.head
+
+	if ring.flags&SetupSQPoll != 0 {
+		khead = atomic.LoadUint32(ring.sq.head)
+	}
+
+	return ring.sq.sqeTail - khead
+}
+
+func (ring *IOURing) sqSpaceLeft() uint32 {
+	return *ring.sq.ringEntries - ring.sqReady()
+}
+
+func (ring *IOURing) cqReady() uint32 {
+	return atomic.LoadUint32(ring.cq.tail) - *ring.cq.head
+}
+
+func (ring *IOURing) getEvents() (uint, error) {
+	flags := EnterGetEvents
+	return ring.Enter(0, 0, flags, nil)
+}
+
+func (ring *IOURing) cqeShift() uint32 {
+	if ring.flags&SetupCQE32 != 0 {
+		return 1
+	}
+
+	return 0
+}
+
+func (ring *IOURing) cqeIndex(ptr, mask uint32) uintptr {
+	return uintptr((ptr & mask) << ring.cqeShift())
+}
+
+func (ring *IOURing) cqNeedsEnter() bool {
+	return (ring.flags&SetupIOPoll) != 0 || ring.cqNeedsFlush()
+}
+
+func (ring *IOURing) cqNeedsFlush() bool {
+	return atomic.LoadUint32(ring.sq.flags)&(SQCQOverflow|SQTaskRun) != 0
+}
+
+const (
+	nSig                    = 65
+	szDivider               = 8
+	registerRingFdOffset    = uint32(4294967295)
+	regIOWQMaxWorkersNrArgs = 2
+)
+
+func (ring *IOURing) Enter(submitted uint32, waitNr uint32, flags uint32, sig unsafe.Pointer) (uint, error) {
+	return ring.Enter2(submitted, waitNr, flags, sig, nSig/szDivider)
+}
+
+func (ring *IOURing) Enter2(submitted uint32, waitNr uint32, flags uint32, sig unsafe.Pointer, size int) (uint, error) {
+	consumed, _, errno := syscall.Syscall6(
+		sysEnter,
+		uintptr(ring.enterFd),
+		uintptr(submitted),
+		uintptr(waitNr),
+		uintptr(flags),
+		uintptr(sig),
+		uintptr(size),
+	)
+	if errno > 0 {
+		return 0, errno
+	}
+	return uint(consumed), nil
+}
+
+type IOURingSettings struct {
+	Entries uint32
+	Param   IOURingSetupParam
+	Batch   uint32
+}
+
+type IOURingSetupParam struct {
+	SQEntries uint32
+	// CQEntries
+	// 默认情况下，CQ 环的条目数将是SQ环条目数的两倍。
+	// 这对于常规文件或存储工作负载来说是足够的，但对于网络工作负载来说可能太小。
+	// SQ环条目没有对环可以支持的正在进行的请求数量施加限制，它只是限制了一次（批处理）可以提交给内核的数量。
+	// 如果CQ环溢出，例如，在应用程序可以获取之前，生成的条目比环中适合的条目多，
+	// 那么如果内核支持 IORING_FEAT_NODROP ，则环将进入CQ环溢流状态。
+	// 否则，它将删除CQE，并在结构 io_uring 中随着删除的CQE数量递增 cq.koverflow。
+	// 溢出状态由SQ环标志中设置的 IORING_SQ_CQ_overflow 表示。
+	// 除非内核耗尽可用内存，否则条目不会被删除，但这是一条慢得多的完成路径，会减慢请求处理速度。
+	// 因此，应避免使用CQ环，CQ环的大小应适合工作负载。
+	// 在结构 io_uring_params 中设置 cq_entrys 将告诉内核为cq环分配这么多条目，而与给定条目中的SQ环大小无关。
+	// 如果该值不是2的幂，则将四舍五入到最接近的2的幂。
+	CQEntries    uint32
+	Flags        uint32
+	SQThreadCPU  uint32
+	SQThreadIdle uint32
+	Features     uint32
+	WqFd         uint32
+	Resv         [3]uint32
+	SQOff        SQRingOffsets
+	CQOff        CQRingOffsets
+}
+
+type SQRingOffsets struct {
+	Head        uint32
+	Tail        uint32
+	RingMask    uint32
+	RingEntries uint32
+	Flags       uint32
+	Dropped     uint32
+	Array       uint32
+	Resv1       uint32
+	UserAddr    uint64
+}
+
+type CQRingOffsets struct {
+	Head        uint32
+	Tail        uint32
+	RingMask    uint32
+	RingEntries uint32
+	Overflow    uint32
+	CQes        uint32
+	Flags       uint32
+	Resv1       uint32
+	UserAddr    uint64
+}
+
+type SubmissionQueue struct {
+	head        *uint32
+	tail        *uint32
+	ringMask    *uint32
+	ringEntries *uint32
+	flags       *uint32
+	dropped     *uint32
+	array       *uint32
+	sqes        *SubmissionQueueEntry
+
+	ringSize uint
+	ringPtr  unsafe.Pointer
+
+	sqeHead uint32
+	sqeTail uint32
+
+	// nolint: unused
+	pad [2]uint32
+}
+
+type SubmissionQueueEntry struct {
+	OpCode      uint8
+	Flags       uint8
+	IoPrio      uint16
+	Fd          int32
+	Off         uint64
+	Addr        uint64
+	Len         uint32
+	OpcodeFlags uint32
+	UserData    uint64
+	BufIG       uint16
+	Personality uint16
+	SpliceFdIn  int32
+	Addr3       uint64
+	_pad2       [1]uint64
+	// TODO: add __u8	cmd[0];
+}
+
+type CompletionQueue struct {
+	head        *uint32
+	tail        *uint32
+	ringMask    *uint32
+	ringEntries *uint32
+	flags       *uint32
+	overflow    *uint32
+	cqes        *CompletionQueueEvent
+	ringSize    uint
+	ringPtr     unsafe.Pointer
+	pad         [2]uint32
+}
+
+type CompletionQueueEvent struct {
+	UserData uint64
+	Res      int32
+	Flags    uint32
+	// FIXME
+	// 	__u64 big_cqe[];
+}
+
+const (
+	offSQRing    uint64 = 0
+	offCQRing    uint64 = 0x8000000
+	offSQEs      uint64 = 0x10000000
+	offPbufRing  uint64 = 0x80000000
+	offPbufShift uint64 = 16
+	offMmapMask  uint64 = 0xf8000000
+)
 
 // setup and features
 // https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
@@ -154,10 +698,10 @@ const (
 	SetupDeferTaskrun
 	// SetupNoMmap
 	// 默认情况下，io_uring 会分配内核内存，调用者必须随后使用 mmap(2)。如果设置了该标记，io_uring 将使用调用者分配的缓冲区；p->cq_off.user_addr 必须指向 sq/cq ring 的内存，p->sq_off.user_addr 必须指向 sqes 的内存。每次分配的内存必须是连续的。通常情况下，调用者应使用 mmap(2) 分配大页面来分配这些内存。如果设置了此标记，那么随后尝试 mmap(2) io_uring 文件描述符的操作将失败。自 6.5 版起可用。
-	SetupNoMmap
+	_SetupNoMmap
 	// SetupRegisteredFdOnly
 	// 如果设置了这个标志，io_uring 将注册环形文件描述符，并返回已注册的描述符索引，而不会分配一个未注册的文件描述符。调用者在调用 io_uring_register(2) 时需要使用 IORING_REGISTER_USE_REGISTERED_RING。该标记只有在与 IORING_SETUP_NO_MMAP 同时使用时才有意义，后者也需要设置。自 6.5 版起可用。
-	SetupRegisteredFdOnly
+	_SetupRegisteredFdOnly
 	// SetupNoSQArray
 	// 如果设置了该标志，提交队列中的条目将按顺序提交，并在到达队列末尾后绕到第一个条目。换句话说，将不再通过提交条目数组进行间接处理，而是直接通过提交队列尾部和它所代表的索引范围（队列大小的模数）对队列进行索引。随后，用户不应映射提交队列条目数组，结构 io_sqring_offsets 中的相应偏移量将被设置为零。自 6.6 版起可用。
 	// 如果没有指定标志，io_uring 实例将设置为中断驱动 I/O。可以使用 io_uring_enter(2) 提交 I/O，并通过轮询完成队列获取 I/O。
@@ -232,86 +776,16 @@ const (
 	FeatMinTimeout
 )
 
-func setupRing(entries uint32, param IOURingSetupParam) (fd int, err error) {
-	// io_uring_setup(2) 成功后会返回一个新的文件描述符。
-	// 应用程序可以在随后的 mmap(2) 调用中提供该文件描述符，
-	// 以映射提交队列和完成队列，或向 io_uring_register(2) 或 io_uring_enter(2) 系统调用提供该文件描述符。
-	//
-	// 出错时，将返回负错误代码。调用者不应依赖 errno 变量。
+const (
+	EnterGetEvents uint32 = 1 << iota
+	EnterSQWakeup
+	EnterSQWait
+	EnterExtArg
+	EnterRegisteredRing
+)
 
-	// ERRORS
-	// EFAULT
-	// params is outside your accessible address space.
-	// EINVAL
-	// The resv array contains non-zero data, p.flags contains an unsupported flag, entries is out of bounds,
-	// IORING_SETUP_SQ_AFF was specified, but IORING_SETUP_SQPOLL was not, or IORING_SETUP_CQSIZE was specified,
-	// but io_uring_params.cq_entries was invalid. IORING_SETUP_REGISTERED_FD_ONLY was specified, but IORING_SETUP_NO_MMAP was not.
-	// EMFILE
-	// The per-process limit on the number of open file descriptors has been reached (see the description of RLIMIT_NOFILE in getrlimit(2)).
-	// ENFILE
-	// The system-wide limit on the total number of open files has been reached.
-	// ENOMEM
-	// Insufficient kernel resources are available.
-	// EPERM
-	// IORING_SETUP_SQPOLL was specified, but the effective user ID of the caller did not have sufficient privileges.
-	// EPERM
-	// /proc/sys/kernel/io_uring_disabled has the value 2, or it has the value 1 and the calling process does not hold the CAP_SYS_ADMIN capability or is not a member of /proc/sys/kernel/io_uring_group.
-	// ENXIO
-	// IORING_SETUP_ATTACH_WQ was set, but params.wq_fd did not refer to an io_uring instance or refers to an instance that is in the process of shutting down.
-
-	return
-}
-
-type IOURingSettings struct {
-	Entries uint32
-	Param   IOURingSetupParam
-}
-
-type IOURingSetupParam struct {
-	SQEntries uint32
-	// CQEntries
-	// 默认情况下，CQ 环的条目数将是SQ环条目数的两倍。
-	// 这对于常规文件或存储工作负载来说是足够的，但对于网络工作负载来说可能太小。
-	// SQ环条目没有对环可以支持的正在进行的请求数量施加限制，它只是限制了一次（批处理）可以提交给内核的数量。
-	// 如果CQ环溢出，例如，在应用程序可以获取之前，生成的条目比环中适合的条目多，
-	// 那么如果内核支持 IORING_FEAT_NODROP ，则环将进入CQ环溢流状态。
-	// 否则，它将删除CQE，并在结构 io_uring 中随着删除的CQE数量递增 cq.koverflow。
-	// 溢出状态由SQ环标志中设置的 IORING_SQ_CQ_overflow 表示。
-	// 除非内核耗尽可用内存，否则条目不会被删除，但这是一条慢得多的完成路径，会减慢请求处理速度。
-	// 因此，应避免使用CQ环，CQ环的大小应适合工作负载。
-	// 在结构 io_uring_params 中设置 cq_entrys 将告诉内核为cq环分配这么多条目，而与给定条目中的SQ环大小无关。
-	// 如果该值不是2的幂，则将四舍五入到最接近的2的幂。
-	CQEntries    uint32
-	Flags        uint32
-	SQThreadCPU  uint32
-	SQThreadIdle uint32
-	Features     uint32
-	WqFd         uint32
-	Resv         [3]uint32
-	SQOff        SQRingOffsets
-	CQOff        CQRingOffsets
-}
-
-type SQRingOffsets struct {
-	Head        uint32
-	Tail        uint32
-	RingMask    uint32
-	RingEntries uint32
-	Flags       uint32
-	Dropped     uint32
-	Array       uint32
-	Resv1       uint32
-	UserAddr    uint64
-}
-
-type CQRingOffsets struct {
-	Head        uint32
-	Tail        uint32
-	RingMask    uint32
-	RingEntries uint32
-	Overflow    uint32
-	CQes        uint32
-	Flags       uint32
-	Resv1       uint32
-	UserAddr    uint64
-}
+const (
+	SQNeedWakeup uint32 = 1 << iota
+	SQCQOverflow
+	SQTaskRun
+)
