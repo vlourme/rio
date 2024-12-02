@@ -21,7 +21,7 @@ type Options struct {
 	// 引擎规模
 	EngineCylinders int
 	// LoadBalance
-	// 负载均衡器。 RoundRobin 和 Least
+	// 负载均衡器。 RoundRobin 和 Least。注意：windows 不支持。
 	LoadBalance LoadBalanceKind
 	// Settings
 	// AIO配置设置
