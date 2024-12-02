@@ -3,35 +3,85 @@
 package aio
 
 import (
+	"context"
 	"fmt"
 	"runtime"
+	"sync/atomic"
 )
 
 func (engine *Engine) Start() {
-	// cpu num
-	cpuNum := runtime.NumCPU() * 2
 	// todo cylinders -> one cylinder one ring/iocp/kqueue loop
 	// todo op with ring -> load balance to load cylinder
 	settings := ResolveSettings[IOURingSettings](engine.settings)
 	// entries
 	entries := settings.Entries
 	if entries == 0 {
+		cpuNum := runtime.NumCPU() * 2
 		entries = uint32(cpuNum * 1024)
 	}
-	// setup
-	fd, fdErr := setupRing(entries, settings.Param)
-	if fdErr != nil {
-		panic(fmt.Errorf("aio: engine start failed, %v", fdErr))
-		return
+	// cylinders
+	for i := 0; i < len(engine.cylinders); i++ {
+		cylinder, cylinderErr := newIOURingCylinder(entries, settings.Param)
+		if cylinderErr != nil {
+			panic(fmt.Errorf("aio: engine start failed, %v", cylinderErr))
+			return
+		}
+		engine.cylinders[i] = cylinder
+
 	}
-	engine.fd = fd
-
-	// loop
-
+	ctx := context.Background()
+	for _, cylinder := range engine.cylinders {
+		if executors := engine.executors; executors != nil {
+			execErr := executors.UnlimitedExecute(ctx, func() {
+				cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+			})
+			if execErr != nil {
+				panic(fmt.Errorf("aio: engine start failed, %v", execErr))
+			}
+		} else {
+			go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+		}
+	}
 }
 
 func (engine *Engine) Stop() {
 
+}
+
+func newIOURingCylinder(entries uint32, param IOURingSetupParam) (cylinder Cylinder, err error) {
+	// setup
+	return
+}
+
+type IOURingCylinder struct {
+	fd      int
+	actives int64
+}
+
+func (cylinder *IOURingCylinder) Fd() int {
+	return cylinder.fd
+}
+
+func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (cylinder *IOURingCylinder) Stop() {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (cylinder *IOURingCylinder) Up() {
+	atomic.AddInt64(&cylinder.actives, 1)
+}
+
+func (cylinder *IOURingCylinder) Down() {
+	atomic.AddInt64(&cylinder.actives, -1)
+}
+
+func (cylinder *IOURingCylinder) Actives() int64 {
+	return atomic.LoadInt64(&cylinder.actives)
 }
 
 // setup and features

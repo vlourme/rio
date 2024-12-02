@@ -2,6 +2,7 @@ package aio
 
 import (
 	"fmt"
+	"github.com/brickingsoft/rxp"
 	"reflect"
 	"runtime"
 	"sync"
@@ -139,6 +140,7 @@ type Engine struct {
 	loadBalancer CylindersLoadBalancer
 	cylinders    []Cylinder
 	wg           *sync.WaitGroup
+	executors    rxp.Executors
 }
 
 func (engine *Engine) next() Cylinder {
@@ -165,6 +167,12 @@ var (
 
 func Startup(options Options) {
 	_engine = newEngine(options)
+	_engine.Start()
+}
+
+func StartupWithExecutors(executors rxp.Executors, options Options) {
+	_engine = newEngine(options)
+	_engine.executors = executors
 	_engine.Start()
 }
 

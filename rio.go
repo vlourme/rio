@@ -66,7 +66,7 @@ func Startup(options ...StartupOption) (err error) {
 	executors = rxp.New(opts.ExecutorsOptions...)
 
 	// aio.completions
-	aio.Startup(opts.AIOOptions)
+	aio.StartupWithExecutors(executors, opts.AIOOptions)
 	return
 }
 
