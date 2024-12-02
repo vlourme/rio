@@ -49,10 +49,6 @@ type Cylinder interface {
 	Actives() int64
 }
 
-func NextCylinder() Cylinder {
-	return engine().next()
-}
-
 type LoadBalanceKind int
 
 const (
@@ -60,76 +56,20 @@ const (
 	Least
 )
 
-type CylindersLoadBalancer interface {
-	Next() (cylinder Cylinder)
-}
-
-func newRoundRobinCylindersLoadBalancer(cylinders []Cylinder) CylindersLoadBalancer {
-	return &RoundRobinCylindersLoadBalancer{
-		idx:       -1,
-		num:       int64(len(cylinders)),
-		cylinders: cylinders,
-	}
-}
-
-type RoundRobinCylindersLoadBalancer struct {
-	idx       int64
-	num       int64
-	cylinders []Cylinder
-}
-
-func (lb *RoundRobinCylindersLoadBalancer) Next() (cylinder Cylinder) {
-	idx := atomic.AddInt64(&lb.idx, 1) % lb.num
-	cylinder = lb.cylinders[idx]
-	return
-}
-
-func newLeastCylindersLoadBalancer(cylinders []Cylinder) CylindersLoadBalancer {
-	return &leastCylindersLoadBalancer{
-		num:       len(cylinders),
-		cylinders: cylinders,
-	}
-}
-
-type leastCylindersLoadBalancer struct {
-	num       int
-	cylinders []Cylinder
-}
-
-func (lb *leastCylindersLoadBalancer) Next() (cylinder Cylinder) {
-	idx := 0
-	actives := int64(0)
-	for i, c := range lb.cylinders {
-		cActives := c.Actives()
-		if cActives < 1 {
-			idx = i
-			break
-		}
-		if actives < cActives {
-			idx = i
-		}
-	}
-	cylinder = lb.cylinders[idx]
-	return
-}
-
 func newEngine(options Options) *Engine {
 	cylinders := options.EngineCylinders
 	if cylinders < 1 {
 		cylinders = runtime.NumCPU() * 2
 	}
 	_engine = &Engine{
-		fd:        0,
-		settings:  options.Settings,
-		cylinders: make([]Cylinder, cylinders),
-		wg:        new(sync.WaitGroup),
-	}
-	switch options.LoadBalance {
-	case Least:
-		_engine.loadBalancer = newLeastCylindersLoadBalancer(_engine.cylinders)
-		break
-	default:
-		_engine.loadBalancer = newRoundRobinCylindersLoadBalancer(_engine.cylinders)
+		fd:           0,
+		settings:     options.Settings,
+		loadBalancer: options.LoadBalance,
+		cylindersIdx: -1,
+		cylindersNum: int64(cylinders),
+		cylinders:    make([]Cylinder, cylinders),
+		wg:           new(sync.WaitGroup),
+		executors:    nil,
 	}
 	return _engine
 }
@@ -137,14 +77,36 @@ func newEngine(options Options) *Engine {
 type Engine struct {
 	fd           int
 	settings     any
-	loadBalancer CylindersLoadBalancer
+	loadBalancer LoadBalanceKind
+	cylindersIdx int64
+	cylindersNum int64
 	cylinders    []Cylinder
 	wg           *sync.WaitGroup
 	executors    rxp.Executors
 }
 
 func (engine *Engine) next() Cylinder {
-	return engine.loadBalancer.Next()
+	switch engine.loadBalancer {
+	case RoundRobin:
+		idx := atomic.AddInt64(&engine.cylindersIdx, 1) % engine.cylindersNum
+		return engine.cylinders[idx]
+	case Least:
+		idx := 0
+		actives := int64(0)
+		for i, c := range engine.cylinders {
+			cActives := c.Actives()
+			if cActives < 1 {
+				idx = i
+				break
+			}
+			if actives < cActives {
+				idx = i
+			}
+		}
+		return engine.cylinders[idx]
+	default:
+		return nil
+	}
 }
 
 func (engine *Engine) markCylinderLoop() {
@@ -189,4 +151,8 @@ func engine() *Engine {
 		}
 	})
 	return _engine
+}
+
+func nextCylinder() Cylinder {
+	return engine().next()
 }
