@@ -66,8 +66,6 @@ func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32) 
 	return
 }
 
-// todo IOURing 单独结构， cylinder 管理 IOURing （batch，loop）
-// 关闭 loop 可以试一试 注册一个 op，然后当。。也不要，engine 不用 rxp，就rxp结束后必然是空的，就直接关闭
 type IOURingCylinder struct {
 	ring   *IOURing
 	batch  uint32
@@ -94,6 +92,56 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 			peeked := ring.PeekBatchCQE(cqes)
 			for i := uint32(0); i < peeked; i++ {
 				cqe := cqes[i]
+				if cqe.Res == 0 && cqe.UserData == 0 {
+					stopped = true
+					break
+				}
+				var err error
+				// handle error
+				if cqe.Res < 0 {
+					err = syscall.Errno(-cqe.Res)
+					// 不用 cancel 用 prep timeout
+					// todo try handle cancel
+					// 虽然取消请求使用异步请求语法，但取消的内核端始终同步运行。
+					// 保证在提交取消请求时始终生成CQE。
+					// 如果取消成功，则在提交返回时，将已发布取消请求的完成情况。
+					// 对于-EALREADY，这可能需要一些时间。在这种情况下，调用者必须等待取消的请求发布其完成事件。
+
+					// io_uring_prep_timeout（3）函数准备一个超时请求。
+					// 提交队列条目sqe被设置为设置ts指定的超时，并具有计数完成条目的超时计数。
+					// flags参数包含请求的修饰符标志。
+					// 此请求类型可用作超时，唤醒CQ环上任何正在睡眠的事件。flags参数可能包含：
+					// IORING_TIMEOUT_ABS
+					// ts中指定的值是绝对值，而不是相对值。
+					// IORING_TIMEOUT_BOOTTIME
+					// 应使用启动时时钟源。
+					// IORING_TIMEOUT_REALTIME
+					// 应使用实时时钟源。
+					// IORING_TIMEOUT_ETIME_SUCCESS
+					// 就发布的完成情况而言，将超时视为成功。这意味着它不会像失败的请求那样切断依赖链接。发布的CQE结果代码在res值中仍将包含-ETIME。
+					// IORING_TIMEOUT_MULTISHOT
+					// 请求将返回多个超时完成。如果预期会有更多超时，则设置完成标志IORING_CQE_F_MORE。count中指定的值是重复次数。值0表示超时是不确定的，只能通过删除请求停止。从6.4内核开始可用。
+					//
+					// 如果发生了指定的超时，或者指定数量的等待事件已发布到CQ环，则将触发超时完成事件。
+					// 这些是CQE res字段中报告的错误。成功后，返回0。
+					// -ETIME
+					// 发生了指定的超时并触发了完成事件。
+					// -EINVAL
+					// SQE中设置的一个字段无效。例如，给定了两个时钟源，或者指定的超时秒数或纳秒数小于0。
+					// -EFAULT
+					// io_uring无法访问ts指定的数据。
+					// -ECANCELED
+					// 超时已被删除请求取消。
+					//
+					// 注意：
+					// 与在结构中传递数据的任何请求一样，该数据必须保持有效，直到请求成功提交。
+					// 在完成之前，它不需要一直有效。
+					// 一旦提交了请求，内核内状态就稳定了。
+					// 非常早期的内核（5.4及更早版本）要求状态在完成之前保持稳定。
+					// 应用程序可以通过检查从io_uring_queue_init_params（3）传递回来的IORING_FEAT_SUBMIT_STABLE标志来测试此行为。
+					//
+
+				}
 				// get op from userdata
 				op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
 				// todo handle canceled
@@ -106,7 +154,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				}
 				// complete op
 				if completion := op.completion; completion != nil {
-					completion(int(cqe.Res), op, nil)
+					completion(int(cqe.Res), op, err)
 					op.completion = nil
 				}
 				op.callback = nil
@@ -118,13 +166,14 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 			break
 		}
 	}
+	// queue exit
+	cylinder.ring.queueExit()
 }
 
 func (cylinder *IOURingCylinder) Stop() {
 	// break loop
+	// todo use noop with 0 userdata, then break
 	close(cylinder.stopCh)
-	// queue exit
-	cylinder.ring.queueExit()
 	return
 }
 
@@ -243,6 +292,7 @@ func (ring *IOURing) PeekBatchCQE(cqes []*CompletionQueueEvent) (peeked uint32) 
 		}
 
 		if ring.cqNeedsFlush() {
+			// 将未完成的请求刷新到CQE环
 			_, _ = ring.getEvents()
 			overflowChecked = true
 			continue
@@ -454,6 +504,7 @@ func (ring *IOURing) cqReady() uint32 {
 }
 
 func (ring *IOURing) getEvents() (uint, error) {
+	// 将未完成的请求刷新到CQE环
 	flags := EnterGetEvents
 	return ring.Enter(0, 0, flags, nil)
 }
@@ -611,6 +662,32 @@ type CompletionQueue struct {
 	pad         [2]uint32
 }
 
+// CompletionQueueEvent
+// CQE ERRORS
+// These io_uring-specific errors are returned as a negative value in the res field of the completion queue entry.
+//
+// EACCES
+// 由于注册的限制，提交队列条目中的标志字段或操作码是不允许的。有关限制如何工作的详细信息，请参阅io_uring_register（2）。
+// EBADF
+// 提交队列条目的fd字段无效，或者在提交队列条目中设置了IOSQE_FIXED_FILE标志，但没有向io_uring实例注册任何文件。
+// EFAULT
+// 缓冲区位于进程的可访问地址空间之外
+// EFAULT
+// 在提交队列条目的操作码字段中指定了IORING_OP_READ_FIXED或IORING_OP_WRITE_FIXED，但要么没有为此io_uring实例注册缓冲区，要么addr和len描述的地址范围不适合buf_index上注册的缓冲区。
+// EINVAL
+// * 提交队列条目中的标志字段或操作码无效。
+// * 提交队列条目的buf_index成员无效。
+// * 提交队列条目中的个性字段无效。
+// * 在提交队列条目中指定了IORING_OP_NOP，但io_uring上下文是为轮询设置的（IORING_setup_IOPOLL是在io_uring_setup的调用中指定的）。
+// * 在提交队列条目中指定了IORING_OP_READV或IORING_OP_WRITEV，但io_uring实例已注册固定缓冲区。
+// * 在提交队列条目中指定了IORING_OP_READ_FIXED或IORING_OP_WRITE_FIXED，并且buf_index无效。
+// * 在提交队列条目中指定了IORING_OP_READV、IORING_OP_WRITEV、IORINGOPEN_READ_FIXED、IORINGOPT_WRITE_FIXED或IORING_OP_FSYNC，但io_uring实例是为IOPOLLing配置的，或者在提交队列条目的条目中设置了addr、ioprio、off、len或buf_index中的任何一个。
+// * 在提交队列条目的操作码字段中指定了IORING_OP_POLL_ADD或IORING_OP_PLL_REMOVE，但io_uring实例被配置为忙等待轮询（IORING_SETUP_IOPOLL），或者ioprio、off、len或buf_index中的任何一个在提交队列条目中都是非零的。
+// * IORING_OP_POLL_ADD是在提交队列条目的操作码字段中指定的，而addr字段为非零。
+// * 指定了IORING_OP_TIMEOUT，但TIMEOUT_flags指定了多个时钟源，或者IORING_TIMEOUT_MULTISHOT与IORING_TIMEOUT_ABS一起设置。
+// EOPNOTSUPP
+// * 操作码有效，但此内核不支持。
+// * IOSQE_BUFFER_SELECT已在提交队列条目的标志字段中设置，但操作码不支持缓冲区选择。
 type CompletionQueueEvent struct {
 	UserData uint64
 	Res      int32
