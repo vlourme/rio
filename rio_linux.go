@@ -15,7 +15,7 @@ func WithIOURingSettings(settings IOURingSettings) StartupOption {
 	}
 }
 
-func WithSampleIOURingSettings(entries uint32, flags uint32) StartupOption {
+func WithSampleIOURingSettings(entries uint32, flags uint32, batch uint32) StartupOption {
 	return func(o *StartupOptions) error {
 		o.AIOOptions.Settings = IOURingSettings{
 			aio.IOURingSettings{
@@ -23,6 +23,7 @@ func WithSampleIOURingSettings(entries uint32, flags uint32) StartupOption {
 				Param: aio.IOURingSetupParam{
 					Flags: flags,
 				},
+				Batch: batch,
 			},
 		}
 		return nil
