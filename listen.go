@@ -274,6 +274,11 @@ func (ln *listener) acceptOne() {
 				// discard errors when ln was closed
 				return
 			}
+			if aio.IsBusyError(err) {
+				// discard error when busy and try again
+				ln.acceptOne()
+				return
+			}
 			ln.acceptorPromises.Fail(newOpErr(opAccept, ln.fd, err))
 			ln.acceptOne()
 			return
