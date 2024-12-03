@@ -39,7 +39,6 @@ func TestNewRing(t *testing.T) {
 				log.Panic()
 			}
 			entry.PrepareNop()
-			//entry.PrepareTimeout()
 		}
 		submitted, err := ring.SubmitAndWait(batchSize)
 		if err != nil {
