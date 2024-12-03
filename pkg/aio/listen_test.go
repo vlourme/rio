@@ -11,7 +11,11 @@ import (
 func TestAccept(t *testing.T) {
 	aio.Startup(aio.Options{
 		EngineCylinders: 2,
-		Settings:        nil,
+		Settings: aio.IOURingSettings{
+			Param: aio.IOURingSetupParam{
+				Flags: aio.SetupSQPoll,
+			},
+		},
 	})
 	defer aio.Shutdown()
 	lnFd, lnErr := aio.Listen("tcp", ":9000", aio.ListenerOptions{})
