@@ -27,12 +27,14 @@ func TestAccept(t *testing.T) {
 		wg.Add(1)
 		go aio.Accept(lnFd, func(result int, userdata aio.Userdata, err error) {
 			defer wg.Done()
-			t.Log("srv accept:", result, err)
 			if err != nil {
+				t.Error("srv accept failed:", result, err)
 				return
 			}
-			wg.Add(1)
 			connFd := userdata.Fd.(aio.NetFd)
+			t.Log("srv accept:", result, "fd:", connFd.Fd(), "addr:", connFd.LocalAddr(), "->", connFd.RemoteAddr())
+
+			wg.Add(1)
 			go aio.Close(connFd, func(result int, userdata aio.Userdata, err error) {
 				defer wg.Done()
 				t.Log("srv close:", result, err)
@@ -40,6 +42,7 @@ func TestAccept(t *testing.T) {
 		})
 	}
 
+	conns := make([]net.Conn, 0, 1)
 	for i := 0; i < loops; i++ {
 		conn, err := net.Dial("tcp", "127.0.0.1:9000")
 		if err != nil {
@@ -47,8 +50,16 @@ func TestAccept(t *testing.T) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
+		conns = append(conns, conn)
+	}
+	for _, conn := range conns {
 		_ = conn.Close()
 	}
+	wg.Wait()
+	wg.Add(1)
+	go aio.Close(lnFd, func(result int, userdata aio.Userdata, err error) {
+		wg.Done()
+	})
 	wg.Wait()
 }
 
