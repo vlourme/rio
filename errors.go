@@ -37,7 +37,7 @@ func IsBusy(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	return errors.Is(err, ErrBusy)
+	return errors.Is(err, ErrBusy) || aio.IsBusyError(err)
 }
 
 func IsErrEmptyBytes(err error) bool {
@@ -46,7 +46,7 @@ func IsErrEmptyBytes(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	return errors.Is(err, ErrEmptyBytes)
+	return errors.Is(err, ErrEmptyBytes) || aio.IsEmptyBytesError(err)
 }
 
 func IsErrNetworkUnmatched(err error) bool {
@@ -82,7 +82,7 @@ func IsTimeout(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	return errors.Is(err, aio.ErrOperationDeadlineExceeded)
+	return async.IsDeadlineExceeded(err) || aio.IsOperationDeadlineExceededError(err)
 }
 
 func IsUnexpectedCompletedError(err error) bool {
@@ -91,7 +91,7 @@ func IsUnexpectedCompletedError(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	return errors.Is(err, aio.ErrUnexpectedCompletion)
+	return aio.IsUnexpectedCompletionError(err)
 }
 
 const (
