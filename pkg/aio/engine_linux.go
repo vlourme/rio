@@ -3,10 +3,13 @@
 package aio
 
 import (
+	"errors"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"runtime"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -16,14 +19,14 @@ func (engine *Engine) Start() {
 	entries := settings.Entries
 	// param
 	param := &settings.Param
-	// batch
-	batch := settings.Batch
+	// peekBatch
+	batch := settings.PeekCQEBatchSize
 	if batch < 1 {
 		batch = uint32(runtime.NumCPU())
 	}
 	// cylinders
 	for i := 0; i < len(engine.cylinders); i++ {
-		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch)
+		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch, settings.SubmitWaitTimeout)
 		if cylinderErr != nil {
 			panic(fmt.Errorf("aio: engine start failed, %v", cylinderErr))
 			return
@@ -45,29 +48,41 @@ func (engine *Engine) Stop() {
 	engine.wg.Wait()
 }
 
+var waitForCQENum = []uint32{1, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
+
 func nextIOURingCylinder() *IOURingCylinder {
 	return nextCylinder().(*IOURingCylinder)
 }
 
-func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32) (cylinder Cylinder, err error) {
+func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32, submitWaitTimeout time.Duration) (cylinder Cylinder, err error) {
 	// setup
 	ring, ringErr := NewIOURing(entries, param)
 	if ringErr != nil {
 		err = ringErr
 		return
 	}
+	if submitWaitTimeout < 1 {
+		submitWaitTimeout = time.Millisecond
+	}
 	// cylinder
 	cylinder = &IOURingCylinder{
-		ring:  ring,
-		batch: batch,
+		ring:         ring,
+		peekBatch:    batch,
+		stopped:      atomic.Bool{},
+		waitTimeout:  syscall.NsecToTimespec((submitWaitTimeout).Nanoseconds()),
+		waitForIndex: 0,
+		waitFor:      waitForCQENum[0],
 	}
 	return
 }
 
 type IOURingCylinder struct {
-	ring    *IOURing
-	batch   uint32
-	stopped atomic.Bool
+	ring         *IOURing
+	peekBatch    uint32
+	stopped      atomic.Bool
+	waitTimeout  syscall.Timespec
+	waitForIndex uint32
+	waitFor      uint32
 }
 
 func (cylinder *IOURingCylinder) Fd() int {
@@ -79,8 +94,29 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 	defer end()
 
 	ring := cylinder.ring
-	cqes := make([]*CompletionQueueEvent, cylinder.batch)
+	unexpectedTimes := 0
+	cqes := make([]*CompletionQueueEvent, cylinder.peekBatch)
 	for {
+		// submit
+		_, submitErr := ring.SubmitAndWaitTimeout(cylinder.waitFor, &cylinder.waitTimeout, nil)
+		if submitErr != nil {
+			if errors.Is(submitErr, syscall.EAGAIN) || errors.Is(submitErr, syscall.EINTR) || errors.Is(submitErr, syscall.ETIME) {
+				if cylinder.waitForIndex != 0 {
+					cylinder.waitForIndex--
+					cylinder.waitFor = waitForCQENum[cylinder.waitForIndex]
+				}
+				continue
+			} else {
+				unexpectedTimes++
+				if unexpectedTimes > 10 {
+					cylinder.stopped.Store(true)
+					break
+				}
+				continue
+			}
+		}
+
+		// peek
 		peeked := ring.PeekBatchCQE(cqes)
 		for i := uint32(0); i < peeked; i++ {
 			cqe := cqes[i]
@@ -132,7 +168,7 @@ func (cylinder *IOURingCylinder) Stop() {
 			continue
 		}
 		entry.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
-		_, _ = cylinder.ring.Submit()
+		//_, _ = cylinder.ring.Submit()
 		break
 	}
 	return
@@ -174,7 +210,7 @@ type IOURing struct {
 	pad2 uint32
 }
 
-func (ring *IOURing) GetSQE() *SubmissionQueueEntry {
+func (ring *IOURing) GetSQE() (sqe *SubmissionQueueEntry) {
 	sq := ring.sq
 	var head, next uint32
 	var shift int
@@ -185,25 +221,23 @@ func (ring *IOURing) GetSQE() *SubmissionQueueEntry {
 	head = atomic.LoadUint32(sq.head)
 	next = sq.sqeTail + 1
 	if next-head <= *sq.ringEntries {
-		sqe := (*SubmissionQueueEntry)(
+		sqe = (*SubmissionQueueEntry)(
 			unsafe.Add(unsafe.Pointer(ring.sq.sqes),
 				uintptr((sq.sqeTail&*sq.ringMask)<<shift)*unsafe.Sizeof(SubmissionQueueEntry{})),
 		)
 		sq.sqeTail = next
 
-		return sqe
+		return
 	}
 
-	return nil
+	return
 }
 
-func (ring *IOURing) Submit() (uint, error) {
+func (ring *IOURing) Submit() (ret uint, err error) {
 	submitted := ring.flushSQ()
 	cqNeedsEnter := ring.cqNeedsEnter()
 
 	var flags uint32
-	var ret uint
-	var err error
 
 	flags = 0
 	if ring.sqNeedsEnter(submitted, &flags) || cqNeedsEnter {
@@ -212,13 +246,77 @@ func (ring *IOURing) Submit() (uint, error) {
 		}
 		ret, err = ring.Enter(submitted, 0, flags, nil)
 		if err != nil {
-			return 0, err
+			return
 		}
 	} else {
 		ret = uint(submitted)
 	}
+	return
+}
 
-	return ret, nil
+type GetEventsArg struct {
+	sigMask   uint64
+	sigMaskSz uint32
+	pad       uint32
+	ts        uint64
+}
+
+type getData struct {
+	submit   uint32
+	waitNr   uint32
+	getFlags uint32
+	sz       int
+	hasTS    bool
+	arg      unsafe.Pointer
+}
+
+func (ring *IOURing) SubmitAndWaitTimeout(waitNr uint32, ts *syscall.Timespec, sigmask *unix.Sigset_t) (cqe *CompletionQueueEvent, err error) {
+	var toSubmit uint32
+
+	if ts != nil {
+		if ring.features&FeatExtArg != 0 {
+			arg := GetEventsArg{
+				sigMask:   uint64(uintptr(unsafe.Pointer(sigmask))),
+				sigMaskSz: nSig / szDivider,
+				ts:        uint64(uintptr(unsafe.Pointer(ts))),
+			}
+			data := getData{
+				submit:   ring.flushSQ(),
+				waitNr:   waitNr,
+				getFlags: EnterExtArg,
+				sz:       int(unsafe.Sizeof(arg)),
+				hasTS:    ts != nil,
+				arg:      unsafe.Pointer(&arg),
+			}
+
+			cqe, err = ring.privateGetCQE(&data)
+			runtime.KeepAlive(data)
+
+			return
+		}
+		toSubmit, err = ring.submitTimeout(waitNr, ts)
+		if err != nil {
+			return
+		}
+	} else {
+		toSubmit = ring.flushSQ()
+	}
+	cqe, err = ring.GetCQE(toSubmit, waitNr, sigmask)
+	return
+}
+
+func (ring *IOURing) GetCQE(submit uint32, waitNr uint32, sigmask *unix.Sigset_t) (cqe *CompletionQueueEvent, err error) {
+	data := getData{
+		submit:   submit,
+		waitNr:   waitNr,
+		getFlags: 0,
+		sz:       nSig / szDivider,
+		arg:      unsafe.Pointer(sigmask),
+	}
+
+	cqe, err = ring.privateGetCQE(&data)
+	runtime.KeepAlive(data)
+	return
 }
 
 func (ring *IOURing) PeekBatchCQE(cqes []*CompletionQueueEvent) (peeked uint32) {
@@ -509,6 +607,130 @@ func (ring *IOURing) cqNeedsFlush() bool {
 	return atomic.LoadUint32(ring.sq.flags)&(SQCQOverflow|SQTaskRun) != 0
 }
 
+func (ring *IOURing) privateGetCQE(data *getData) (cqe *CompletionQueueEvent, err error) {
+	var looped bool
+
+	for {
+		var needEnter bool
+		var flags uint32
+		var nrAvailable uint32
+		var ret uint
+		var localErr error
+
+		cqe, localErr = ring.tryPeekCQE(&nrAvailable)
+		if localErr != nil {
+			err = localErr
+			break
+		}
+		if cqe == nil && data.waitNr == 0 && data.submit == 0 {
+			if looped || !ring.cqNeedsEnter() {
+				err = unix.EAGAIN
+				break
+			}
+			needEnter = true
+		}
+		if data.waitNr > nrAvailable || needEnter {
+			flags = EnterGetEvents | data.getFlags
+			needEnter = true
+		}
+		if ring.sqNeedsEnter(data.submit, &flags) {
+			needEnter = true
+		}
+		if !needEnter {
+			break
+		}
+		if looped && data.hasTS {
+			arg := (*GetEventsArg)(data.arg)
+			if cqe == nil && arg.ts != 0 {
+				err = unix.ETIME
+			}
+			break
+		}
+
+		ret, localErr = ring.Enter2(data.submit, data.waitNr, flags, data.arg, data.sz)
+		if localErr != nil {
+			err = localErr
+			break
+		}
+		data.submit -= uint32(ret)
+		if cqe != nil {
+			break
+		}
+		if !looped {
+			looped = true
+			err = localErr
+		}
+	}
+	return
+}
+
+var (
+	updateTimeoutPtr = uint64(uintptr(unsafe.Pointer(new(time.Time))))
+)
+
+func (ring *IOURing) submitTimeout(waitNr uint32, ts *syscall.Timespec) (ret uint32, err error) {
+	var sqe *SubmissionQueueEntry
+	sqe = ring.GetSQE()
+	if sqe == nil {
+		_, err = ring.Submit()
+		if err != nil {
+			return 0, err
+		}
+		sqe = ring.GetSQE()
+		if sqe == nil {
+			return 0, syscall.EAGAIN
+		}
+	}
+	sqe.prepareRW(opTimeout, -1, uintptr(unsafe.Pointer(&ts)), 1, uint64(waitNr), updateTimeoutPtr, 0)
+
+	ret = ring.flushSQ()
+	return
+}
+
+func (ring *IOURing) tryPeekCQE(nrAvailable *uint32) (cqe *CompletionQueueEvent, err error) {
+	var available uint32
+	var shift uint32
+	mask := *ring.cq.ringMask
+
+	if ring.flags&SetupCQE32 != 0 {
+		shift = 1
+	}
+
+	for {
+		tail := atomic.LoadUint32(ring.cq.tail)
+		head := *ring.cq.head
+
+		cqe = nil
+		available = tail - head
+		if available == 0 {
+			break
+		}
+
+		cqe = (*CompletionQueueEvent)(
+			unsafe.Add(unsafe.Pointer(ring.cq.cqes), uintptr((head&mask)<<shift)*unsafe.Sizeof(CompletionQueueEvent{})),
+		)
+
+		if ring.features&FeatExtArg == 0 && cqe.UserData == updateTimeoutPtr {
+			if cqe.Res < 0 {
+				err = syscall.Errno(uintptr(-cqe.Res))
+			}
+			ring.CQAdvance(1)
+			if err == nil {
+				continue
+			}
+			cqe = nil
+		}
+
+		break
+	}
+
+	if nrAvailable != nil {
+		*nrAvailable = available
+	}
+
+	return
+}
+
 const (
 	nSig                    = 65
 	szDivider               = 8
@@ -537,9 +759,10 @@ func (ring *IOURing) Enter2(submitted uint32, waitNr uint32, flags uint32, sig u
 }
 
 type IOURingSettings struct {
-	Entries uint32
-	Param   IOURingSetupParam
-	Batch   uint32
+	Entries           uint32
+	Param             IOURingSetupParam
+	SubmitWaitTimeout time.Duration
+	PeekCQEBatchSize  uint32
 }
 
 type IOURingSetupParam struct {
@@ -765,8 +988,11 @@ const (
 	// 如果轮询队列的数量少于在线 CPU 线程的数量，系统中的 CPU 将适当共享轮询队列。
 	SetupIOPoll uint32 = 1 << iota
 	// SetupSQPoll
-	// 指定该标志后，将创建一个内核线程来执行提交队列轮询。以这种方式配置的 io_uring 实例能让应用程序在不切换内核上下文的情况下发出 I/O。通过使用提交队列填写新的提交队列条目，并观察完成队列上的完成情况，应用程序可以在不执行单个系统调用的情况下提交和获取 I/O。
-	// 如果内核线程空闲时间超过 sq_thread_idle 毫秒，就会设置结构 io_sq_ring 的 flags 字段中的 IORING_SQ_NEED_WAKEUP 位。出现这种情况时，应用程序必须调用 io_uring_enter(2) 来唤醒内核线程。如果 I/O 一直处于繁忙状态，内核线程将永远不会休眠。使用此功能的应用程序需要用以下代码序列来保护 io_uring_enter(2) 调用：
+	// 指定该标志后，将创建一个内核线程来执行提交队列轮询。以这种方式配置的 io_uring 实例能让应用程序在不切换内核上下文的情况下发出 I/O。
+	// 通过使用提交队列填写新的提交队列条目，并观察完成队列上的完成情况，应用程序可以在不执行单个系统调用的情况下提交和获取 I/O。
+	// 如果内核线程空闲时间超过 sq_thread_idle 毫秒，就会设置结构 io_sq_ring 的 flags 字段中的 IORING_SQ_NEED_WAKEUP 位。
+	// 出现这种情况时，应用程序必须调用 io_uring_enter(2) 来唤醒内核线程。
+	// 如果 I/O 一直处于繁忙状态，内核线程将永远不会休眠。使用此功能的应用程序需要用以下代码序列来保护 io_uring_enter(2) 调用：
 	// unsigned flags = atomic_load_relaxed(sq_ring->flags);
 	// if flags & IORING_SQ_NEED_WAKEUP {
 	//    io_uring_enter(fd, 0, 0, IORING_ENTER_SQ_WAKEUP);

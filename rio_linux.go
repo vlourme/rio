@@ -23,7 +23,7 @@ func WithSampleIOURingSettings(entries uint32, flags uint32, batch uint32) Start
 				Param: aio.IOURingSetupParam{
 					Flags: flags,
 				},
-				Batch: batch,
+				PeekCQEBatchSize: batch,
 			},
 		}
 		return nil

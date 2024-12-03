@@ -29,7 +29,6 @@ func (op *operatorCanceler) Cancel() {
 			continue
 		}
 		entry.prepareRW(opAsyncCancel, -1, 0, 0, 0, op.userdata, 0)
-		_, _ = ring.Submit()
 		break
 	}
 }

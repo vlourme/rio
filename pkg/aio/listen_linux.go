@@ -166,13 +166,8 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 	// userdata
 	userdata := uint64(uintptr(unsafe.Pointer(&op)))
+	// prepare
 	entry.prepareRW(opAccept, lnFd, addrPtr, 0, addrLenPtr, userdata, 0)
-	// submit
-	_, submitErr := cylinder.ring.Submit()
-	if submitErr != nil {
-		cb(0, op.userdata, errors.Join(errors.New("aio: accept failed"), submitErr))
-		return
-	}
 	return
 }
 
