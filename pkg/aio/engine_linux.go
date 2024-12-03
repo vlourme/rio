@@ -11,15 +11,9 @@ import (
 )
 
 func (engine *Engine) Start() {
-	// todo cylinders -> one cylinder one ring/iocp/kqueue loop
-	// todo op with ring -> load balance to load cylinder
 	settings := ResolveSettings[IOURingSettings](engine.settings)
 	// entries
 	entries := settings.Entries
-	if entries == 0 {
-		cpuNum := runtime.NumCPU() * 2
-		entries = uint32(cpuNum * 1024)
-	}
 	// param
 	param := &settings.Param
 	// batch
@@ -51,6 +45,10 @@ func (engine *Engine) Stop() {
 	engine.wg.Wait()
 }
 
+func nextIOURingCylinder() *IOURingCylinder {
+	return nextCylinder().(*IOURingCylinder)
+}
+
 func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32) (cylinder Cylinder, err error) {
 	// setup
 	ring, ringErr := NewIOURing(entries, param)
@@ -67,9 +65,9 @@ func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32) 
 }
 
 type IOURingCylinder struct {
-	ring   *IOURing
-	batch  uint32
-	stopCh chan struct{}
+	ring    *IOURing
+	batch   uint32
+	stopped atomic.Bool
 }
 
 func (cylinder *IOURingCylinder) Fd() int {
@@ -82,87 +80,44 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 
 	ring := cylinder.ring
 	cqes := make([]*CompletionQueueEvent, cylinder.batch)
-	stopped := false
 	for {
-		select {
-		case <-cylinder.stopCh:
-			stopped = true
-			break
-		default:
-			peeked := ring.PeekBatchCQE(cqes)
-			for i := uint32(0); i < peeked; i++ {
-				cqe := cqes[i]
-				if cqe.Res == 0 && cqe.UserData == 0 {
-					stopped = true
-					break
-				}
-				var err error
-				// handle error
-				if cqe.Res < 0 {
-					err = syscall.Errno(-cqe.Res)
-					// 不用 cancel 用 prep timeout
-					// todo try handle cancel
-					// 虽然取消请求使用异步请求语法，但取消的内核端始终同步运行。
-					// 保证在提交取消请求时始终生成CQE。
-					// 如果取消成功，则在提交返回时，将已发布取消请求的完成情况。
-					// 对于-EALREADY，这可能需要一些时间。在这种情况下，调用者必须等待取消的请求发布其完成事件。
-
-					// io_uring_prep_timeout（3）函数准备一个超时请求。
-					// 提交队列条目sqe被设置为设置ts指定的超时，并具有计数完成条目的超时计数。
-					// flags参数包含请求的修饰符标志。
-					// 此请求类型可用作超时，唤醒CQ环上任何正在睡眠的事件。flags参数可能包含：
-					// IORING_TIMEOUT_ABS
-					// ts中指定的值是绝对值，而不是相对值。
-					// IORING_TIMEOUT_BOOTTIME
-					// 应使用启动时时钟源。
-					// IORING_TIMEOUT_REALTIME
-					// 应使用实时时钟源。
-					// IORING_TIMEOUT_ETIME_SUCCESS
-					// 就发布的完成情况而言，将超时视为成功。这意味着它不会像失败的请求那样切断依赖链接。发布的CQE结果代码在res值中仍将包含-ETIME。
-					// IORING_TIMEOUT_MULTISHOT
-					// 请求将返回多个超时完成。如果预期会有更多超时，则设置完成标志IORING_CQE_F_MORE。count中指定的值是重复次数。值0表示超时是不确定的，只能通过删除请求停止。从6.4内核开始可用。
-					//
-					// 如果发生了指定的超时，或者指定数量的等待事件已发布到CQ环，则将触发超时完成事件。
-					// 这些是CQE res字段中报告的错误。成功后，返回0。
-					// -ETIME
-					// 发生了指定的超时并触发了完成事件。
-					// -EINVAL
-					// SQE中设置的一个字段无效。例如，给定了两个时钟源，或者指定的超时秒数或纳秒数小于0。
-					// -EFAULT
-					// io_uring无法访问ts指定的数据。
-					// -ECANCELED
-					// 超时已被删除请求取消。
-					//
-					// 注意：
-					// 与在结构中传递数据的任何请求一样，该数据必须保持有效，直到请求成功提交。
-					// 在完成之前，它不需要一直有效。
-					// 一旦提交了请求，内核内状态就稳定了。
-					// 非常早期的内核（5.4及更早版本）要求状态在完成之前保持稳定。
-					// 应用程序可以通过检查从io_uring_queue_init_params（3）传递回来的IORING_FEAT_SUBMIT_STABLE标志来测试此行为。
-					//
-
-				}
-				// get op from userdata
-				op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
-				// todo handle canceled
-				// todo 如果不返回的话，那么这里都是正确的结果，则改超时，cancel的同时 直接 completion（）
-				// timeout
-				if timer := op.timer; timer != nil {
-					timer.Done()
-					putOperatorTimer(timer)
-					op.timer = nil
-				}
-				// complete op
-				if completion := op.completion; completion != nil {
-					completion(int(cqe.Res), op, err)
-					op.completion = nil
-				}
-				op.callback = nil
-				runtime.KeepAlive(op)
+		peeked := ring.PeekBatchCQE(cqes)
+		for i := uint32(0); i < peeked; i++ {
+			cqe := cqes[i]
+			if cqe.Res == 0 && cqe.UserData == 0 {
+				// noop then break loop
+				cylinder.stopped.Store(true)
+				break
 			}
-			break
+			var err error
+			// handle error
+			result := 0
+			if cqe.Res < 0 {
+				err = syscall.Errno(-cqe.Res)
+			} else {
+				result = int(cqe.Res)
+			}
+			// get op from userdata
+			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
+			// todo handle canceled
+			// todo 如果不返回的话，那么这里都是正确的结果，则改超时，cancel的同时 直接 completion（）
+			// timeout
+			if timer := op.timer; timer != nil {
+				timer.Done()
+				putOperatorTimer(timer)
+				op.timer = nil
+			}
+			// complete op
+			if completion := op.completion; completion != nil {
+				completion(result, op, err)
+				op.completion = nil
+			}
+			op.callback = nil
+			runtime.KeepAlive(op)
 		}
-		if stopped {
+		// advance cqes
+		ring.CQAdvance(peeked)
+		if cylinder.stopped.Load() {
 			break
 		}
 	}
@@ -171,9 +126,15 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 }
 
 func (cylinder *IOURingCylinder) Stop() {
-	// break loop
-	// todo use noop with 0 userdata, then break
-	close(cylinder.stopCh)
+	for {
+		entry := cylinder.ring.GetSQE()
+		if entry == nil {
+			continue
+		}
+		entry.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
+		_, _ = cylinder.ring.Submit()
+		break
+	}
 	return
 }
 
@@ -185,8 +146,13 @@ func (cylinder *IOURingCylinder) Actives() int64 {
 	return int64(cylinder.ring.sqSpaceLeft())
 }
 
+// NewIOURing
+// entries 貌似最大是 32768(2^15)
 func NewIOURing(entries uint32, param *IOURingSetupParam) (*IOURing, error) {
-	ring := &IOURing{}
+	ring := &IOURing{
+		sq: &SubmissionQueue{},
+		cq: &CompletionQueue{},
+	}
 	err := ring.setup(entries, param)
 	if err != nil {
 		return nil, err
@@ -316,7 +282,21 @@ const (
 	sysRegister = 427
 )
 
+const (
+	maxEntries     = 32768
+	defaultEntries = maxEntries / 2
+)
+
 func (ring *IOURing) setup(entries uint32, param *IOURingSetupParam) (err error) {
+	if entries > maxEntries || entries == 0 {
+		entries = defaultEntries
+	}
+	if param.SQEntries > maxEntries {
+		param.SQEntries = defaultEntries
+	}
+	if param.CQEntries > maxEntries {
+		param.CQEntries = maxEntries
+	}
 	fdPtr, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(param)), 0)
 	if errno != 0 {
 		err = errno
@@ -631,6 +611,59 @@ type SubmissionQueue struct {
 	pad [2]uint32
 }
 
+const (
+	opNop uint8 = iota
+	opReadv
+	opWritev
+	opFsync
+	opReadFixed
+	opWriteFixed
+	opPollAdd
+	opPollRemove
+	opSyncFileRange
+	opSendmsg
+	opRecvmsg
+	opTimeout
+	opTimeoutRemove
+	opAccept
+	opAsyncCancel
+	opLinkTimeout
+	opConnect
+	opFallocate
+	opOpenat
+	opClose
+	opFilesUpdate
+	opStatx
+	opRead
+	opWrite
+	opFadvise
+	opMadvise
+	opSend
+	opRecv
+	opOpenat2
+	opEpollCtl
+	opSplice
+	opProvideBuffers
+	opRemoveBuffers
+	opTee
+	opShutdown
+	opRenameat
+	opUnlinkat
+	opMkdirat
+	opSymlinkat
+	opLinkat
+	opMsgRing
+	opFsetxattr
+	opSetxattr
+	opFgetxattr
+	opGetxattr
+	opSocket
+	opUringCmd
+	opSendZC
+	opSendMsgZC
+	opLast
+)
+
 type SubmissionQueueEntry struct {
 	OpCode      uint8
 	Flags       uint8
@@ -647,6 +680,20 @@ type SubmissionQueueEntry struct {
 	Addr3       uint64
 	_pad2       [1]uint64
 	// TODO: add __u8	cmd[0];
+}
+
+func (entry *SubmissionQueueEntry) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, userdata uint64, flags uint8) {
+	entry.OpCode = opcode
+	entry.Flags = flags
+	entry.IoPrio = 0
+	entry.Fd = int32(fd)
+	entry.Off = offset
+	entry.Addr = uint64(addr)
+	entry.Len = length
+	entry.UserData = userdata
+	entry.BufIG = 0
+	entry.Personality = 0
+	entry.SpliceFdIn = 0
 }
 
 type CompletionQueue struct {
