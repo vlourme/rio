@@ -18,12 +18,10 @@ func (engine *Engine) Start() {
 	// entries
 	entries := settings.Entries
 	// param
-	param := &settings.Param
+	param := settings.Param
 	// peekBatch
 	batch := settings.PeekCQEBatchSize
-	if batch < 1 {
-		batch = uint32(runtime.NumCPU())
-	}
+
 	// cylinders
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch, settings.SubmitWaitTimeout)
@@ -48,27 +46,38 @@ func (engine *Engine) Stop() {
 	engine.wg.Wait()
 }
 
-var waitForCQENum = []uint32{1, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
-
 func nextIOURingCylinder() *IOURingCylinder {
 	return nextCylinder().(*IOURingCylinder)
 }
 
-func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32, submitWaitTimeout time.Duration) (cylinder Cylinder, err error) {
+func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, submitWaitTimeout time.Duration) (cylinder Cylinder, err error) {
 	// setup
-	ring, ringErr := NewIOURing(entries, param)
+	ring, ringErr := NewIOURing(entries, &param)
 	if ringErr != nil {
 		err = ringErr
 		return
 	}
+	runtime.KeepAlive(param)
+	// submit wait timeout
 	if submitWaitTimeout < 1 {
 		submitWaitTimeout = time.Millisecond
 	}
+
+	// batch
+	if batch < 1 {
+		cqEntries := param.CQEntries
+		if cqEntries > 0 {
+			batch = param.CQEntries
+		} else {
+			batch = maxEntries
+		}
+	}
+
 	// cylinder
 	cylinder = &IOURingCylinder{
+		stopped:      atomic.Bool{},
 		ring:         ring,
 		peekBatch:    batch,
-		stopped:      atomic.Bool{},
 		waitTimeout:  syscall.NsecToTimespec((submitWaitTimeout).Nanoseconds()),
 		waitForIndex: 0,
 		waitFor:      waitForCQENum[0],
@@ -77,9 +86,9 @@ func newIOURingCylinder(entries uint32, param *IOURingSetupParam, batch uint32, 
 }
 
 type IOURingCylinder struct {
+	stopped      atomic.Bool
 	ring         *IOURing
 	peekBatch    uint32
-	stopped      atomic.Bool
 	waitTimeout  syscall.Timespec
 	waitForIndex uint32
 	waitFor      uint32
@@ -88,6 +97,8 @@ type IOURingCylinder struct {
 func (cylinder *IOURingCylinder) Fd() int {
 	return cylinder.ring.fd
 }
+
+var waitForCQENum = []uint32{1, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
 
 func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 	beg()
@@ -125,34 +136,52 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				cylinder.stopped.Store(true)
 				break
 			}
-			var err error
-			// handle error
-			result := 0
-			if cqe.Res < 0 {
-				err = syscall.Errno(-cqe.Res)
-			} else {
-				result = int(cqe.Res)
-			}
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
-			// todo handle canceled
-			// todo 如果不返回的话，那么这里都是正确的结果，则改超时，cancel的同时 直接 completion（）
-			// timeout
-			if timer := op.timer; timer != nil {
-				timer.Done()
-				putOperatorTimer(timer)
-				op.timer = nil
-			}
-			// complete op
+			// res 为 0 时，userdata不为空，则有可能来自 canceled。
+			// 由于 虽然是同一个 op，但是先来的那个会删掉com，所以没有com的则不会完成。
+			// when deadline exceeded, then the op has 2 prepRW,
+			// after the first prepRW handled, the completion will be removed
+			// so when non completion, not complete.
 			if completion := op.completion; completion != nil {
+				result := 0
+				var err error
+				if cqe.Res < 0 {
+					err = syscall.Errno(-cqe.Res)
+					if timer := op.timer; timer != nil {
+						if timer.DeadlineExceeded() {
+							err = errors.Join(ErrOperationDeadlineExceeded, err)
+						} else {
+							timer.Done()
+						}
+						putOperatorTimer(timer)
+						op.timer = nil
+					}
+				} else {
+					result = int(cqe.Res)
+					// 来自 cancel 的 res 为 0，来自其它读写的 res 一定不是 0。
+					if timer := op.timer; timer != nil {
+						if timer.DeadlineExceeded() && result == 0 {
+							err = ErrOperationDeadlineExceeded
+						} else {
+							// res 不为 0，虽然超时，但有结果，还是正常处理。
+							timer.Done()
+						}
+						putOperatorTimer(timer)
+						op.timer = nil
+					}
+				}
+				// complete
 				completion(result, op, err)
 				op.completion = nil
+				op.callback = nil
 			}
-			op.callback = nil
 			runtime.KeepAlive(op)
 		}
 		// advance cqes
-		ring.CQAdvance(peeked)
+		if peeked > 0 {
+			ring.CQAdvance(peeked)
+		}
 		if cylinder.stopped.Load() {
 			break
 		}
@@ -168,7 +197,6 @@ func (cylinder *IOURingCylinder) Stop() {
 			continue
 		}
 		entry.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
-		//_, _ = cylinder.ring.Submit()
 		break
 	}
 	return
@@ -291,7 +319,6 @@ func (ring *IOURing) SubmitAndWaitTimeout(waitNr uint32, ts *syscall.Timespec, s
 
 			cqe, err = ring.privateGetCQE(&data)
 			runtime.KeepAlive(data)
-
 			return
 		}
 		toSubmit, err = ring.submitTimeout(waitNr, ts)
@@ -388,12 +415,6 @@ const (
 func (ring *IOURing) setup(entries uint32, param *IOURingSetupParam) (err error) {
 	if entries > maxEntries || entries == 0 {
 		entries = defaultEntries
-	}
-	if param.SQEntries > maxEntries {
-		param.SQEntries = defaultEntries
-	}
-	if param.CQEntries > maxEntries {
-		param.CQEntries = maxEntries
 	}
 	fdPtr, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(param)), 0)
 	if errno != 0 {
@@ -624,7 +645,7 @@ func (ring *IOURing) privateGetCQE(data *getData) (cqe *CompletionQueueEvent, er
 		}
 		if cqe == nil && data.waitNr == 0 && data.submit == 0 {
 			if looped || !ring.cqNeedsEnter() {
-				err = unix.EAGAIN
+				err = syscall.EAGAIN
 				break
 			}
 			needEnter = true
@@ -642,7 +663,7 @@ func (ring *IOURing) privateGetCQE(data *getData) (cqe *CompletionQueueEvent, er
 		if looped && data.hasTS {
 			arg := (*GetEventsArg)(data.arg)
 			if cqe == nil && arg.ts != 0 {
-				err = unix.ETIME
+				err = syscall.ETIME
 			}
 			break
 		}
@@ -734,12 +755,13 @@ func (ring *IOURing) tryPeekCQE(nrAvailable *uint32) (cqe *CompletionQueueEvent,
 const (
 	nSig                    = 65
 	szDivider               = 8
+	enter2size              = nSig / szDivider
 	registerRingFdOffset    = uint32(4294967295)
 	regIOWQMaxWorkersNrArgs = 2
 )
 
 func (ring *IOURing) Enter(submitted uint32, waitNr uint32, flags uint32, sig unsafe.Pointer) (uint, error) {
-	return ring.Enter2(submitted, waitNr, flags, sig, nSig/szDivider)
+	return ring.Enter2(submitted, waitNr, flags, sig, enter2size)
 }
 
 func (ring *IOURing) Enter2(submitted uint32, waitNr uint32, flags uint32, sig unsafe.Pointer, size int) (uint, error) {
@@ -768,6 +790,7 @@ type IOURingSettings struct {
 type IOURingSetupParam struct {
 	SQEntries uint32
 	// CQEntries
+	// 需要 SetupCQSize (IORING_SETUP_CQSIZE)
 	// 默认情况下，CQ 环的条目数将是SQ环条目数的两倍。
 	// 这对于常规文件或存储工作负载来说是足够的，但对于网络工作负载来说可能太小。
 	// SQ环条目没有对环可以支持的正在进行的请求数量施加限制，它只是限制了一次（批处理）可以提交给内核的数量。
@@ -823,15 +846,11 @@ type SubmissionQueue struct {
 	dropped     *uint32
 	array       *uint32
 	sqes        *SubmissionQueueEntry
-
-	ringSize uint
-	ringPtr  unsafe.Pointer
-
-	sqeHead uint32
-	sqeTail uint32
-
-	// nolint: unused
-	pad [2]uint32
+	ringSize    uint
+	ringPtr     unsafe.Pointer
+	sqeHead     uint32
+	sqeTail     uint32
+	pad         [2]uint32
 }
 
 const (
@@ -901,8 +920,7 @@ type SubmissionQueueEntry struct {
 	Personality uint16
 	SpliceFdIn  int32
 	Addr3       uint64
-	_pad2       [1]uint64
-	// TODO: add __u8	cmd[0];
+	pad2        [1]uint64
 }
 
 func (entry *SubmissionQueueEntry) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, userdata uint64, flags uint8) {
@@ -962,8 +980,6 @@ type CompletionQueueEvent struct {
 	UserData uint64
 	Res      int32
 	Flags    uint32
-	// FIXME
-	// 	__u64 big_cqe[];
 }
 
 const (
@@ -1003,7 +1019,8 @@ const (
 	// 在 Linux 内核 5.11 版本之前，要成功使用这一功能，应用程序必须使用 IORING_REGISTER_FILES 操作码通过 io_uring_register(2) 注册一组用于 IO 的文件。否则，提交的 IO 将出现 EBADF 错误。可以通过 IORING_FEAT_SQPOLL_NONFIXED 功能标志检测该功能是否存在。在 5.11 及更高版本中，使用此功能不再需要注册文件。如果用户具有 CAP_SYS_NICE 功能，5.11 还允许以非 root 身份使用此功能。在 5.13 中，这一要求也被放宽，在较新的内核中，SQPOLL 不需要特殊权限。某些比 5.13 版本更早的稳定内核也可能支持非特权 SQPOLL。
 	SetupSQPoll
 	// SetupSQAff
-	// 如果指定了这个标志，那么轮询线程将绑定到结构 io_uring_params 的 sq_thread_cpu 字段中设置的 cpu。该标志只有在指定 IORING_SETUP_SQPOLL 时才有意义。当 cgroup 设置 cpuset.cpus 发生变化时（通常是在容器环境中），绑定的 cpu 集也会发生变化。
+	// 如果指定了这个标志，那么轮询线程将绑定到结构 io_uring_params 的 sq_thread_cpu 字段中设置的 cpu。该标志只有在指定 IORING_SETUP_SQPOLL 时才有意义。
+	// 当 cgroup 设置 cpuset.cpus 发生变化时（通常是在容器环境中），绑定的 cpu 集也会发生变化。
 	SetupSQAff
 	// SetupCQSize
 	// 使用 struct io_uring_params.cq_entries 条目创建完成队列。值必须大于条目数，并可四舍五入为下一个 2 的幂次。
