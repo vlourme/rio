@@ -2,7 +2,10 @@
 
 package aio
 
-import "time"
+import (
+	"time"
+	"unsafe"
+)
 
 type Operator struct {
 	fd         Fd
@@ -15,20 +18,23 @@ type Operator struct {
 
 type operatorCanceler struct {
 	cylinder *IOURingCylinder
-	userdata uint64
+	op       *Operator
 }
 
-func (op *operatorCanceler) Cancel() {
-	ring := op.cylinder.ring
+func (canceler *operatorCanceler) Cancel() {
+	cylinder := canceler.cylinder
+	ring := cylinder.ring
+	op := canceler.op
+	opPtr := uint64(uintptr(unsafe.Pointer(op)))
 	for {
 		entry := ring.GetSQE()
 		if entry == nil {
-			if op.cylinder.stopped.Load() {
+			if cylinder.stopped.Load() {
 				return
 			}
 			continue
 		}
-		entry.prepareRW(opAsyncCancel, -1, 0, 0, 0, op.userdata, 0)
+		entry.prepareRW(opAsyncCancel, -1, 0, 0, 0, opPtr, 0)
 		break
 	}
 }
