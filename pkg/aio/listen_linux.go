@@ -200,13 +200,12 @@ func completeAccept(result int, op *Operator, err error) {
 	la := SockaddrToAddr(ln.Network(), lsa)
 
 	// get remote addr
-	rsa, rsaErr := syscall.Getpeername(connFd)
-	if rsaErr != nil {
+	ra, raErr := userdata.Msg.Addr()
+	if raErr != nil {
 		_ = syscall.Close(connFd)
-		op.callback(result, userdata, os.NewSyscallError("getsockname", rsaErr))
+		op.callback(result, userdata, errors.Join(errors.New("aio: get peername failed"), raErr))
 		return
 	}
-	ra := SockaddrToAddr(ln.Network(), rsa)
 
 	// conn
 	conn := &netFd{
