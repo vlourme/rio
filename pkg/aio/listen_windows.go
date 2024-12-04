@@ -113,9 +113,6 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 			return
 		}
 		break
-	case syscall.SOCK_RAW:
-		// todo
-		break
 	default:
 		break
 	}
