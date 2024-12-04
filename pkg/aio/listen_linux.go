@@ -143,10 +143,15 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// ln
 	lnFd := fd.Fd()
 	// addr
-	op.userdata.Msg.Name = new(syscall.RawSockaddrAny)
-	op.userdata.Msg.Namelen = syscall.SizeofSockaddrAny
-	addrPtr := uintptr(unsafe.Pointer(op.userdata.Msg.Name))
-	addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.userdata.Msg.Namelen)))
+	msg := Msg{}
+
+	msg.Name = new(syscall.RawSockaddrAny)
+	msg.NameLen = syscall.SizeofSockaddrAny
+	addrPtr := uintptr(unsafe.Pointer(msg.Name))
+	addrLenPtr := uint64(uintptr(unsafe.Pointer(&msg.NameLen)))
+
+	op.userdata.msg = uintptr(unsafe.Pointer(&msg))
+
 	// cb
 	op.callback = cb
 	// completion
@@ -189,7 +194,7 @@ func completeAccept(result int, op *Operator, err error) {
 	la := SockaddrToAddr(ln.Network(), lsa)
 
 	// get remote addr
-	ra, raErr := userdata.Msg.Addr()
+	ra, raErr := userdata.Msg().Addr()
 	if raErr != nil {
 		_ = syscall.Close(connFd)
 		op.callback(result, userdata, errors.Join(errors.New("aio: get peername failed"), raErr))

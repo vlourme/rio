@@ -19,9 +19,12 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 		bLen = MaxRW
 	}
-	buf := op.userdata.Msg.AppendBuffer(b)
+	msg := Msg{}
+	buf := msg.AppendBuffer(b)
 	bufAddr := uintptr(unsafe.Pointer(buf.Buf))
-	bufLen := buf.Len
+	bufLen := uint32(buf.Len)
+
+	op.userdata.msg = uintptr(unsafe.Pointer(&msg))
 	// cb
 	op.callback = cb
 	// completion

@@ -13,7 +13,7 @@ const (
 )
 
 func NewBuf(b []byte) (buf Buf) {
-	buf.Len = uint32(len(b))
+	buf.Len = uint64(len(b))
 	buf.Buf = nil
 	if len(b) != 0 {
 		buf.Buf = &b[0]
@@ -22,8 +22,8 @@ func NewBuf(b []byte) (buf Buf) {
 }
 
 type Buf struct {
-	Len uint32
 	Buf *byte
+	Len uint64
 }
 
 func (buf *Buf) Bytes() (b []byte) {
@@ -33,11 +33,14 @@ func (buf *Buf) Bytes() (b []byte) {
 
 type Msg struct {
 	Name        *syscall.RawSockaddrAny
-	Namelen     int32
+	NameLen     uint32
+	Pad_cgo_0   [4]byte
 	Buffers     *Buf
-	BufferCount uint32
-	Control     Buf
-	Flags       uint32
+	BufferCount uint64
+	Control     *byte
+	ControlLen  uint64
+	Flags       int32
+	Pad_cgo_1   [4]byte
 }
 
 func (msg *Msg) AppendBuffer(b []byte) (buf Buf) {
@@ -65,16 +68,19 @@ func (msg *Msg) Buf(index int) (buf Buf, err error) {
 }
 
 func (msg *Msg) SetControl(b []byte) {
-	msg.Control.Len = uint32(len(b))
-	msg.Control.Buf = nil
-	if msg.Control.Len != 0 {
-		msg.Control.Buf = &b[0]
+	msg.ControlLen = uint64(len(b))
+	msg.Control = nil
+	if msg.ControlLen != 0 {
+		msg.Control = &b[0]
 	}
 	return
 }
 
 func (msg *Msg) ControlBytes() []byte {
-	return msg.Control.Bytes()
+	if msg.Control != nil {
+		return unsafe.Slice(msg.Control, int(msg.ControlLen))
+	}
+	return nil
 }
 
 func (msg *Msg) SetAddr(addr net.Addr) {
@@ -85,7 +91,7 @@ func (msg *Msg) SetAddr(addr net.Addr) {
 		return
 	}
 	msg.Name = name
-	msg.Namelen = nameLen
+	msg.NameLen = uint32(nameLen)
 	return
 }
 
@@ -134,7 +140,6 @@ func (msg *Msg) Addr() (addr net.Addr, err error) {
 type Userdata struct {
 	Fd  Fd
 	QTY uint32
-	Msg Msg
 	msg uintptr
 }
 
