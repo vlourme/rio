@@ -38,7 +38,7 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 			return
 		}
 		// listen
-		listenErr := syscall.Listen(sock, syscall.SOMAXCONN)
+		listenErr := syscall.Listen(sock, somaxconn)
 		if listenErr != nil {
 			_ = syscall.Close(sock)
 			err = os.NewSyscallError("listen", listenErr)
@@ -114,9 +114,6 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 			return
 		}
 		break
-	case syscall.SOCK_RAW:
-		// todo
-		break
 	default:
 		break
 	}
@@ -143,19 +140,6 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
-	// ring
-	cylinder := nextIOURingCylinder()
-	entry := cylinder.ring.GetSQE()
-	if entry == nil {
-		cb(0, op.userdata, ErrBusy)
-		return
-	}
-
-	// cb
-	op.callback = cb
-	// completion
-	op.completion = completeAccept
-
 	// ln
 	lnFd := fd.Fd()
 	// addr
@@ -163,11 +147,18 @@ func Accept(fd NetFd, cb OperationCallback) {
 	op.userdata.Msg.Namelen = syscall.SizeofSockaddrAny
 	addrPtr := uintptr(unsafe.Pointer(op.userdata.Msg.Name))
 	addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.userdata.Msg.Namelen)))
-
+	// cb
+	op.callback = cb
+	// completion
+	op.completion = completeAccept
 	// userdata
 	userdata := uint64(uintptr(unsafe.Pointer(&op)))
 	// prepare
-	entry.prepareRW(opAccept, lnFd, addrPtr, 0, addrLenPtr, userdata, 0)
+	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, userdata)
+	if err != nil {
+		cb(0, op.userdata, err)
+		return
+	}
 	return
 }
 
