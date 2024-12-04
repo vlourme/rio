@@ -48,7 +48,15 @@ func (engine *Engine) Start() {
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder := newIOCPCylinder(cphandle)
 		engine.cylinders[i] = cylinder
-		go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+		go func(engine *Engine, cylinder Cylinder) {
+			if engine.cylindersLockOSThread {
+				runtime.LockOSThread()
+			}
+			cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+			if engine.cylindersLockOSThread {
+				runtime.UnlockOSThread()
+			}
+		}(engine, cylinder)
 	}
 }
 

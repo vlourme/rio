@@ -9,12 +9,15 @@ import (
 )
 
 type Options struct {
-	// EngineCylinders
+	// Cylinders
 	// 引擎规模
-	EngineCylinders int
-	// LoadBalance
-	// 负载均衡器。 RoundRobin 和 Least。注意：windows 不支持。
-	LoadBalance LoadBalanceKind
+	Cylinders int
+	// CylindersLockOSThread
+	// 是否独占线程
+	CylindersLockOSThread bool
+	// CylindersLoadBalance
+	// 负载均衡器。 RoundRobin 和 Least。
+	CylindersLoadBalance LoadBalanceKind
 	// Settings
 	// AIO配置设置
 	Settings any
@@ -48,37 +51,36 @@ const (
 )
 
 func newEngine(options Options) *Engine {
-	cylinders := options.EngineCylinders
+	cylinders := options.Cylinders
 	if cylinders < 1 {
 		cylinders = runtime.NumCPU() * 2
 	}
 	_engine = &Engine{
-		fd:           0,
-		settings:     options.Settings,
-		loadBalancer: options.LoadBalance,
-		cylindersIdx: -1,
-		cylindersNum: int64(cylinders),
-		cylinders:    make([]Cylinder, cylinders),
-		wg:           new(sync.WaitGroup),
+		fd:                    0,
+		settings:              options.Settings,
+		cylindersLoadBalancer: options.CylindersLoadBalance,
+		cylindersLockOSThread: options.CylindersLockOSThread,
+		cylindersIdx:          -1,
+		cylindersNum:          int64(cylinders),
+		cylinders:             make([]Cylinder, cylinders),
+		wg:                    new(sync.WaitGroup),
 	}
 	return _engine
 }
 
 type Engine struct {
-	fd           int
-	settings     any
-	loadBalancer LoadBalanceKind
-	cylindersIdx int64
-	cylindersNum int64
-	cylinders    []Cylinder
-	wg           *sync.WaitGroup
+	fd                    int
+	settings              any
+	cylindersLoadBalancer LoadBalanceKind
+	cylindersLockOSThread bool
+	cylindersIdx          int64
+	cylindersNum          int64
+	cylinders             []Cylinder
+	wg                    *sync.WaitGroup
 }
 
 func (engine *Engine) next() Cylinder {
-	switch engine.loadBalancer {
-	case RoundRobin:
-		idx := atomic.AddInt64(&engine.cylindersIdx, 1) % engine.cylindersNum
-		return engine.cylinders[idx]
+	switch engine.cylindersLoadBalancer {
 	case Least:
 		idx := 0
 		actives := int64(0)
@@ -94,7 +96,9 @@ func (engine *Engine) next() Cylinder {
 		}
 		return engine.cylinders[idx]
 	default:
-		return nil
+		// RoundRobin
+		idx := atomic.AddInt64(&engine.cylindersIdx, 1) % engine.cylindersNum
+		return engine.cylinders[idx]
 	}
 }
 
@@ -110,9 +114,9 @@ var (
 	_createEngineOnce         = sync.Once{}
 	_engine           *Engine = nil
 	_defaultOptions           = Options{
-		EngineCylinders: 0,
-		LoadBalance:     RoundRobin,
-		Settings:        nil,
+		Cylinders:            0,
+		CylindersLoadBalance: RoundRobin,
+		Settings:             nil,
 	}
 )
 

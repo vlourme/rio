@@ -14,7 +14,19 @@ import (
 	"unsafe"
 )
 
+const (
+	minKernelVersionMajor = 5
+	minKernelVersionMinor = 1
+)
+
 func (engine *Engine) Start() {
+	// check kernel version
+	major, minor := KernelVersion()
+	if major < minKernelVersionMajor || (major == minKernelVersionMajor && minor < minKernelVersionMinor) {
+		panic(errors.New("aio: kernel version too old, must newer then 5.16"))
+		return
+	}
+	// settings
 	settings := ResolveSettings[IOURingSettings](engine.settings)
 	// entries
 	entries := settings.Entries
@@ -47,7 +59,15 @@ func (engine *Engine) Start() {
 
 	}
 	for _, cylinder := range engine.cylinders {
-		go cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+		go func(engine *Engine, cylinder Cylinder) {
+			if engine.cylindersLockOSThread {
+				runtime.LockOSThread()
+			}
+			cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+			if engine.cylindersLockOSThread {
+				runtime.UnlockOSThread()
+			}
+		}(engine, cylinder)
 	}
 }
 
@@ -1087,20 +1107,20 @@ const (
 	// SetupSubmitAll
 	// 通常情况下，如果其中一个请求出现错误，io_uring 就会停止提交一批请求。如果一个请求在提交过程中出错，这可能会导致提交的请求少于预期。如果在创建环时使用了此标记，那么即使在提交请求时遇到错误，io_uring_enter(2) 也会继续提交请求。无论在创建环时是否设置了此标记，都会为出错的请求发布 CQE，唯一的区别在于当发现错误时，提交序列是停止还是继续。自 5.18 版起可用。
 	SetupSubmitAll
-	// SetupCoopTaskrun
+	// SetupCoopTaskRun
 	// 默认情况下，当有完成事件发生时，io_uring 会中断在用户空间运行的任务。
 	// 这是为了确保完成任务及时运行。
 	// 对于很多用例来说，这样做有些矫枉过正，会导致性能下降，包括用于中断的处理器间中断、内核/用户转换、对任务用户空间活动的无谓中断，以及如果完成事件来得太快，批处理能力下降。
 	// 大多数应用程序不需要强制中断，因为事件会在任何内核/用户转换时得到处理。
 	// 【例外情况是，应用程序使用多个线程在同一环上运行，在这种情况下，等待完成的应用程序并不是提交完成的应用程序。】
 	// 【对于大多数其他使用情况，设置此标志将提高性能。自 5.19 版起可用。】
-	SetupCoopTaskrun
-	// SetupTaskrunFlag
+	SetupCoopTaskRun
+	// SetupTaskRunFlag
 	// 与 IORING_SETUP_COOP_TASKRUN 结合使用，它提供了一个标志 IORING_SQ_TASKRUN，
 	// 每当有应该处理的完成等待时，它就会在 SQ 环标志中被设置。即使在执行 io_uring_peek_cqe(3) 时，
 	// liburing 也会检查该标志，并进入内核处理它们，应用程序也可以这样做。
 	// 这使得 IORING_SETUP_TASKRUN_FLAG 可以安全使用，即使应用程序依赖于 CQ 环上的偷看式操作来查看是否有任何待收获。自 5.19 版起可用。
-	SetupTaskrunFlag
+	SetupTaskRunFlag
 	// SetupSQE128
 	// 如果设置了该选项，io_uring 将使用 128 字节的 SQE，而不是正常的 64 字节大小的 SQE。这是使用某些请求类型的要求，截至 5.19 版，只有用于 NVMe 直通的 IORING_OP_URING_CMD 直通命令需要使用此功能。自 5.19 版起可用。
 	SetupSQE128
@@ -1108,11 +1128,20 @@ const (
 	// 如果设置了该选项，io_uring 将使用 32 字节的 CQE，而非通常的 16 字节大小。这是使用某些请求类型的要求，截至 5.19 版，只有用于 NVMe 直通的 IORING_OP_URING_CMD 直通命令需要使用此功能。自 5.19 版起可用。
 	SetupCQE32
 	// SetupSingleIssuer
-	// 提示内核只有一个任务（或线程）提交请求，用于内部优化。提交任务要么是创建环的任务，要么是通过 io_uring_register(2) 启用环的任务（如果指定了 IORING_SETUP_R_DISABLED）。内核会强制执行这一规则，如果违反限制，会以 -EEXIST 失败请求。需要注意的是，当设置了 IORING_SETUP_SQPOLL 时，轮询任务将被视为代表用户空间完成所有提交工作，因此无论有多少用户空间任务执行 io_uring_enter(2)，轮询任务都会遵守该规则。自 6.0 版起可用。
+	// 提示内核只有一个任务（或线程）提交请求，用于内部优化。
+	// 提交任务要么是创建环的任务，要么是通过 io_uring_register(2) 启用环的任务（如果指定了 IORING_SETUP_R_DISABLED）。
+	// 内核会强制执行这一规则，如果违反限制，会以 -EEXIST 失败请求。
+	// 需要注意的是，当设置了 IORING_SETUP_SQPOLL 时，轮询任务将被视为代表用户空间完成所有提交工作，
+	// 因此无论有多少用户空间任务执行 io_uring_enter(2)，轮询任务都会遵守该规则。
+	// 自 6.0 版起可用。
 	SetupSingleIssuer
-	// SetupDeferTaskrun
-	// 默认情况下，io_uring 会在任何系统调用或线程中断结束时处理所有未完成的工作。这可能会延迟应用程序取得其他进展。设置该标志将提示 io_uring 将工作推迟到设置了 IORING_ENTER_GETEVENTS 标志的 io_uring_enter(2) 调用。这样，应用程序就可以在处理完成之前请求运行工作。该标志要求设置 IORING_SETUP_SINGLE_ISSUER 标志，并强制要求从提交请求的同一线程调用 io_uring_enter(2)。请注意，如果设置了该标记，应用程序就有责任定期触发工作（例如通过任何 CQE 等待函数），否则可能无法交付完成。自 6.1 版起可用。
-	SetupDeferTaskrun
+	// SetupDeferTaskRun
+	// 默认情况下，io_uring 会在任何系统调用或线程中断结束时处理所有未完成的工作。这可能会延迟应用程序取得其他进展。
+	// 设置该标志将提示 io_uring 将工作推迟到设置了 IORING_ENTER_GETEVENTS 标志的 io_uring_enter(2) 调用。
+	// 这样，应用程序就可以在处理完成之前请求运行工作。
+	// 该标志要求设置 IORING_SETUP_SINGLE_ISSUER 标志，并强制要求从提交请求的同一线程调用 io_uring_enter(2)。
+	// 请注意，如果设置了该标记，应用程序就有责任定期触发工作（例如通过任何 CQE 等待函数），否则可能无法交付完成。自 6.1 版起可用。
+	SetupDeferTaskRun
 	// SetupNoMmap
 	// 默认情况下，io_uring 会分配内核内存，调用者必须随后使用 mmap(2)。如果设置了该标记，io_uring 将使用调用者分配的缓冲区；p->cq_off.user_addr 必须指向 sq/cq ring 的内存，p->sq_off.user_addr 必须指向 sqes 的内存。每次分配的内存必须是连续的。通常情况下，调用者应使用 mmap(2) 分配大页面来分配这些内存。如果设置了此标记，那么随后尝试 mmap(2) io_uring 文件描述符的操作将失败。自 6.5 版起可用。
 	_SetupNoMmap

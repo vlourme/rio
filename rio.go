@@ -188,8 +188,22 @@ func WithCloseTimeout(d time.Duration) StartupOption {
 func WithAIOEngineCylinders(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
-			o.AIOOptions.EngineCylinders = n
+			o.AIOOptions.Cylinders = n
 		}
+		return nil
+	}
+}
+
+func WithAIOEngineCylindersLockOSThread(lockOSThread bool) StartupOption {
+	return func(o *StartupOptions) error {
+		o.AIOOptions.CylindersLockOSThread = lockOSThread
+		return nil
+	}
+}
+
+func WithAIOEngineCylindersLoadBalance(rb aio.LoadBalanceKind) StartupOption {
+	return func(o *StartupOptions) error {
+		o.AIOOptions.CylindersLoadBalance = rb
 		return nil
 	}
 }
