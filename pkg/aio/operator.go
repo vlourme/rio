@@ -135,6 +135,7 @@ type Userdata struct {
 	Fd  Fd
 	QTY uint32
 	Msg Msg
+	msg uintptr
 }
 
 type OperationCallback func(result int, userdata Userdata, err error)

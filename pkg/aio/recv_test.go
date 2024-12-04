@@ -88,7 +88,8 @@ func TestRecvFrom(t *testing.T) {
 			t.Error("srv read:", err)
 			return
 		}
-		raddr, addrErr := userdata.Msg.Addr()
+		msg := userdata.GetMsg()
+		raddr, addrErr := msg.Addr()
 		if addrErr != nil {
 			t.Error("srv read:", addrErr)
 			return
@@ -131,12 +132,13 @@ func TestRecvMsg(t *testing.T) {
 			t.Error("srv read:", err)
 			return
 		}
-		raddr, addrErr := userdata.Msg.Addr()
+		msg := userdata.GetMsg()
+		raddr, addrErr := msg.Addr()
 		if addrErr != nil {
 			t.Error("srv read:", addrErr)
 			return
 		}
-		t.Log("srv read:", string(b[:result]), raddr, userdata.Msg.Control.Bytes())
+		t.Log("srv read:", string(b[:result]), raddr, msg.Control.Len, string(msg.Control.Bytes()))
 	})
 
 	conn, connErr := net.Dial("udp", "127.0.0.1:9000")
@@ -146,11 +148,13 @@ func TestRecvMsg(t *testing.T) {
 	}
 	defer conn.Close()
 
-	wn, wErr := conn.Write([]byte("hello world"))
+	udpc := conn.(*net.UDPConn)
+	wn, woobn, wErr := udpc.WriteMsgUDP([]byte("hello world"), []byte("oob"), nil)
 	if wErr != nil {
 		t.Error("write failed:", wErr)
 		return
 	}
-	t.Log("cli write:", wn)
+
+	t.Log("cli write:", wn, woobn)
 	wg.Wait()
 }

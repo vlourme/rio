@@ -81,13 +81,23 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 		bLen = MaxRW
 	}
-	buf := op.userdata.Msg.AppendBuffer(b)
-	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(&buf))
+
+	wsamsg := windows.WSAMsg{}
 	// addr
-	if op.userdata.Msg.Name == nil {
-		op.userdata.Msg.Name = new(syscall.RawSockaddrAny)
+	wsamsg.Name = new(syscall.RawSockaddrAny)
+	wsamsg.Namelen = int32(unsafe.Sizeof(*wsamsg.Name))
+	waddr := (*windows.RawSockaddrAny)(unsafe.Pointer(wsamsg.Name))
+	// buf
+	wsamsg.Buffers = &windows.WSABuf{
+		Len: uint32(len(b)),
+		Buf: &b[0],
 	}
-	op.userdata.Msg.Namelen = int32(unsafe.Sizeof(*op.userdata.Msg.Name))
+	wsamsg.BufferCount = 1
+
+	// flags
+	wsamsg.Flags = 0
+
+	op.userdata.msg = uintptr(unsafe.Pointer(&wsamsg))
 	// cb
 	op.callback = cb
 	// completion
@@ -95,6 +105,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 	// overlapped
 	overlapped := &op.overlapped
+	wsaOverlapped := (*windows.Overlapped)(unsafe.Pointer(overlapped))
 	// timeout
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
@@ -106,12 +117,12 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	}
 
 	// recv from
-	err := syscall.WSARecvFrom(
-		syscall.Handle(fd.Fd()),
-		wsabuf, op.userdata.Msg.BufferCount,
-		&op.userdata.QTY, &op.userdata.Msg.Flags,
-		op.userdata.Msg.Name, &op.userdata.Msg.Namelen,
-		overlapped,
+	err := windows.WSARecvFrom(
+		windows.Handle(fd.Fd()),
+		wsamsg.Buffers, wsamsg.BufferCount,
+		&op.userdata.QTY, &wsamsg.Flags,
+		waddr, &wsamsg.Namelen,
+		wsaOverlapped,
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
@@ -147,21 +158,28 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 		bLen = MaxRW
 	}
-	op.userdata.Msg.AppendBuffer(b)
-	op.userdata.Msg.SetControl(oob)
+	wsamsg := windows.WSAMsg{}
 	// addr
-	if op.userdata.Msg.Name == nil {
-		op.userdata.Msg.Name = new(syscall.RawSockaddrAny)
+	wsamsg.Name = new(syscall.RawSockaddrAny)
+	wsamsg.Namelen = int32(unsafe.Sizeof(*wsamsg.Name))
+	// buf
+	wsamsg.Buffers = &windows.WSABuf{
+		Len: uint32(len(b)),
+		Buf: &b[0],
 	}
-	op.userdata.Msg.Namelen = int32(unsafe.Sizeof(*op.userdata.Msg.Name))
+	wsamsg.BufferCount = 1
+	// oob
+	wsamsg.Control.Len = uint32(len(oob))
+	if wsamsg.Control.Len > 0 {
+		wsamsg.Control.Buf = &oob[0]
+	}
 	// flags
-	op.userdata.Msg.Flags = uint32(0)
-	// handle unix
+	wsamsg.Flags = 0
 	if fd.Family() == syscall.AF_UNIX {
-		op.userdata.Msg.Flags = readMsgFlags
+		wsamsg.Flags = wsamsg.Flags | readMsgFlags
 	}
 
-	wsamsg := (*windows.WSAMsg)(unsafe.Pointer(&op.userdata.Msg))
+	op.userdata.msg = uintptr(unsafe.Pointer(&wsamsg))
 	// cb
 	op.callback = cb
 	// completion
@@ -183,7 +201,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// recv msg
 	err := windows.WSARecvMsg(
 		windows.Handle(fd.Fd()),
-		wsamsg,
+		&wsamsg,
 		&op.userdata.QTY,
 		wsaOverlapped,
 		nil,
