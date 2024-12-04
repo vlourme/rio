@@ -32,15 +32,33 @@ func (engine *Engine) Start() {
 	if settings.Param.Flags == 0 {
 		if major >= 5 && minor >= 11 {
 			engine.cylindersLockOSThread = true
-			settings.Param.Flags = SetupSQPoll
+			// sq poll
+			if settings.Param.Flags&SetupSQPoll == 0 {
+				settings.Param.Flags = settings.Param.Flags | SetupSQPoll
+			}
 			if major >= 6 {
-				settings.Param.Flags = settings.Param.Flags | SetupSingleIssuer
+				// single issuer
+				if settings.Param.Flags&SetupSingleIssuer == 0 {
+					settings.Param.Flags = settings.Param.Flags | SetupSingleIssuer
+				}
 				if minor >= 1 {
-					settings.Param.Flags = settings.Param.Flags | SetupDeferTaskRun
+					// defer task run
+					if settings.Param.Flags&SetupDeferTaskRun == 0 {
+						settings.Param.Flags = settings.Param.Flags | SetupDeferTaskRun
+					}
 				}
 			}
 		}
 	}
+	if settings.Param.Features == 0 {
+		if major >= 5 && minor >= 11 {
+			// ext arg
+			if settings.Param.Features&FeatExtArg == 0 {
+				settings.Param.Features = settings.Param.Features | FeatExtArg
+			}
+		}
+	}
+
 	// entries
 	entries := settings.Entries
 	if entries == 0 || entries > maxEntries {
@@ -1203,8 +1221,10 @@ const (
 	// 如果设置了该标志，IORING_SETUP_SQPOLL 功能就不再需要使用固定文件。任何普通文件描述符都可用于 IO 命令，无需注册。自内核 5.11 起可用。
 	FeatSQPollNonfixed
 	// FeatExtArg
-	// 如果设置了这个标志，io_uring_enter(2) 系统调用就支持传递一个扩展参数，而不仅仅是早期内核的 sigset_t。这个扩展参数的类型是 struct io_uring_getevents_arg，允许调用者同时传递 sigset_t 和超时参数，以等待事件发生。结构布局如下
-	//结构 io_uring_getevents_arg {
+	// 如果设置了这个标志，io_uring_enter(2) 系统调用就支持传递一个扩展参数，而不仅仅是早期内核的 sigset_t。
+	// 这个扩展参数的类型是 struct io_uring_getevents_arg，允许调用者同时传递 sigset_t 和超时参数，以等待事件发生。
+	// 结构布局如下
+	// struct io_uring_getevents_arg {
 	//
 	//
 	//    __u64 sigmask；
