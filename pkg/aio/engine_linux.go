@@ -137,44 +137,34 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				break
 			}
 			// no userdata means no op
-			if cqe.UserData == 0 {
+			// -125 means canceled
+			if cqe.UserData == 0 || cqe.Res == -125 {
 				continue
 			}
+
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
 
-			// res 为 0 时，userdata不为空，则有可能来自 canceled。
-			// 由于 虽然是同一个 op，但是先来的那个会删掉com，所以没有com的则不会完成。
-			// when deadline exceeded, then the op has 2 prepRW,
-			// after the first prepRW handled, the completion will be removed
-			// so when non completion, not complete.
 			if completion := op.completion; completion != nil {
 				result := 0
 				var err error
 				if cqe.Res < 0 {
 					err = syscall.Errno(-cqe.Res)
-					if timer := op.timer; timer != nil {
-						if timer.DeadlineExceeded() {
-							err = errors.Join(ErrOperationDeadlineExceeded, err)
-						} else {
-							timer.Done()
-						}
-						putOperatorTimer(timer)
-						op.timer = nil
-					}
 				} else {
 					result = int(cqe.Res)
-					// 来自 cancel 的 res 为 0，来自其它读写的 res 一定不是 0。
-					if timer := op.timer; timer != nil {
-						if timer.DeadlineExceeded() && result == 0 {
-							err = ErrOperationDeadlineExceeded
+				}
+				if timer := op.timer; timer != nil {
+					if timer.DeadlineExceeded() {
+						if err != nil {
+							err = errors.Join(ErrOperationDeadlineExceeded, err)
 						} else {
-							// res 不为 0，虽然超时，但有结果，还是正常处理。
-							timer.Done()
+							err = ErrOperationDeadlineExceeded
 						}
-						putOperatorTimer(timer)
-						op.timer = nil
+					} else {
+						timer.Done()
 					}
+					putOperatorTimer(timer)
+					op.timer = nil
 				}
 				// complete
 				completion(result, op, err)
@@ -220,6 +210,11 @@ func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, len
 	if entry == nil {
 		if cylinder.stopped.Load() {
 			err = ErrUnexpectedCompletion
+			return
+		}
+		_, err = cylinder.ring.Submit()
+		if err != nil {
+			err = errors.Join(ErrUnexpectedCompletion, err)
 			return
 		}
 		entry = cylinder.ring.GetSQE()

@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"runtime"
 	"time"
 	"unsafe"
 )
@@ -23,18 +24,16 @@ type operatorCanceler struct {
 
 func (canceler *operatorCanceler) Cancel() {
 	cylinder := canceler.cylinder
-	ring := cylinder.ring
 	op := canceler.op
-	opPtr := uint64(uintptr(unsafe.Pointer(op)))
-	for {
-		entry := ring.GetSQE()
-		if entry == nil {
-			if cylinder.stopped.Load() {
-				return
-			}
+	userdata := uint64(uintptr(unsafe.Pointer(op)))
+	for i := 0; i < 5; i++ {
+		err := cylinder.prepare(opAsyncCancel, -1, uintptr(userdata), 0, 0, 0, userdata)
+		if err == nil {
+			break
+		}
+		if IsBusyError(err) {
 			continue
 		}
-		entry.prepareRW(opAsyncCancel, -1, 0, 0, 0, opPtr, 0)
-		break
 	}
+	runtime.KeepAlive(userdata)
 }

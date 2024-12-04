@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	maxRW = 1 << 30
+	MaxRW = 1 << 30
 )
 
 func NewBuf(b []byte) (buf Buf) {
@@ -40,16 +40,18 @@ type Msg struct {
 	Flags       uint32
 }
 
-func (msg *Msg) AppendBuffer(b []byte) {
+func (msg *Msg) AppendBuffer(b []byte) (buf Buf) {
 	var buffers []Buf
 	if msg.Buffers != nil {
 		buffers = unsafe.Slice(msg.Buffers, msg.BufferCount)
 	} else {
 		buffers = make([]Buf, 0, 1)
 	}
-	buffers = append(buffers, NewBuf(b))
+	buf = NewBuf(b)
+	buffers = append(buffers, buf)
 	msg.Buffers = &buffers[0]
 	msg.BufferCount++
+	return
 }
 
 func (msg *Msg) Buf(index int) (buf Buf, err error) {
