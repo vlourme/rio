@@ -157,6 +157,9 @@ func Accept(fd NetFd, cb OperationCallback) {
 	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, userdata)
 	if err != nil {
 		cb(0, op.userdata, err)
+		// reset
+		op.callback = nil
+		op.completion = nil
 		return
 	}
 	return
