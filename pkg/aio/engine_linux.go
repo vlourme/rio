@@ -137,7 +137,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				break
 			}
 			// no userdata means no op
-			// -125 means canceled
+			// -125 means canceled by timeout
 			if cqe.UserData == 0 || cqe.Res == -125 {
 				continue
 			}
