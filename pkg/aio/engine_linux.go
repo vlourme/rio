@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
+	"math"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -19,12 +20,25 @@ func (engine *Engine) Start() {
 	entries := settings.Entries
 	// param
 	param := settings.Param
+	// submit
+	submitWaitTimeout := settings.SubmitWaitTimeout
+	if submitWaitTimeout < 1 {
+		submitWaitTimeout = time.Millisecond
+	}
+	submitWaitForCQEs := settings.SubmitWaitCQEs
+	if len(submitWaitForCQEs) == 0 {
+		submitWaitForCQEs = []uint32{1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
+	} else {
+		if submitWaitForCQEs[0] == 0 {
+			submitWaitForCQEs[0] = 1
+		}
+	}
 	// peekBatch
 	batch := settings.PeekCQEBatchSize
 
 	// cylinders
 	for i := 0; i < len(engine.cylinders); i++ {
-		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch, settings.SubmitWaitTimeout)
+		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch, settings.SubmitWaitTimeout, submitWaitForCQEs)
 		if cylinderErr != nil {
 			panic(fmt.Errorf("aio: engine start failed, %v", cylinderErr))
 			return
@@ -50,7 +64,7 @@ func nextIOURingCylinder() *IOURingCylinder {
 	return nextCylinder().(*IOURingCylinder)
 }
 
-func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, submitWaitTimeout time.Duration) (cylinder Cylinder, err error) {
+func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, submitWaitTimeout time.Duration, submitWaitForCQEs []uint32) (cylinder Cylinder, err error) {
 	// setup
 	ring, ringErr := NewIOURing(entries, &param)
 	if ringErr != nil {
@@ -58,10 +72,6 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 		return
 	}
 	runtime.KeepAlive(param)
-	// submit wait timeout
-	if submitWaitTimeout < 1 {
-		submitWaitTimeout = time.Millisecond
-	}
 
 	// batch
 	if batch < 1 {
@@ -75,56 +85,46 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 
 	// cylinder
 	cylinder = &IOURingCylinder{
-		stopped:      atomic.Bool{},
-		ring:         ring,
-		peekBatch:    batch,
-		waitTimeout:  syscall.NsecToTimespec((submitWaitTimeout).Nanoseconds()),
-		waitForIndex: 0,
-		waitFor:      waitForCQENum[0],
+		stopped:           atomic.Bool{},
+		ring:              ring,
+		peekBatch:         batch,
+		waitTimeout:       syscall.NsecToTimespec((submitWaitTimeout).Nanoseconds()),
+		waitForIndex:      0,
+		waitFor:           submitWaitForCQEs[0],
+		waitForCQENumsLen: uint32(len(submitWaitForCQEs)),
+		waitForCQENums:    submitWaitForCQEs,
 	}
 	return
 }
 
 type IOURingCylinder struct {
-	stopped      atomic.Bool
-	ring         *IOURing
-	peekBatch    uint32
-	waitTimeout  syscall.Timespec
-	waitForIndex uint32
-	waitFor      uint32
+	stopped           atomic.Bool
+	ring              *IOURing
+	peekBatch         uint32
+	waitTimeout       syscall.Timespec
+	waitForIndex      uint32
+	waitFor           uint32
+	waitForCQENumsLen uint32
+	waitForCQENums    []uint32
 }
 
 func (cylinder *IOURingCylinder) Fd() int {
 	return cylinder.ring.fd
 }
 
-var waitForCQENum = []uint32{1, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
-
 func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 	beg()
 	defer end()
 
 	ring := cylinder.ring
-	unexpectedTimes := 0
 	cqes := make([]*CompletionQueueEvent, cylinder.peekBatch)
 	for {
+		if cylinder.stopped.Load() {
+			break
+		}
 		// submit
-		_, submitErr := ring.SubmitAndWaitTimeout(cylinder.waitFor, &cylinder.waitTimeout, nil)
-		if submitErr != nil {
-			if errors.Is(submitErr, syscall.EAGAIN) || errors.Is(submitErr, syscall.EINTR) || errors.Is(submitErr, syscall.ETIME) {
-				if cylinder.waitForIndex != 0 {
-					cylinder.waitForIndex--
-					cylinder.waitFor = waitForCQENum[cylinder.waitForIndex]
-				}
-				continue
-			} else {
-				unexpectedTimes++
-				if unexpectedTimes > 10 {
-					cylinder.stopped.Store(true)
-					break
-				}
-				continue
-			}
+		if submitted := cylinder.submit(); !submitted {
+			continue
 		}
 
 		// peek
@@ -136,8 +136,13 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				cylinder.stopped.Store(true)
 				break
 			}
+			// no userdata means no op
+			if cqe.UserData == 0 {
+				continue
+			}
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
+
 			// res 为 0 时，userdata不为空，则有可能来自 canceled。
 			// 由于 虽然是同一个 op，但是先来的那个会删掉com，所以没有com的则不会完成。
 			// when deadline exceeded, then the op has 2 prepRW,
@@ -178,13 +183,8 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 			}
 			runtime.KeepAlive(op)
 		}
-		// advance cqes
-		if peeked > 0 {
-			ring.CQAdvance(peeked)
-		}
-		if cylinder.stopped.Load() {
-			break
-		}
+		cylinder.advance(peeked)
+
 	}
 	// queue exit
 	cylinder.ring.queueExit()
@@ -192,11 +192,10 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 
 func (cylinder *IOURingCylinder) Stop() {
 	for {
-		entry := cylinder.ring.GetSQE()
-		if entry == nil {
-			continue
+		err := cylinder.prepare(opNop, -1, 0, 0, 0, 0, 0)
+		if err == nil {
+			break
 		}
-		entry.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
 		break
 	}
 	return
@@ -208,6 +207,60 @@ func (cylinder *IOURingCylinder) Down() {}
 
 func (cylinder *IOURingCylinder) Actives() int64 {
 	return int64(cylinder.ring.sqSpaceLeft())
+}
+
+func prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
+	cylinder := nextIOURingCylinder()
+	err = cylinder.prepare(opcode, fd, addr, length, offset, flags, userdata)
+	return
+}
+
+func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
+	entry := cylinder.ring.GetSQE()
+	if entry == nil {
+		if cylinder.stopped.Load() {
+			err = ErrUnexpectedCompletion
+			return
+		}
+		entry = cylinder.ring.GetSQE()
+		if entry == nil {
+			err = ErrBusy
+			return
+		}
+	}
+	entry.prepareRW(opcode, fd, addr, length, offset, userdata, flags)
+	runtime.KeepAlive(userdata)
+	return
+}
+
+func (cylinder *IOURingCylinder) submit() (ok bool) {
+	_, submitErr := cylinder.ring.SubmitAndWaitTimeout(cylinder.waitFor, &cylinder.waitTimeout, nil)
+	if submitErr != nil {
+		if errors.Is(submitErr, syscall.EAGAIN) || errors.Is(submitErr, syscall.EINTR) || errors.Is(submitErr, syscall.ETIME) {
+			if cylinder.waitForIndex != 0 {
+				cylinder.waitForIndex--
+				cylinder.waitFor = cylinder.waitForCQENums[cylinder.waitForIndex]
+			}
+			return
+		}
+		return
+	}
+	ok = true
+	return
+}
+
+func (cylinder *IOURingCylinder) advance(n uint32) {
+	if n == 0 {
+		return
+	}
+	cylinder.ring.CQAdvance(n)
+	for index := uint32(1); index < cylinder.waitForCQENumsLen; index++ {
+		if cylinder.waitForCQENums[index] > n {
+			break
+		}
+		cylinder.waitForIndex = index
+	}
+	cylinder.waitFor = cylinder.waitForCQENums[cylinder.waitForIndex]
 }
 
 // NewIOURing
@@ -299,13 +352,13 @@ type getData struct {
 }
 
 func (ring *IOURing) SubmitAndWaitTimeout(waitNr uint32, ts *syscall.Timespec, sigmask *unix.Sigset_t) (cqe *CompletionQueueEvent, err error) {
-	var toSubmit uint32
+	var submit uint32
 
 	if ts != nil {
 		if ring.features&FeatExtArg != 0 {
 			arg := GetEventsArg{
 				sigMask:   uint64(uintptr(unsafe.Pointer(sigmask))),
-				sigMaskSz: nSig / szDivider,
+				sigMaskSz: enter2size,
 				ts:        uint64(uintptr(unsafe.Pointer(ts))),
 			}
 			data := getData{
@@ -321,14 +374,15 @@ func (ring *IOURing) SubmitAndWaitTimeout(waitNr uint32, ts *syscall.Timespec, s
 			runtime.KeepAlive(data)
 			return
 		}
-		toSubmit, err = ring.submitTimeout(waitNr, ts)
+		submit, err = ring.submitTimeout(waitNr, ts)
 		if err != nil {
 			return
 		}
 	} else {
-		toSubmit = ring.flushSQ()
+		submit = ring.flushSQ()
 	}
-	cqe, err = ring.GetCQE(toSubmit, waitNr, sigmask)
+
+	cqe, err = ring.GetCQE(submit, waitNr, sigmask)
 	return
 }
 
@@ -337,7 +391,7 @@ func (ring *IOURing) GetCQE(submit uint32, waitNr uint32, sigmask *unix.Sigset_t
 		submit:   submit,
 		waitNr:   waitNr,
 		getFlags: 0,
-		sz:       nSig / szDivider,
+		sz:       enter2size,
 		arg:      unsafe.Pointer(sigmask),
 	}
 
@@ -685,8 +739,8 @@ func (ring *IOURing) privateGetCQE(data *getData) (cqe *CompletionQueueEvent, er
 	return
 }
 
-var (
-	updateTimeoutPtr = uint64(uintptr(unsafe.Pointer(new(time.Time))))
+const (
+	_updateTimeoutUserdata uint64 = math.MaxUint64
 )
 
 func (ring *IOURing) submitTimeout(waitNr uint32, ts *syscall.Timespec) (ret uint32, err error) {
@@ -695,15 +749,15 @@ func (ring *IOURing) submitTimeout(waitNr uint32, ts *syscall.Timespec) (ret uin
 	if sqe == nil {
 		_, err = ring.Submit()
 		if err != nil {
-			return 0, err
+			return
 		}
 		sqe = ring.GetSQE()
 		if sqe == nil {
-			return 0, syscall.EAGAIN
+			err = syscall.EAGAIN
+			return
 		}
 	}
-	sqe.prepareRW(opTimeout, -1, uintptr(unsafe.Pointer(&ts)), 1, uint64(waitNr), updateTimeoutPtr, 0)
-
+	sqe.prepareRW(opTimeout, -1, uintptr(unsafe.Pointer(&ts)), 1, uint64(waitNr), _updateTimeoutUserdata, 0)
 	ret = ring.flushSQ()
 	return
 }
@@ -731,7 +785,7 @@ func (ring *IOURing) tryPeekCQE(nrAvailable *uint32) (cqe *CompletionQueueEvent,
 			unsafe.Add(unsafe.Pointer(ring.cq.cqes), uintptr((head&mask)<<shift)*unsafe.Sizeof(CompletionQueueEvent{})),
 		)
 
-		if ring.features&FeatExtArg == 0 && cqe.UserData == updateTimeoutPtr {
+		if ring.features&FeatExtArg == 0 && cqe.UserData == _updateTimeoutUserdata {
 			if cqe.Res < 0 {
 				err = syscall.Errno(uintptr(-cqe.Res))
 			}
@@ -784,6 +838,7 @@ type IOURingSettings struct {
 	Entries           uint32
 	Param             IOURingSetupParam
 	SubmitWaitTimeout time.Duration
+	SubmitWaitCQEs    []uint32
 	PeekCQEBatchSize  uint32
 }
 
