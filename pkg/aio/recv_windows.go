@@ -17,12 +17,12 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > maxRW {
-		b = b[:maxRW]
-		bLen = maxRW
+	} else if bLen > MaxRW {
+		b = b[:MaxRW]
+		bLen = MaxRW
 	}
-	op.userdata.Msg.AppendBuffer(b)
-	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
+	buf := op.userdata.Msg.AppendBuffer(b)
+	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(&buf))
 	// cb
 	op.callback = cb
 	// completion
@@ -77,12 +77,12 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > maxRW {
-		b = b[:maxRW]
-		bLen = maxRW
+	} else if bLen > MaxRW {
+		b = b[:MaxRW]
+		bLen = MaxRW
 	}
-	op.userdata.Msg.AppendBuffer(b)
-	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
+	buf := op.userdata.Msg.AppendBuffer(b)
+	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(&buf))
 	// addr
 	if op.userdata.Msg.Name == nil {
 		op.userdata.Msg.Name = new(syscall.RawSockaddrAny)
@@ -143,9 +143,9 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > maxRW {
-		b = b[:maxRW]
-		bLen = maxRW
+	} else if bLen > MaxRW {
+		b = b[:MaxRW]
+		bLen = MaxRW
 	}
 	op.userdata.Msg.AppendBuffer(b)
 	op.userdata.Msg.SetControl(oob)

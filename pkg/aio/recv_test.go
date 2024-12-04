@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestRecv(t *testing.T) {
@@ -28,12 +29,13 @@ func TestRecv(t *testing.T) {
 		}
 		t.Log("srv accept:", result)
 		connFd := userdata.Fd.(aio.NetFd)
+		connFd.SetReadTimeout(10 * time.Millisecond)
 		b := make([]byte, 1024)
 		wg.Add(1)
 		go aio.Recv(connFd, b, func(result int, userdata aio.Userdata, err error) {
 			defer wg.Done()
 			if err != nil {
-				t.Error("srv read:", err)
+				t.Error("srv read:", result, err)
 				return
 			}
 			t.Log("srv read:", "param:", result, string(b[:result]))
@@ -58,7 +60,6 @@ func TestRecv(t *testing.T) {
 		return
 	}
 	defer conn.Close()
-
 	wn, wErr := conn.Write([]byte("hello world"))
 	if wErr != nil {
 		t.Error("write failed:", wErr)

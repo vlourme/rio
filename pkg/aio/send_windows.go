@@ -18,9 +18,9 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > maxRW {
-		b = b[:maxRW]
-		bLen = maxRW
+	} else if bLen > MaxRW {
+		b = b[:MaxRW]
+		bLen = MaxRW
 	}
 	op.userdata.Msg.AppendBuffer(b)
 	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
@@ -78,9 +78,9 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > maxRW {
-		b = b[:maxRW]
-		bLen = maxRW
+	} else if bLen > MaxRW {
+		b = b[:MaxRW]
+		bLen = MaxRW
 	}
 	op.userdata.Msg.AppendBuffer(b)
 	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
@@ -141,9 +141,9 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > maxRW {
-		b = b[:maxRW]
-		bLen = maxRW
+	} else if bLen > MaxRW {
+		b = b[:MaxRW]
+		bLen = MaxRW
 	}
 	op.userdata.Msg.AppendBuffer(b)
 	op.userdata.Msg.SetControl(oob)
