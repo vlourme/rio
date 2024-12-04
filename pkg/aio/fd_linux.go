@@ -10,19 +10,18 @@ import (
 func Close(fd Fd, cb OperationCallback) {
 	op := fd.WriteOperator()
 
-	cylinder := nextIOURingCylinder()
-	entry := cylinder.ring.GetSQE()
-	if entry == nil {
-		cb(0, op.userdata, ErrBusy)
-		return
-	}
-
 	op.callback = cb
 	op.completion = completeClose
 
 	userdata := uint64(uintptr(unsafe.Pointer(&op)))
 
-	entry.prepareRW(opClose, fd.Fd(), 0, 0, 0, userdata, 0)
+	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, userdata)
+	if err != nil {
+		cb(0, op.userdata, err)
+		// reset
+		op.completion = nil
+		op.callback = nil
+	}
 }
 
 func completeClose(result int, op *Operator, err error) {
