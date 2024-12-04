@@ -28,8 +28,24 @@ func (engine *Engine) Start() {
 	}
 	// settings
 	settings := ResolveSettings[IOURingSettings](engine.settings)
+	// default setting
+	if settings.Param.Flags == 0 {
+		if major >= 5 && minor >= 11 {
+			engine.cylindersLockOSThread = true
+			settings.Param.Flags = SetupSQPoll
+			if major >= 6 {
+				settings.Param.Flags = settings.Param.Flags | SetupSingleIssuer
+				if minor >= 1 {
+					settings.Param.Flags = settings.Param.Flags | SetupDeferTaskRun
+				}
+			}
+		}
+	}
 	// entries
 	entries := settings.Entries
+	if entries == 0 || entries > maxEntries {
+		entries = defaultEntries
+	}
 	// param
 	param := settings.Param
 	// submit
@@ -279,7 +295,7 @@ func (cylinder *IOURingCylinder) advance(n uint32) {
 }
 
 // NewIOURing
-// entries 貌似最大是 32768(2^15)
+// entries 最大是 32768(2^15)
 func NewIOURing(entries uint32, param *IOURingSetupParam) (*IOURing, error) {
 	ring := &IOURing{
 		sq: &SubmissionQueue{},
@@ -471,9 +487,8 @@ func (ring *IOURing) Exit() {
 }
 
 const (
-	sysSetup    = 425
-	sysEnter    = 426
-	sysRegister = 427
+	sysSetup = 425
+	sysEnter = 426
 )
 
 const (
@@ -690,7 +705,7 @@ func (ring *IOURing) cqeIndex(ptr, mask uint32) uintptr {
 }
 
 func (ring *IOURing) cqNeedsEnter() bool {
-	return (ring.flags&SetupIOPoll) != 0 || ring.cqNeedsFlush()
+	return (ring.flags&_SetupIOPoll) != 0 || ring.cqNeedsFlush()
 }
 
 func (ring *IOURing) cqNeedsFlush() bool {
@@ -822,11 +837,9 @@ func (ring *IOURing) tryPeekCQE(nrAvailable *uint32) (cqe *CompletionQueueEvent,
 }
 
 const (
-	nSig                    = 65
-	szDivider               = 8
-	enter2size              = nSig / szDivider
-	registerRingFdOffset    = uint32(4294967295)
-	regIOWQMaxWorkersNrArgs = 2
+	nSig       = 65
+	szDivider  = 8
+	enter2size = nSig / szDivider
 )
 
 func (ring *IOURing) Enter(submitted uint32, waitNr uint32, flags uint32, sig unsafe.Pointer) (uint, error) {
@@ -1053,18 +1066,15 @@ type CompletionQueueEvent struct {
 }
 
 const (
-	offSQRing    uint64 = 0
-	offCQRing    uint64 = 0x8000000
-	offSQEs      uint64 = 0x10000000
-	offPbufRing  uint64 = 0x80000000
-	offPbufShift uint64 = 16
-	offMmapMask  uint64 = 0xf8000000
+	offSQRing uint64 = 0
+	offCQRing uint64 = 0x8000000
+	offSQEs   uint64 = 0x10000000
 )
 
 // setup and features
 // https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
 const (
-	// SetupIOPoll
+	// _SetupIOPoll
 	// 执行繁忙等待 I/O 完成，而不是通过异步 IRQ（中断请求）获取通知。文件系统（如有）和块设备必须支持轮询，这样才能正常工作。
 	// 忙时（Busy-waiting）可提供较低的延迟，但可能比中断驱动的 I/O 消耗更多的 CPU 资源。
 	// 目前，该功能仅适用于使用 O_DIRECT 标志打开的文件描述符。
@@ -1072,7 +1082,7 @@ const (
 	// 目前这只适用于存储设备，而且存储设备必须配置为轮询。如何配置取决于相关设备的类型。
 	// 对于 NVMe 设备，必须加载 nvme 驱动程序，并将 poll_queues 参数设置为所需的轮询队列数。
 	// 如果轮询队列的数量少于在线 CPU 线程的数量，系统中的 CPU 将适当共享轮询队列。
-	SetupIOPoll uint32 = 1 << iota
+	_SetupIOPoll uint32 = 1 << iota
 	// SetupSQPoll
 	// 指定该标志后，将创建一个内核线程来执行提交队列轮询。以这种方式配置的 io_uring 实例能让应用程序在不切换内核上下文的情况下发出 I/O。
 	// 通过使用提交队列填写新的提交队列条目，并观察完成队列上的完成情况，应用程序可以在不执行单个系统调用的情况下提交和获取 I/O。
@@ -1099,13 +1109,19 @@ const (
 	// 如果指定了该标志，且条目数超过 IORING_MAX_ENTRIES，那么条目数将被箝位在 IORING_MAX_ENTRIES。如果设置了标志 IORING_SETUP_CQSIZE，且 struct io_uring_params.cq_entries 的值超过了 IORING_MAX_CQ_ENTRIES，则将以 IORING_MAX_CQ_ENTRIES 的值箝位。
 	SetupClamp
 	// SetupAttachWQ
-	// 设置该标志时，应同时将 struct io_uring_params.wq_fd 设置为现有的 io_uring ring 文件描述符。设置后，创建的 io_uring 实例将共享指定 io_uring ring 的异步工作线程后端，而不是创建一个新的独立线程池。此外，如果设置了 IORING_SETUP_SQPOLL，还将共享 sq 轮询线程。
+	// 设置该标志时，应同时将 struct io_uring_params.wq_fd 设置为现有的 io_uring ring 文件描述符。
+	// 设置后，创建的 io_uring 实例将共享指定 io_uring ring 的异步工作线程后端，而不是创建一个新的独立线程池。
+	// 此外，如果设置了 IORING_SETUP_SQPOLL，还将共享 sq 轮询线程。
 	SetupAttachWQ
-	// SetupRDisabled
+	// _SetupRDisabled
 	// 如果指定了该标记，io_uring 环将处于禁用状态。在这种状态下，可以注册限制，但不允许提交。有关如何启用环的详细信息，请参见 io_uring_register(2)。自 5.10 版起可用。
-	SetupRDisabled
+	_SetupRDisabled
 	// SetupSubmitAll
-	// 通常情况下，如果其中一个请求出现错误，io_uring 就会停止提交一批请求。如果一个请求在提交过程中出错，这可能会导致提交的请求少于预期。如果在创建环时使用了此标记，那么即使在提交请求时遇到错误，io_uring_enter(2) 也会继续提交请求。无论在创建环时是否设置了此标记，都会为出错的请求发布 CQE，唯一的区别在于当发现错误时，提交序列是停止还是继续。自 5.18 版起可用。
+	// 通常情况下，如果其中一个请求出现错误，io_uring 就会停止提交一批请求。
+	// 如果一个请求在提交过程中出错，这可能会导致提交的请求少于预期。
+	// 如果在创建环时使用了此标记，那么即使在提交请求时遇到错误，io_uring_enter(2) 也会继续提交请求。
+	// 无论在创建环时是否设置了此标记，都会为出错的请求发布 CQE，唯一的区别在于当发现错误时，提交序列是停止还是继续。
+	// 自 5.18 版起可用。
 	SetupSubmitAll
 	// SetupCoopTaskRun
 	// 默认情况下，当有完成事件发生时，io_uring 会中断在用户空间运行的任务。
@@ -1149,7 +1165,10 @@ const (
 	// 如果设置了这个标志，io_uring 将注册环形文件描述符，并返回已注册的描述符索引，而不会分配一个未注册的文件描述符。调用者在调用 io_uring_register(2) 时需要使用 IORING_REGISTER_USE_REGISTERED_RING。该标记只有在与 IORING_SETUP_NO_MMAP 同时使用时才有意义，后者也需要设置。自 6.5 版起可用。
 	_SetupRegisteredFdOnly
 	// SetupNoSQArray
-	// 如果设置了该标志，提交队列中的条目将按顺序提交，并在到达队列末尾后绕到第一个条目。换句话说，将不再通过提交条目数组进行间接处理，而是直接通过提交队列尾部和它所代表的索引范围（队列大小的模数）对队列进行索引。随后，用户不应映射提交队列条目数组，结构 io_sqring_offsets 中的相应偏移量将被设置为零。自 6.6 版起可用。
+	// 如果设置了该标志，提交队列中的条目将按顺序提交，并在到达队列末尾后绕到第一个条目。
+	// 换句话说，将不再通过提交条目数组进行间接处理，而是直接通过提交队列尾部和它所代表的索引范围（队列大小的模数）对队列进行索引。
+	// 随后，用户不应映射提交队列条目数组，结构 io_sqring_offsets 中的相应偏移量将被设置为零。
+	// 自 6.6 版起可用。
 	// 如果没有指定标志，io_uring 实例将设置为中断驱动 I/O。可以使用 io_uring_enter(2) 提交 I/O，并通过轮询完成队列获取 I/O。
 	//
 	// resv 数组必须初始化为零。
@@ -1208,10 +1227,12 @@ const (
 	// 如果设置了这个标志，那么 io_uring 将支持与固定文件和缓冲区相关的各种功能。尤其是，它表明已注册的缓冲区可以就地更新，而在此之前，必须先取消注册整个缓冲区。自内核 5.13 起可用。
 	FeatRcrcTags
 	// FeatCQESkip
-	// 如果设置了该标志，io_uring 就支持在提交的 SQE 中设置 IOSQE_CQE_SKIP_SUCCESS，表明如果正常执行，就不会为该 SQE 生成 CQE。如果在处理 SQE 时发生错误，仍会生成带有相应错误值的 CQE。自内核 5.17 起可用。
+	// 如果设置了该标志，io_uring 就支持在提交的 SQE 中设置 IOSQE_CQE_SKIP_SUCCESS，表明如果正常执行，就不会为该 SQE 生成 CQE。
+	// 如果在处理 SQE 时发生错误，仍会生成带有相应错误值的 CQE。自内核 5.17 起可用。
 	FeatCQESkip
 	// FeatLinkedFile
-	// 如果设置了这个标志，那么 io_uring 将支持为有依赖关系的 SQE 合理分配文件。例如，如果使用 IOSQE_IO_LINK 提交了一连串 SQE，那么没有该标志的内核将为每个链接预先准备文件。如果前一个链接打开了一个已知索引的文件，例如使用直接描述符打开或接受，那么文件分配就需要在执行该 SQE 后进行。如果设置了该标志，内核将推迟文件分配，直到开始执行给定请求。自内核 5.17 起可用。
+	// 如果设置了这个标志，那么 io_uring 将支持为有依赖关系的 SQE 合理分配文件。
+	// 例如，如果使用 IOSQE_IO_LINK 提交了一连串 SQE，那么没有该标志的内核将为每个链接预先准备文件。如果前一个链接打开了一个已知索引的文件，例如使用直接描述符打开或接受，那么文件分配就需要在执行该 SQE 后进行。如果设置了该标志，内核将推迟文件分配，直到开始执行给定请求。自内核 5.17 起可用。
 	FeatLinkedFile
 	// FeatRegRegRing
 	// 如果设置了该标志，则 io_uring 支持通过 IORING_REGISTER_USE_REGISTERED_RING，使用注册环 fd 调用 io_uring_register(2)。自内核 6.3 起可用。

@@ -8,6 +8,8 @@ type IOURingSettings struct {
 	aio.IOURingSettings
 }
 
+// WithIOURingSettings
+// 设置 IOURing。
 func WithIOURingSettings(settings IOURingSettings) StartupOption {
 	return func(o *StartupOptions) error {
 		o.AIOOptions.Settings = settings
@@ -16,12 +18,13 @@ func WithIOURingSettings(settings IOURingSettings) StartupOption {
 }
 
 // WithSampleIOURingSettings
-// 设置 IOURing。
+// 简单设置 IOURing。
 //
-// entries 最大为 2^15。
+// entries 最大为 2^15，建议为 2^15 的一半 16384，因为此时 SQ 大小为16384，而 CQ 的大小为 SQ 的两倍，这也是默认的设置。
 //
 // flags 建议选择 aio.SetupSQPoll | aio.SetupSingleIssuer | aio.SetupDeferTaskRun。
 // 不过当设置了 aio.SetupSingleIssuer | aio.SetupDeferTaskRun，则必须 WithAIOEngineCylindersLockOSThread 设置绑定线程。
+// 这也是默认的（当在版本合适的情况下激活）。
 func WithSampleIOURingSettings(entries uint32, flags uint32) StartupOption {
 	return func(o *StartupOptions) error {
 		o.AIOOptions.Settings = IOURingSettings{
