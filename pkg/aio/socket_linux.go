@@ -9,7 +9,7 @@ import (
 
 func newSocket(family int, sotype int, protocol int) (fd int, err error) {
 	// socket
-	fd, err = syscall.Socket(family, sotype, protocol)
+	fd, err = syscall.Socket(family, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, protocol)
 	if err != nil {
 		err = os.NewSyscallError("socket", err)
 		return
