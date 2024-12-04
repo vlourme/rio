@@ -64,7 +64,7 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
 			return
 		}
-		addr, addrErr := userdata.Msg.Addr()
+		addr, addrErr := userdata.Msg().Addr()
 		if addrErr != nil {
 			promise.Fail(addrErr)
 			return
@@ -159,17 +159,17 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
 			return
 		}
-		oobn := int(userdata.Msg.Control.Len)
+		oobn := int(userdata.Msg().ControlLen)
 		if awErr := conn.oob.AllocatedWrote(oobn); awErr != nil {
 			promise.Fail(errors.Join(ErrAllocateWrote, awErr))
 			return
 		}
-		addr, addrErr := userdata.Msg.Addr()
+		addr, addrErr := userdata.Msg().Addr()
 		if addrErr != nil {
 			promise.Fail(addrErr)
 			return
 		}
-		flags := int(userdata.Msg.Flags)
+		flags := int(userdata.Msg().Flags)
 		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
 		promise.Succeed(inbound)
 		return
@@ -200,7 +200,7 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 	}
 
 	aio.SendMsg(conn.fd, b, oob, addr, func(n int, userdata aio.Userdata, err error) {
-		oobn := int(userdata.Msg.Control.Len)
+		oobn := int(userdata.Msg().ControlLen)
 		if err != nil {
 			if n == 0 {
 				promise.Fail(err)
