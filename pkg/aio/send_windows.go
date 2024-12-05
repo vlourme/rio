@@ -6,6 +6,7 @@ import (
 	"errors"
 	"golang.org/x/sys/windows"
 	"net"
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -53,7 +54,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, errors.Join(errors.New("aio: send failed"), err))
+		cb(0, op.userdata, os.NewSyscallError("wsa_send", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -68,6 +69,9 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 }
 
 func completeSend(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("wsa_send", err)
+	}
 	op.callback(result, op.userdata, err)
 	return
 }
@@ -121,7 +125,7 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, errors.Join(errors.New("aio: send to failed"), err))
+		cb(0, op.userdata, os.NewSyscallError("wsa_sendto", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -136,6 +140,9 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 }
 
 func completeSendTo(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("wsa_sendto", err)
+	}
 	op.callback(result, op.userdata, err)
 	return
 }
@@ -191,7 +198,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, errors.Join(errors.New("aio: send msg failed"), err))
+		cb(0, op.userdata, os.NewSyscallError("wsa_sendmsg", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -207,6 +214,9 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 }
 
 func completeSendMsg(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("wsa_sendmsg", err)
+	}
 	op.callback(result, op.userdata, err)
 	return
 }

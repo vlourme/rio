@@ -5,6 +5,7 @@ package aio
 import (
 	"errors"
 	"golang.org/x/sys/windows"
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -52,7 +53,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, errors.Join(errors.New("aio: recv failed"), err))
+		cb(0, op.userdata, os.NewSyscallError("wsa_recv", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -67,6 +68,9 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 }
 
 func completeRecv(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("wsa_recv", err)
+	}
 	op.callback(result, op.userdata, eofError(op.fd, result, err))
 	return
 }
@@ -115,7 +119,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, errors.Join(errors.New("aio: recv from failed"), err))
+		cb(0, op.userdata, os.NewSyscallError("wsa_recvfrom", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -130,6 +134,9 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 }
 
 func completeRecvFrom(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("wsa_recvfrom", err)
+	}
 	op.callback(result, op.userdata, err)
 	return
 }
@@ -183,7 +190,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, errors.Join(errors.New("aio: recv msg failed"), err))
+		cb(0, op.userdata, os.NewSyscallError("wsa_recvmsg", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -198,6 +205,9 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 }
 
 func completeRecvMsg(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("wsa_recvmsg", err)
+	}
 	op.callback(result, op.userdata, err)
 	return
 }

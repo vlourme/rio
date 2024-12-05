@@ -125,13 +125,13 @@ func (msg *HDRMessage) BuildRawSockaddrAny() (*syscall.RawSockaddrAny, int32) {
 
 func (msg *HDRMessage) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
 	sa = AddrToSockaddr(addr)
-	name, _, rawErr := SockaddrToRaw(sa)
+	name, nameLen, rawErr := SockaddrToRaw(sa)
 	if rawErr != nil {
 		panic(errors.New("aio.Message: set addr failed cause invalid addr type"))
 		return
 	}
 	msg.Name = (*byte)(unsafe.Pointer(name))
-	msg.Namelen = syscall.SizeofSockaddrAny
+	msg.Namelen = uint32(nameLen)
 	return
 }
 

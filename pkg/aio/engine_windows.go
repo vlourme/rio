@@ -18,7 +18,7 @@ func createSubIoCompletionPort(handle windows.Handle) error {
 	cfd := windows.Handle(eng.fd)
 	_, createErr := windows.CreateIoCompletionPort(handle, cfd, 0, 0)
 	if createErr != nil {
-		return os.NewSyscallError("iocp.CreateIoCompletionPort", createErr)
+		return os.NewSyscallError("iocp_create_io_completion_port", createErr)
 	}
 	return nil
 }

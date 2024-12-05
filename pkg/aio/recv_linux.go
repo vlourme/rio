@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -63,6 +64,9 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 }
 
 func completeRecv(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("io_uring_prep_recv", err)
+	}
 	op.userdata.QTY = uint32(result)
 	op.callback(result, op.userdata, eofError(op.fd, result, err))
 	return
@@ -131,6 +135,9 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 }
 
 func completeRecvMsg(result int, op *Operator, err error) {
+	if err != nil {
+		err = os.NewSyscallError("io_uring_prep_recvmsg", err)
+	}
 	op.userdata.QTY = uint32(result)
 	op.callback(result, op.userdata, err)
 	return

@@ -120,7 +120,7 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 	// create iocp
 	createListenIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createListenIOCPErr != nil {
-		err = os.NewSyscallError("CreateIoCompletionPort", createListenIOCPErr)
+		err = createListenIOCPErr
 		_ = syscall.Closesocket(handle)
 		return
 	}
@@ -195,7 +195,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	)
 	if acceptErr != nil && !errors.Is(syscall.ERROR_IO_PENDING, acceptErr) {
 		_ = syscall.Closesocket(syscall.Handle(sock))
-		cb(0, op.userdata, errors.Join(errors.New("aio: accept failed"), acceptErr))
+		cb(0, op.userdata, os.NewSyscallError("acceptex", acceptErr))
 
 		op.callback = nil
 		op.completion = nil
@@ -217,7 +217,7 @@ func completeAccept(result int, op *Operator, err error) {
 	connFd := syscall.Handle(conn.handle)
 	if err != nil {
 		_ = syscall.Closesocket(connFd)
-		op.callback(result, userdata, os.NewSyscallError("iocp.AcceptEx", err))
+		op.callback(result, userdata, os.NewSyscallError("acceptex", err))
 		return
 	}
 	// ln
