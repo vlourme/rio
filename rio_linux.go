@@ -25,13 +25,14 @@ func WithIOURingSettings(settings IOURingSettings) StartupOption {
 // flags 建议选择 aio.SetupSQPoll | aio.SetupSingleIssuer | aio.SetupDeferTaskRun。
 // 不过当设置了 aio.SetupSingleIssuer | aio.SetupDeferTaskRun，则必须 WithAIOEngineCylindersLockOSThread 设置绑定线程。
 // 这也是默认的（当在版本合适的情况下激活）。
-func WithSampleIOURingSettings(entries uint32, flags uint32) StartupOption {
+func WithSampleIOURingSettings(entries uint32, flags uint32, features uint32) StartupOption {
 	return func(o *StartupOptions) error {
 		o.AIOOptions.Settings = IOURingSettings{
 			aio.IOURingSettings{
 				Entries: entries,
 				Param: aio.IOURingSetupParam{
-					Flags: flags,
+					Flags:    flags,
+					Features: features,
 				},
 			},
 		}
