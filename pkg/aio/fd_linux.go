@@ -4,7 +4,7 @@ package aio
 
 import (
 	"errors"
-	"unsafe"
+	"runtime"
 )
 
 func Close(fd Fd, cb OperationCallback) {
@@ -13,9 +13,8 @@ func Close(fd Fd, cb OperationCallback) {
 	op.callback = cb
 	op.completion = completeClose
 
-	userdata := uint64(uintptr(unsafe.Pointer(&op)))
-
-	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, userdata)
+	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, &op)
+	runtime.KeepAlive(&op)
 	if err != nil {
 		cb(0, op.userdata, err)
 		// reset

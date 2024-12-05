@@ -4,6 +4,7 @@ package aio
 
 import (
 	"os"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -33,8 +34,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
-	// userdata
-	userdata := uint64(uintptr(unsafe.Pointer(&op)))
 	// timeout
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
@@ -46,7 +45,8 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	}
 
 	// prepare
-	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, userdata)
+	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, &op)
+	runtime.KeepAlive(&op)
 	if err != nil {
 		cb(0, op.userdata, err)
 		// reset
@@ -105,8 +105,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
-	// userdata
-	userdata := uint64(uintptr(unsafe.Pointer(&op)))
 	// timeout
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
@@ -117,7 +115,8 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		})
 	}
 	// prepare
-	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&msg)), uint32(msg.Iovlen), 0, 0, userdata)
+	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&msg)), uint32(msg.Iovlen), 0, 0, &op)
+	runtime.KeepAlive(&op)
 	if err != nil {
 		cb(0, op.userdata, err)
 		// reset

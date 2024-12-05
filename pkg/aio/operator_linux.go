@@ -30,7 +30,7 @@ func (canceler *operatorCanceler) Cancel() {
 	op := canceler.op
 	userdata := uint64(uintptr(unsafe.Pointer(op)))
 	for i := 0; i < 5; i++ {
-		err := cylinder.prepare(opAsyncCancel, -1, uintptr(userdata), 0, 0, 0, userdata)
+		err := cylinder.prepareRW(opAsyncCancel, -1, uintptr(userdata), 0, 0, 0, userdata)
 		if err == nil {
 			break
 		}

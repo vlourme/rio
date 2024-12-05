@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -153,10 +154,10 @@ func Accept(fd NetFd, cb OperationCallback) {
 	op.callback = cb
 	// completion
 	op.completion = completeAccept
-	// userdata
-	userdata := uint64(uintptr(unsafe.Pointer(&op)))
+
 	// prepare
-	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, userdata)
+	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, &op)
+	runtime.KeepAlive(&op)
 	if err != nil {
 		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_accept", err))
 		// reset

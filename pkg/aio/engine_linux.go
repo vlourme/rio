@@ -224,6 +224,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				completion(result, op, err)
 				op.completion = nil
 				op.callback = nil
+				runtime.KeepAlive(op)
 			}
 			runtime.KeepAlive(op)
 		}
@@ -236,7 +237,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 
 func (cylinder *IOURingCylinder) Stop() {
 	for {
-		err := cylinder.prepare(opNop, -1, 0, 0, 0, 0, 0)
+		err := cylinder.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
 		if err == nil {
 			break
 		}
@@ -253,13 +254,21 @@ func (cylinder *IOURingCylinder) Actives() int64 {
 	return int64(cylinder.ring.sqSpaceLeft())
 }
 
-func prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
+func prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
 	cylinder := nextIOURingCylinder()
-	err = cylinder.prepare(opcode, fd, addr, length, offset, flags, userdata)
+	err = cylinder.prepare(opcode, fd, addr, length, offset, flags, op)
+	runtime.KeepAlive(op)
 	return
 }
 
-func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
+func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
+	userdata := uint64(uintptr(unsafe.Pointer(op)))
+	err = cylinder.prepareRW(opcode, fd, addr, length, offset, flags, userdata)
+	runtime.KeepAlive(op)
+	return
+}
+
+func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
 	entry := cylinder.ring.GetSQE()
 	if entry == nil {
 		if cylinder.stopped.Load() {
