@@ -38,8 +38,6 @@ type Cylinder interface {
 	Fd() int
 	Loop(beg func(), end func())
 	Stop()
-	Up()
-	Down()
 	Actives() int64
 }
 
@@ -85,12 +83,13 @@ func (engine *Engine) next() Cylinder {
 		idx := 0
 		actives := int64(0)
 		for i, c := range engine.cylinders {
-			cActives := c.Actives()
-			if cActives < 1 {
+			n := c.Actives()
+			if n < 1 {
 				idx = i
 				break
 			}
-			if actives < cActives {
+			if n < actives || actives == 0 {
+				actives = n
 				idx = i
 			}
 		}
