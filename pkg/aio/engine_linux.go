@@ -246,12 +246,8 @@ func (cylinder *IOURingCylinder) Stop() {
 	return
 }
 
-func (cylinder *IOURingCylinder) Up() {}
-
-func (cylinder *IOURingCylinder) Down() {}
-
 func (cylinder *IOURingCylinder) Actives() int64 {
-	return int64(cylinder.ring.sqSpaceLeft())
+	return int64(cylinder.ring.sqReady())
 }
 
 func prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
@@ -269,8 +265,12 @@ func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, len
 }
 
 func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
-	entry := cylinder.ring.GetSQE()
-	if entry == nil {
+	var entry *SubmissionQueueEntry
+	for i := 0; i < 10; i++ {
+		entry = cylinder.ring.GetSQE()
+		if entry != nil {
+			break
+		}
 		if cylinder.stopped.Load() {
 			err = ErrUnexpectedCompletion
 			return
@@ -280,11 +280,10 @@ func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, l
 			err = errors.Join(ErrUnexpectedCompletion, err)
 			return
 		}
-		entry = cylinder.ring.GetSQE()
-		if entry == nil {
-			err = ErrBusy
-			return
-		}
+	}
+	if entry == nil {
+		err = ErrBusy
+		return
 	}
 	entry.prepareRW(opcode, fd, addr, length, offset, userdata, flags)
 	runtime.KeepAlive(userdata)
@@ -321,8 +320,6 @@ func (cylinder *IOURingCylinder) advance(n uint32) {
 	cylinder.waitFor = cylinder.waitForCQENums[cylinder.waitForIndex]
 }
 
-// NewIOURing
-// entries 最大是 32768(2^15)
 func NewIOURing(entries uint32, param *IOURingSetupParam) (*IOURing, error) {
 	ring := &IOURing{
 		sq: &SubmissionQueue{},
@@ -343,10 +340,8 @@ type IOURing struct {
 	features uint32
 	enterFd  int
 	intFlags uint8
-	// nolint: unused
-	pad [3]uint8
-	// nolint: unused
-	pad2 uint32
+	pad      [3]uint8
+	pad2     uint32
 }
 
 func (ring *IOURing) GetSQE() (sqe *SubmissionQueueEntry) {
