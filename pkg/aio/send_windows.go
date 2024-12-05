@@ -13,17 +13,19 @@ import (
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
-	// buf
+	// check buf
 	bLen := len(b)
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
-		bLen = MaxRW
 	}
-	op.userdata.Msg.AppendBuffer(b)
-	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
+	// msg
+	msg := WSAMessage{}
+	buf := msg.Append(b)
+	op.userdata.Msg = &msg
+
 	// cb
 	op.callback = cb
 	// completion
@@ -44,8 +46,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// send
 	err := syscall.WSASend(
 		syscall.Handle(fd.Fd()),
-		wsabuf, op.userdata.Msg.BufferCount,
-		&op.userdata.QTY, op.userdata.Msg.Flags,
+		&buf, msg.BufferCount,
+		&op.userdata.QTY, msg.WSAMsg.Flags,
 		overlapped,
 		nil,
 	)
@@ -73,19 +75,24 @@ func completeSend(result int, op *Operator, err error) {
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
-	// buf
+	// check buf
 	bLen := len(b)
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
-		bLen = MaxRW
 	}
-	op.userdata.Msg.AppendBuffer(b)
-	wsabuf := (*syscall.WSABuf)(unsafe.Pointer(op.userdata.Msg.Buffers))
-	// addr
-	sa := AddrToSockaddr(addr)
+	// msg
+	msg := WSAMessage{}
+	sa, saErr := msg.SetAddr(addr)
+	if saErr != nil {
+		cb(0, op.userdata, errors.Join(errors.New("aio: send to failed"), saErr))
+		return
+	}
+	buf := msg.Append(b)
+	op.userdata.Msg = &msg
+
 	// cb
 	op.callback = cb
 	// completion
@@ -106,8 +113,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// send to
 	err := syscall.WSASendto(
 		syscall.Handle(fd.Fd()),
-		wsabuf, op.userdata.Msg.BufferCount,
-		&op.userdata.QTY, op.userdata.Msg.Flags,
+		&buf, msg.BufferCount,
+		&op.userdata.QTY, msg.WSAMsg.Flags,
 		sa,
 		overlapped,
 		nil,
@@ -136,29 +143,25 @@ func completeSendTo(result int, op *Operator, err error) {
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
-	// buf
+	// check buf
 	bLen := len(b)
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
-		bLen = MaxRW
 	}
-	op.userdata.Msg.AppendBuffer(b)
-	op.userdata.Msg.SetControl(oob)
-	// addr
-	if addr != nil {
-		sa := AddrToSockaddr(addr)
-		rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
-		if rsaErr != nil {
-			cb(0, op.userdata, rsaErr)
-			return
-		}
-		op.userdata.Msg.Name = rsa
-		op.userdata.Msg.Namelen = rsaLen
+	// msg
+	msg := WSAMessage{}
+	msg.Append(b)
+	msg.SetControl(oob)
+	_, saErr := msg.SetAddr(addr)
+	if saErr != nil {
+		cb(0, op.userdata, errors.Join(errors.New("aio: send msg failed"), saErr))
+		return
 	}
-	wsamsg := (*windows.WSAMsg)(unsafe.Pointer(&op.userdata.Msg))
+	op.userdata.Msg = &msg
+
 	// cb
 	op.callback = cb
 	// completion
@@ -166,7 +169,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	// overlapped
 	overlapped := &op.overlapped
-	wsaOverlapped := (*windows.Overlapped)(unsafe.Pointer(overlapped))
+	wsaoverlapped := (*windows.Overlapped)(unsafe.Pointer(overlapped))
 	// timeout
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
@@ -180,13 +183,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// send msg
 	err := windows.WSASendMsg(
 		windows.Handle(fd.Fd()),
-		wsamsg,
-		op.userdata.Msg.Flags,
+		&msg.WSAMsg,
+		msg.WSAMsg.Flags,
 		&op.userdata.QTY,
-		wsaOverlapped,
+		wsaoverlapped,
 		nil,
 	)
-	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
+	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(0, op.userdata, errors.Join(errors.New("aio: send msg failed"), err))
 		// reset

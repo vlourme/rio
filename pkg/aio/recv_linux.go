@@ -10,21 +10,21 @@ import (
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
-	// buf
+	// check buf
 	bLen := len(b)
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
-		bLen = MaxRW
 	}
-	msg := Msg{}
-	buf := msg.AppendBuffer(b)
-	bufAddr := uintptr(unsafe.Pointer(buf.Buf))
+	// msg
+	msg := HDRMessage{}
+	buf := msg.Append(b)
+	bufAddr := uintptr(unsafe.Pointer(buf.Base))
 	bufLen := uint32(buf.Len)
+	op.userdata.Msg = &msg
 
-	op.userdata.msg = uintptr(unsafe.Pointer(&msg))
 	// cb
 	op.callback = cb
 	// completion
@@ -76,41 +76,23 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
-	// buf
+	// check buf
 	bLen := len(b)
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
-		bLen = MaxRW
 	}
-
-	msg := syscall.Msghdr{}
-	// addr
-	msg.Name = (*byte)(unsafe.Pointer(new(syscall.RawSockaddrAny)))
-	msg.Namelen = syscall.SizeofSockaddrAny
-	// buf
-	msg.Iov = &syscall.Iovec{
-		Base: &b[0],
-		Len:  uint64(len(b)),
-	}
-	msg.Iovlen = 1
-	// oob
-	if oobn := uint64(len(oob)); oobn > 0 {
-		msg.Control = &oob[0]
-		msg.Controllen = oobn
-	}
-
-	// flags
-	msg.Flags = 0
-	// handle unix
+	// msg
+	msg := HDRMessage{}
+	msg.BuildRawSockaddrAny()
+	msg.Append(b)
+	msg.SetControl(oob)
 	if fd.Family() == syscall.AF_UNIX {
-		msg.Flags = msg.Flags | readMsgFlags
+		msg.SetFlags(readMsgFlags)
 	}
-
-	msgPtr := uintptr(unsafe.Pointer(&msg))
-	op.userdata.msg = msgPtr
+	op.userdata.Msg = &msg
 
 	// cb
 	op.callback = cb
@@ -131,7 +113,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		})
 	}
 	// prepare
-	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&msg)), 1, 0, 0, userdata)
+	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&msg)), uint32(msg.Iovlen), 0, 0, userdata)
 	if err != nil {
 		cb(0, op.userdata, err)
 		// reset

@@ -171,7 +171,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	overlapped := &op.overlapped
 
 	// sa
-	var rawsa [2]windows.RawSockaddrAny
+	var rawsa [2]syscall.RawSockaddrAny
 	lsan := uint32(unsafe.Sizeof(rawsa[1]))
 	rsa := &rawsa[0]
 	rsan := uint32(unsafe.Sizeof(rawsa[0]))
@@ -193,8 +193,8 @@ func Accept(fd NetFd, cb OperationCallback) {
 		lsan+16, rsan+16,
 		&op.userdata.QTY, overlapped,
 	)
-	if acceptErr != nil && !errors.Is(windows.ERROR_IO_PENDING, acceptErr) {
-		_ = windows.Closesocket(windows.Handle(sock))
+	if acceptErr != nil && !errors.Is(syscall.ERROR_IO_PENDING, acceptErr) {
+		_ = syscall.Closesocket(syscall.Handle(sock))
 		cb(0, op.userdata, errors.Join(errors.New("aio: accept failed"), acceptErr))
 
 		op.callback = nil
@@ -227,7 +227,7 @@ func completeAccept(result int, op *Operator, err error) {
 	// set SO_UPDATE_ACCEPT_CONTEXT
 	setAcceptSocketOptErr := syscall.Setsockopt(
 		connFd,
-		syscall.SOL_SOCKET, syscall.SO_UPDATE_ACCEPT_CONTEXT,
+		windows.SOL_SOCKET, windows.SO_UPDATE_ACCEPT_CONTEXT,
 		(*byte)(unsafe.Pointer(&lnFd)),
 		int32(unsafe.Sizeof(lnFd)),
 	)

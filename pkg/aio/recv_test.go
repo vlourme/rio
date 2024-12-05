@@ -39,17 +39,13 @@ func TestRecv(t *testing.T) {
 				return
 			}
 			t.Log("srv read:", "param:", result, string(b[:result]))
-			buf, bufErr := userdata.Msg.Buf(0)
-			if bufErr != nil {
-				t.Error("srv read: buf 0:", bufErr)
-				return
-			}
-			read := buf.Bytes()[:userdata.QTY]
+			buf := userdata.Msg.Bytes(0)
+			read := buf[:userdata.QTY]
 			t.Log("srv read:", "userdata:", userdata.QTY, string(read))
 			t.Log("srv read:", "same value:",
 				"qty:", userdata.QTY == uint32(result),
 				"buf:", bytes.Equal(read, b[:result]),
-				"buf ptr:", buf.Buf == &b[0],
+				"buf ptr:", &buf[0] == &b[0],
 			)
 		})
 	})
@@ -88,8 +84,7 @@ func TestRecvFrom(t *testing.T) {
 			t.Error("srv read:", err)
 			return
 		}
-		msg := userdata.GetMsg()
-		raddr, addrErr := msg.Addr()
+		raddr, addrErr := userdata.Msg.Addr()
 		if addrErr != nil {
 			t.Error("srv read:", addrErr)
 			return
@@ -132,13 +127,13 @@ func TestRecvMsg(t *testing.T) {
 			t.Error("srv read:", err)
 			return
 		}
-		msg := userdata.GetMsg()
-		raddr, addrErr := msg.Addr()
+		raddr, addrErr := userdata.Msg.Addr()
 		if addrErr != nil {
 			t.Error("srv read:", addrErr)
 			return
 		}
-		t.Log("srv read:", string(b[:result]), raddr, msg.Control.Len, string(msg.Control.Bytes()))
+		control := userdata.Msg.ControlBytes()
+		t.Log("srv read:", string(b[:result]), raddr, len(control), string(control))
 	})
 
 	conn, connErr := net.Dial("udp", "127.0.0.1:9000")
