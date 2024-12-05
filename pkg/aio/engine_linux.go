@@ -19,6 +19,20 @@ const (
 	minKernelVersionMinor = 1
 )
 
+func compareKernelVersion(aMajor, aMinor, bMajor, bMinor int) int {
+	if aMajor > bMajor {
+		return 1
+	} else if aMajor < bMajor {
+		return -1
+	}
+	if aMinor > bMinor {
+		return 1
+	} else if aMinor < bMinor {
+		return -1
+	}
+	return 0
+}
+
 func (engine *Engine) Start() {
 	// check kernel version
 	major, minor := KernelVersion()
@@ -30,18 +44,18 @@ func (engine *Engine) Start() {
 	settings := ResolveSettings[IOURingSettings](engine.settings)
 	// default setting
 	if settings.Param.Flags == 0 {
-		if major >= 5 && minor >= 11 {
+		if compareKernelVersion(major, minor, 5, 11) >= 0 {
 			engine.cylindersLockOSThread = true
 			// sq poll
 			if settings.Param.Flags&SetupSQPoll == 0 {
 				settings.Param.Flags = settings.Param.Flags | SetupSQPoll
 			}
-			if major >= 6 {
+			if compareKernelVersion(major, minor, 6, 0) >= 0 {
 				// single issuer
 				if settings.Param.Flags&SetupSingleIssuer == 0 {
 					settings.Param.Flags = settings.Param.Flags | SetupSingleIssuer
 				}
-				if minor >= 1 {
+				if compareKernelVersion(major, minor, 6, 1) >= 0 {
 					// defer task run
 					if settings.Param.Flags&SetupDeferTaskRun == 0 {
 						settings.Param.Flags = settings.Param.Flags | SetupDeferTaskRun
@@ -51,10 +65,16 @@ func (engine *Engine) Start() {
 		}
 	}
 	if settings.Param.Features == 0 {
-		if major >= 5 && minor >= 11 {
-			// ext arg
-			if settings.Param.Features&FeatExtArg == 0 {
-				settings.Param.Features = settings.Param.Features | FeatExtArg
+		if compareKernelVersion(major, minor, 5, 5) >= 0 {
+			// submit stable
+			if settings.Param.Features&FeatSubmitStable == 0 {
+				settings.Param.Features = settings.Param.Features | FeatSubmitStable
+			}
+			if compareKernelVersion(major, minor, 5, 11) >= 0 {
+				// ext arg
+				if settings.Param.Features&FeatExtArg == 0 {
+					settings.Param.Features = settings.Param.Features | FeatExtArg
+				}
 			}
 		}
 	}
@@ -266,9 +286,19 @@ func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, len
 
 func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
 	var entry *SubmissionQueueEntry
+	entry, err = cylinder.getSQE()
+	if err != nil {
+		return
+	}
+	entry.prepareRW(opcode, fd, addr, length, offset, userdata, flags)
+	runtime.KeepAlive(userdata)
+	return
+}
+
+func (cylinder *IOURingCylinder) getSQE() (sqe *SubmissionQueueEntry, err error) {
 	for i := 0; i < 10; i++ {
-		entry = cylinder.ring.GetSQE()
-		if entry != nil {
+		sqe = cylinder.ring.GetSQE()
+		if sqe != nil {
 			break
 		}
 		if cylinder.stopped.Load() {
@@ -281,12 +311,10 @@ func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, l
 			return
 		}
 	}
-	if entry == nil {
+	if sqe == nil {
 		err = ErrBusy
 		return
 	}
-	entry.prepareRW(opcode, fd, addr, length, offset, userdata, flags)
-	runtime.KeepAlive(userdata)
 	return
 }
 
@@ -1204,7 +1232,14 @@ const (
 	// 如果设置了该标志，则只需调用一次 mmap(2)，即可映射两个 SQ 和 CQ 环。SQE 仍需单独分配。这样，所需的 mmap(2) 调用次数就从三次减少到两次。自内核 5.4 起可用。
 	FeatSingleMMap uint32 = 1 << iota
 	// FeatNoDrop
-	// 如果设置了这个标志，io_uring 就几乎不会丢弃完成事件。只有当内核内存耗尽时，才会发生丢弃事件，在这种情况下，你会遇到比丢失事件更严重的问题。无论如何，你的应用程序和其他程序都可能会被 OOM 杀掉。如果发生了完成事件，而 CQ 环已满，内核会在内部存储该事件，直到 CQ 环有空间容纳更多条目。在早期内核中，如果出现这种溢出情况，尝试提交更多 IO 时，如果无法将溢出的事件刷新到 CQ 环，就会出现 -EBUSY 错误值而失败。如果出现这种情况，应用程序必须从 CQ 环中获取事件，并再次尝试提交。如果内核内部没有空闲内存来存储事件，那么 cqring 上的溢出值就会增加。自内核 5.5 起可用。此外，io_uring_enter(2) 还会在下一次休眠等待完成时返回 -EBADR（自内核 5.19 起）。
+	// 如果设置了这个标志，io_uring 就几乎不会丢弃完成事件。只有当内核内存耗尽时，才会发生丢弃事件，
+	// 在这种情况下，你会遇到比丢失事件更严重的问题。
+	// 无论如何，你的应用程序和其他程序都可能会被 OOM 杀掉。
+	// 如果发生了完成事件，而 CQ 环已满，内核会在内部存储该事件，直到 CQ 环有空间容纳更多条目。
+	// 在早期内核中，如果出现这种溢出情况，尝试提交更多 IO 时，如果无法将溢出的事件刷新到 CQ 环，就会出现 -EBUSY 错误值而失败。
+	// 如果出现这种情况，应用程序必须从 CQ 环中获取事件，并再次尝试提交。
+	// 如果内核内部没有空闲内存来存储事件，那么 cqring 上的溢出值就会增加。
+	// 自内核 5.5 起可用。此外，io_uring_enter(2) 还会在下一次休眠等待完成时返回 -EBADR（自内核 5.19 起）。
 	FeatNoDrop
 	// FeatSubmitStable
 	// 如果设置了该标志，应用程序就可以确定，当内核消耗 SQE 时，任何用于异步卸载的数据都已消耗完毕。自内核 5.5 起可用。
