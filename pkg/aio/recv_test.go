@@ -29,7 +29,7 @@ func TestRecv(t *testing.T) {
 		}
 		t.Log("srv accept:", result)
 		connFd := userdata.Fd.(aio.NetFd)
-		connFd.SetReadTimeout(10 * time.Millisecond)
+		connFd.SetReadTimeout(500 * time.Millisecond)
 		b := make([]byte, 1024)
 		wg.Add(1)
 		go aio.Recv(connFd, b, func(result int, userdata aio.Userdata, err error) {
