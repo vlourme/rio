@@ -48,7 +48,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, &op)
 	runtime.KeepAlive(&op)
 	if err != nil {
-		cb(0, op.userdata, err)
+		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_recv", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
