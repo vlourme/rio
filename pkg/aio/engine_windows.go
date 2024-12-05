@@ -87,7 +87,7 @@ func newIOCPCylinder(cphandle windows.Handle) (cylinder Cylinder) {
 }
 
 // IOCPCylinder
-// 不支持 UP/DOWN/ACTIVES，无法控制在哪个里完成。
+// 不支持 ACTIVES，无法控制在哪个里完成。
 type IOCPCylinder struct {
 	fd windows.Handle
 }
@@ -150,14 +150,6 @@ func (cylinder *IOCPCylinder) Stop() {
 	}
 	_ = windows.PostQueuedCompletionStatus(fd, 0, 0, nil)
 	runtime.KeepAlive(cylinder)
-}
-
-func (cylinder *IOCPCylinder) Up() {
-	return
-}
-
-func (cylinder *IOCPCylinder) Down() {
-	return
 }
 
 func (cylinder *IOCPCylinder) Actives() int64 {
