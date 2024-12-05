@@ -55,7 +55,12 @@ func connect(network string, family int, sotype int, proto int, raddr net.Addr, 
 	}
 	// get local addr
 	if laddr == nil {
-		lsa, _ := syscall.Getsockname(handle)
+		lsa, lsaErr := syscall.Getsockname(handle)
+		if lsaErr != nil {
+			_ = syscall.Closesocket(handle)
+			cb(0, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+			return
+		}
 		laddr = SockaddrToAddr(network, lsa)
 	}
 
@@ -63,7 +68,7 @@ func connect(network string, family int, sotype int, proto int, raddr net.Addr, 
 	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(0, Userdata{}, os.NewSyscallError("CreateIoCompletionPort", createIOCPErr))
+		cb(0, Userdata{}, createIOCPErr)
 		return
 	}
 
@@ -115,7 +120,7 @@ func connectEx(network string, family int, sotype int, proto int, addr net.Addr,
 	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(0, Userdata{}, os.NewSyscallError("CreateIoCompletionPort", createIOCPErr))
+		cb(0, Userdata{}, createIOCPErr)
 		return
 	}
 	// remote addr
@@ -160,7 +165,7 @@ func connectEx(network string, family int, sotype int, proto int, addr net.Addr,
 	connectErr := syscall.ConnectEx(handle, sa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, syscall.ERROR_IO_PENDING) {
 		_ = syscall.Closesocket(handle)
-		cb(0, op.userdata, os.NewSyscallError("ConnectEx", connectErr))
+		cb(0, op.userdata, os.NewSyscallError("connectex", connectErr))
 		op.callback = nil
 		op.completion = nil
 		if op.timer != nil {
@@ -179,7 +184,7 @@ func completeConnectEx(result int, op *Operator, err error) {
 	handle := syscall.Handle(nfd.Fd())
 	if err != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(result, op.userdata, err)
+		op.callback(result, op.userdata, os.NewSyscallError("connectex", err))
 		return
 	}
 	// set SO_UPDATE_CONNECT_CONTEXT
