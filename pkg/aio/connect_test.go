@@ -5,10 +5,14 @@ import (
 	"net"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestConnect(t *testing.T) {
+	aio.Startup(aio.Options{
+		Cylinders: 2,
+		Settings:  nil,
+	})
+	defer aio.Shutdown()
 	ln, lnErr := net.Listen("tcp", ":9000")
 	if lnErr != nil {
 		t.Error("ln failed:", lnErr)
@@ -30,8 +34,6 @@ func TestConnect(t *testing.T) {
 		return
 	}(wg)
 
-	time.Sleep(time.Second)
-
 	wg.Add(1)
 	go aio.Connect("tcp", "127.0.0.1:9000", aio.ConnectOptions{}, func(result int, userdata aio.Userdata, err error) {
 		defer wg.Done()
@@ -49,5 +51,4 @@ func TestConnect(t *testing.T) {
 	})
 
 	wg.Wait()
-	time.Sleep(time.Second)
 }
