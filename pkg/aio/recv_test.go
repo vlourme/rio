@@ -56,7 +56,7 @@ func TestRecv(t *testing.T) {
 		return
 	}
 	defer conn.Close()
-	//time.Sleep(time.Second)
+
 	wn, wErr := conn.Write([]byte("hello world"))
 	if wErr != nil {
 		t.Error("write failed:", wErr)
