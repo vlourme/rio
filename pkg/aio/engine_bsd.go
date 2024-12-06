@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"runtime"
 	"sync/atomic"
 	"unsafe"
 )
@@ -16,12 +17,14 @@ func (engine *Engine) Stop() {
 }
 
 type KqueueCylinder struct {
-	kqueue  Kqueue
-	actives int64
+	fd         int
+	sq         *SubmissionQueue
+	completing atomic.Int64
+	stopped    atomic.Bool
 }
 
 func (cylinder *KqueueCylinder) Fd() int {
-	return cylinder.kqueue.fd
+	return cylinder.fd
 }
 
 func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
@@ -34,16 +37,26 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 }
 
 func (cylinder *KqueueCylinder) Stop() {
+	if cylinder.stopped.Load() {
+		return
+	}
+	cylinder.stopped.Store(true)
+	// todo submit a no-op entry
 	//TODO implement me
 	panic("implement me")
 }
 
 func (cylinder *KqueueCylinder) Actives() int64 {
-	return atomic.LoadInt64(&cylinder.actives)
+	return cylinder.sq.Len() + cylinder.completing.Load()
 }
 
-type Kqueue struct {
-	fd int
+func (cylinder *KqueueCylinder) submit(entry SubmissionQueueEntry) (ok bool) {
+	if cylinder.stopped.Load() {
+		return
+	}
+	ok = cylinder.sq.Enqueue(&entry)
+	runtime.KeepAlive(entry)
+	return
 }
 
 type SubmissionQueueEntry struct {
