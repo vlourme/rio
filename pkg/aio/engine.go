@@ -113,9 +113,10 @@ var (
 	_createEngineOnce         = sync.Once{}
 	_engine           *Engine = nil
 	_defaultOptions           = Options{
-		Cylinders:            0,
-		CylindersLoadBalance: RoundRobin,
-		Settings:             nil,
+		Cylinders:             0,
+		CylindersLoadBalance:  RoundRobin,
+		CylindersLockOSThread: true,
+		Settings:              nil,
 	}
 )
 

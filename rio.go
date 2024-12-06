@@ -19,7 +19,15 @@ import (
 //
 // 注意：必须在程序起始位置调用，否则无效。
 func Startup(options ...StartupOption) (err error) {
-	opts := &StartupOptions{}
+	opts := &StartupOptions{
+		ProcessPriorityLevel: 0,
+		AIOOptions: aio.Options{
+			CylindersLoadBalance:  aio.RoundRobin,
+			CylindersLockOSThread: true,
+			Settings:              nil,
+		},
+		ExecutorsOptions: nil,
+	}
 	for _, option := range options {
 		err = option(opts)
 		if err != nil {
@@ -187,6 +195,8 @@ func WithCloseTimeout(d time.Duration) StartupOption {
 	}
 }
 
+// WithAIOEngineCylinders
+// 设置 AIO LOOP 数。
 func WithAIOEngineCylinders(n int) StartupOption {
 	return func(o *StartupOptions) error {
 		if n > 1 {
@@ -196,6 +206,8 @@ func WithAIOEngineCylinders(n int) StartupOption {
 	}
 }
 
+// WithAIOEngineCylindersLockOSThread
+// 设置 AIO LOOP 是否独占线程。默认为独占模式。
 func WithAIOEngineCylindersLockOSThread(lockOSThread bool) StartupOption {
 	return func(o *StartupOptions) error {
 		o.AIOOptions.CylindersLockOSThread = lockOSThread
@@ -203,6 +215,8 @@ func WithAIOEngineCylindersLockOSThread(lockOSThread bool) StartupOption {
 	}
 }
 
+// WithAIOEngineCylindersLoadBalance
+// 设置 AIO LOOP 组的负载均衡。默认为 aio.RoundRobin，aio.Least（windows不适用） 可选。
 func WithAIOEngineCylindersLoadBalance(rb aio.LoadBalanceKind) StartupOption {
 	return func(o *StartupOptions) error {
 		o.AIOOptions.CylindersLoadBalance = rb
