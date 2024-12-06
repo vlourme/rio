@@ -3,6 +3,7 @@
 package process
 
 import (
+	"errors"
 	"golang.org/x/sys/unix"
 	"os"
 )
