@@ -74,15 +74,18 @@ func connect(network string, family int, sotype int, proto int, raddr net.Addr, 
 	}
 
 	// op
-	op := nfd.rop
+	op := ReadOperator(nfd)
 	op.userdata.Fd = nfd
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = completeConnect
+	op.completion = func(result int, cop *Operator, err error) {
+		completeConnect(result, cop, err)
+		runtime.KeepAlive(op)
+	}
 
 	// prepare
-	err := prepare(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, &op)
+	err := prepare(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
 		_ = syscall.Close(sock)
@@ -118,5 +121,6 @@ func completeConnect(result int, op *Operator, err error) {
 	}
 	// callback
 	cb(connFd, op.userdata, nil)
+	runtime.KeepAlive(cb)
 	return
 }

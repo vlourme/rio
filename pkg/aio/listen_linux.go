@@ -4,7 +4,6 @@ package aio
 
 import (
 	"bufio"
-	"errors"
 	"net"
 	"os"
 	"runtime"
@@ -140,24 +139,25 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
+	op := ReadOperator(fd)
 	// ln
 	lnFd := fd.Fd()
 	// msg
-	msg := HDRMessage{}
-	rsa, rsaLen := msg.BuildRawSockaddrAny()
+	rsa, rsaLen := op.userdata.Msg.BuildRawSockaddrAny()
 	addrPtr := uintptr(unsafe.Pointer(rsa))
 	addrLenPtr := uint64(uintptr(unsafe.Pointer(&rsaLen)))
-	op.userdata.Msg = &msg
 
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = completeAccept
+	op.completion = func(result int, cop *Operator, err error) {
+		completeAccept(result, cop, err)
+		runtime.KeepAlive(op)
+	}
 
 	// prepare
-	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, &op)
-	runtime.KeepAlive(&op)
+	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op)
+	runtime.KeepAlive(op)
 	if err != nil {
 		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_accept", err))
 		// reset
@@ -192,12 +192,13 @@ func completeAccept(result int, op *Operator, err error) {
 	la := SockaddrToAddr(ln.Network(), lsa)
 
 	// get remote addr
-	ra, raErr := userdata.Msg.Addr()
-	if raErr != nil {
+	rsa, rsaErr := syscall.Getpeername(connFd)
+	if rsaErr != nil {
 		_ = syscall.Close(connFd)
-		op.callback(result, userdata, errors.Join(errors.New("aio: get peername failed"), raErr))
+		op.callback(result, userdata, os.NewSyscallError("getpeername", rsaErr))
 		return
 	}
+	ra := SockaddrToAddr(ln.Network(), rsa)
 
 	// conn
 	conn := &netFd{

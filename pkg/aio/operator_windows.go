@@ -30,12 +30,13 @@ func (op *operatorCanceler) Cancel() {
 	_ = syscall.CancelIoEx(op.handle, op.overlapped)
 }
 
-type WSAMessage struct {
+type Message struct {
 	windows.WSAMsg
 }
 
-func (msg *WSAMessage) Addr() (addr net.Addr, err error) {
+func (msg *Message) Addr() (addr net.Addr, err error) {
 	if msg.Name == nil {
+		err = errors.Join(errors.New("aio.Message: get addr failed"), errors.New("addr is nil"))
 		return
 	}
 	sa, saErr := RawToSockaddr(msg.Name)
@@ -76,7 +77,7 @@ func (msg *WSAMessage) Addr() (addr net.Addr, err error) {
 	return
 }
 
-func (msg *WSAMessage) Bytes(n int) (b []byte) {
+func (msg *Message) Bytes(n int) (b []byte) {
 	if n < 0 || n > int(msg.BufferCount) {
 		return
 	}
@@ -89,7 +90,7 @@ func (msg *WSAMessage) Bytes(n int) (b []byte) {
 	return
 }
 
-func (msg *WSAMessage) ControlBytes() (b []byte) {
+func (msg *Message) ControlBytes() (b []byte) {
 	if msg.Control.Len == 0 {
 		return
 	}
@@ -97,21 +98,21 @@ func (msg *WSAMessage) ControlBytes() (b []byte) {
 	return
 }
 
-func (msg *WSAMessage) ControlLen() int {
+func (msg *Message) ControlLen() int {
 	return int(msg.Control.Len)
 }
 
-func (msg *WSAMessage) Flags() int32 {
+func (msg *Message) Flags() int32 {
 	return int32(msg.WSAMsg.Flags)
 }
 
-func (msg *WSAMessage) BuildRawSockaddrAny() (*syscall.RawSockaddrAny, int32) {
+func (msg *Message) BuildRawSockaddrAny() (*syscall.RawSockaddrAny, int32) {
 	msg.WSAMsg.Name = new(syscall.RawSockaddrAny)
 	msg.WSAMsg.Namelen = int32(unsafe.Sizeof(*msg.WSAMsg.Name))
 	return msg.WSAMsg.Name, msg.WSAMsg.Namelen
 }
 
-func (msg *WSAMessage) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
+func (msg *Message) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
 	sa = AddrToSockaddr(addr)
 	name, nameLen, rawErr := SockaddrToRaw(sa)
 	if rawErr != nil {
@@ -123,7 +124,7 @@ func (msg *WSAMessage) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
 	return
 }
 
-func (msg *WSAMessage) Append(b []byte) (buf syscall.WSABuf) {
+func (msg *Message) Append(b []byte) (buf syscall.WSABuf) {
 	buf = syscall.WSABuf{
 		Len: uint32(len(b)),
 		Buf: nil,
@@ -143,13 +144,13 @@ func (msg *WSAMessage) Append(b []byte) (buf syscall.WSABuf) {
 	return
 }
 
-func (msg *WSAMessage) SetControl(b []byte) {
+func (msg *Message) SetControl(b []byte) {
 	msg.Control.Len = uint32(len(b))
 	if msg.Control.Len > 0 {
 		msg.Control.Buf = &b[0]
 	}
 }
 
-func (msg *WSAMessage) SetFlags(flags uint32) {
+func (msg *Message) SetFlags(flags uint32) {
 	msg.WSAMsg.Flags = flags
 }

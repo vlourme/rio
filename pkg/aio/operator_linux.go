@@ -12,8 +12,8 @@ import (
 )
 
 type Operator struct {
-	fd         Fd
 	userdata   Userdata
+	fd         Fd
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
@@ -29,8 +29,19 @@ func (canceler *operatorCanceler) Cancel() {
 	cylinder := canceler.cylinder
 	op := canceler.op
 	userdata := uint64(uintptr(unsafe.Pointer(op)))
-	for i := 0; i < 5; i++ {
-		err := cylinder.prepareRW(opAsyncCancel, -1, uintptr(userdata), 0, 0, 0, userdata)
+	cancelOp := &Operator{
+		userdata:   Userdata{},
+		fd:         nil,
+		callback:   nil,
+		completion: nil,
+		timeout:    0,
+		timer:      nil,
+	}
+	cancelOp.completion = func(_ int, _ *Operator, _ error) {
+		runtime.KeepAlive(cancelOp)
+	}
+	for i := 0; i < 10; i++ {
+		err := cylinder.prepare(opAsyncCancel, -1, uintptr(userdata), 0, 0, 0, cancelOp)
 		if err == nil {
 			break
 		}
@@ -39,14 +50,16 @@ func (canceler *operatorCanceler) Cancel() {
 		}
 	}
 	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(cancelOp)
 }
 
-type HDRMessage struct {
+type Message struct {
 	syscall.Msghdr
 }
 
-func (msg *HDRMessage) Addr() (addr net.Addr, err error) {
+func (msg *Message) Addr() (addr net.Addr, err error) {
 	if msg.Name == nil {
+		err = errors.Join(errors.New("aio.Message: get addr failed"), errors.New("addr is nil"))
 		return
 	}
 	sa, saErr := RawToSockaddr((*syscall.RawSockaddrAny)(unsafe.Pointer(msg.Name)))
@@ -87,7 +100,7 @@ func (msg *HDRMessage) Addr() (addr net.Addr, err error) {
 	return
 }
 
-func (msg *HDRMessage) Bytes(n int) (b []byte) {
+func (msg *Message) Bytes(n int) (b []byte) {
 	if n < 0 || n > int(msg.Iovlen) {
 		return
 	}
@@ -100,7 +113,7 @@ func (msg *HDRMessage) Bytes(n int) (b []byte) {
 	return
 }
 
-func (msg *HDRMessage) ControlBytes() (b []byte) {
+func (msg *Message) ControlBytes() (b []byte) {
 	if msg.Controllen == 0 {
 		return
 	}
@@ -108,22 +121,22 @@ func (msg *HDRMessage) ControlBytes() (b []byte) {
 	return
 }
 
-func (msg *HDRMessage) ControlLen() int {
+func (msg *Message) ControlLen() int {
 	return int(msg.Controllen)
 }
 
-func (msg *HDRMessage) Flags() int32 {
+func (msg *Message) Flags() int32 {
 	return msg.Msghdr.Flags
 }
 
-func (msg *HDRMessage) BuildRawSockaddrAny() (*syscall.RawSockaddrAny, int32) {
+func (msg *Message) BuildRawSockaddrAny() (*syscall.RawSockaddrAny, int32) {
 	rsa := new(syscall.RawSockaddrAny)
 	msg.Msghdr.Name = (*byte)(unsafe.Pointer(rsa))
 	msg.Msghdr.Namelen = syscall.SizeofSockaddrAny
 	return rsa, int32(msg.Msghdr.Namelen)
 }
 
-func (msg *HDRMessage) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
+func (msg *Message) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
 	sa = AddrToSockaddr(addr)
 	name, nameLen, rawErr := SockaddrToRaw(sa)
 	if rawErr != nil {
@@ -135,7 +148,7 @@ func (msg *HDRMessage) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
 	return
 }
 
-func (msg *HDRMessage) Append(b []byte) (buf syscall.Iovec) {
+func (msg *Message) Append(b []byte) (buf syscall.Iovec) {
 	buf = syscall.Iovec{
 		Len:  uint64(len(b)),
 		Base: nil,
@@ -154,13 +167,18 @@ func (msg *HDRMessage) Append(b []byte) (buf syscall.Iovec) {
 	return
 }
 
-func (msg *HDRMessage) SetControl(b []byte) {
-	msg.Controllen = uint64(len(b))
+func (msg *Message) SetControl(b []byte) {
+	bLen := uint64(len(b))
+	if bLen > 64 {
+		b = b[:64]
+		bLen = 64
+	}
+	msg.Controllen = bLen
 	if msg.Controllen > 0 {
 		msg.Control = &b[0]
 	}
 }
 
-func (msg *HDRMessage) SetFlags(flags uint32) {
+func (msg *Message) SetFlags(flags uint32) {
 	msg.Msghdr.Flags = int32(flags)
 }

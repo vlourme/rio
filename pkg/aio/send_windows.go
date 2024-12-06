@@ -23,9 +23,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := WSAMessage{}
-	buf := msg.Append(b)
-	op.userdata.Msg = &msg
+	buf := op.userdata.Msg.Append(b)
 
 	// cb
 	op.callback = cb
@@ -47,8 +45,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// send
 	err := syscall.WSASend(
 		syscall.Handle(fd.Fd()),
-		&buf, msg.BufferCount,
-		&op.userdata.QTY, msg.WSAMsg.Flags,
+		&buf, op.userdata.Msg.BufferCount,
+		&op.userdata.QTY, op.userdata.Msg.WSAMsg.Flags,
 		overlapped,
 		nil,
 	)
@@ -88,14 +86,12 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := WSAMessage{}
-	sa, saErr := msg.SetAddr(addr)
+	sa, saErr := op.userdata.Msg.SetAddr(addr)
 	if saErr != nil {
 		cb(0, op.userdata, errors.Join(errors.New("aio: send to failed"), saErr))
 		return
 	}
-	buf := msg.Append(b)
-	op.userdata.Msg = &msg
+	buf := op.userdata.Msg.Append(b)
 
 	// cb
 	op.callback = cb
@@ -117,8 +113,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// send to
 	err := syscall.WSASendto(
 		syscall.Handle(fd.Fd()),
-		&buf, msg.BufferCount,
-		&op.userdata.QTY, msg.WSAMsg.Flags,
+		&buf, op.userdata.Msg.BufferCount,
+		&op.userdata.QTY, op.userdata.Msg.WSAMsg.Flags,
 		sa,
 		overlapped,
 		nil,
@@ -159,15 +155,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := WSAMessage{}
-	msg.Append(b)
-	msg.SetControl(oob)
-	_, saErr := msg.SetAddr(addr)
+	op.userdata.Msg.Append(b)
+	op.userdata.Msg.SetControl(oob)
+	_, saErr := op.userdata.Msg.SetAddr(addr)
 	if saErr != nil {
 		cb(0, op.userdata, errors.Join(errors.New("aio: send msg failed"), saErr))
 		return
 	}
-	op.userdata.Msg = &msg
 
 	// cb
 	op.callback = cb
@@ -190,8 +184,8 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// send msg
 	err := windows.WSASendMsg(
 		windows.Handle(fd.Fd()),
-		&msg.WSAMsg,
-		msg.WSAMsg.Flags,
+		&op.userdata.Msg.WSAMsg,
+		op.userdata.Msg.WSAMsg.Flags,
 		&op.userdata.QTY,
 		wsaoverlapped,
 		nil,

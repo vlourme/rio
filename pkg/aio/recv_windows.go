@@ -22,9 +22,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := WSAMessage{}
-	buf := msg.Append(b)
-	op.userdata.Msg = &msg
+	buf := op.userdata.Msg.Append(b)
 
 	// cb
 	op.callback = cb
@@ -46,8 +44,8 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// recv
 	err := syscall.WSARecv(
 		syscall.Handle(fd.Fd()),
-		&buf, msg.BufferCount,
-		&op.userdata.QTY, &msg.WSAMsg.Flags,
+		&buf, op.userdata.Msg.BufferCount,
+		&op.userdata.QTY, &op.userdata.Msg.WSAMsg.Flags,
 		overlapped,
 		nil,
 	)
@@ -87,10 +85,8 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := WSAMessage{}
-	addr, addrLen := msg.BuildRawSockaddrAny()
-	buf := msg.Append(b)
-	op.userdata.Msg = &msg
+	addr, addrLen := op.userdata.Msg.BuildRawSockaddrAny()
+	buf := op.userdata.Msg.Append(b)
 	// cb
 	op.callback = cb
 	// completion
@@ -111,8 +107,8 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	// recv from
 	err := syscall.WSARecvFrom(
 		syscall.Handle(fd.Fd()),
-		&buf, msg.BufferCount,
-		&op.userdata.QTY, &msg.WSAMsg.Flags,
+		&buf, op.userdata.Msg.BufferCount,
+		&op.userdata.QTY, &op.userdata.Msg.WSAMsg.Flags,
 		addr, &addrLen,
 		overlapped,
 		nil,
@@ -153,14 +149,12 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := WSAMessage{}
-	msg.BuildRawSockaddrAny()
-	msg.Append(b)
-	msg.SetControl(oob)
+	op.userdata.Msg.BuildRawSockaddrAny()
+	op.userdata.Msg.Append(b)
+	op.userdata.Msg.SetControl(oob)
 	if fd.Family() == syscall.AF_UNIX {
-		msg.SetFlags(readMsgFlags)
+		op.userdata.Msg.SetFlags(readMsgFlags)
 	}
-	op.userdata.Msg = &msg
 
 	// cb
 	op.callback = cb
@@ -183,7 +177,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// recv msg
 	err := windows.WSARecvMsg(
 		windows.Handle(fd.Fd()),
-		&msg.WSAMsg,
+		&op.userdata.Msg.WSAMsg,
 		&op.userdata.QTY,
 		wsaoverlapped,
 		nil,

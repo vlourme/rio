@@ -2,20 +2,11 @@ package aio
 
 import (
 	"io"
-	"net"
 )
 
 const (
 	MaxRW = 1 << 30
 )
-
-type Message interface {
-	Addr() (addr net.Addr, err error)
-	Bytes(n int) (b []byte)
-	ControlBytes() (b []byte)
-	ControlLen() (n int)
-	Flags() int32
-}
 
 type Userdata struct {
 	Fd  Fd
@@ -25,11 +16,21 @@ type Userdata struct {
 
 type OperationCallback func(result int, userdata Userdata, err error)
 
-type OperatorCompletion func(result int, op *Operator, err error)
+type OperatorCompletion func(result int, cop *Operator, err error)
 
 func eofError(fd Fd, qty int, err error) error {
 	if qty == 0 && err == nil && fd.ZeroReadIsEOF() {
 		return io.EOF
 	}
 	return err
+}
+
+func ReadOperator(fd Fd) *Operator {
+	op := fd.ReadOperator()
+	return &op
+}
+
+func WriteOperator(fd Fd) *Operator {
+	op := fd.WriteOperator()
+	return &op
 }

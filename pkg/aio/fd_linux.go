@@ -8,13 +8,16 @@ import (
 )
 
 func Close(fd Fd, cb OperationCallback) {
-	op := fd.WriteOperator()
+	op := WriteOperator(fd)
 
 	op.callback = cb
-	op.completion = completeClose
+	op.completion = func(result int, cop *Operator, err error) {
+		completeClose(result, cop, err)
+		runtime.KeepAlive(op)
+	}
 
-	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, &op)
-	runtime.KeepAlive(&op)
+	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, op)
+	runtime.KeepAlive(op)
 	if err != nil {
 		cb(0, op.userdata, err)
 		// reset

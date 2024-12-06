@@ -11,7 +11,7 @@ import (
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
+	op := ReadOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
@@ -21,16 +21,17 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := HDRMessage{}
-	buf := msg.Append(b)
+	buf := op.userdata.Msg.Append(b)
 	bufAddr := uintptr(unsafe.Pointer(buf.Base))
 	bufLen := uint32(buf.Len)
-	op.userdata.Msg = &msg
 
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = completeRecv
+	op.completion = func(result int, cop *Operator, err error) {
+		completeRecv(result, cop, err)
+		runtime.KeepAlive(op)
+	}
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
@@ -40,13 +41,13 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		op.timer = timer
 		timer.Start(timeout, &operatorCanceler{
 			cylinder: cylinder,
-			op:       &op,
+			op:       op,
 		})
 	}
 
 	// prepare
-	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, &op)
-	runtime.KeepAlive(&op)
+	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op)
+	runtime.KeepAlive(op)
 	if err != nil {
 		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_recv", err))
 		// reset
@@ -79,7 +80,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
+	op := ReadOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
@@ -89,19 +90,20 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 	// msg
-	msg := HDRMessage{}
-	msg.BuildRawSockaddrAny()
-	msg.Append(b)
-	msg.SetControl(oob)
+	op.userdata.Msg.BuildRawSockaddrAny()
+	op.userdata.Msg.Append(b)
+	op.userdata.Msg.SetControl(oob)
 	if fd.Family() == syscall.AF_UNIX {
-		msg.SetFlags(readMsgFlags)
+		op.userdata.Msg.SetFlags(readMsgFlags)
 	}
-	op.userdata.Msg = &msg
 
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = completeRecvMsg
+	op.completion = func(result int, cop *Operator, err error) {
+		completeRecvMsg(result, cop, err)
+		runtime.KeepAlive(op)
+	}
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
@@ -111,12 +113,12 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		op.timer = timer
 		timer.Start(timeout, &operatorCanceler{
 			cylinder: cylinder,
-			op:       &op,
+			op:       op,
 		})
 	}
 	// prepare
-	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&msg)), uint32(msg.Iovlen), 0, 0, &op)
-	runtime.KeepAlive(&op)
+	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.userdata.Msg)), uint32(op.userdata.Msg.Iovlen), 0, 0, op)
+	runtime.KeepAlive(op)
 	if err != nil {
 		cb(0, op.userdata, err)
 		// reset
@@ -139,5 +141,6 @@ func completeRecvMsg(result int, op *Operator, err error) {
 	}
 	op.userdata.QTY = uint32(result)
 	op.callback(result, op.userdata, err)
+	runtime.KeepAlive(op.userdata)
 	return
 }
