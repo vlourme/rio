@@ -293,7 +293,7 @@ func (cylinder *IOURingCylinder) Stop() {
 }
 
 func (cylinder *IOURingCylinder) Actives() int64 {
-	return int64(cylinder.ring.sqReady())
+	return int64(cylinder.ring.sqReady() + cylinder.ring.cqReady())
 }
 
 func prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
