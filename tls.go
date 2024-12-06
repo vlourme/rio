@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+type TLSConnectionBuilder func(conn Connection, config *tls.Config) (sc TLSConnection, err error)
+
 type TLSConnection interface {
 	Connection
 	Handshake() (future async.Future[async.Void])

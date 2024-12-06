@@ -107,6 +107,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
 			TLSConfig:                  nil,
+			TLSConnectionBuilder:       serverTLS,
 			MultipathTCP:               false,
 			PromiseMakeOptions:         make([]async.Option, 0, 1),
 		},
@@ -178,6 +179,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		connectionsLimiter:            connectionsLimiter,
 		connectionsLimiterWaitTimeout: opt.AcceptMaxConnectionsLimiterWaitTimeout,
 		tlsConfig:                     opt.TLSConfig,
+		tlsConnBuilder:                opt.TLSConnectionBuilder,
 		defaultReadTimeout:            opt.DefaultConnReadTimeout,
 		defaultWriteTimeout:           opt.DefaultConnWriteTimeout,
 		defaultReadBuffer:             opt.DefaultConnReadBufferSize,
@@ -198,6 +200,7 @@ type listener struct {
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
 	tlsConfig                     *tls.Config
+	tlsConnBuilder                TLSConnectionBuilder
 	defaultReadTimeout            time.Duration
 	defaultWriteTimeout           time.Duration
 	defaultReadBuffer             int
@@ -345,7 +348,14 @@ func (ln *listener) acceptOne() {
 		}
 		// tls
 		if ln.tlsConfig != nil {
-			conn = serverTLS(conn, ln.tlsConfig)
+			sc, tlsErr := ln.tlsConnBuilder(conn, ln.tlsConfig)
+			if tlsErr != nil {
+				conn.Close().OnComplete(async.DiscardVoidHandler)
+				ln.acceptorPromises.Fail(tlsErr)
+				ln.acceptOne()
+				return
+			}
+			conn = sc
 		}
 		ln.acceptorPromises.Succeed(conn)
 		ln.acceptOne()

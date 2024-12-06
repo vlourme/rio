@@ -25,7 +25,20 @@ func WithLocalAddr(network string, addr string) Option {
 }
 
 func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
-	opts := &DialOptions{}
+	opts := &DialOptions{
+		Options: Options{
+			DefaultConnReadTimeout:     0,
+			DefaultConnWriteTimeout:    0,
+			DefaultConnReadBufferSize:  0,
+			DefaultConnWriteBufferSize: 0,
+			DefaultInboundBufferSize:   0,
+			TLSConfig:                  nil,
+			TLSConnectionBuilder:       clientTLS,
+			MultipathTCP:               false,
+			PromiseMakeOptions:         nil,
+		},
+		LocalAddr: nil,
+	}
 	for _, o := range options {
 		err := o((*Options)(unsafe.Pointer(&opts)))
 		if err != nil {
@@ -146,7 +159,13 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 			// tls
 			if opts.TLSConfig != nil {
-				conn = clientTLS(conn, opts.TLSConfig)
+				sc, scErr := opts.TLSConnectionBuilder(conn, opts.TLSConfig)
+				if scErr != nil {
+					conn.Close().OnComplete(async.DiscardVoidHandler)
+					promise.Fail(err)
+					return
+				}
+				conn = sc
 			}
 			promise.Succeed(conn)
 			return
