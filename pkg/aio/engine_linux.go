@@ -211,8 +211,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				break
 			}
 			// no userdata means no op
-			// -125 means canceled by timeout
-			if cqe.UserData == 0 || cqe.Res == -125 {
+			if cqe.UserData == 0 {
 				continue
 			}
 
@@ -227,7 +226,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				} else {
 					result = int(cqe.Res)
 				}
-				if timer := op.timer; timer != nil {
+				if timer := op.timer; op.timeout > 0 && timer != nil {
 					if timer.DeadlineExceeded() {
 						if err != nil {
 							err = errors.Join(ErrOperationDeadlineExceeded, err)
@@ -244,7 +243,6 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 				completion(result, op, err)
 				op.completion = nil
 				op.callback = nil
-				runtime.KeepAlive(op)
 			}
 			runtime.KeepAlive(op)
 		}
@@ -285,13 +283,14 @@ func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, len
 }
 
 func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
-	var entry *SubmissionQueueEntry
-	entry, err = cylinder.getSQE()
-	if err != nil {
+	entry, getErr := cylinder.getSQE()
+	if getErr != nil {
+		err = getErr
 		return
 	}
 	entry.prepareRW(opcode, fd, addr, length, offset, userdata, flags)
 	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(entry)
 	return
 }
 
