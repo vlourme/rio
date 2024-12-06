@@ -61,7 +61,7 @@ func newEngine(options Options) *Engine {
 		cylindersIdx:          -1,
 		cylindersNum:          int64(cylinders),
 		cylinders:             make([]Cylinder, cylinders),
-		wg:                    new(sync.WaitGroup),
+		wg:                    sync.WaitGroup{},
 	}
 	return _engine
 }
@@ -74,7 +74,7 @@ type Engine struct {
 	cylindersIdx          int64
 	cylindersNum          int64
 	cylinders             []Cylinder
-	wg                    *sync.WaitGroup
+	wg                    sync.WaitGroup
 }
 
 func (engine *Engine) next() Cylinder {
