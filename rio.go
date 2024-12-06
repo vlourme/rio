@@ -77,8 +77,9 @@ func Startup(options ...StartupOption) (err error) {
 //
 // 一般使用 ShutdownGracefully 来实现等待所有协程执行完毕。
 func Shutdown() error {
-	runtime.SetFinalizer(executors, nil)
-	err := getExecutors().Close()
+	exec := getExecutors()
+	runtime.SetFinalizer(exec, nil)
+	err := exec.Close()
 	aio.Shutdown()
 	return err
 }
@@ -90,8 +91,9 @@ func Shutdown() error {
 //
 // 如果需要支持超时机制，则需要在 Startup 里进行设置。
 func ShutdownGracefully() error {
-	runtime.SetFinalizer(executors, nil)
-	err := getExecutors().CloseGracefully()
+	exec := getExecutors()
+	runtime.SetFinalizer(exec, nil)
+	err := exec.CloseGracefully()
 	aio.Shutdown()
 	return err
 }
