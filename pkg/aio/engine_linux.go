@@ -138,7 +138,6 @@ func (engine *Engine) Start() {
 			return
 		}
 		engine.cylinders[i] = cylinder
-
 	}
 	for _, cylinder := range engine.cylinders {
 		go func(engine *Engine, cylinder Cylinder) {
