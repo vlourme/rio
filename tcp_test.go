@@ -158,7 +158,7 @@ func TestTCP(t *testing.T) {
 	})
 
 	wgAdd(ctx)
-	go rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		defer wgDone(ctx)
 		if err != nil {
 			t.Error("cli dial:", err)
@@ -197,5 +197,4 @@ func TestTCP(t *testing.T) {
 		wgDone(ctx)
 	})
 	wgWait(ctx)
-
 }
