@@ -133,25 +133,37 @@ func (sq *SubmissionQueue) Enqueue(entry *SubmissionQueueEntry) (ok bool) {
 	}
 }
 
-func (sq *SubmissionQueue) Dequeue(n int64) (entries []*SubmissionQueueEntry) {
-	if n < 1 {
-		return
-	}
-	if num := atomic.LoadInt64(&sq.entries); n > num {
-		n = num
-	}
-	for i := int64(0); i < n; i++ {
+func (sq *SubmissionQueue) Dequeue() (entry *SubmissionQueueEntry) {
+	for {
 		head := (*submissionQueueNode)(atomic.LoadPointer(&sq.head))
 		if head.value == nil {
-			return
+			break
 		}
-		entries = append(entries, (*SubmissionQueueEntry)(atomic.LoadPointer(&head.value)))
-		for {
-			if atomic.CompareAndSwapPointer(&sq.head, sq.head, head.next) {
-				atomic.AddInt64(&sq.entries, -1)
-				break
-			}
+		target := (*SubmissionQueueEntry)(atomic.LoadPointer(&head.value))
+		if atomic.CompareAndSwapPointer(&sq.head, sq.head, head.next) {
+			atomic.AddInt64(&sq.entries, -1)
+			entry = target
+			break
 		}
+	}
+	return
+}
+
+func (sq *SubmissionQueue) PeekBatch(entries []*SubmissionQueueEntry) (n int64) {
+	size := int64(len(entries))
+	if size == 0 {
+		return
+	}
+	if num := atomic.LoadInt64(&sq.entries); num < size {
+		size = num
+	}
+	for i := int64(0); i < size; i++ {
+		entry := sq.Dequeue()
+		if entry == nil {
+			break
+		}
+		entries[i] = entry
+		n++
 	}
 	return
 }
