@@ -79,6 +79,10 @@ func (s *netFd) ReadOperator() Operator {
 	return s.rop
 }
 
+func (s *netFd) WriteOperator() Operator {
+	return s.wop
+}
+
 func (s *netFd) SetOperatorTimeout(d time.Duration) {
 	s.SetReadTimeout(d)
 	s.SetWriteTimeout(d)
@@ -94,8 +98,4 @@ func (s *netFd) SetWriteTimeout(d time.Duration) {
 	if d > 0 {
 		s.wop.timeout = d
 	}
-}
-
-func (s *netFd) WriteOperator() Operator {
-	return s.wop
 }
