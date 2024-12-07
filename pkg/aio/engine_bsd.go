@@ -68,6 +68,7 @@ type SubmissionQueueEntry struct {
 type submissionQueueNode struct {
 	value unsafe.Pointer
 	next  unsafe.Pointer
+	pad6  [6]int64
 }
 
 func NewSubmissionQueue(n int) (sq *SubmissionQueue) {
@@ -104,9 +105,13 @@ func NewSubmissionQueue(n int) (sq *SubmissionQueue) {
 
 type SubmissionQueue struct {
 	head     unsafe.Pointer
+	pad1     [7]int64
 	tail     unsafe.Pointer
+	pad2     [7]int64
 	entries  int64
+	pad3     [7]int64
 	capacity int64
+	pad4     [7]int64
 }
 
 func (sq *SubmissionQueue) Enqueue(entry *SubmissionQueueEntry) (ok bool) {
