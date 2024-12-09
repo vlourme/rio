@@ -15,6 +15,10 @@ func Accept(fd NetFd, cb OperationCallback) {
 		cb(0, Userdata{}, os.NewSyscallError("accept", accpetErr))
 		return
 	}
+	if setNonblockErr := syscall.SetNonblock(sock, true); setNonblockErr != nil {
+		cb(0, Userdata{}, os.NewSyscallError("setnonblock", setNonblockErr))
+		return
+	}
 	// get local addr
 	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
