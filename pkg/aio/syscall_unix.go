@@ -24,12 +24,3 @@ func munmap(addr uintptr, length uintptr) (err error) {
 	}
 	return nil
 }
-
-func madvise(address, length, advice uintptr) (err error) {
-	_, _, e1 := syscall.Syscall(syscall.SYS_MADVISE, address, length, advice)
-	if e1 != 0 {
-		err = e1
-		return
-	}
-	return
-}
