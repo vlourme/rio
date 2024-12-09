@@ -28,6 +28,8 @@ func (cylinder *KqueueCylinder) Fd() int {
 }
 
 func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
+	beg()
+	defer end()
 	// todo
 	// 与ring类似，prepare rw 到一个无锁queue。
 	// loop 里 submit queue。注意 submit 是一次性的。
