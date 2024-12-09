@@ -7,18 +7,8 @@ import (
 	"net"
 	"runtime"
 	"syscall"
-	"time"
 	"unsafe"
 )
-
-type Operator struct {
-	userdata   Userdata
-	fd         Fd
-	callback   OperationCallback
-	completion OperatorCompletion
-	timeout    time.Duration
-	timer      *operatorTimer
-}
 
 type operatorCanceler struct {
 	cylinder *IOURingCylinder
