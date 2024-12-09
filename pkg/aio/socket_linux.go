@@ -46,3 +46,7 @@ func setDefaultListenerSocketOpts(fd int) error {
 	// Allow reuse of recently-used addresses.
 	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1))
 }
+
+func setDefaultMulticastSockopts(fd int) error {
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1))
+}

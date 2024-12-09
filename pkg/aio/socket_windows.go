@@ -28,14 +28,12 @@ func newSocket(family int, sotype int, protocol int) (fd int, err error) {
 
 func setDefaultSocketOpts(fd int, family int, sotype int) error {
 	if family == syscall.AF_INET6 && sotype != syscall.SOCK_RAW {
-		// set ipv6 only
 		err := syscall.SetsockoptInt(syscall.Handle(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1)
 		if err != nil {
 			return os.NewSyscallError("setsockopt", err)
 		}
 	}
 	if (sotype == syscall.SOCK_DGRAM || sotype == syscall.SOCK_RAW) && family != syscall.AF_UNIX && family != syscall.AF_INET6 {
-		// allow broadcast.
 		err := syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		if err != nil {
 			return os.NewSyscallError("setsockopt", err)
@@ -44,7 +42,10 @@ func setDefaultSocketOpts(fd int, family int, sotype int) error {
 	return nil
 }
 
-func setDefaultListenerSocketOpts(fd int) error {
-	// Allow reuse of recently-used addresses.
+func setDefaultListenerSocketOpts(_ int) error {
+	return nil
+}
+
+func setDefaultMulticastSockopts(fd int) error {
 	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1))
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net"
 	"syscall"
-	"time"
 )
 
 type ListenerOptions struct {
@@ -54,12 +53,4 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 		return
 	}
 	return
-}
-
-const (
-	defaultTCPKeepAliveIdle = 5 * time.Second
-)
-
-func roundDurationUp(d time.Duration, to time.Duration) time.Duration {
-	return (d + to - 1) / to
 }
