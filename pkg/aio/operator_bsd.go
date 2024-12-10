@@ -5,9 +5,39 @@ package aio
 import (
 	"errors"
 	"net"
+	"runtime"
 	"syscall"
 	"unsafe"
 )
+
+type operatorCanceler struct {
+	cylinder *KqueueCylinder
+	op       *Operator
+}
+
+func (canceler *operatorCanceler) Cancel() {
+	//cylinder := canceler.cylinder
+	op := canceler.op
+	// todo 貌似不支持 cancel，标记op的cb为空，或者op单独做，增加cancel的状态
+	// 使用 EV_DELETE，删除对应的 FLITER （EVFILT_READ 或 EVFILT_WRITE ）
+	userdata := uint64(uintptr(unsafe.Pointer(op)))
+	cancelOp := &Operator{
+		userdata:   Userdata{},
+		fd:         nil,
+		callback:   nil,
+		completion: nil,
+		timeout:    0,
+		timer:      nil,
+	}
+	cancelOp.completion = func(_ int, _ *Operator, _ error) {
+		runtime.KeepAlive(cancelOp)
+	}
+	for i := 0; i < 10; i++ {
+		// todo
+	}
+	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(cancelOp)
+}
 
 type Message struct {
 	syscall.Msghdr

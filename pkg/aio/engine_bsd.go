@@ -3,6 +3,8 @@
 package aio
 
 import (
+	"errors"
+	"golang.org/x/sys/unix"
 	"runtime"
 	"sync/atomic"
 	"unsafe"
@@ -27,17 +29,6 @@ func (cylinder *KqueueCylinder) Fd() int {
 	return cylinder.fd
 }
 
-func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
-	beg()
-	defer end()
-	// todo
-	// 与ring类似，prepare rw 到一个无锁queue。
-	// loop 里 submit queue。注意 submit 是一次性的。
-	// active 也是 queue 的 ready
-	//TODO implement me
-	panic("implement me")
-}
-
 func (cylinder *KqueueCylinder) Stop() {
 	if cylinder.stopped.Load() {
 		return
@@ -52,20 +43,13 @@ func (cylinder *KqueueCylinder) Actives() int64 {
 	return cylinder.sq.Len() + cylinder.completing.Load()
 }
 
-func (cylinder *KqueueCylinder) submit(entry SubmissionQueueEntry) (ok bool) {
+func (cylinder *KqueueCylinder) submit(entry *unix.Kevent_t) (ok bool) {
 	if cylinder.stopped.Load() {
 		return
 	}
-	ok = cylinder.sq.Enqueue(&entry)
+	ok = cylinder.sq.Enqueue(unsafe.Pointer(entry))
 	runtime.KeepAlive(entry)
 	return
-}
-
-type SubmissionQueueEntry struct {
-	Op     *Operator
-	Flags  uint16
-	Filter int16
-	_pad   [6]int64
 }
 
 type submissionQueueNode struct {
@@ -118,10 +102,7 @@ type SubmissionQueue struct {
 	_pad4    [7]int64
 }
 
-func (sq *SubmissionQueue) Enqueue(entry *SubmissionQueueEntry) (ok bool) {
-	if entry == nil {
-		return
-	}
+func (sq *SubmissionQueue) Enqueue(entry unsafe.Pointer) (ok bool) {
 	for {
 		if atomic.LoadInt64(&sq.entries) >= sq.capacity {
 			return
@@ -130,7 +111,7 @@ func (sq *SubmissionQueue) Enqueue(entry *SubmissionQueueEntry) (ok bool) {
 		if tail.value != nil {
 			continue
 		}
-		if atomic.CompareAndSwapPointer(&tail.value, tail.value, unsafe.Pointer(entry)) {
+		if atomic.CompareAndSwapPointer(&tail.value, tail.value, entry) {
 			for {
 				if atomic.CompareAndSwapPointer(&sq.tail, sq.tail, tail.next) {
 					atomic.AddInt64(&sq.entries, 1)
@@ -142,13 +123,13 @@ func (sq *SubmissionQueue) Enqueue(entry *SubmissionQueueEntry) (ok bool) {
 	}
 }
 
-func (sq *SubmissionQueue) Dequeue() (entry *SubmissionQueueEntry) {
+func (sq *SubmissionQueue) Dequeue() (entry unsafe.Pointer) {
 	for {
 		head := (*submissionQueueNode)(atomic.LoadPointer(&sq.head))
 		if head.value == nil {
 			break
 		}
-		target := (*SubmissionQueueEntry)(atomic.LoadPointer(&head.value))
+		target := atomic.LoadPointer(&head.value)
 		if atomic.CompareAndSwapPointer(&sq.head, sq.head, head.next) {
 			atomic.AddInt64(&sq.entries, -1)
 			entry = target
@@ -158,7 +139,7 @@ func (sq *SubmissionQueue) Dequeue() (entry *SubmissionQueueEntry) {
 	return
 }
 
-func (sq *SubmissionQueue) PeekBatch(entries []*SubmissionQueueEntry) (n int64) {
+func (sq *SubmissionQueue) PeekBatch(entries []unix.Kevent_t) (n int64) {
 	size := int64(len(entries))
 	if size == 0 {
 		return
@@ -167,11 +148,11 @@ func (sq *SubmissionQueue) PeekBatch(entries []*SubmissionQueueEntry) (n int64) 
 		size = num
 	}
 	for i := int64(0); i < size; i++ {
-		entry := sq.Dequeue()
-		if entry == nil {
+		ptr := sq.Dequeue()
+		if ptr == nil {
 			break
 		}
-		entries[i] = entry
+		entries[i] = *((*unix.Kevent_t)(ptr))
 		n++
 	}
 	return
