@@ -33,9 +33,12 @@ func (cylinder *KqueueCylinder) Stop() {
 		return
 	}
 	cylinder.stopped.Store(true)
-	// todo submit a no-op entry
-	//TODO implement me
-	panic("implement me")
+	entry := unsafe.Pointer(&unix.Kevent_t{})
+	for {
+		if ok := cylinder.sq.Enqueue(entry); ok {
+			break
+		}
+	}
 }
 
 func (cylinder *KqueueCylinder) Actives() int64 {
@@ -53,9 +56,7 @@ func (cylinder *KqueueCylinder) submit(entry *unix.Kevent_t) (ok bool) {
 
 type submissionQueueNode struct {
 	value unsafe.Pointer
-	_pad1 [7]int64
 	next  unsafe.Pointer
-	_pad2 [7]int64
 }
 
 func NewSubmissionQueue(n int) (sq *SubmissionQueue) {
@@ -92,13 +93,9 @@ func NewSubmissionQueue(n int) (sq *SubmissionQueue) {
 
 type SubmissionQueue struct {
 	head     unsafe.Pointer
-	_pad1    [7]int64
 	tail     unsafe.Pointer
-	_pad2    [7]int64
 	entries  int64
-	_pad3    [7]int64
 	capacity int64
-	_pad4    [7]int64
 }
 
 func (sq *SubmissionQueue) Enqueue(entry unsafe.Pointer) (ok bool) {

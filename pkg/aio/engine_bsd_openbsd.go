@@ -68,6 +68,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 				// todo hande wakeup
 				continue
 			}
+			cylinder.completing.Add(1)
 			op := (*Operator)(unsafe.Pointer(event.Udata))
 			if completion := op.completion; completion != nil {
 				if event.Filter&unix.EVFILT_READ != 0 {
@@ -83,6 +84,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 				op.callback = nil
 				op.completion = nil
 			}
+			cylinder.completing.Add(-1)
 		}
 	}
 	if kqfd > 0 {
