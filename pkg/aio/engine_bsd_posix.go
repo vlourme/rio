@@ -6,6 +6,7 @@ import (
 	"errors"
 	"golang.org/x/sys/unix"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
@@ -37,6 +38,9 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 	beg()
 	defer end()
 
+	// todo setup timeout
+	timeout := time.Millisecond
+
 	kqfd := cylinder.fd
 	changes := make([]unix.Kevent_t, cylinder.sq.capacity)
 	events := make([]unix.Kevent_t, cylinder.sq.capacity)
@@ -44,8 +48,16 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 		if cylinder.stopped.Load() {
 			break
 		}
+		// deadline
+		deadline := time.Now().Add(timeout)
+		timespec, timespecErr := unix.TimeToTimespec(time.Now().Add(timeout))
+		if timespecErr != nil {
+			timespec = unix.NsecToTimespec(deadline.UnixNano())
+		}
+		// changes
 		peeked := cylinder.sq.PeekBatch(changes)
-		n, err := unix.Kevent(kqfd, changes[:peeked], events, nil)
+		// submit and wait
+		n, err := unix.Kevent(kqfd, changes[:peeked], events, &timespec)
 		if err != nil {
 			if errors.Is(err, unix.EINTR) {
 				continue
@@ -54,7 +66,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 			break
 		}
 		if n == 0 {
-			break
+			continue
 		}
 		for i := 0; i < n; i++ {
 			event := events[i]
