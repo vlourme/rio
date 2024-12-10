@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"errors"
 	"golang.org/x/sys/unix"
 	"runtime"
 	"sync/atomic"
