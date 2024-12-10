@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
-	"math"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -836,8 +835,9 @@ func (ring *IOURing) privateGetCQE(data *getData) (cqe *CompletionQueueEvent, er
 	return
 }
 
-const (
-	_updateTimeoutUserdata uint64 = math.MaxUint64
+var (
+	_updateTimeoutValue    = time.Now()
+	_updateTimeoutUserdata = uint64(uintptr(unsafe.Pointer(&_updateTimeoutValue)))
 )
 
 func (ring *IOURing) submitTimeout(waitNr uint32, ts *syscall.Timespec) (ret uint32, err error) {
