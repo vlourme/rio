@@ -54,7 +54,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 			break
 		}
 		if n == 0 {
-			break
+			continue
 		}
 		for i := 0; i < n; i++ {
 			event := events[i]
