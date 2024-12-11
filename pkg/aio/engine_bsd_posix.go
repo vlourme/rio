@@ -30,8 +30,9 @@ func (cylinder *KqueueCylinder) prepareRW(fd int, filter int16, flags uint16, op
 	return
 }
 
-func (cylinder *KqueueCylinder) deconstructEvent(event syscall.Kevent_t) (fd int, op *Operator) {
+func (cylinder *KqueueCylinder) deconstructEvent(event syscall.Kevent_t) (fd int, data int64, op *Operator) {
 	fd = int(event.Ident)
+	data = event.Data
 	if event.Udata == nil {
 		return
 	}
