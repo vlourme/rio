@@ -8,6 +8,8 @@ import (
 )
 
 func Close(fd Fd, cb OperationCallback) {
+	op := WriteOperator(fd)
+	op.userdata.Fd = fd
 	switch fd.(type) {
 	case NetFd:
 		handle := fd.Fd()
@@ -15,13 +17,13 @@ func Close(fd Fd, cb OperationCallback) {
 		if err != nil {
 			err = errors.Join(errors.New("aio.Operator: close failed"), err)
 		}
-		cb(handle, fd.WriteOperator().userdata, err)
+		cb(handle, op.userdata, err)
 		return
 	case FileFd:
-		cb(0, fd.WriteOperator().userdata, errors.New("aio.Operator: close was not supported"))
+		cb(0, op.userdata, errors.New("aio.Operator: close was not supported"))
 		return
 	default:
-		cb(0, fd.WriteOperator().userdata, errors.New("aio.Operator: close was not supported"))
+		cb(0, op.userdata, errors.New("aio.Operator: close was not supported"))
 		return
 	}
 }
