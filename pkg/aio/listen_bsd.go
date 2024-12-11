@@ -40,7 +40,7 @@ func completeAccept(result int, cop *Operator, err error) {
 		Accept(ln, cb)
 		return
 	}
-	// todo 使用一个timeout或则ctx done？？ 来处理 Accept 堵塞的问题
+	//TODO: 可能会堵住。测试堵是否会影响外部的投递。
 	sock, sa, acceptErr := syscall.Accept(ln.Fd())
 	runtime.KeepAlive(ln)
 	if acceptErr != nil {
