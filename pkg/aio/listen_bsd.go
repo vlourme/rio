@@ -3,20 +3,57 @@
 package aio
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"syscall"
 )
 
 func Accept(fd NetFd, cb OperationCallback) {
-	// todo use kqueue
-	sock, sa, accpetErr := syscall.Accept(fd.Fd())
-	if accpetErr != nil {
-		cb(0, Userdata{}, os.NewSyscallError("accept", accpetErr))
+	op := ReadOperator(fd)
+	op.userdata.Fd = fd
+	op.callback = cb
+	op.completion = func(result int, cop *Operator, err error) {
+		completeAccept(result, cop, err)
+		runtime.KeepAlive(op)
+	}
+	cylinder := nextKqueueCylinder()
+	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		cb(0, Userdata{}, err)
+		// reset
+		op.callback = nil
+		op.completion = nil
+	}
+	return
+}
+
+func completeAccept(result int, cop *Operator, err error) {
+	userdata := Userdata{}
+	cb := cop.callback
+	if err != nil {
+		cb(0, userdata, err)
 		return
 	}
+
+	ln := cop.userdata.Fd.(NetFd)
+	if result == 0 {
+		Accept(ln, cb)
+		return
+	}
+	// todo 使用一个timeout或则ctx done？？ 来处理 Accept 堵塞的问题
+	sock, sa, acceptErr := syscall.Accept(ln.Fd())
+	runtime.KeepAlive(ln)
+	if acceptErr != nil {
+		if errors.Is(acceptErr, syscall.EAGAIN) {
+			Accept(ln, cb)
+			return
+		}
+		cb(0, userdata, os.NewSyscallError("accept", acceptErr))
+		return
+	}
+	syscall.CloseOnExec(sock)
 	if setNonblockErr := syscall.SetNonblock(sock, true); setNonblockErr != nil {
-		cb(0, Userdata{}, os.NewSyscallError("setnonblock", setNonblockErr))
+		cb(0, userdata, os.NewSyscallError("setnonblock", setNonblockErr))
 		return
 	}
 	// get local addr
@@ -26,20 +63,18 @@ func Accept(fd NetFd, cb OperationCallback) {
 		cb(0, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
-	la := SockaddrToAddr(fd.Network(), lsa)
+	la := SockaddrToAddr(ln.Network(), lsa)
 
-	ra := SockaddrToAddr(fd.Network(), sa)
+	ra := SockaddrToAddr(ln.Network(), sa)
 
-	op := ReadOperator(fd)
-	userdata := op.userdata
 	// conn
 	conn := &netFd{
 		handle:     sock,
-		network:    fd.Network(),
-		family:     fd.Family(),
-		socketType: fd.SocketType(),
-		protocol:   fd.Protocol(),
-		ipv6only:   fd.IPv6Only(),
+		network:    ln.Network(),
+		family:     ln.Family(),
+		socketType: ln.SocketType(),
+		protocol:   ln.Protocol(),
+		ipv6only:   ln.IPv6Only(),
 		localAddr:  la,
 		remoteAddr: ra,
 		rop:        Operator{},
@@ -49,8 +84,9 @@ func Accept(fd NetFd, cb OperationCallback) {
 	conn.wop.fd = conn
 
 	userdata.Fd = conn
-	// cb
+
 	cb(sock, userdata, nil)
+	return
 }
 
 var (
