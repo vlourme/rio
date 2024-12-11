@@ -11,9 +11,9 @@ import (
 	"unsafe"
 )
 
-func newListenerFd(network string, family int, sotype int, proto int, addr net.Addr, multicastInterface *net.Interface) (v *netFd, err error) {
+func newListenerFd(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, multicastInterface *net.Interface) (v *netFd, err error) {
 	// create sock
-	sock, sockErr := newSocket(family, sotype, proto)
+	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
 		err = sockErr
 		return
@@ -136,6 +136,7 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 		family:     family,
 		socketType: sotype,
 		protocol:   proto,
+		ipv6only:   ipv6only,
 		localAddr:  addr,
 		remoteAddr: nil,
 		rop:        Operator{},
@@ -150,7 +151,7 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 
 func Accept(fd NetFd, cb OperationCallback) {
 	// conn
-	sock, sockErr := newSocket(fd.Family(), fd.SocketType(), fd.Protocol())
+	sock, sockErr := newSocket(fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only())
 	if sockErr != nil {
 		cb(0, Userdata{}, errors.Join(errors.New("aio: accept failed"), sockErr))
 		return
@@ -163,6 +164,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 		family:     fd.Family(),
 		socketType: fd.SocketType(),
 		protocol:   fd.Protocol(),
+		ipv6only:   fd.IPv6Only(),
 		localAddr:  nil,
 		remoteAddr: nil,
 	}

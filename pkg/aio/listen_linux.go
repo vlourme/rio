@@ -82,6 +82,7 @@ func completeAccept(result int, op *Operator, err error) {
 		family:     ln.Family(),
 		socketType: ln.SocketType(),
 		protocol:   ln.Protocol(),
+		ipv6only:   ln.IPv6Only(),
 		localAddr:  la,
 		remoteAddr: ra,
 		rop:        Operator{},

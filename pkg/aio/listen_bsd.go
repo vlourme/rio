@@ -39,6 +39,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 		family:     fd.Family(),
 		socketType: fd.SocketType(),
 		protocol:   fd.Protocol(),
+		ipv6only:   fd.IPv6Only(),
 		localAddr:  la,
 		remoteAddr: ra,
 		rop:        Operator{},

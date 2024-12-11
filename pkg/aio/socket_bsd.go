@@ -1,22 +1,49 @@
-//go:build darwin || dragonfly || freebsd || netbsd || openbsd
+//go:build dragonfly || freebsd || netbsd || openbsd
 
 package aio
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"syscall"
 )
 
-func newSocket(family int, sotype int, protocol int) (fd int, err error) {
-	// socket
-	fd, err = syscall.Socket(family, sotype, protocol)
+func sysSocket(family int, sotype int, protocol int) (fd int, err error) {
+	fd, err = syscall.Socket(family, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, protocol)
 	if err != nil {
-		err = os.NewSyscallError("socket", err)
+		if errors.Is(err, syscall.EPROTONOSUPPORT) || errors.Is(err, syscall.EINVAL) {
+			syscall.ForkLock.RLock()
+			fd, err = syscall.Socket(family, sotype, protocol)
+			if err == nil {
+				syscall.CloseOnExec(fd)
+			}
+			syscall.ForkLock.RUnlock()
+			if err != nil {
+				err = os.NewSyscallError("socket", err)
+				return
+			}
+			if err = syscall.SetNonblock(fd, true); err != nil {
+				_ = syscall.Close(fd)
+				err = os.NewSyscallError("setnonblock", err)
+				return
+			}
+		} else {
+			err = os.NewSyscallError("socket", err)
+			return
+		}
+	}
+	return
+}
+
+func newSocket(family int, sotype int, protocol int, ipv6only bool) (fd int, err error) {
+	// socket
+	fd, err = sysSocket(family, sotype, protocol)
+	if err != nil {
 		return
 	}
 	// set default opts
-	setDefaultSockOptsErr := setDefaultSocketOpts(fd, family, sotype)
+	setDefaultSockOptsErr := setDefaultSocketOpts(fd, family, sotype, ipv6only)
 	if setDefaultSockOptsErr != nil {
 		err = setDefaultSockOptsErr
 		_ = syscall.Close(fd)
@@ -25,7 +52,7 @@ func newSocket(family int, sotype int, protocol int) (fd int, err error) {
 	return
 }
 
-func setDefaultSocketOpts(fd int, family int, sotype int) error {
+func setDefaultSocketOpts(fd int, family int, sotype int, ipv6only bool) error {
 	if runtime.GOOS == "dragonfly" && sotype != syscall.SOCK_RAW {
 		switch family {
 		case syscall.AF_INET:
@@ -34,8 +61,8 @@ func setDefaultSocketOpts(fd int, family int, sotype int) error {
 			_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_PORTRANGE, syscall.IPV6_PORTRANGE_HIGH)
 		}
 	}
-	if family == syscall.AF_INET6 && sotype != syscall.SOCK_RAW && runtime.GOOS != "dragonfly" && runtime.GOOS != "openbsd" {
-		_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 1)
+	if family == syscall.AF_INET6 && sotype != syscall.SOCK_RAW && supportsIPv4map() {
+		_ = syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, boolint(ipv6only))
 	}
 	if (sotype == syscall.SOCK_DGRAM || sotype == syscall.SOCK_RAW) && family != syscall.AF_UNIX {
 		return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1))

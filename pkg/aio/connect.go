@@ -31,7 +31,7 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 		if opts.MultipathTCP {
 			proto = tryGetMultipathTCPProto()
 		}
-		connect(network, family, syscall.SOCK_STREAM, proto, tcpAddr, nil, callback)
+		connect(network, family, syscall.SOCK_STREAM, proto, ipv6only, tcpAddr, nil, callback)
 		break
 	case "udp", "udp4", "udp6":
 		udpAddr := addr.(*net.UDPAddr)
@@ -42,16 +42,16 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 				udpAddr.IP = net.ParseIP("127.0.0.1").To4()
 			}
 		}
-		connect(network, family, syscall.SOCK_DGRAM, 0, udpAddr, opts.LocalAddr, callback)
+		connect(network, family, syscall.SOCK_DGRAM, 0, ipv6only, udpAddr, opts.LocalAddr, callback)
 		break
 	case "unix":
-		connect(network, family, syscall.SOCK_STREAM, 0, addr, nil, callback)
+		connect(network, family, syscall.SOCK_STREAM, 0, ipv6only, addr, nil, callback)
 		break
 	case "unixgram":
-		connect(network, family, syscall.SOCK_DGRAM, 0, addr, nil, callback)
+		connect(network, family, syscall.SOCK_DGRAM, 0, ipv6only, addr, nil, callback)
 		break
 	case "unixpacket":
-		connect(network, family, syscall.SOCK_SEQPACKET, 0, addr, nil, callback)
+		connect(network, family, syscall.SOCK_SEQPACKET, 0, ipv6only, addr, nil, callback)
 		break
 	case "ip", "ip4", "ip6":
 		proto := 0
@@ -60,7 +60,7 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 		if parseProtoError != nil {
 			callback(0, Userdata{}, parseProtoError)
 		}
-		connect(network, family, syscall.SOCK_RAW, proto, addr, nil, callback)
+		connect(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil, callback)
 		break
 	default:
 		callback(0, Userdata{}, errors.New("aio.Connect: network is not support"))

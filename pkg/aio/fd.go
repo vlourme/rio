@@ -22,6 +22,7 @@ type NetFd interface {
 	Family() int
 	SocketType() int
 	Protocol() int
+	IPv6Only() bool
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
 }
@@ -37,6 +38,7 @@ type netFd struct {
 	family     int
 	socketType int
 	protocol   int
+	ipv6only   bool
 	localAddr  net.Addr
 	remoteAddr net.Addr
 	rop        Operator
@@ -61,6 +63,10 @@ func (s *netFd) SocketType() int {
 
 func (s *netFd) Protocol() int {
 	return s.protocol
+}
+
+func (s *netFd) IPv6Only() bool {
+	return s.ipv6only
 }
 
 func (s *netFd) ZeroReadIsEOF() bool {

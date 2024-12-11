@@ -10,16 +10,16 @@ import (
 	"syscall"
 )
 
-func connect(network string, family int, sotype int, proto int, raddr net.Addr, laddr net.Addr, cb OperationCallback) {
+func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, cb OperationCallback) {
 	// stream
 	if sotype == syscall.SOCK_STREAM {
-		connectEx(network, family, sotype, proto, raddr, cb)
+		connectEx(network, family, sotype, proto, ipv6only, raddr, cb)
 		return
 	}
 	// packet
 
 	// create sock
-	sock, sockErr := newSocket(family, sotype, proto)
+	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
 		cb(0, Userdata{}, sockErr)
 		return
@@ -79,6 +79,7 @@ func connect(network string, family int, sotype int, proto int, raddr net.Addr, 
 		family:     family,
 		socketType: sotype,
 		protocol:   proto,
+		ipv6only:   ipv6only,
 		localAddr:  laddr,
 		remoteAddr: raddr,
 		rop:        Operator{},
@@ -94,8 +95,8 @@ func connect(network string, family int, sotype int, proto int, raddr net.Addr, 
 	return
 }
 
-func connectEx(network string, family int, sotype int, proto int, addr net.Addr, cb OperationCallback) {
-	sock, sockErr := newSocket(family, sotype, proto)
+func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, cb OperationCallback) {
+	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
 		cb(0, Userdata{}, sockErr)
 		return
@@ -132,6 +133,7 @@ func connectEx(network string, family int, sotype int, proto int, addr net.Addr,
 		family:     family,
 		socketType: sotype,
 		protocol:   proto,
+		ipv6only:   ipv6only,
 		localAddr:  nil,
 		remoteAddr: addr,
 		rop:        Operator{},

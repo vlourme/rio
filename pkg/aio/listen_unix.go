@@ -8,9 +8,9 @@ import (
 	"syscall"
 )
 
-func newListenerFd(network string, family int, sotype int, proto int, addr net.Addr, multicastInterface *net.Interface) (v *netFd, err error) {
+func newListenerFd(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, multicastInterface *net.Interface) (v *netFd, err error) {
 	// create sock
-	sock, sockErr := newSocket(family, sotype, proto)
+	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
 		err = sockErr
 		return
@@ -124,6 +124,7 @@ func newListenerFd(network string, family int, sotype int, proto int, addr net.A
 		family:     family,
 		socketType: sotype,
 		protocol:   proto,
+		ipv6only:   ipv6only,
 		localAddr:  addr,
 		remoteAddr: nil,
 		rop:        Operator{},
