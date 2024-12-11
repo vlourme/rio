@@ -218,8 +218,9 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 
 	ring := cylinder.ring
 	cqes := make([]*CompletionQueueEvent, cylinder.peekBatch)
+	stopped := false
 	for {
-		if cylinder.stopped.Load() {
+		if stopped {
 			break
 		}
 		// submit
@@ -233,6 +234,7 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 			cqe := cqes[i]
 			if cqe.Res == 0 && cqe.UserData == 0 {
 				// noop then break loop
+				stopped = true
 				cylinder.stopped.Store(true)
 				break
 			}
@@ -280,12 +282,17 @@ func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
 }
 
 func (cylinder *IOURingCylinder) Stop() {
+	if cylinder.stopped.Load() {
+		return
+	}
 	for {
 		err := cylinder.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
 		if err == nil {
 			break
 		}
-		break
+		if cylinder.stopped.Load() {
+			break
+		}
 	}
 	return
 }
