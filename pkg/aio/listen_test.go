@@ -10,7 +10,7 @@ import (
 
 func TestAccept(t *testing.T) {
 	aio.Startup(aio.Options{
-		Cylinders: 2,
+		Cylinders: 1,
 		Settings:  nil,
 	})
 	defer aio.Shutdown()
@@ -52,10 +52,10 @@ func TestAccept(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		conns = append(conns, conn)
 	}
+	wg.Wait()
 	for _, conn := range conns {
 		_ = conn.Close()
 	}
-	wg.Wait()
 	wg.Add(1)
 	go aio.Close(lnFd, func(result int, userdata aio.Userdata, err error) {
 		wg.Done()
