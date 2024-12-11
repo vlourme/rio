@@ -3,13 +3,13 @@
 package aio
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
 	"syscall"
 )
 
 func Accept(fd NetFd, cb OperationCallback) {
+	// todo use kqueue
 	sock, sa, accpetErr := syscall.Accept(fd.Fd())
 	if accpetErr != nil {
 		cb(0, Userdata{}, os.NewSyscallError("accept", accpetErr))
@@ -64,12 +64,12 @@ func maxListenerBacklog() int {
 	)
 	switch runtime.GOOS {
 	case "darwin":
-		n, err = unix.SysctlUint32("kern.ipc.somaxconn")
+		n, err = syscall.SysctlUint32("kern.ipc.somaxconn")
 	case "freebsd":
-		n, err = unix.SysctlUint32("kern.ipc.soacceptqueue")
+		n, err = syscall.SysctlUint32("kern.ipc.soacceptqueue")
 	}
 	if n == 0 || err != nil {
-		return unix.SOMAXCONN
+		return syscall.SOMAXCONN
 	}
 	if n > 1<<16-1 {
 		n = 1<<16 - 1
