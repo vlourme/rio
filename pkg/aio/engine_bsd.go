@@ -107,6 +107,10 @@ func newKqueueCylinder(changesQueueSize int, changesPeekBatchSize int, eventsWai
 	return
 }
 
+func nextKqueueCylinder() *KqueueCylinder {
+	return nextCylinder().(*KqueueCylinder)
+}
+
 type KqueueCylinder struct {
 	fd                   int
 	pipe                 []int
@@ -174,7 +178,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 		}
 		for i := 0; i < n; i++ {
 			event := events[i]
-			fd, op := cylinder.deconstructEvent(event)
+			fd, data, op := cylinder.deconstructEvent(event)
 			if fd == pipeReadFd {
 				rn, _ := syscall.Read(fd, pipeBuf)
 				if rn > 0 {
@@ -197,15 +201,15 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
-				completion(0, op, nil)
+				completion(int(data), op, nil)
 				runtime.KeepAlive(op)
 				op.callback = nil
 				op.completion = nil
 			}
+			runtime.KeepAlive(op)
 			cylinder.completing.Add(-1)
 		}
 	}
-
 	if len(cylinder.pipe) == 2 {
 		_ = syscall.Close(cylinder.pipe[0])
 		_ = syscall.Close(cylinder.pipe[1])
