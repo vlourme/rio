@@ -85,8 +85,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > MaxRW {
-		b = b[:MaxRW]
 	}
 	// msg
 	_ = op.userdata.Msg.Append(b)

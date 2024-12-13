@@ -81,8 +81,6 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > MaxRW {
-		b = b[:MaxRW]
 	}
 	// msg
 	addr, addrLen := op.userdata.Msg.BuildRawSockaddrAny()
@@ -145,8 +143,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	if bLen == 0 {
 		cb(0, op.userdata, ErrEmptyBytes)
 		return
-	} else if bLen > MaxRW {
-		b = b[:MaxRW]
 	}
 	// msg
 	op.userdata.Msg.BuildRawSockaddrAny()

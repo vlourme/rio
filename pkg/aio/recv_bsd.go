@@ -4,6 +4,7 @@ package aio
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 
+	// todo see internal/poll/fd_unix.go
 	return
 }
 
