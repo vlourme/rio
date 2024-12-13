@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"golang.org/x/sys/unix"
 	"sync"
 	"syscall"
 )
@@ -34,43 +33,18 @@ func supportsMultipathTCP() bool {
 }
 
 func initMPTCPavailable() {
-	s, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, _IPPROTO_MPTCP)
+	s, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, _IPPROTO_MPTCP)
 	switch {
-	case errors.Is(err, unix.EPROTONOSUPPORT):
-	case errors.Is(err, unix.EINVAL):
+	case errors.Is(err, syscall.EPROTONOSUPPORT):
+	case errors.Is(err, syscall.EINVAL):
 	case err == nil:
-		_ = unix.Close(s)
+		_ = syscall.Close(s)
 		fallthrough
 	default:
 		mptcpAvailable = true
 	}
 	major, minor := KernelVersion()
 	hasSOLMPTCP = major > 5 || (major == 5 && minor >= 16)
-}
-
-func KernelVersion() (major, minor int) {
-	var uname unix.Utsname
-	if err := unix.Uname(&uname); err != nil {
-		return
-	}
-	var (
-		values    [2]int
-		value, vi int
-	)
-	for _, c := range uname.Release {
-		if '0' <= c && c <= '9' {
-			value = (value * 10) + int(c-'0')
-		} else {
-			values[vi] = value
-			vi++
-			if vi >= len(values) {
-				break
-			}
-			value = 0
-		}
-	}
-
-	return values[0], values[1]
 }
 
 func hasFallenBack(fd NetFd) bool {
