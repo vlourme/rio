@@ -126,7 +126,7 @@ func (msg *Message) SetAddr(addr net.Addr) (sa syscall.Sockaddr, err error) {
 	sa = AddrToSockaddr(addr)
 	name, nameLen, rawErr := SockaddrToRaw(sa)
 	if rawErr != nil {
-		panic(errors.New("aio.Message: set addr failed cause invalid addr type"))
+		err = errors.New("aio.Message: set addr failed cause invalid addr type")
 		return
 	}
 	msg.Name = (*byte)(unsafe.Pointer(name))
