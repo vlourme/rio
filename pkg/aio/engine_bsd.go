@@ -79,8 +79,9 @@ func newKqueueCylinder(changesQueueSize int, changesPeekBatchSize int, eventsWai
 	}
 
 	pipe := make([]int, 2)
-	if pipeErr := syscall.Pipe2(pipe[:], syscall.O_NONBLOCK|syscall.O_CLOEXEC); pipeErr != nil {
-		err = os.NewSyscallError("pipe2", pipeErr)
+
+	if pipeErr := Pipe2(pipe); pipeErr != nil {
+		err = pipeErr
 		return
 	}
 
@@ -178,7 +179,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 		}
 		for i := 0; i < n; i++ {
 			event := events[i]
-			fd, data, op := cylinder.deconstructEvent(event)
+			fd, data, eof, op := cylinder.deconstructEvent(event)
 			if fd == pipeReadFd {
 				rn, _ := syscall.Read(fd, pipeBuf)
 				if rn > 0 {
@@ -201,7 +202,11 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
-				completion(int(data), op, nil)
+				if eof {
+					completion(int(data), op, os.ErrClosed)
+				} else {
+					completion(int(data), op, nil)
+				}
 				runtime.KeepAlive(op)
 				op.callback = nil
 				op.completion = nil
