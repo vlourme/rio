@@ -20,14 +20,14 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		proto := 0
+		proto := syscall.IPPROTO_TCP
 		if opts.MultipathTCP {
 			proto = tryGetMultipathTCPProto()
 		}
 		fd, err = newListenerFd(network, family, syscall.SOCK_STREAM, proto, ipv6only, addr, nil)
 		break
 	case "udp", "udp4", "udp6":
-		fd, err = newListenerFd(network, family, syscall.SOCK_DGRAM, 0, ipv6only, addr, opts.MulticastInterface)
+		fd, err = newListenerFd(network, family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP, ipv6only, addr, opts.MulticastInterface)
 		break
 	case "unix":
 		fd, err = newListenerFd(network, family, syscall.SOCK_STREAM, 0, ipv6only, addr, nil)

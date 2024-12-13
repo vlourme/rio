@@ -27,7 +27,7 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 				tcpAddr.IP = net.ParseIP("127.0.0.1").To4()
 			}
 		}
-		proto := 0
+		proto := syscall.IPPROTO_TCP
 		if opts.MultipathTCP {
 			proto = tryGetMultipathTCPProto()
 		}
@@ -42,7 +42,7 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 				udpAddr.IP = net.ParseIP("127.0.0.1").To4()
 			}
 		}
-		connect(network, family, syscall.SOCK_DGRAM, 0, ipv6only, udpAddr, opts.LocalAddr, callback)
+		connect(network, family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP, ipv6only, udpAddr, opts.LocalAddr, callback)
 		break
 	case "unix":
 		connect(network, family, syscall.SOCK_STREAM, 0, ipv6only, addr, nil, callback)
