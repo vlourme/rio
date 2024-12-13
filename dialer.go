@@ -25,7 +25,7 @@ func WithLocalAddr(network string, addr string) Option {
 }
 
 func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
-	opts := &DialOptions{
+	opts := DialOptions{
 		Options: Options{
 			DefaultConnReadTimeout:     0,
 			DefaultConnWriteTimeout:    0,
@@ -40,7 +40,8 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		LocalAddr: nil,
 	}
 	for _, o := range options {
-		err := o((*Options)(unsafe.Pointer(&opts)))
+		opt := (*Options)(unsafe.Pointer(&opts))
+		err := o(opt)
 		if err != nil {
 			future = async.FailedImmediately[Connection](ctx, err)
 			return
