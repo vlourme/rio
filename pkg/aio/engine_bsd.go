@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -204,9 +205,9 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
-				// todo handle eof
+				// todo handle eof, try get error from fflags ?
 				if eof {
-					completion(int(data), op, ErrClosed)
+					completion(int(data), op, io.EOF)
 				} else {
 					completion(int(data), op, nil)
 				}
