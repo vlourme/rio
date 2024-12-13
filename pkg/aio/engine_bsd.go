@@ -154,8 +154,10 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 			break
 		}
 		// deadline
-		deadline := time.Now().Add(timeout)
-		timespec := syscall.NsecToTimespec(deadline.UnixNano())
+		//deadline := time.Now().Add(timeout)
+		//timespec := syscall.NsecToTimespec(deadline.UnixNano())
+		// todo check timespec
+		timespec := syscall.NsecToTimespec(int64(timeout))
 		// peek
 		peeked := cylinder.sq.PeekBatch(changes)
 		if peeked == 0 && !wakeup {
@@ -167,7 +169,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 
 		n, err := syscall.Kevent(kqfd, changes[:peeked], events, &timespec)
 		if err != nil {
-			if errors.Is(err, syscall.EINTR) {
+			if errors.Is(err, syscall.EINTR) || errors.Is(err, syscall.ETIMEDOUT) {
 				continue
 			}
 			cylinder.stopped.Store(true)
@@ -202,8 +204,9 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
+				// todo handle eof
 				if eof {
-					completion(int(data), op, os.ErrClosed)
+					completion(int(data), op, ErrClosed)
 				} else {
 					completion(int(data), op, nil)
 				}
