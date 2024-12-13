@@ -1,15 +1,17 @@
 package aio
 
 import (
+	"context"
 	"errors"
-	"os"
+	"net"
 )
 
 var (
 	ErrUnexpectedCompletion      = errors.New("aio: unexpected completion error")
-	ErrOperationDeadlineExceeded = errors.Join(errors.New("aio: operation deadline exceeded"), os.ErrDeadlineExceeded)
+	ErrOperationDeadlineExceeded = errors.Join(errors.New("aio: operation deadline exceeded"), context.DeadlineExceeded)
 	ErrEmptyBytes                = errors.New("aio: empty bytes")
 	ErrBusy                      = errors.New("aio: busy")
+	ErrClosed                    = errors.Join(errors.New("aio: use of closed network connection"), net.ErrClosed)
 )
 
 func IsUnexpectedCompletionError(err error) bool {
@@ -26,4 +28,8 @@ func IsEmptyBytesError(err error) bool {
 
 func IsBusyError(err error) bool {
 	return errors.Is(err, ErrBusy)
+}
+
+func IsClosedError(err error) bool {
+	return errors.Is(err, ErrClosed)
 }
