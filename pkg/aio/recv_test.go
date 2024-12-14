@@ -19,6 +19,13 @@ func TestRecv(t *testing.T) {
 	}
 
 	wg := new(sync.WaitGroup)
+	defer func(lnFd aio.NetFd, wg *sync.WaitGroup) {
+		wg.Add(1)
+		go aio.Close(lnFd, func(result int, userdata aio.Userdata, err error) {
+			wg.Done()
+		})
+		wg.Wait()
+	}(lnFd, wg)
 
 	wg.Add(1)
 	go aio.Accept(lnFd, func(result int, userdata aio.Userdata, err error) {
@@ -75,6 +82,13 @@ func TestRecvFrom(t *testing.T) {
 		return
 	}
 	wg := new(sync.WaitGroup)
+	defer func(lnFd aio.NetFd, wg *sync.WaitGroup) {
+		wg.Add(1)
+		go aio.Close(lnFd, func(result int, userdata aio.Userdata, err error) {
+			wg.Done()
+		})
+		wg.Wait()
+	}(lnFd, wg)
 
 	wg.Add(1)
 	b := make([]byte, 1024)
@@ -144,7 +158,7 @@ func TestRecvMsg(t *testing.T) {
 	defer conn.Close()
 
 	udpc := conn.(*net.UDPConn)
-	wn, woobn, wErr := udpc.WriteMsgUDP([]byte("hello world"), []byte("oob"), nil)
+	wn, woobn, wErr := udpc.WriteMsgUDP([]byte("hello world"), nil, nil)
 	if wErr != nil {
 		t.Error("write failed:", wErr)
 		return

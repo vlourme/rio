@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -56,6 +55,7 @@ func (engine *Engine) Stop() {
 
 	for _, cylinder := range engine.cylinders {
 		cylinder.Stop()
+		runtime.KeepAlive(cylinder)
 	}
 	engine.wg.Wait()
 }
@@ -138,8 +138,6 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 	beg()
 	defer end()
 
-	kqfd := cylinder.fd
-
 	pipeReadFd := cylinder.pipe[0]
 	pipeBuf := make([]byte, 8)
 	stopBytes := cylinder.stopBytes
@@ -154,10 +152,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 		if stopped {
 			break
 		}
-		// deadline
-		//deadline := time.Now().Add(timeout)
-		//timespec := syscall.NsecToTimespec(deadline.UnixNano())
-		// todo check timespec
+		// timeout
 		timespec := syscall.NsecToTimespec(int64(timeout))
 		// peek
 		peeked := cylinder.sq.PeekBatch(changes)
@@ -168,7 +163,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 			peeked = 1
 		}
 
-		n, err := syscall.Kevent(kqfd, changes[:peeked], events, &timespec)
+		n, err := syscall.Kevent(cylinder.fd, changes[:peeked], events, &timespec)
 		if err != nil {
 			if errors.Is(err, syscall.EINTR) || errors.Is(err, syscall.ETIMEDOUT) {
 				continue
@@ -205,11 +200,20 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
-				// todo handle eof, try get error from fflags ?
+				timer := op.timer
 				if eof {
-					completion(int(data), op, io.EOF)
+					completion(int(data), op, ErrClosed)
 				} else {
-					completion(int(data), op, nil)
+					// todo handle timeout when kqueue not support cancel
+					if timer != nil && timer.DeadlineExceeded() {
+						completion(int(data), op, ErrOperationDeadlineExceeded)
+					} else {
+						completion(int(data), op, nil)
+					}
+				}
+				if timer != nil {
+					timer.Done()
+					putOperatorTimer(timer)
 				}
 				runtime.KeepAlive(op)
 				op.callback = nil
@@ -223,9 +227,7 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 		_ = syscall.Close(cylinder.pipe[0])
 		_ = syscall.Close(cylinder.pipe[1])
 	}
-	if kqfd > 0 {
-		_ = syscall.Close(kqfd)
-	}
+	_ = syscall.Close(cylinder.fd)
 }
 
 func (cylinder *KqueueCylinder) Stop() {
