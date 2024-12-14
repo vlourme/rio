@@ -51,7 +51,7 @@ const (
 func newEngine(options Options) *Engine {
 	cylinders := options.Cylinders
 	if cylinders < 1 {
-		cylinders = runtime.NumCPU() * 2
+		cylinders = runtime.NumCPU()
 	}
 	_engine = &Engine{
 		fd:                    0,
@@ -126,7 +126,9 @@ func Startup(options Options) {
 }
 
 func Shutdown() {
-	engine().Stop()
+	eng := engine()
+	eng.Stop()
+	runtime.KeepAlive(eng)
 }
 
 func engine() *Engine {
