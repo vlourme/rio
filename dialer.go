@@ -66,7 +66,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		addr, _, _, _ := aio.ResolveAddr(network, address)
 		if async.IsBusy(promiseErr) {
 			promiseErr = &net.OpError{
-				Op:     opDial,
+				Op:     aio.OpDial,
 				Net:    network,
 				Source: nil,
 				Addr:   addr,
@@ -75,7 +75,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			future = async.FailedImmediately[Connection](ctx, promiseErr)
 		} else {
 			promiseErr = &net.OpError{
-				Op:     opDial,
+				Op:     aio.OpDial,
 				Net:    network,
 				Source: nil,
 				Addr:   addr,
@@ -96,7 +96,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			if err != nil {
 				addr, _, _, _ := aio.ResolveAddr(network, address)
 				err = &net.OpError{
-					Op:     opDial,
+					Op:     aio.OpDial,
 					Net:    network,
 					Source: nil,
 					Addr:   addr,
@@ -193,7 +193,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	if !executed {
 		addr, _, _, _ := aio.ResolveAddr(network, address)
 		err := &net.OpError{
-			Op:     opDial,
+			Op:     aio.OpDial,
 			Net:    network,
 			Source: nil,
 			Addr:   addr,

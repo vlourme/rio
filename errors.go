@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp/async"
+	"io"
 	"net"
 )
 
@@ -18,6 +19,8 @@ var (
 	ErrAllocateWrote    = errors.New("rio: allocate wrote failed")
 )
 
+// IsClosed
+// 是否为服务停止错误
 func IsClosed(err error) bool {
 	var opErr *net.OpError
 	isOpErr := errors.As(err, &opErr)
@@ -94,22 +97,6 @@ func IsUnexpectedCompletedError(err error) bool {
 	return aio.IsUnexpectedCompletionError(err)
 }
 
-const (
-	opDial   = "dial"
-	opListen = "listen"
-	opAccept = "accept"
-	opRead   = "read"
-	opWrite  = "write"
-	opClose  = "close"
-	opSet    = "set"
-)
-
-func newOpErr(op string, fd aio.NetFd, err error) *net.OpError {
-	return &net.OpError{
-		Op:     op,
-		Net:    fd.Network(),
-		Source: fd.LocalAddr(),
-		Addr:   fd.RemoteAddr(),
-		Err:    err,
-	}
+func IsEOF(err error) bool {
+	return errors.Is(err, io.EOF)
 }

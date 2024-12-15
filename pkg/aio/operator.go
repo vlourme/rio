@@ -2,6 +2,7 @@ package aio
 
 import (
 	"io"
+	"net"
 )
 
 const (
@@ -33,4 +34,24 @@ func ReadOperator(fd Fd) *Operator {
 func WriteOperator(fd Fd) *Operator {
 	op := fd.WriteOperator()
 	return &op
+}
+
+const (
+	OpDial   = "dial"
+	OpListen = "listen"
+	OpAccept = "accept"
+	OpRead   = "read"
+	OpWrite  = "write"
+	OpClose  = "close"
+	OpSet    = "set"
+)
+
+func NewOpErr(op string, fd NetFd, err error) *net.OpError {
+	return &net.OpError{
+		Op:     op,
+		Net:    fd.Network(),
+		Source: fd.LocalAddr(),
+		Addr:   fd.RemoteAddr(),
+		Err:    err,
+	}
 }

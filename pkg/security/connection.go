@@ -3,6 +3,7 @@ package security
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/aio"
+	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -10,52 +11,74 @@ import (
 )
 
 type TLSConnection struct {
-	fd aio.NetFd
+	ctx context.Context
+	fd  aio.NetFd
+	rb  transport.InboundBuffer
+	rbs int
 }
 
-func (conn *TLSConnection) Context() (ctx context.Context) {
-	//TODO implement me
-	panic("implement me")
+func (conn *TLSConnection) Context() context.Context {
+	return conn.ctx
 }
 
 func (conn *TLSConnection) ConfigContext(config func(ctx context.Context) context.Context) {
-	//TODO implement me
-	panic("implement me")
+	if config == nil {
+		return
+	}
+	newCtx := config(conn.ctx)
+	if newCtx == nil {
+		return
+	}
+	conn.ctx = newCtx
+	return
 }
 
 func (conn *TLSConnection) LocalAddr() (addr net.Addr) {
-	//TODO implement me
-	panic("implement me")
+	addr = conn.fd.LocalAddr()
+	return
 }
 
 func (conn *TLSConnection) RemoteAddr() (addr net.Addr) {
-	//TODO implement me
-	panic("implement me")
+	addr = conn.fd.RemoteAddr()
+	return
 }
 
 func (conn *TLSConnection) SetReadTimeout(d time.Duration) (err error) {
-	//TODO implement me
-	panic("implement me")
+	conn.fd.SetReadTimeout(d)
+	return
 }
 
 func (conn *TLSConnection) SetWriteTimeout(d time.Duration) (err error) {
-	//TODO implement me
-	panic("implement me")
+	conn.fd.SetWriteTimeout(d)
+	return
 }
 
 func (conn *TLSConnection) SetReadBuffer(n int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	if err = aio.SetReadBuffer(conn.fd, n); err != nil {
+		err = aio.NewOpErr(aio.OpSet, conn.fd, err)
+		return
+	}
+	return
 }
 
 func (conn *TLSConnection) SetWriteBuffer(n int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	if err = aio.SetWriteBuffer(conn.fd, n); err != nil {
+		err = aio.NewOpErr(aio.OpSet, conn.fd, err)
+		return
+	}
+	return
 }
 
+const (
+	defaultReadBufferSize = 1024
+)
+
 func (conn *TLSConnection) SetInboundBuffer(n int) {
-	//TODO implement me
-	panic("implement me")
+	if n < 1 {
+		n = defaultReadBufferSize
+	}
+	conn.rbs = n
+	return
 }
 
 func (conn *TLSConnection) Read() (future async.Future[transport.Inbound]) {
@@ -69,36 +92,46 @@ func (conn *TLSConnection) Write(b []byte) (future async.Future[transport.Outbou
 }
 
 func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
-	//TODO implement me
-	panic("implement me")
+	promise := async.UnlimitedPromise[async.Void](conn.ctx)
+	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
+		if err != nil {
+			promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))
+		} else {
+			promise.Succeed(async.Void{})
+		}
+		conn.rb.Close()
+		timeslimiter.TryRevert(conn.ctx)
+		return
+	})
+	future = promise.Future()
+	return
 }
 
 func (conn *TLSConnection) MultipathTCP() bool {
-	//TODO implement me
-	panic("implement me")
+	return aio.IsUsingMultipathTCP(conn.fd)
 }
 
 func (conn *TLSConnection) SetNoDelay(noDelay bool) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = aio.SetNoDelay(conn.fd, noDelay)
+	return
 }
 
 func (conn *TLSConnection) SetLinger(sec int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = aio.SetLinger(conn.fd, sec)
+	return
 }
 
 func (conn *TLSConnection) SetKeepAlive(keepalive bool) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = aio.SetKeepAlive(conn.fd, keepalive)
+	return
 }
 
 func (conn *TLSConnection) SetKeepAlivePeriod(period time.Duration) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = aio.SetKeepAlivePeriod(conn.fd, period)
+	return
 }
 
 func (conn *TLSConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err error) {
-	//TODO implement me
-	panic("implement me")
+	err = aio.SetKeepAliveConfig(conn.fd, config)
+	return
 }

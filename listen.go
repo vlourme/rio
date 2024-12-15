@@ -140,7 +140,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		MulticastInterface: nil,
 	})
 	if listenErr != nil {
-		err = &net.OpError{Op: opListen, Net: network, Err: listenErr}
+		err = &net.OpError{Op: aio.OpListen, Net: network, Err: listenErr}
 		return
 	}
 	// handle unix
@@ -241,7 +241,7 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	aio.Close(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		ln.acceptorPromises.Cancel()
 		if err != nil {
-			promise.Fail(newOpErr(opClose, ln.fd, err))
+			promise.Fail(aio.NewOpErr(aio.OpClose, ln.fd, err))
 		} else {
 			promise.Succeed(async.Void{})
 		}
@@ -283,7 +283,7 @@ func (ln *listener) acceptOne() {
 				ln.acceptOne()
 				return
 			}
-			ln.acceptorPromises.Fail(newOpErr(opAccept, ln.fd, err))
+			ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
 			ln.acceptOne()
 			return
 		}
@@ -331,7 +331,7 @@ func (ln *listener) acceptOne() {
 			// not matched, so close it
 			conn = newConnection(ln.ctx, connFd)
 			conn.Close().OnComplete(async.DiscardVoidHandler)
-			ln.acceptorPromises.Fail(newOpErr(opAccept, ln.fd, ErrNetworkUnmatched))
+			ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, ErrNetworkUnmatched))
 			ln.acceptOne()
 			return
 		}
