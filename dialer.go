@@ -3,6 +3,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/aio"
+	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -33,7 +34,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
 			TLSConfig:                  nil,
-			TLSConnectionBuilder:       clientTLS,
+			TLSConnectionBuilder:       security.Client,
 			MultipathTCP:               false,
 			PromiseMakeOptions:         nil,
 		},
@@ -109,13 +110,39 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 			switch network {
 			case "tcp", "tcp4", "tcp6":
-				conn = newTCPConnection(ctx, connFd)
+				// tls
+				if opts.TLSConfig == nil {
+					conn = newTCPConnection(ctx, connFd)
+				} else {
+					sc, scErr := opts.TLSConnectionBuilder(ctx, connFd, opts.TLSConfig)
+					if scErr != nil {
+						conn.Close().OnComplete(async.DiscardVoidHandler)
+						promise.Fail(err)
+						return
+					}
+					conn = sc
+				}
 				break
 			case "udp", "udp4", "udp6":
+				// todo ktls
 				conn = newPacketConnection(ctx, connFd)
 				break
 			case "unix", "unixgram", "unixpacket":
-				conn = newPacketConnection(ctx, connFd)
+				if network == "unix" {
+					if opts.TLSConfig == nil {
+						conn = newPacketConnection(ctx, connFd)
+					} else {
+						sc, scErr := opts.TLSConnectionBuilder(ctx, connFd, opts.TLSConfig)
+						if scErr != nil {
+							conn.Close().OnComplete(async.DiscardVoidHandler)
+							promise.Fail(err)
+							return
+						}
+						conn = sc
+					}
+				} else {
+					conn = newPacketConnection(ctx, connFd)
+				}
 				break
 			case "ip", "ip4", "ip6":
 				conn = newPacketConnection(ctx, connFd)
@@ -158,16 +185,6 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				conn.SetInboundBuffer(n)
 			}
 
-			// tls
-			if opts.TLSConfig != nil {
-				sc, scErr := opts.TLSConnectionBuilder(conn, opts.TLSConfig)
-				if scErr != nil {
-					conn.Close().OnComplete(async.DiscardVoidHandler)
-					promise.Fail(err)
-					return
-				}
-				conn = sc
-			}
 			promise.Succeed(conn)
 			return
 		})

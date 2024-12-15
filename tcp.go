@@ -6,13 +6,6 @@ import (
 	"time"
 )
 
-type KeepAliveConfig struct {
-	Enable   bool
-	Idle     time.Duration
-	Interval time.Duration
-	Count    int
-}
-
 type TCPConnection interface {
 	Connection
 	MultipathTCP() bool
@@ -20,7 +13,7 @@ type TCPConnection interface {
 	SetLinger(sec int) (err error)
 	SetKeepAlive(keepalive bool) (err error)
 	SetKeepAlivePeriod(period time.Duration) (err error)
-	SetKeepAliveConfig(config KeepAliveConfig) (err error)
+	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
 }
 
 func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
@@ -59,12 +52,7 @@ func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) (err error) 
 	return
 }
 
-func (conn *tcpConnection) SetKeepAliveConfig(config KeepAliveConfig) (err error) {
-	err = aio.SetKeepAliveConfig(conn.fd, aio.KeepAliveConfig{
-		Enable:   config.Enable,
-		Idle:     config.Idle,
-		Interval: config.Interval,
-		Count:    config.Count,
-	})
+func (conn *tcpConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err error) {
+	err = aio.SetKeepAliveConfig(conn.fd, config)
 	return
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
+	"github.com/brickingsoft/rio/pkg/security"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -107,7 +108,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
 			TLSConfig:                  nil,
-			TLSConnectionBuilder:       serverTLS,
+			TLSConnectionBuilder:       security.Server,
 			MultipathTCP:               false,
 			PromiseMakeOptions:         make([]async.Option, 0, 1),
 		},
@@ -293,10 +294,38 @@ func (ln *listener) acceptOne() {
 
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
-			conn = newTCPConnection(ln.ctx, connFd)
+			// tls
+			if ln.tlsConfig == nil {
+				conn = newTCPConnection(ln.ctx, connFd)
+			} else {
+				sc, tlsErr := ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
+				if tlsErr != nil {
+					conn.Close().OnComplete(async.DiscardVoidHandler)
+					ln.acceptorPromises.Fail(tlsErr)
+					ln.acceptOne()
+					return
+				}
+				conn = sc
+			}
 			break
 		case "unix", "unixpacket":
-			conn = newPacketConnection(ln.ctx, connFd)
+			if ln.network == "unix" {
+				// tls
+				if ln.tlsConfig == nil {
+					conn = newPacketConnection(ln.ctx, connFd)
+				} else {
+					sc, tlsErr := ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
+					if tlsErr != nil {
+						conn.Close().OnComplete(async.DiscardVoidHandler)
+						ln.acceptorPromises.Fail(tlsErr)
+						ln.acceptOne()
+						return
+					}
+					conn = sc
+				}
+			} else {
+				conn = newPacketConnection(ln.ctx, connFd)
+			}
 			break
 		default:
 			// not matched, so close it
@@ -346,17 +375,7 @@ func (ln *listener) acceptOne() {
 		if ln.defaultInboundBuffer != 0 {
 			conn.SetInboundBuffer(ln.defaultInboundBuffer)
 		}
-		// tls
-		if ln.tlsConfig != nil {
-			sc, tlsErr := ln.tlsConnBuilder(conn, ln.tlsConfig)
-			if tlsErr != nil {
-				conn.Close().OnComplete(async.DiscardVoidHandler)
-				ln.acceptorPromises.Fail(tlsErr)
-				ln.acceptOne()
-				return
-			}
-			conn = sc
-		}
+
 		ln.acceptorPromises.Succeed(conn)
 		ln.acceptOne()
 		return
