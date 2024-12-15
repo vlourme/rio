@@ -198,27 +198,39 @@ func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
 				continue
 			}
 
+			op.locker.Lock()
+			if op.done {
+				if op.timer != nil {
+					op.timer.Done()
+					putOperatorTimer(op.timer)
+				}
+				op.locker.Unlock()
+				continue
+			}
+
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
-				timer := op.timer
 				if eof {
 					completion(int(data), op, ErrClosed)
 				} else {
-					// todo handle timeout when kqueue not support cancel
-					if timer != nil && timer.DeadlineExceeded() {
-						completion(int(data), op, ErrOperationDeadlineExceeded)
+					if op.timer != nil {
+						if op.timer.DeadlineExceeded() {
+							completion(int(data), op, ErrOperationDeadlineExceeded)
+						} else {
+							completion(int(data), op, nil)
+						}
+						op.timer.Done()
+						putOperatorTimer(op.timer)
 					} else {
 						completion(int(data), op, nil)
 					}
 				}
-				if timer != nil {
-					timer.Done()
-					putOperatorTimer(timer)
-				}
-				runtime.KeepAlive(op)
 				op.callback = nil
 				op.completion = nil
+				runtime.KeepAlive(op)
 			}
+			op.done = true
+			op.locker.Unlock()
 			runtime.KeepAlive(op)
 			cylinder.completing.Add(-1)
 		}

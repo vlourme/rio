@@ -28,17 +28,15 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		runtime.KeepAlive(op)
 	}
 
-	cylinder := nextKqueueCylinder()
-
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
 		op.timer = timer
 		timer.Start(timeout, &operatorCanceler{
-			cylinder: cylinder,
-			op:       op,
+			op: op,
 		})
 	}
 
+	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(0, Userdata{}, err)
 		// reset
@@ -104,17 +102,15 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		runtime.KeepAlive(op)
 	}
 
-	cylinder := nextKqueueCylinder()
-
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
 		op.timer = timer
 		timer.Start(timeout, &operatorCanceler{
-			cylinder: cylinder,
-			op:       op,
+			op: op,
 		})
 	}
 
+	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(0, Userdata{}, err)
 		// reset
@@ -183,17 +179,15 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		runtime.KeepAlive(op)
 	}
 
-	cylinder := nextKqueueCylinder()
-
 	if timeout := op.timeout; timeout > 0 {
 		timer := getOperatorTimer()
 		op.timer = timer
 		timer.Start(timeout, &operatorCanceler{
-			cylinder: cylinder,
-			op:       op,
+			op: op,
 		})
 	}
 
+	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(0, Userdata{}, err)
 		// reset

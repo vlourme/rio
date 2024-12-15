@@ -5,38 +5,39 @@ package aio
 import (
 	"errors"
 	"net"
-	"runtime"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
+type Operator struct {
+	userdata   Userdata
+	fd         Fd
+	locker     sync.Mutex
+	done       bool
+	callback   OperationCallback
+	completion OperatorCompletion
+	timeout    time.Duration
+	timer      *operatorTimer
+}
+
 type operatorCanceler struct {
-	cylinder *KqueueCylinder
-	op       *Operator
+	op *Operator
 }
 
 func (canceler *operatorCanceler) Cancel() {
-	//cylinder := canceler.cylinder
-	op := canceler.op
-	// todo 貌似不支持 cancel，标记op的cb为空，或者op单独做，增加cancel的状态
-	// 使用 EV_DELETE，删除对应的 FLITER （EVFILT_READ 或 EVFILT_WRITE ）
-	userdata := uint64(uintptr(unsafe.Pointer(op)))
-	cancelOp := &Operator{
-		userdata:   Userdata{},
-		fd:         nil,
-		callback:   nil,
-		completion: nil,
-		timeout:    0,
-		timer:      nil,
+	canceler.op.locker.Lock()
+	defer canceler.op.locker.Unlock()
+	if canceler.op.done {
+		return
 	}
-	cancelOp.completion = func(_ int, _ *Operator, _ error) {
-		runtime.KeepAlive(cancelOp)
-	}
-	for i := 0; i < 10; i++ {
-		// todo
-	}
-	runtime.KeepAlive(userdata)
-	runtime.KeepAlive(cancelOp)
+	// cb
+	canceler.op.callback(0, canceler.op.userdata, ErrOperationDeadlineExceeded)
+	canceler.op.done = true
+	// reset
+	canceler.op.completion = nil
+	canceler.op.callback = nil
 }
 
 type Message struct {
