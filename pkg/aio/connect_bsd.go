@@ -71,9 +71,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// connect
 	for {
 		if connectErr := syscall.Connect(sock, sa); connectErr != nil {
-			if errors.Is(connectErr, syscall.EAGAIN) || errors.Is(connectErr, syscall.EINTR) || errors.Is(connectErr, syscall.ECONNABORTED) {
+			if errors.Is(connectErr, syscall.EINPROGRESS) || errors.Is(connectErr, syscall.EALREADY) || errors.Is(connectErr, syscall.EINTR) {
+				break
+			}
+			if errors.Is(connectErr, syscall.EAGAIN) {
 				continue
 			}
+			_ = syscall.Close(sock)
 			cb(0, Userdata{}, os.NewSyscallError("connect", connectErr))
 			return
 		}
