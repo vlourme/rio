@@ -75,13 +75,13 @@ func completeSend(result int, op *Operator, err error) {
 			cb(0, userdata, ErrOperationDeadlineExceeded)
 			break
 		}
-		n, rErr := syscall.Write(fd, b)
-		if rErr != nil {
+		n, wErr := syscall.Write(fd, b)
+		if wErr != nil {
 			n = 0
-			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
+			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(n, userdata, rErr)
+			cb(n, userdata, wErr)
 			break
 		}
 		userdata.QTY = uint32(n)
@@ -173,12 +173,12 @@ func completeSendTo(result int, op *Operator, err error) {
 			cb(0, userdata, ErrOperationDeadlineExceeded)
 			break
 		}
-		rErr := syscall.Sendto(fd, b, flags, sa)
-		if rErr != nil {
-			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
+		wErr := syscall.Sendto(fd, b, flags, sa)
+		if wErr != nil {
+			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(0, userdata, rErr)
+			cb(0, userdata, wErr)
 			break
 		}
 		userdata.QTY = uint32(bLen)
@@ -272,12 +272,12 @@ func completeSendMsg(result int, op *Operator, err error) {
 			cb(0, userdata, ErrOperationDeadlineExceeded)
 			break
 		}
-		rErr := syscall.Sendmsg(fd, b, oob, sa, flags)
-		if rErr != nil {
-			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
+		wErr := syscall.Sendmsg(fd, b, oob, sa, flags)
+		if wErr != nil {
+			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(0, userdata, rErr)
+			cb(0, userdata, wErr)
 			break
 		}
 		userdata.QTY = uint32(bLen)
