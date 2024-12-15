@@ -3,7 +3,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/pkg/security"
+	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"

@@ -6,6 +6,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/aio"
 )
 
-func Server(ctx context.Context, fd aio.NetFd, config *tls.Config) (sc *TLSConnection, err error) {
+func Server(ctx context.Context, fd aio.NetFd, config *tls.Config) (conn Connection, err error) {
 	return
 }

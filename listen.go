@@ -6,7 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
-	"github.com/brickingsoft/rio/pkg/security"
+	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -201,7 +201,7 @@ type listener struct {
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
 	tlsConfig                     *tls.Config
-	tlsConnBuilder                TLSConnectionBuilder
+	tlsConnBuilder                security.ConnectionBuilder
 	defaultReadTimeout            time.Duration
 	defaultWriteTimeout           time.Duration
 	defaultReadBuffer             int
