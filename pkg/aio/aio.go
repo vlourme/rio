@@ -10,6 +10,7 @@ var (
 	ErrUnexpectedCompletion      = errors.New("aio: unexpected completion error")
 	ErrOperationDeadlineExceeded = errors.Join(errors.New("aio: operation deadline exceeded"), context.DeadlineExceeded)
 	ErrEmptyBytes                = errors.New("aio: empty bytes")
+	ErrNilAddr                   = errors.New("aio: addr is nil")
 	ErrBusy                      = errors.New("aio: busy")
 	ErrClosed                    = errors.Join(errors.New("aio: use of closed network connection"), net.ErrClosed)
 )
