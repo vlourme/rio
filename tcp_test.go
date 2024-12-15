@@ -124,7 +124,7 @@ func TestTCP(t *testing.T) {
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
-		_ = conn.SetReadTimeout(500 * time.Millisecond)
+		//_ = conn.SetReadTimeout(500 * time.Millisecond)
 
 		wgAdd(ctx)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
