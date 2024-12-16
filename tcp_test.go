@@ -9,12 +9,10 @@ import (
 	"net"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestListenTCP(t *testing.T) {
 	ctx := context.Background()
-	ctx = withWG(ctx)
 
 	ln, lnErr := rio.Listen(
 		ctx,
@@ -27,11 +25,12 @@ func TestListenTCP(t *testing.T) {
 		return
 	}
 
-	wgAdd(ctx)
+	lwg := new(sync.WaitGroup)
+	lwg.Add(1)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			t.Log("accepted:", timeslimiter.Tokens(ctx), rio.IsClosed(err), err, ctx.Err())
-			wgDone(ctx)
+			lwg.Done()
 			return
 		}
 
@@ -40,13 +39,11 @@ func TestListenTCP(t *testing.T) {
 			addr = conn.RemoteAddr()
 		}
 		t.Log("accepted:", timeslimiter.Tokens(ctx), addr, err, ctx.Err())
-		wgAdd(ctx)
 		if conn != nil {
 			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 				if cause != nil {
 					t.Error("srv close conn err:", cause)
 				}
-				wgDone(ctx)
 			})
 		}
 	})
@@ -64,41 +61,23 @@ func TestListenTCP(t *testing.T) {
 		}
 	}
 
-	wgAdd(ctx)
+	lwg.Add(1)
 	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		if cause != nil {
 			t.Error("ln close close err:", cause)
 		}
-		wgDone(ctx)
+		lwg.Done()
 	})
-	wgWait(ctx)
-}
-
-func withWG(ctx context.Context) context.Context {
-	return context.WithValue(ctx, "wg", new(sync.WaitGroup))
-}
-
-func wgAdd(ctx context.Context) {
-	wg := ctx.Value("wg").(*sync.WaitGroup)
-	wg.Add(1)
-}
-
-func wgDone(ctx context.Context) {
-	wg := ctx.Value("wg").(*sync.WaitGroup)
-	wg.Done()
-}
-
-func wgWait(ctx context.Context) {
-	wg := ctx.Value("wg").(*sync.WaitGroup)
-	wg.Wait()
+	lwg.Wait()
 }
 
 func TestTCP(t *testing.T) {
 	_ = rio.Startup()
-	defer rio.ShutdownGracefully()
+	defer func() {
+		_ = rio.ShutdownGracefully()
+	}()
 
 	ctx := context.Background()
-	ctx = withWG(ctx)
 
 	ln, lnErr := rio.Listen(ctx,
 		"tcp", ":9000",
@@ -110,7 +89,8 @@ func TestTCP(t *testing.T) {
 		return
 	}
 
-	wgAdd(ctx)
+	lwg := new(sync.WaitGroup)
+	lwg.Add(1)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			if rio.IsClosed(err) {
@@ -118,83 +98,72 @@ func TestTCP(t *testing.T) {
 			} else {
 				t.Error("srv accept:", rio.IsClosed(err), err)
 			}
+			lwg.Done()
 			return
 		}
-		wgDone(ctx)
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
 		//_ = conn.SetReadTimeout(500 * time.Millisecond)
 
-		wgAdd(ctx)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
-			defer wgDone(ctx)
 			if err != nil {
 				t.Error("srv read:", err)
-				wgAdd(ctx)
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					defer wgDone(ctx)
-				})
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {})
 				return
 			}
 			n := in.Received()
 			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
-			wgAdd(ctx)
 			conn.Write(p).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
-				defer wgDone(ctx)
 				if err != nil {
 					t.Error("srv write:", err)
 					return
 				}
 				t.Log("srv write:", out.Wrote())
-				wgAdd(ctx)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 					t.Log("srv close:", cause)
-					wgDone(ctx)
 				})
 			})
 		})
 	})
 
-	wgAdd(ctx)
+	cwg := new(sync.WaitGroup)
+	cwg.Add(1)
 	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
-		defer wgDone(ctx)
 		if err != nil {
 			t.Error("cli dial:", err)
+			cwg.Done()
 			return
 		}
-		wgAdd(ctx)
 		conn.Write([]byte("hello word")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
-			defer wgDone(ctx)
 			if err != nil {
 				t.Error("cli write:", err)
+				cwg.Done()
 				return
 			}
 			t.Log("cli write:", out.Wrote())
-			wgAdd(ctx)
 			conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
-				defer wgDone(ctx)
 				if err != nil {
 					t.Error("cli read:", err)
+					cwg.Done()
 					return
 				}
 				t.Log("cli read:", in.Received(), string(in.Reader().Peek(in.Received())))
-				wgAdd(ctx)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					defer wgDone(ctx)
+					cwg.Done()
 					t.Log("cli close:", err)
 				})
 			})
 		})
 	})
 
-	time.Sleep(1 * time.Second)
-	wgWait(ctx)
-	wgAdd(ctx)
+	cwg.Wait()
+
+	lwg.Add(1)
 	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		t.Log("ln close:", cause)
-		wgDone(ctx)
+		lwg.Done()
 	})
-	wgWait(ctx)
+	lwg.Wait()
 }

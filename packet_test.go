@@ -5,15 +5,17 @@ import (
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
+	"sync"
 	"testing"
 )
 
 func TestListenPacket(t *testing.T) {
 	_ = rio.Startup()
-	defer rio.ShutdownGracefully()
+	defer func() {
+		_ = rio.ShutdownGracefully()
+	}()
 
 	ctx := context.Background()
-	ctx = withWG(ctx)
 
 	srv, lnErr := rio.ListenPacket(ctx, "udp", ":9000")
 	if lnErr != nil {
@@ -21,18 +23,18 @@ func TestListenPacket(t *testing.T) {
 		return
 	}
 
-	wgAdd(ctx)
+	lwg := new(sync.WaitGroup)
+	lwg.Add(1)
 	srv.ReadFrom().OnComplete(func(ctx context.Context, entry transport.PacketInbound, cause error) {
-		defer wgDone(ctx)
 		if cause != nil {
 			t.Error("srv read from:", cause)
+			lwg.Done()
 			return
 		}
 		p, _ := entry.Reader().Next(entry.Received())
 		t.Log("srv read from:", entry.Addr(), entry.Received(), string(p))
-		wgAdd(ctx)
 		srv.WriteTo(p[0:entry.Received()], entry.Addr()).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
-			defer wgDone(ctx)
+			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
 				return
@@ -41,45 +43,44 @@ func TestListenPacket(t *testing.T) {
 		})
 	})
 
-	wgAdd(ctx)
+	cwg := new(sync.WaitGroup)
+	cwg.Add(1)
 	rio.Dial(ctx, "udp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, cause error) {
-		defer wgDone(ctx)
 		if cause != nil {
 			t.Error("cli read dial err:", cause)
+			cwg.Done()
 			return
 		}
-		wgAdd(ctx)
 		conn.Write([]byte("hello world")).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
-			defer wgDone(ctx)
 			if cause != nil {
 				t.Error("cli write err:", cause)
+				cwg.Done()
 				return
 			}
 			t.Log("cli write:", entry.Wrote(), entry.UnexpectedError())
-			wgAdd(ctx)
 			conn.Read().OnComplete(func(ctx context.Context, entry transport.Inbound, cause error) {
-				defer wgDone(ctx)
 				if cause != nil {
 					t.Error("cli read err:", cause)
+					cwg.Done()
 					return
 				}
 				t.Log("cli read:", string(entry.Reader().Peek(entry.Received())))
-				wgAdd(ctx)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					defer wgDone(ctx)
 					if cause != nil {
 						t.Error("cli close:", cause)
 					}
+					cwg.Done()
 				})
 			})
 		})
 	})
 
-	wgWait(ctx)
-	wgAdd(ctx)
+	cwg.Wait()
+
+	lwg.Add(1)
 	srv.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		t.Log("ln close:", cause)
-		wgDone(ctx)
+		lwg.Done()
 	})
-	wgWait(ctx)
+	lwg.Wait()
 }
