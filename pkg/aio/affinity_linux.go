@@ -5,7 +5,6 @@ package aio
 import (
 	"fmt"
 	"golang.org/x/sys/unix"
-	"os"
 	"runtime"
 )
 
@@ -16,8 +15,7 @@ func SetCPUAffinity(index int) error {
 	cpuIndex := (index) % (runtime.NumCPU())
 	newMask.Set(cpuIndex)
 
-	pid := os.Getpid()
-	err := unix.SchedSetaffinity(pid, &newMask)
+	err := unix.SchedSetaffinity(0, &newMask)
 	if err != nil {
 		return fmt.Errorf("aio.SetCPUAffinity: %w, %v", err, newMask)
 	}
