@@ -1,4 +1,4 @@
-//go:build dragonfly || freebsd || netbsd || openbsd
+//go:build dragonfly || freebsd || netbsd || openbsd || linux
 
 package aio
 
