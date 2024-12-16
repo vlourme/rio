@@ -48,11 +48,13 @@ func (engine *Engine) Start() {
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder := newIOCPCylinder(cphandle)
 		engine.cylinders[i] = cylinder
+		engine.wg.Add(1)
 		go func(engine *Engine, cylinder Cylinder) {
+			defer engine.wg.Done()
 			if engine.cylindersLockOSThread {
 				runtime.LockOSThread()
 			}
-			cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+			cylinder.Loop()
 			if engine.cylindersLockOSThread {
 				runtime.UnlockOSThread()
 			}
@@ -96,9 +98,7 @@ func (cylinder *IOCPCylinder) Fd() int {
 	return int(cylinder.fd)
 }
 
-func (cylinder *IOCPCylinder) Loop(beg func(), end func()) {
-	beg()
-	defer end()
+func (cylinder *IOCPCylinder) Loop() {
 	fd := cylinder.fd
 	key := uintptr(0)
 	for {

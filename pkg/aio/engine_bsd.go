@@ -38,11 +38,13 @@ func (engine *Engine) Start() {
 		engine.cylinders[i] = cylinder
 	}
 	for _, cylinder := range engine.cylinders {
+		engine.wg.Add(1)
 		go func(engine *Engine, cylinder Cylinder) {
+			defer engine.wg.Done()
 			if engine.cylindersLockOSThread {
 				runtime.LockOSThread()
 			}
-			cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+			cylinder.Loop()
 			if engine.cylindersLockOSThread {
 				runtime.UnlockOSThread()
 			}
@@ -134,10 +136,7 @@ func (cylinder *KqueueCylinder) Actives() int64 {
 	return cylinder.sq.Len() + cylinder.completing.Load()
 }
 
-func (cylinder *KqueueCylinder) Loop(beg func(), end func()) {
-	beg()
-	defer end()
-
+func (cylinder *KqueueCylinder) Loop() {
 	pipeReadFd := cylinder.pipe[0]
 	pipeBuf := make([]byte, 8)
 	stopBytes := cylinder.stopBytes

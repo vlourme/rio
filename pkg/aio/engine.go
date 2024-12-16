@@ -36,7 +36,7 @@ func ResolveSettings[T any](settings any) T {
 
 type Cylinder interface {
 	Fd() int
-	Loop(beg func(), end func())
+	Loop()
 	Stop()
 	Actives() int64
 }
@@ -99,14 +99,6 @@ func (engine *Engine) next() Cylinder {
 		idx := atomic.AddInt64(&engine.cylindersIdx, 1) % engine.cylindersNum
 		return engine.cylinders[idx]
 	}
-}
-
-func (engine *Engine) markCylinderLoop() {
-	engine.wg.Add(1)
-}
-
-func (engine *Engine) markCylinderStop() {
-	engine.wg.Done()
 }
 
 var (

@@ -139,11 +139,13 @@ func (engine *Engine) Start() {
 		engine.cylinders[i] = cylinder
 	}
 	for _, cylinder := range engine.cylinders {
+		engine.wg.Add(1)
 		go func(engine *Engine, cylinder Cylinder) {
+			defer engine.wg.Done()
 			if engine.cylindersLockOSThread {
 				runtime.LockOSThread()
 			}
-			cylinder.Loop(engine.markCylinderLoop, engine.markCylinderStop)
+			cylinder.Loop()
 			if engine.cylindersLockOSThread {
 				runtime.UnlockOSThread()
 			}
@@ -212,10 +214,7 @@ func (cylinder *IOURingCylinder) Fd() int {
 	return cylinder.ring.fd
 }
 
-func (cylinder *IOURingCylinder) Loop(beg func(), end func()) {
-	beg()
-	defer end()
-
+func (cylinder *IOURingCylinder) Loop() {
 	ring := cylinder.ring
 	cqes := make([]*CompletionQueueEvent, cylinder.peekBatch)
 	stopped := false
