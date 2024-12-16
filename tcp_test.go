@@ -7,6 +7,7 @@ import (
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
+	"os"
 	"sync"
 	"testing"
 )
@@ -91,6 +92,7 @@ func TestTCP(t *testing.T) {
 
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
+	swg := new(sync.WaitGroup)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			if rio.IsClosed(err) {
@@ -104,9 +106,9 @@ func TestTCP(t *testing.T) {
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
-		//_ = conn.SetReadTimeout(500 * time.Millisecond)
-
+		swg.Add(1)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+			defer swg.Done()
 			if err != nil {
 				t.Error("srv read:", err)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {})
@@ -115,13 +117,17 @@ func TestTCP(t *testing.T) {
 			n := in.Received()
 			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
+			swg.Add(1)
 			conn.Write(p).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+				defer swg.Done()
 				if err != nil {
 					t.Error("srv write:", err)
 					return
 				}
 				t.Log("srv write:", out.Wrote())
+				swg.Add(1)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					defer swg.Done()
 					t.Log("srv close:", cause)
 				})
 			})
@@ -159,6 +165,7 @@ func TestTCP(t *testing.T) {
 	})
 
 	cwg.Wait()
+	swg.Wait()
 
 	lwg.Add(1)
 	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
@@ -169,6 +176,17 @@ func TestTCP(t *testing.T) {
 }
 
 func TestTcpConnection_Sendfile(t *testing.T) {
+	file, fileErr := os.CreateTemp("", "rio_*.txt")
+	if fileErr != nil {
+		t.Error(fileErr)
+		return
+	}
+	_, _ = file.Write([]byte("hello world"))
+	filename := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(filename)
+	}()
 	_ = rio.Startup()
 	defer func() {
 		_ = rio.ShutdownGracefully()
@@ -188,6 +206,7 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
+	swg := new(sync.WaitGroup)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
 			if rio.IsClosed(err) {
@@ -201,9 +220,9 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
-		//_ = conn.SetReadTimeout(500 * time.Millisecond)
-
+		swg.Add(1)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+			defer swg.Done()
 			if err != nil {
 				t.Error("srv read:", err)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {})
@@ -212,7 +231,10 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 			n := in.Received()
 			_, _ = in.Reader().Next(n)
 			t.Log("srv read:", n)
+
+			swg.Add(1)
 			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+				defer swg.Done()
 				t.Log("srv close:", cause)
 			})
 		})
@@ -232,7 +254,8 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 			cwg.Done()
 			return
 		}
-		tcpConn.Sendfile(`D:\tests\file.txt`).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+
+		tcpConn.Sendfile(filename).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
 			if err != nil {
 				t.Error("cli send:", err)
 				cwg.Done()
@@ -248,6 +271,8 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 
 	cwg.Wait()
 
+	swg.Wait()
+	// close ln
 	lwg.Add(1)
 	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		t.Log("ln close:", cause)
