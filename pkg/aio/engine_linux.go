@@ -138,18 +138,19 @@ func (engine *Engine) Start() {
 		}
 		engine.cylinders[i] = cylinder
 	}
-	for _, cylinder := range engine.cylinders {
+	for i, cylinder := range engine.cylinders {
 		engine.wg.Add(1)
-		go func(engine *Engine, cylinder Cylinder) {
+		go func(engine *Engine, idx int, cylinder Cylinder) {
 			defer engine.wg.Done()
 			if engine.cylindersLockOSThread {
+				_ = SetCPUAffinity(idx)
 				runtime.LockOSThread()
 			}
 			cylinder.Loop()
 			if engine.cylindersLockOSThread {
 				runtime.UnlockOSThread()
 			}
-		}(engine, cylinder)
+		}(engine, i, cylinder)
 	}
 }
 
