@@ -115,6 +115,10 @@ func (conn *TLSConnection) Write(b []byte) (future async.Future[transport.Outbou
 	panic("implement me")
 }
 
+func (conn *TLSConnection) Sendfile(file string) (future async.Future[transport.Outbound]) {
+	return
+}
+
 func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
 	promise := async.UnlimitedPromise[async.Void](conn.ctx)
 	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {

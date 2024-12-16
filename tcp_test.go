@@ -167,3 +167,91 @@ func TestTCP(t *testing.T) {
 	})
 	lwg.Wait()
 }
+
+func TestTcpConnection_Sendfile(t *testing.T) {
+	_ = rio.Startup()
+	defer func() {
+		_ = rio.ShutdownGracefully()
+	}()
+
+	ctx := context.Background()
+
+	ln, lnErr := rio.Listen(ctx,
+		"tcp", ":9000",
+		rio.WithParallelAcceptors(10),
+		rio.WithPromiseMakeOptions(async.WithDirectMode()),
+	)
+	if lnErr != nil {
+		t.Error(lnErr)
+		return
+	}
+
+	lwg := new(sync.WaitGroup)
+	lwg.Add(1)
+	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+		if err != nil {
+			if rio.IsClosed(err) {
+				t.Log("srv accept closed")
+			} else {
+				t.Error("srv accept:", rio.IsClosed(err), err)
+			}
+			lwg.Done()
+			return
+		}
+
+		t.Log("srv accept:", conn.RemoteAddr(), err)
+
+		//_ = conn.SetReadTimeout(500 * time.Millisecond)
+
+		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+			if err != nil {
+				t.Error("srv read:", err)
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {})
+				return
+			}
+			n := in.Received()
+			_, _ = in.Reader().Next(n)
+			t.Log("srv read:", n)
+			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+				t.Log("srv close:", cause)
+			})
+		})
+	})
+
+	cwg := new(sync.WaitGroup)
+	cwg.Add(1)
+	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+		if err != nil {
+			t.Error("cli dial:", err)
+			cwg.Done()
+			return
+		}
+		tcpConn, tcpOk := conn.(rio.TCPConnection)
+		if !tcpOk {
+			t.Error("conn is not a tcp connection")
+			cwg.Done()
+			return
+		}
+		tcpConn.Sendfile(`D:\tests\file.txt`).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+			if err != nil {
+				t.Error("cli send:", err)
+				cwg.Done()
+				return
+			}
+			t.Log("cli send:", out.Wrote())
+			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+				cwg.Done()
+				t.Log("cli close:", err)
+			})
+		})
+	})
+
+	cwg.Wait()
+
+	lwg.Add(1)
+	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+		t.Log("ln close:", cause)
+		lwg.Done()
+	})
+	lwg.Wait()
+}

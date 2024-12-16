@@ -37,13 +37,14 @@ func WriteOperator(fd Fd) *Operator {
 }
 
 const (
-	OpDial   = "dial"
-	OpListen = "listen"
-	OpAccept = "accept"
-	OpRead   = "read"
-	OpWrite  = "write"
-	OpClose  = "close"
-	OpSet    = "set"
+	OpDial     = "dial"
+	OpListen   = "listen"
+	OpAccept   = "accept"
+	OpRead     = "read"
+	OpWrite    = "write"
+	OpClose    = "close"
+	OpSet      = "set"
+	OpSendfile = "sendfile"
 )
 
 func NewOpErr(op string, fd NetFd, err error) *net.OpError {
