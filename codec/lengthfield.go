@@ -13,27 +13,27 @@ const (
 	lengthFieldSize = 8
 )
 
-func LengthFieldDecode(ctx context.Context, reader FutureReader, options ...async.Option) (future async.Future[[]byte]) {
-	decoder := LengthFieldDecoder[[]byte]{
-		infinite: false,
-	}
-	future = Decode[[]byte](ctx, reader, &decoder, options...)
+type LengthFieldMessage struct {
+	Length int
+	Bytes  []byte
+}
+
+func LengthFieldDecode(ctx context.Context, reader FutureReader, options ...async.Option) (future async.Future[LengthFieldMessage]) {
+	decoder := LengthFieldDecoder{}
+	future = Decode[LengthFieldMessage](ctx, reader, &decoder, options...)
 	return
 }
 
-type LengthFieldDecoder[T []byte] struct {
-	infinite bool
+type LengthFieldDecoder struct {
 }
 
-func (decoder *LengthFieldDecoder[T]) Decode(inbound transport.Inbound) (message T, next bool, err error) {
+func (decoder *LengthFieldDecoder) Decode(inbound transport.Inbound) (ok bool, message LengthFieldMessage, err error) {
 	n := inbound.Received()
 	if n == 0 {
-		next = decoder.infinite
 		return
 	}
 	if lengthFieldSize > n {
 		// not full
-		next = true
 		return
 	}
 	buf := inbound.Reader()
@@ -51,33 +51,35 @@ func (decoder *LengthFieldDecoder[T]) Decode(inbound transport.Inbound) (message
 	}
 	if bufLen < lengthFieldSize {
 		// not full
-		next = true
 		return
 	}
 	lengthField := buf.Peek(lengthFieldSize)
 	size := int(binary.BigEndian.Uint64(lengthField))
 	if size == 0 {
-		next = decoder.infinite
+		// decoded but content size is zero
+		// so discard length field
+		buf.Discard(lengthFieldSize)
+		ok = true
 		return
 	}
 	if bufLen-lengthFieldSize < size {
 		// not full
-		next = true
 		return
 	}
 	pLen := lengthFieldSize + size
 	p := make([]byte, pLen)
 	rn, readErr := buf.Read(p)
 	if readErr != nil {
-		err = io.ErrUnexpectedEOF
+		err = readErr
 		return
 	}
 	if rn != pLen {
 		err = io.ErrShortBuffer
 		return
 	}
-	message = p[lengthFieldSize:]
-	next = decoder.infinite
+	message.Length = size
+	message.Bytes = p[lengthFieldSize:]
+	ok = true
 	return
 }
 

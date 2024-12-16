@@ -24,13 +24,13 @@ func TestLengthFieldDecode(t *testing.T) {
 	r := newFakeReader(ctx, p)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	codec.LengthFieldDecode(ctx, r).OnComplete(func(ctx context.Context, result []byte, err error) {
+	codec.LengthFieldDecode(ctx, r).OnComplete(func(ctx context.Context, msg codec.LengthFieldMessage, err error) {
 		defer wg.Done()
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		t.Log(bytes.Equal(result, b), string(result))
+		t.Log(bytes.Equal(msg.Bytes, b), string(msg.Bytes))
 		return
 	})
 	wg.Wait()
