@@ -16,6 +16,55 @@ type Fd interface {
 	ZeroReadIsEOF() bool
 }
 
+type FileFd interface {
+	Fd
+	Path() string
+}
+
+type fileFd struct {
+	handle int
+	path   string
+	rop    Operator
+	wop    Operator
+}
+
+func (fd *fileFd) Fd() int {
+	return fd.handle
+}
+
+func (fd *fileFd) ReadOperator() Operator {
+	return fd.rop
+}
+
+func (fd *fileFd) WriteOperator() Operator {
+	return fd.wop
+}
+
+func (fd *fileFd) SetOperatorTimeout(d time.Duration) {
+	fd.SetReadTimeout(d)
+	fd.SetWriteTimeout(d)
+}
+
+func (fd *fileFd) SetReadTimeout(d time.Duration) {
+	if d > 0 {
+		fd.rop.timeout = d
+	}
+}
+
+func (fd *fileFd) SetWriteTimeout(d time.Duration) {
+	if d > 0 {
+		fd.wop.timeout = d
+	}
+}
+
+func (fd *fileFd) ZeroReadIsEOF() bool {
+	return true
+}
+
+func (fd *fileFd) Path() string {
+	return fd.path
+}
+
 type NetFd interface {
 	Fd
 	Network() string
@@ -25,11 +74,6 @@ type NetFd interface {
 	IPv6Only() bool
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
-}
-
-type FileFd interface {
-	Fd
-	Path() string
 }
 
 type netFd struct {
