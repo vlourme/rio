@@ -11,6 +11,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestListenTCP(t *testing.T) {
@@ -273,6 +274,8 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 	})
 
 	cwg.Wait()
+
+	time.Sleep(50 * time.Millisecond)
 
 	swg.Wait()
 	// close ln
