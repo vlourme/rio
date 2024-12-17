@@ -65,7 +65,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 
 	op.userdata.Fd = srcFd
 	op.userdata.Msg.Controllen = uint32(curpos)
-	op.userdata.Msg.Iovlen = int32(remain)
+	op.userdata.Msg.Namelen = uint32(remain)
 
 	// prepare write
 	cylinder := nextKqueueCylinder()
@@ -87,7 +87,7 @@ func completeSendfile(result int, op *Operator, err error) {
 	op.userdata.QTY = 0
 	curpos := int64(op.userdata.Msg.Controllen)
 	op.userdata.Msg.Controllen = 0
-	remain := int64(op.userdata.Msg.Iovlen)
+	remain := int64(op.userdata.Msg.Namelen)
 	op.userdata.Msg.Iovlen = 0
 
 	if err != nil {
