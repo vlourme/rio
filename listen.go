@@ -330,7 +330,7 @@ func (ln *listener) acceptOne() {
 			if ln.network == "unix" {
 				// tls
 				if ln.tlsConfig == nil {
-					conn = newPacketConnection(ln.ctx, connFd)
+					conn = newTCPConnection(ln.ctx, connFd)
 				} else {
 					sc, tlsErr := ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
 					if tlsErr != nil {
