@@ -1,6 +1,7 @@
 package rio_test
 
 import (
+	"bytes"
 	"context"
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
@@ -181,7 +182,9 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 		t.Error(fileErr)
 		return
 	}
-	_, _ = file.Write([]byte("hello world"))
+
+	content := []byte("hello world")
+	_, _ = file.Write(content)
 	filename := file.Name()
 	defer func() {
 		_ = file.Close()
@@ -229,8 +232,8 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 				return
 			}
 			n := in.Received()
-			_, _ = in.Reader().Next(n)
-			t.Log("srv read:", n)
+			rb, _ := in.Reader().Next(n)
+			t.Log("srv read:", n, bytes.Equal(rb, content))
 
 			swg.Add(1)
 			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {

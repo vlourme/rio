@@ -1109,7 +1109,7 @@ func (entry *SubmissionQueueEntry) prepareRW(opcode uint8, fd int, addr uintptr,
 	entry.SpliceFdIn = 0
 }
 
-func (entry *SubmissionQueueEntry) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes, spliceFlags uint32, userdata uint64) {
+func (entry *SubmissionQueueEntry) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, spliceFlags uint32, userdata uint64) {
 	entry.prepareRW(opSplice, fdOut, 0, nbytes, uint64(offOut), userdata, 0)
 	entry.Addr = uint64(offIn)
 	entry.SpliceFdIn = int32(fdIn)
