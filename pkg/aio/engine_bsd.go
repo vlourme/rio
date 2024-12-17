@@ -26,6 +26,13 @@ type KqueueSettings struct {
 }
 
 func (engine *Engine) Start() {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	if engine.running {
+		panic(errors.New("aio: engine start failed cause already running"))
+		return
+	}
+
 	// settings
 	settings := ResolveSettings[KqueueSettings](engine.settings)
 	// cylinders
@@ -50,9 +57,17 @@ func (engine *Engine) Start() {
 			}
 		}(engine, cylinder)
 	}
+
+	engine.running = true
 }
 
 func (engine *Engine) Stop() {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	if !engine.running {
+		return
+	}
+
 	runtime.SetFinalizer(engine, nil)
 
 	for _, cylinder := range engine.cylinders {
@@ -60,6 +75,7 @@ func (engine *Engine) Stop() {
 		runtime.KeepAlive(cylinder)
 	}
 	engine.wg.Wait()
+	engine.running = false
 }
 
 func newKqueueCylinder(changesQueueSize int, changesPeekBatchSize int, eventsWaitBatchSize int, eventsWaitTimeout time.Duration) (cylinder *KqueueCylinder, err error) {

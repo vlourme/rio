@@ -24,6 +24,13 @@ func createSubIoCompletionPort(handle windows.Handle) error {
 }
 
 func (engine *Engine) Start() {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	if engine.running {
+		panic(errors.New("aio: engine start failed cause already running"))
+		return
+	}
+
 	var data windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &data)
 	if startupErr != nil {
@@ -60,9 +67,17 @@ func (engine *Engine) Start() {
 			}
 		}(engine, cylinder)
 	}
+
+	engine.running = true
 }
 
 func (engine *Engine) Stop() {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	if !engine.running {
+		return
+	}
+
 	runtime.SetFinalizer(engine, nil)
 
 	fd := windows.Handle(engine.fd)
@@ -75,6 +90,8 @@ func (engine *Engine) Stop() {
 	engine.wg.Wait()
 	_ = windows.CloseHandle(fd)
 	engine.fd = 0
+
+	engine.running = false
 }
 
 type IOCPSettings struct {

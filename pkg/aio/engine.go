@@ -62,6 +62,8 @@ func newEngine(options Options) *Engine {
 		cylindersNum:          int64(cylinders),
 		cylinders:             make([]Cylinder, cylinders),
 		wg:                    sync.WaitGroup{},
+		lock:                  sync.Mutex{},
+		running:               false,
 	}
 	return _engine
 }
@@ -75,6 +77,14 @@ type Engine struct {
 	cylindersNum          int64
 	cylinders             []Cylinder
 	wg                    sync.WaitGroup
+	lock                  sync.Mutex
+	running               bool
+}
+
+func (engine *Engine) stopped() bool {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	return !engine.running
 }
 
 func (engine *Engine) next() Cylinder {
@@ -113,14 +123,17 @@ var (
 )
 
 func Startup(options Options) {
-	_engine = newEngine(options)
-	_engine.Start()
+	_createEngineOnce.Do(func() {
+		_engine = newEngine(options)
+		_engine.Start()
+	})
 }
 
 func Shutdown() {
-	eng := engine()
-	eng.Stop()
-	runtime.KeepAlive(eng)
+	if _engine != nil {
+		_engine.Stop()
+		runtime.KeepAlive(_engine)
+	}
 }
 
 func engine() *Engine {

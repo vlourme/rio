@@ -33,6 +33,13 @@ func compareKernelVersion(aMajor, aMinor, bMajor, bMinor int) int {
 }
 
 func (engine *Engine) Start() {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	if engine.running {
+		panic(errors.New("aio: engine start failed cause already running"))
+		return
+	}
+
 	// check kernel version
 	major, minor := KernelVersion()
 	if major < minKernelVersionMajor || (major == minKernelVersionMajor && minor < minKernelVersionMinor) {
@@ -152,15 +159,24 @@ func (engine *Engine) Start() {
 			}
 		}(engine, i, cylinder)
 	}
+
+	engine.running = true
 }
 
 func (engine *Engine) Stop() {
+	engine.lock.Lock()
+	defer engine.lock.Unlock()
+	if !engine.running {
+		return
+	}
+
 	runtime.SetFinalizer(engine, nil)
 
 	for _, cylinder := range engine.cylinders {
 		cylinder.Stop()
 	}
 	engine.wg.Wait()
+	engine.running = false
 }
 
 func nextIOURingCylinder() *IOURingCylinder {
