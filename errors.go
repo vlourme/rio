@@ -17,6 +17,7 @@ var (
 	ErrNilAddr          = errors.New("rio: addr is nil")
 	ErrAllocate         = errors.New("rio: allocate bytes failed")
 	ErrAllocateWrote    = errors.New("rio: allocate wrote failed")
+	ErrDeadlineExceeded = errors.Join(errors.New("rio: deadline exceeded"), aio.ErrOperationDeadlineExceeded)
 )
 
 // IsClosed

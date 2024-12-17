@@ -5,6 +5,7 @@ package aio
 import (
 	"errors"
 	"runtime"
+	"syscall"
 )
 
 func Close(fd Fd, cb OperationCallback) {
@@ -34,4 +35,8 @@ func completeClose(result int, op *Operator, err error) {
 	}
 	op.callback(result, op.userdata, nil)
 	return
+}
+
+func CloseImmediately(fd Fd) {
+	_ = syscall.Close(fd.Fd())
 }

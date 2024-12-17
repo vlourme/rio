@@ -27,3 +27,7 @@ func Close(fd Fd, cb OperationCallback) {
 		return
 	}
 }
+
+func CloseImmediately(fd Fd) {
+	_ = syscall.Close(fd.Fd())
+}

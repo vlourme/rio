@@ -120,7 +120,14 @@ func (conn *TLSConnection) Sendfile(file string) (future async.Future[transport.
 }
 
 func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
-	promise := async.UnlimitedPromise[async.Void](conn.ctx)
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
+	if promiseErr != nil {
+		conn.rb.Close()
+		aio.CloseImmediately(conn.fd)
+		timeslimiter.TryRevert(conn.ctx)
+		future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
+		return
+	}
 	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))

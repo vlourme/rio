@@ -155,7 +155,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	ctx = rxp.With(ctx, getExecutors())
 
 	// conn promise
-	acceptorPromises, acceptorPromiseErr := async.DirectStreamPromises[Connection](ctx, parallelAcceptors)
+	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, async.WithDirectMode())
 	if acceptorPromiseErr != nil {
 		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
 		return
@@ -229,7 +229,20 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 		return
 	}
 	ln.running.Store(false)
-	promise := async.UnlimitedPromise[async.Void](ln.ctx)
+	promise, promiseErr := async.Make[async.Void](ln.ctx, async.WithUnlimitedMode())
+	if promiseErr != nil {
+		if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
+			unixAddr, isUnix := ln.fd.LocalAddr().(*net.UnixAddr)
+			if isUnix {
+				if path := unixAddr.String(); path[0] != '@' {
+					_ = aio.Unlink(path)
+				}
+			}
+		}
+		ln.acceptorPromises.Cancel()
+		aio.CloseImmediately(ln.fd)
+		return
+	}
 	if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
 		unixAddr, isUnix := ln.fd.LocalAddr().(*net.UnixAddr)
 		if isUnix {
@@ -274,8 +287,13 @@ func (ln *listener) acceptOne() {
 	aio.Accept(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			ln.connectionsLimiter.Revert()
-			if !ln.ok() || aio.IsUnexpectedCompletionError(err) {
-				// discard errors when ln was closed
+			if aio.IsUnexpectedCompletionError(err) || async.IsExecutorsClosed(err) {
+				// shutdown then close ln
+				if ln.ok() {
+					ln.running.Store(false)
+					aio.CloseImmediately(ln.fd)
+					ln.acceptorPromises.Cancel()
+				}
 				return
 			}
 			if aio.IsBusyError(err) {

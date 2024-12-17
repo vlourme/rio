@@ -220,7 +220,14 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 }
 
 func (conn *packetConnection) Close() (future async.Future[async.Void]) {
-	promise := async.UnlimitedPromise[async.Void](conn.ctx)
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
+	if promiseErr != nil {
+		conn.rb.Close()
+		conn.oob.Close()
+		aio.CloseImmediately(conn.fd)
+		future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
+		return
+	}
 	conn.connection.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		if cause != nil {
 			promise.Fail(cause)

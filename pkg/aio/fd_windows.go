@@ -18,10 +18,19 @@ func Close(fd Fd, cb OperationCallback) {
 		cb(handle, fd.WriteOperator().userdata, err)
 		return
 	case FileFd:
-		cb(0, fd.WriteOperator().userdata, errors.New("aio.Operator: close was not supported"))
+		handle := fd.Fd()
+		err := syscall.Close(syscall.Handle(handle))
+		if err != nil {
+			err = errors.Join(errors.New("aio.Operator: close failed"), err)
+		}
+		cb(handle, fd.WriteOperator().userdata, err)
 		return
 	default:
 		cb(0, fd.WriteOperator().userdata, errors.New("aio.Operator: close was not supported"))
 		return
 	}
+}
+
+func CloseImmediately(fd Fd) {
+	Close(fd, func(result int, userdata Userdata, err error) {})
 }

@@ -12,7 +12,9 @@ type Fd interface {
 	WriteOperator() Operator
 	SetOperatorTimeout(d time.Duration)
 	SetReadTimeout(d time.Duration)
+	ReadTimeout() time.Duration
 	SetWriteTimeout(d time.Duration)
+	WriteTimeout() time.Duration
 	ZeroReadIsEOF() bool
 }
 
@@ -51,10 +53,18 @@ func (fd *fileFd) SetReadTimeout(d time.Duration) {
 	}
 }
 
+func (fd *fileFd) ReadTimeout() time.Duration {
+	return fd.rop.timeout
+}
+
 func (fd *fileFd) SetWriteTimeout(d time.Duration) {
 	if d > 0 {
 		fd.wop.timeout = d
 	}
+}
+
+func (fd *fileFd) WriteTimeout() time.Duration {
+	return fd.wop.timeout
 }
 
 func (fd *fileFd) ZeroReadIsEOF() bool {
@@ -144,8 +154,16 @@ func (s *netFd) SetReadTimeout(d time.Duration) {
 	}
 }
 
+func (s *netFd) ReadTimeout() time.Duration {
+	return s.rop.timeout
+}
+
 func (s *netFd) SetWriteTimeout(d time.Duration) {
 	if d > 0 {
 		s.wop.timeout = d
 	}
+}
+
+func (s *netFd) WriteTimeout() time.Duration {
+	return s.wop.timeout
 }

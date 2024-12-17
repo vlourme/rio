@@ -115,11 +115,17 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, errors.Join(ErrAllocate, allocateErr)))
 		return
 	}
-	promise, promiseErr := async.Make[transport.Inbound](conn.ctx)
+
+	timeout := conn.fd.ReadTimeout()
+	options := []async.Option{async.WithWaitTimeout(timeout)}
+	promise, promiseErr := async.Make[transport.Inbound](conn.ctx, options...)
 	if promiseErr != nil {
 		_ = conn.rb.AllocatedWrote(0)
-		if async.IsBusy(promiseErr) {
-			future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, ErrBusy))
+		if async.IsDeadlineExceeded(promiseErr) {
+			future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, ErrDeadlineExceeded))
+		} else if async.IsExecutorsClosed(promiseErr) {
+			future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, ErrClosed))
+			aio.CloseImmediately(conn.fd)
 		} else {
 			future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, promiseErr))
 		}
@@ -160,10 +166,15 @@ func (conn *connection) Write(b []byte) (future async.Future[transport.Outbound]
 }
 
 func (conn *connection) write(b []byte, bLen int, wrote int) (future async.Future[transport.Outbound]) {
-	promise, promiseErr := async.Make[transport.Outbound](conn.ctx)
+	timeout := conn.fd.WriteTimeout()
+	options := []async.Option{async.WithWaitTimeout(timeout)}
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, options...)
 	if promiseErr != nil {
-		if async.IsBusy(promiseErr) {
-			future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, ErrBusy))
+		if async.IsDeadlineExceeded(promiseErr) {
+			future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, ErrDeadlineExceeded))
+		} else if async.IsExecutorsClosed(promiseErr) {
+			future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, ErrClosed))
+			aio.CloseImmediately(conn.fd)
 		} else {
 			future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, promiseErr))
 		}
@@ -208,7 +219,14 @@ func (conn *connection) write(b []byte, bLen int, wrote int) (future async.Futur
 }
 
 func (conn *connection) Close() (future async.Future[async.Void]) {
-	promise := async.UnlimitedPromise[async.Void](conn.ctx)
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode(), async.WithWait())
+	if promiseErr != nil {
+		aio.CloseImmediately(conn.fd)
+		conn.rb.Close()
+		timeslimiter.TryRevert(conn.ctx)
+		future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
+		return
+	}
 	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))
