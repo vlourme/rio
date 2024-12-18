@@ -8,7 +8,12 @@ import (
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/pkg/maxprocs"
 	"runtime"
+	"sync"
 	"time"
+)
+
+var (
+	startupOnce = sync.Once{}
 )
 
 // Startup
@@ -19,62 +24,64 @@ import (
 //
 // 注意：必须在程序起始位置调用，否则无效。
 func Startup(options ...StartupOption) (err error) {
-	opts := &StartupOptions{
-		ProcessPriorityLevel: 0,
-		AIOOptions: aio.Options{
-			CylindersLoadBalance:  aio.RoundRobin,
-			CylindersLockOSThread: true,
-			Settings:              nil,
-		},
-		ExecutorsOptions: nil,
-	}
-	for _, option := range options {
-		err = option(opts)
-		if err != nil {
-			err = errors.Join(errors.New("rio: startup failed"), err)
-			return
+	startupOnce.Do(func() {
+		opts := &StartupOptions{
+			ProcessPriorityLevel: 0,
+			AIOOptions: aio.Options{
+				CylindersLoadBalance:  aio.RoundRobin,
+				CylindersLockOSThread: true,
+				Settings:              nil,
+			},
+			ExecutorsOptions: nil,
 		}
-	}
-	// process
-	if opts.ProcessPriorityLevel != process.NORM {
-		err = process.SetCurrentProcessPriority(opts.ProcessPriorityLevel)
-		if err != nil {
-			err = errors.Join(errors.New("rio: startup failed"), err)
-			return
-		}
-	}
-	// executors
-	defer func() {
-		if r := recover(); r != nil {
-			switch e := r.(type) {
-			case error:
-				err = e
-				if err != nil {
-					err = errors.Join(errors.New("rio: startup failed"), err)
-					return
-				}
-				break
-			case string:
-				err = errors.New(e)
-				if err != nil {
-					err = errors.Join(errors.New("rio: startup failed"), err)
-					return
-				}
-				break
-			default:
-				err = errors.New(fmt.Sprintf("%+v", r))
-				if err != nil {
-					err = errors.Join(errors.New("rio: startup failed"), err)
-					return
-				}
-				break
+		for _, option := range options {
+			err = option(opts)
+			if err != nil {
+				err = errors.Join(errors.New("rio: startup failed"), err)
+				return
 			}
 		}
-	}()
-	executors = rxp.New(opts.ExecutorsOptions...)
+		// process
+		if opts.ProcessPriorityLevel != process.NORM {
+			err = process.SetCurrentProcessPriority(opts.ProcessPriorityLevel)
+			if err != nil {
+				err = errors.Join(errors.New("rio: startup failed"), err)
+				return
+			}
+		}
+		// executors
+		defer func() {
+			if r := recover(); r != nil {
+				switch e := r.(type) {
+				case error:
+					err = e
+					if err != nil {
+						err = errors.Join(errors.New("rio: startup failed"), err)
+						return
+					}
+					break
+				case string:
+					err = errors.New(e)
+					if err != nil {
+						err = errors.Join(errors.New("rio: startup failed"), err)
+						return
+					}
+					break
+				default:
+					err = errors.New(fmt.Sprintf("%+v", r))
+					if err != nil {
+						err = errors.Join(errors.New("rio: startup failed"), err)
+						return
+					}
+					break
+				}
+			}
+		}()
+		executors = rxp.New(opts.ExecutorsOptions...)
 
-	// aio.completions
-	aio.Startup(opts.AIOOptions)
+		// aio.completions
+		aio.Startup(opts.AIOOptions)
+	})
 	return
 }
 
@@ -86,10 +93,14 @@ func Startup(options ...StartupOption) (err error) {
 // 一般使用 ShutdownGracefully 来实现等待所有协程执行完毕。
 func Shutdown() error {
 	exec := getExecutors()
-	runtime.SetFinalizer(exec, nil)
-	err := exec.Close()
+	if exec.Running() {
+		runtime.SetFinalizer(exec, nil)
+		if err := exec.Close(); err != nil {
+			return err
+		}
+	}
 	aio.Shutdown()
-	return err
+	return nil
 }
 
 // ShutdownGracefully
@@ -100,10 +111,14 @@ func Shutdown() error {
 // 如果需要支持超时机制，则需要在 Startup 里进行设置。
 func ShutdownGracefully() error {
 	exec := getExecutors()
-	runtime.SetFinalizer(exec, nil)
-	err := exec.CloseGracefully()
+	if exec.Running() {
+		runtime.SetFinalizer(exec, nil)
+		if err := exec.CloseGracefully(); err != nil {
+			return err
+		}
+	}
 	aio.Shutdown()
-	return err
+	return nil
 }
 
 type StartupOptions struct {
@@ -186,9 +201,9 @@ func WithMaxReadyGoroutinesIdleDuration(d time.Duration) StartupOption {
 	}
 }
 
-// WithCloseTimeout
+// WithShutdownTimeout
 // 设置关闭超时时长
-func WithCloseTimeout(d time.Duration) StartupOption {
+func WithShutdownTimeout(d time.Duration) StartupOption {
 	return func(o *StartupOptions) error {
 		o.ExecutorsOptions = append(o.ExecutorsOptions, rxp.WithCloseTimeout(d))
 		return nil
