@@ -49,3 +49,7 @@ func maxAckBacklog(n int) int {
 	}
 	return n
 }
+
+func setDeferAccept(sock int) error {
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1))
+}

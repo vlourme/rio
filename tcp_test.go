@@ -86,6 +86,7 @@ func TestTCP(t *testing.T) {
 		"tcp", ":9000",
 		rio.WithParallelAcceptors(10),
 		rio.WithPromiseMakeOptions(async.WithDirectMode()),
+		rio.WithFastOpen(1),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)

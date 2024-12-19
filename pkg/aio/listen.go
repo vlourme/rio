@@ -9,6 +9,7 @@ import (
 type ListenerOptions struct {
 	MultipathTCP       bool
 	MulticastInterface *net.Interface
+	FastOpen           int
 }
 
 func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err error) {
@@ -25,6 +26,12 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 			proto = tryGetMultipathTCPProto()
 		}
 		fd, err = newListenerFd(network, family, syscall.SOCK_STREAM, proto, ipv6only, addr, nil)
+		if opts.FastOpen > 0 {
+			if err = SetFastOpen(fd, opts.FastOpen); err != nil {
+				CloseImmediately(fd)
+				return
+			}
+		}
 		break
 	case "udp", "udp4", "udp6":
 		fd, err = newListenerFd(network, family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP, ipv6only, addr, opts.MulticastInterface)

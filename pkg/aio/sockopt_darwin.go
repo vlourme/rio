@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
 	"syscall"
@@ -32,6 +33,13 @@ func SetWriteBuffer(fd NetFd, n int) (err error) {
 		return
 	}
 	return
+}
+
+func SetFastOpen(fd NetFd, n int) error {
+	handle := fd.Fd()
+	err := unix.SetsockoptInt(handle, unix.IPPROTO_TCP, unix.TCP_FASTOPEN, n)
+	runtime.KeepAlive(fd)
+	return os.NewSyscallError("setsockopt", err)
 }
 
 func SetNoDelay(fd NetFd, noDelay bool) error {

@@ -33,3 +33,7 @@ func maxListenerBacklog() int {
 	}
 	return int(n)
 }
+
+func setDeferAccept(_ int) error {
+	return nil
+}

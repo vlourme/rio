@@ -28,6 +28,7 @@ type ListenOptions struct {
 	AcceptMaxConnections                   int64
 	AcceptMaxConnectionsLimiterWaitTimeout time.Duration
 	UnixListenerUnlinkOnClose              bool
+	FastOpen                               int
 }
 
 // WithParallelAcceptors
@@ -80,6 +81,19 @@ func WithUnixListenerUnlinkOnClose() Option {
 	return func(options *Options) (err error) {
 		opts := (*ListenOptions)(unsafe.Pointer(options))
 		opts.UnixListenerUnlinkOnClose = true
+		return
+	}
+}
+
+// WithFastOpen
+// 设置 FastOpen。
+func WithFastOpen(n int) Option {
+	return func(options *Options) (err error) {
+		opts := (*ListenOptions)(unsafe.Pointer(options))
+		if n > 999 {
+			n = 256
+		}
+		opts.FastOpen = n
 		return
 	}
 }
@@ -138,6 +152,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
 		MultipathTCP:       opt.MultipathTCP,
 		MulticastInterface: nil,
+		FastOpen:           opt.FastOpen,
 	})
 	if listenErr != nil {
 		err = &net.OpError{Op: aio.OpListen, Net: network, Err: listenErr}

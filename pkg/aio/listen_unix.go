@@ -17,10 +17,14 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 	}
 	switch sotype {
 	case syscall.SOCK_STREAM, syscall.SOCK_SEQPACKET:
-		setOptErr := setDefaultListenerSocketOpts(sock)
-		if setOptErr != nil {
+		if setOptErr := setDefaultListenerSocketOpts(sock); setOptErr != nil {
 			_ = syscall.Close(sock)
 			err = setOptErr
+			return
+		}
+		if setDeferAcceptErr := setDeferAccept(sock); setDeferAcceptErr != nil {
+			_ = syscall.Close(sock)
+			err = setDeferAcceptErr
 			return
 		}
 		// bind

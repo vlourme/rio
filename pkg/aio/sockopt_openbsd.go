@@ -29,6 +29,10 @@ func SetWriteBuffer(fd NetFd, n int) (err error) {
 	return
 }
 
+func SetFastOpen(_ NetFd, _ int) error {
+	return nil
+}
+
 func SetNoDelay(fd NetFd, noDelay bool) error {
 	handle := fd.Fd()
 	err := syscall.SetsockoptInt(handle, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay))

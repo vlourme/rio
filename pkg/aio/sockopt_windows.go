@@ -33,6 +33,13 @@ func SetWriteBuffer(fd NetFd, n int) (err error) {
 	return
 }
 
+func SetFastOpen(fd NetFd, n int) error {
+	handle := windows.Handle(fd.Fd())
+	err := windows.SetsockoptInt(handle, windows.IPPROTO_TCP, windows.TCP_FASTOPEN, n)
+	runtime.KeepAlive(fd)
+	return os.NewSyscallError("setsockopt", err)
+}
+
 func SetNoDelay(fd NetFd, noDelay bool) error {
 	handle := windows.Handle(fd.Fd())
 	err := windows.SetsockoptInt(handle, windows.IPPROTO_TCP, windows.TCP_NODELAY, boolint(noDelay))
