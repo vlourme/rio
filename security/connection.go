@@ -16,6 +16,7 @@ type ConnectionBuilder func(ctx context.Context, fd aio.NetFd, config *tls.Confi
 type Connection interface {
 	Context() (ctx context.Context)
 	ConfigContext(config func(ctx context.Context) context.Context)
+	Fd() int
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
 	SetReadTimeout(d time.Duration) (err error)
@@ -55,6 +56,10 @@ func (conn *TLSConnection) ConfigContext(config func(ctx context.Context) contex
 	}
 	conn.ctx = newCtx
 	return
+}
+
+func (conn *TLSConnection) Fd() int {
+	return conn.fd.Fd()
 }
 
 func (conn *TLSConnection) LocalAddr() (addr net.Addr) {

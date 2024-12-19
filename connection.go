@@ -15,6 +15,7 @@ import (
 type Connection interface {
 	Context() (ctx context.Context)
 	ConfigContext(config func(ctx context.Context) context.Context)
+	Fd() int
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
 	SetReadTimeout(d time.Duration) (err error)
@@ -63,6 +64,10 @@ func (conn *connection) ConfigContext(config func(ctx context.Context) context.C
 	}
 	conn.ctx = newCtx
 	return
+}
+
+func (conn *connection) Fd() int {
+	return conn.fd.Fd()
 }
 
 func (conn *connection) LocalAddr() (addr net.Addr) {
