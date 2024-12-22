@@ -674,12 +674,11 @@ func (ring *IOURing) queueExit() {
 			sqeSize += 64
 		}
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), sqeSize*uintptr(*sq.ringEntries))
-
-	} else {
+		ring.queueMumap()
+	} else if ring.intFlags&intFlagAppMem == 0 {
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), uintptr(*sq.ringEntries)*unsafe.Sizeof(SubmissionQueueEntry{}))
+		ring.queueMumap()
 	}
-
-	ring.queueMumap()
 
 	if ring.intFlags&intFlagRegRing != 0 {
 		_, _ = ring.UnregisterRingFd()
