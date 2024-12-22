@@ -9,6 +9,10 @@ import (
 	"unsafe"
 )
 
+// Send
+// send_zc: available since 6.0
+// sendmsg_zc: available since 6.1
+// https://manpages.debian.org/unstable/liburing-dev/io_uring_enter.2.en.html
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := WriteOperator(fd)
