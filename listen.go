@@ -269,6 +269,7 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	aio.Close(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		ln.acceptorPromises.Cancel()
 		if err != nil {
+			aio.CloseImmediately(ln.fd)
 			promise.Fail(aio.NewOpErr(aio.OpClose, ln.fd, err))
 		} else {
 			promise.Succeed(async.Void{})
