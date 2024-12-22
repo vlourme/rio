@@ -466,6 +466,9 @@ func (ring *IOURing) Submit() (ret uint, err error) {
 		if cqNeedsEnter {
 			flags |= EnterGetEvents
 		}
+		if ring.intFlags&intFlagRegRing != 0 {
+			flags |= EnterRegisteredRing
+		}
 		ret, err = ring.Enter(submitted, 0, flags, nil)
 		if err != nil {
 			return
@@ -608,21 +611,39 @@ const (
 )
 
 func (ring *IOURing) setup(entries uint32, param *IOURingSetupParam) (err error) {
+
+	if param.Flags&SetupRegisteredFdOnly != 0 && param.Flags&SetupNoMmap == 0 {
+		return syscall.EINVAL
+	}
+
+	if param.Flags&SetupNoMmap != 0 {
+		return errors.New("aio.IOURing: setup_no_mmap not supported")
+	}
+
 	if entries > maxEntries || entries == 0 {
 		entries = defaultEntries
 	}
 	fdPtr, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(param)), 0)
 	if errno != 0 {
+		if param.Flags&SetupNoMmap != 0 && ring.intFlags&intFlagAppMem == 0 {
+			_ = munmap(uintptr(unsafe.Pointer(ring.sq.sqes)), 1)
+			ring.queueMumap()
+		}
+
 		err = errno
 		return
 	}
 
 	fd := int(fdPtr)
 
-	err = ring.queueMmap(fd, param)
-	if err != nil {
-		_ = syscall.Close(fd)
-		return
+	if param.Flags&SetupNoMmap == 0 {
+		err = ring.queueMmap(fd, param)
+		if err != nil {
+			_ = syscall.Close(fd)
+			return
+		}
+	} else {
+		setupRingPointers(param, ring.sq, ring.cq)
 	}
 
 	sqEntries := *ring.sq.ringEntries
@@ -636,7 +657,12 @@ func (ring *IOURing) setup(entries uint32, param *IOURingSetupParam) (err error)
 	ring.flags = param.Flags
 	ring.enterFd = fd
 
-	ring.fd = fd
+	if param.Flags&SetupRegisteredFdOnly != 0 {
+		ring.fd = -1
+		ring.intFlags |= intFlagRegRing | intFlagRegRegRing
+	} else {
+		ring.fd = fd
+	}
 	return
 }
 
@@ -722,6 +748,29 @@ func (ring *IOURing) queueMmap(fd int, param *IOURingSetupParam) (err error) {
 	sq.sqes = (*SubmissionQueueEntry)(unsafe.Pointer(ringPtr))
 
 	// setup squeue
+	setupRingPointers(param, sq, cq)
+
+	//sq.head = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Head)))
+	//sq.tail = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Tail)))
+	//sq.ringMask = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingMask)))
+	//sq.ringEntries = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingEntries)))
+	//sq.flags = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Flags)))
+	//sq.dropped = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Dropped)))
+	//sq.array = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Array)))
+	//// setup cqueue
+	//cq.head = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Head)))
+	//cq.tail = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Tail)))
+	//cq.ringMask = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.RingMask)))
+	//cq.ringEntries = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.RingEntries)))
+	//cq.overflow = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Overflow)))
+	//cq.cqes = (*CompletionQueueEvent)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.CQes)))
+	//if param.CQOff.Flags != 0 {
+	//	cq.flags = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Flags)))
+	//}
+	return
+}
+
+func setupRingPointers(param *IOURingSetupParam, sq *SubmissionQueue, cq *CompletionQueue) {
 	sq.head = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Head)))
 	sq.tail = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Tail)))
 	sq.ringMask = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingMask)))
@@ -739,7 +788,6 @@ func (ring *IOURing) queueMmap(fd int, param *IOURingSetupParam) (err error) {
 	if param.CQOff.Flags != 0 {
 		cq.flags = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Flags)))
 	}
-	return
 }
 
 func (ring *IOURing) queueMumap() {
@@ -795,9 +843,29 @@ func (ring *IOURing) cqReady() uint32 {
 	return atomic.LoadUint32(ring.cq.tail) - *ring.cq.head
 }
 
+func (ring *IOURing) sqRingWait() (uint, error) {
+	if ring.flags&SetupSQPoll == 0 {
+		return 0, nil
+	}
+	if ring.sqSpaceLeft() != 0 {
+		return 0, nil
+	}
+
+	flags := EnterSQWait
+
+	if ring.intFlags&intFlagRegRegRing != 0 {
+		flags |= EnterRegisteredRing
+	}
+
+	return ring.Enter(0, 0, flags, nil)
+}
+
 func (ring *IOURing) getEvents() (uint, error) {
 	// 将未完成的请求刷新到CQE环
 	flags := EnterGetEvents
+	if ring.intFlags&intFlagRegRing != 0 {
+		flags |= EnterRegisteredRing
+	}
 	return ring.Enter(0, 0, flags, nil)
 }
 
@@ -857,6 +925,10 @@ func (ring *IOURing) privateGetCQE(data *getData) (cqe *CompletionQueueEvent, er
 				err = syscall.ETIME
 			}
 			break
+		}
+
+		if ring.intFlags&intFlagRegRing != 0 {
+			flags |= EnterRegisteredRing
 		}
 
 		ret, localErr = ring.Enter2(data.submit, data.waitNr, flags, data.arg, data.sz)
@@ -974,6 +1046,7 @@ func (ring *IOURing) Enter2(submitted uint32, waitNr uint32, flags uint32, sig u
 const (
 	intFlagRegRing    uint8 = 1
 	intFlagRegRegRing uint8 = 2
+	intFlagAppMem     uint8 = 4
 )
 
 type RsrcUpdate struct {
@@ -1517,6 +1590,7 @@ const (
 	EnterSQWakeup
 	EnterSQWait
 	EnterExtArg
+	EnterRegisteredRing
 )
 
 const (
