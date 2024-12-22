@@ -193,16 +193,15 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 	}
 	runtime.KeepAlive(param)
 
-	registered := false
 	major, minor := KernelVersion()
 	if major >= 5 && minor >= 18 {
+		// register ring
 		_, regRingErr := ring.RegisterRingFd()
 		if regRingErr != nil {
 			ring.queueExit()
 			err = regRingErr
 			return
 		}
-		registered = true
 	}
 
 	// batch
@@ -219,7 +218,6 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 	cylinder = &IOURingCylinder{
 		stopped:           atomic.Bool{},
 		ring:              ring,
-		ringRegistered:    registered,
 		peekBatch:         batch,
 		waitTimeout:       syscall.NsecToTimespec((submitWaitTimeout).Nanoseconds()),
 		waitForIndex:      0,
@@ -233,7 +231,6 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 type IOURingCylinder struct {
 	stopped           atomic.Bool
 	ring              *IOURing
-	ringRegistered    bool
 	peekBatch         uint32
 	waitTimeout       syscall.Timespec
 	waitForIndex      uint32
@@ -307,9 +304,6 @@ func (cylinder *IOURingCylinder) Loop() {
 		}
 		cylinder.advance(peeked)
 
-	}
-	if cylinder.ringRegistered {
-		_, _ = cylinder.ring.UnregisterRingFd()
 	}
 	// queue exit
 	cylinder.ring.queueExit()
@@ -660,6 +654,11 @@ func (ring *IOURing) queueExit() {
 	}
 
 	ring.queueMumap()
+
+	if ring.intFlags&intFlagRegRing != 0 {
+		_, _ = ring.UnregisterRingFd()
+	}
+
 	if fd := ring.fd; fd != 0 {
 		_ = syscall.Close(fd)
 	}
