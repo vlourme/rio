@@ -749,24 +749,6 @@ func (ring *IOURing) queueMmap(fd int, param *IOURingSetupParam) (err error) {
 
 	// setup squeue
 	setupRingPointers(param, sq, cq)
-
-	//sq.head = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Head)))
-	//sq.tail = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Tail)))
-	//sq.ringMask = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingMask)))
-	//sq.ringEntries = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.RingEntries)))
-	//sq.flags = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Flags)))
-	//sq.dropped = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Dropped)))
-	//sq.array = (*uint32)(unsafe.Pointer(uintptr(sq.ringPtr) + uintptr(param.SQOff.Array)))
-	//// setup cqueue
-	//cq.head = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Head)))
-	//cq.tail = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Tail)))
-	//cq.ringMask = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.RingMask)))
-	//cq.ringEntries = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.RingEntries)))
-	//cq.overflow = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Overflow)))
-	//cq.cqes = (*CompletionQueueEvent)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.CQes)))
-	//if param.CQOff.Flags != 0 {
-	//	cq.flags = (*uint32)(unsafe.Pointer(uintptr(cq.ringPtr) + uintptr(param.CQOff.Flags)))
-	//}
 	return
 }
 
