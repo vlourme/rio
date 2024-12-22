@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -192,6 +193,18 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 	}
 	runtime.KeepAlive(param)
 
+	registered := false
+	major, minor := KernelVersion()
+	if major >= 5 && minor >= 18 {
+		_, regRingErr := ring.RegisterRingFd()
+		if regRingErr != nil {
+			ring.queueExit()
+			err = regRingErr
+			return
+		}
+		registered = true
+	}
+
 	// batch
 	if batch < 1 {
 		cqEntries := param.CQEntries
@@ -206,6 +219,7 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 	cylinder = &IOURingCylinder{
 		stopped:           atomic.Bool{},
 		ring:              ring,
+		ringRegistered:    registered,
 		peekBatch:         batch,
 		waitTimeout:       syscall.NsecToTimespec((submitWaitTimeout).Nanoseconds()),
 		waitForIndex:      0,
@@ -219,6 +233,7 @@ func newIOURingCylinder(entries uint32, param IOURingSetupParam, batch uint32, s
 type IOURingCylinder struct {
 	stopped           atomic.Bool
 	ring              *IOURing
+	ringRegistered    bool
 	peekBatch         uint32
 	waitTimeout       syscall.Timespec
 	waitForIndex      uint32
@@ -292,6 +307,9 @@ func (cylinder *IOURingCylinder) Loop() {
 		}
 		cylinder.advance(peeked)
 
+	}
+	if cylinder.ringRegistered {
+		_, _ = cylinder.ring.UnregisterRingFd()
 	}
 	// queue exit
 	cylinder.ring.queueExit()
@@ -585,8 +603,9 @@ func (ring *IOURing) Exit() {
 }
 
 const (
-	sysSetup = 425
-	sysEnter = 426
+	sysSetup    = 425
+	sysEnter    = 426
+	sysRegister = 427
 )
 
 const (
@@ -795,7 +814,7 @@ func (ring *IOURing) cqeIndex(ptr, mask uint32) uintptr {
 }
 
 func (ring *IOURing) cqNeedsEnter() bool {
-	return (ring.flags&_SetupIOPoll) != 0 || ring.cqNeedsFlush()
+	return (ring.flags&SetupIOPoll) != 0 || ring.cqNeedsFlush()
 }
 
 func (ring *IOURing) cqNeedsFlush() bool {
@@ -927,9 +946,10 @@ func (ring *IOURing) tryPeekCQE(nrAvailable *uint32) (cqe *CompletionQueueEvent,
 }
 
 const (
-	nSig       = 65
-	szDivider  = 8
-	enter2size = nSig / szDivider
+	nSig                 = 65
+	szDivider            = 8
+	enter2size           = nSig / szDivider
+	registerRingFdOffset = uint32(4294967295)
 )
 
 func (ring *IOURing) Enter(submitted uint32, waitNr uint32, flags uint32, sig unsafe.Pointer) (uint, error) {
@@ -950,6 +970,103 @@ func (ring *IOURing) Enter2(submitted uint32, waitNr uint32, flags uint32, sig u
 		return 0, errno
 	}
 	return uint(consumed), nil
+}
+
+const (
+	intFlagRegRing    uint8 = 1
+	intFlagRegRegRing uint8 = 2
+)
+
+type RsrcUpdate struct {
+	Offset uint32
+	Resv   uint32
+	Data   uint64
+}
+
+func (ring *IOURing) Register(fd int, opcode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, syscall.Errno) {
+	returnFirst, _, errno := syscall.Syscall6(
+		sysRegister,
+		uintptr(fd),
+		uintptr(opcode),
+		uintptr(arg),
+		uintptr(nrArgs),
+		0,
+		0,
+	)
+	return uint(returnFirst), errno
+}
+
+func (ring *IOURing) doRegisterErrno(opCode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, syscall.Errno) {
+	var fd int
+
+	if ring.intFlags&intFlagRegRing != 0 {
+		opCode |= RegisterUseRegisteredRing
+		fd = ring.enterFd
+	} else {
+		fd = ring.fd
+	}
+
+	return ring.Register(fd, opCode, arg, nrArgs)
+}
+
+func (ring *IOURing) doRegister(opCode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, error) {
+	ret, errno := ring.doRegisterErrno(opCode, arg, nrArgs)
+	if errno != 0 {
+		return 0, os.NewSyscallError("io_uring_register", errno)
+	}
+
+	return ret, nil
+}
+
+func (ring *IOURing) RegisterRingFd() (uint, error) {
+	if (ring.intFlags & intFlagRegRing) != 0 {
+		return 0, syscall.EEXIST
+	}
+
+	rsrcUpdate := &RsrcUpdate{
+		Data:   uint64(ring.fd),
+		Offset: registerRingFdOffset,
+	}
+
+	ret, err := ring.doRegister(RegisterRingFds, unsafe.Pointer(rsrcUpdate), 1)
+	if err != nil {
+		return ret, err
+	}
+
+	if ret == 1 {
+		ring.enterFd = int(rsrcUpdate.Offset)
+		ring.intFlags |= intFlagRegRing
+
+		if ring.features&FeatRegRegRing != 0 {
+			ring.intFlags |= intFlagRegRegRing
+		}
+	} else {
+		return ret, fmt.Errorf("unexpected return from ring.Register: %d", ret)
+	}
+
+	return ret, nil
+}
+
+func (ring *IOURing) UnregisterRingFd() (uint, error) {
+	rsrcUpdate := &RsrcUpdate{
+		Offset: uint32(ring.enterFd),
+	}
+
+	if (ring.intFlags & intFlagRegRing) != 0 {
+		return 0, syscall.EINVAL
+	}
+
+	ret, err := ring.doRegister(UnregisterRingFds, unsafe.Pointer(rsrcUpdate), 1)
+	if err != nil {
+		return ret, err
+	}
+
+	if ret == 1 {
+		ring.enterFd = ring.fd
+		ring.intFlags &= ^(intFlagRegRing | intFlagRegRegRing)
+	}
+
+	return ret, nil
 }
 
 type IOURingSettings struct {
@@ -1170,7 +1287,7 @@ const (
 // setup and features
 // https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
 const (
-	// _SetupIOPoll
+	// SetupIOPoll
 	// 执行繁忙等待 I/O 完成，而不是通过异步 IRQ（中断请求）获取通知。文件系统（如有）和块设备必须支持轮询，这样才能正常工作。
 	// 忙时（Busy-waiting）可提供较低的延迟，但可能比中断驱动的 I/O 消耗更多的 CPU 资源。
 	// 目前，该功能仅适用于使用 O_DIRECT 标志打开的文件描述符。
@@ -1178,7 +1295,7 @@ const (
 	// 目前这只适用于存储设备，而且存储设备必须配置为轮询。如何配置取决于相关设备的类型。
 	// 对于 NVMe 设备，必须加载 nvme 驱动程序，并将 poll_queues 参数设置为所需的轮询队列数。
 	// 如果轮询队列的数量少于在线 CPU 线程的数量，系统中的 CPU 将适当共享轮询队列。
-	_SetupIOPoll uint32 = 1 << iota
+	SetupIOPoll uint32 = 1 << iota
 	// SetupSQPoll
 	// 指定该标志后，将创建一个内核线程来执行提交队列轮询。以这种方式配置的 io_uring 实例能让应用程序在不切换内核上下文的情况下发出 I/O。
 	// 通过使用提交队列填写新的提交队列条目，并观察完成队列上的完成情况，应用程序可以在不执行单个系统调用的情况下提交和获取 I/O。
@@ -1210,9 +1327,9 @@ const (
 	// 设置后，创建的 io_uring 实例将共享指定 io_uring ring 的异步工作线程后端，而不是创建一个新的独立线程池。
 	// 此外，如果设置了 IORING_SETUP_SQPOLL，还将共享 sq 轮询线程。
 	SetupAttachWQ
-	// _SetupRDisabled
+	// SetupRDisabled
 	// 如果指定了该标记，io_uring 环将处于禁用状态。在这种状态下，可以注册限制，但不允许提交。有关如何启用环的详细信息，请参见 io_uring_register(2)。自 5.10 版起可用。
-	_SetupRDisabled
+	SetupRDisabled
 	// SetupSubmitAll
 	// 通常情况下，如果其中一个请求出现错误，io_uring 就会停止提交一批请求。
 	// 如果一个请求在提交过程中出错，这可能会导致提交的请求少于预期。
@@ -1257,10 +1374,10 @@ const (
 	SetupDeferTaskRun
 	// SetupNoMmap
 	// 默认情况下，io_uring 会分配内核内存，调用者必须随后使用 mmap(2)。如果设置了该标记，io_uring 将使用调用者分配的缓冲区；p->cq_off.user_addr 必须指向 sq/cq ring 的内存，p->sq_off.user_addr 必须指向 sqes 的内存。每次分配的内存必须是连续的。通常情况下，调用者应使用 mmap(2) 分配大页面来分配这些内存。如果设置了此标记，那么随后尝试 mmap(2) io_uring 文件描述符的操作将失败。自 6.5 版起可用。
-	_SetupNoMmap
+	SetupNoMmap
 	// SetupRegisteredFdOnly
 	// 如果设置了这个标志，io_uring 将注册环形文件描述符，并返回已注册的描述符索引，而不会分配一个未注册的文件描述符。调用者在调用 io_uring_register(2) 时需要使用 IORING_REGISTER_USE_REGISTERED_RING。该标记只有在与 IORING_SETUP_NO_MMAP 同时使用时才有意义，后者也需要设置。自 6.5 版起可用。
-	_SetupRegisteredFdOnly
+	SetupRegisteredFdOnly
 	// SetupNoSQArray
 	// 如果设置了该标志，提交队列中的条目将按顺序提交，并在到达队列末尾后绕到第一个条目。
 	// 换句话说，将不再通过提交条目数组进行间接处理，而是直接通过提交队列尾部和它所代表的索引范围（队列大小的模数）对队列进行索引。
@@ -1345,11 +1462,11 @@ const (
 	// FeatRcrcTags
 	// 如果设置了这个标志，那么 io_uring 将支持与固定文件和缓冲区相关的各种功能。
 	// 尤其是，它表明已注册的缓冲区可以就地更新，而在此之前，必须先取消注册整个缓冲区。自内核 5.13 起可用。
-	_FeatRcrcTags
+	FeatRcrcTags
 	// FeatCQESkip
 	// 如果设置了该标志，io_uring 就支持在提交的 SQE 中设置 IOSQE_CQE_SKIP_SUCCESS，表明如果正常执行，就不会为该 SQE 生成 CQE。
 	// 如果在处理 SQE 时发生错误，仍会生成带有相应错误值的 CQE。自内核 5.17 起可用。
-	_FeatCQESkip
+	FeatCQESkip
 	// FeatLinkedFile
 	// 如果设置了这个标志，那么 io_uring 将支持为有依赖关系的 SQE 合理分配文件。
 	// 例如，如果使用 IOSQE_IO_LINK 提交了一连串 SQE，那么没有该标志的内核将为每个链接预先准备文件。
@@ -1358,11 +1475,42 @@ const (
 	FeatLinkedFile
 	// FeatRegRegRing
 	// 如果设置了该标志，则 io_uring 支持通过 IORING_REGISTER_USE_REGISTERED_RING，使用注册环 fd 调用 io_uring_register(2)。自内核 6.3 起可用。
-	_FeatRegRegRing
-	_FeatRecvSendBundle
+	FeatRegRegRing
+	FeatRecvSendBundle
 	// FeatMinTimeout
 	// 如果设置了该标志，则 io_uring 支持传递最小批处理等待超时。详情请参见 io_uring_submit_and_wait_min_timeout(3) 。
-	_FeatMinTimeout
+	FeatMinTimeout
+)
+
+const (
+	RegisterBuffers uint32 = iota
+	UnregisterBuffers
+	RegisterFiles
+	UnregisterFiles
+	RegisterEventFD
+	UnregisterEventFD
+	RegisterFilesUpdate
+	RegisterEventFDAsync
+	RegisterProbe
+	RegisterPersonality
+	UnregisterPersonality
+	RegisterRestrictions
+	RegisterEnableRings
+	RegisterFiles2
+	RegisterFilesUpdate2
+	RegisterBuffers2
+	RegisterBuffersUpdate
+	RegisterIOWQAff
+	UnregisterIOWQAff
+	RegisterIOWQMaxWorkers
+	RegisterRingFds
+	UnregisterRingFds
+	RegisterPbufRing
+	UnregisterPbufRing
+	RegisterSyncCancel
+	RegisterFileAllocRange
+	RegisterLast
+	RegisterUseRegisteredRing = 1 << 31
 )
 
 const (
