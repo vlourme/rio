@@ -4,6 +4,7 @@ package aio
 
 import (
 	"errors"
+	"golang.org/x/sys/unix"
 	"os"
 	"syscall"
 )
@@ -62,6 +63,13 @@ func setDefaultSocketOpts(fd int, family int, sotype int, ipv6only bool) error {
 	if (sotype == syscall.SOCK_DGRAM || sotype == syscall.SOCK_RAW) && family != syscall.AF_UNIX && family != syscall.AF_INET6 {
 		// allow broadcast.
 		err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+		if err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	}
+	major, minor := KernelVersion()
+	if major >= 4 && minor >= 14 {
+		err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, 1)
 		if err != nil {
 			return os.NewSyscallError("setsockopt", err)
 		}
