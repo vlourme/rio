@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/binary"
 	"github.com/brickingsoft/rio/codec"
-	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp"
 	"sync"
 	"testing"
@@ -42,13 +41,13 @@ func TestLengthFieldEncode(t *testing.T) {
 	w := newFakeWriter(ctx)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	codec.LengthFieldEncode(ctx, w, b).OnComplete(func(ctx context.Context, result transport.Outbound, err error) {
+	codec.LengthFieldEncode(ctx, w, b).OnComplete(func(ctx context.Context, result int, err error) {
 		defer wg.Done()
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		wn := result.Wrote()
+		wn := result
 		p := make([]byte, 8+len(b))
 		binary.BigEndian.PutUint64(p, uint64(len(b)))
 		copy(p[8:], b)

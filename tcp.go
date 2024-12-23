@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"time"
 )
 
 type TCPConnection interface {
 	Connection
-	Sendfile(file string) (future async.Future[transport.Outbound])
+	Sendfile(file string) (future async.Future[int])
 	MultipathTCP() bool
 	SetNoDelay(noDelay bool) (err error)
 	SetLinger(sec int) (err error)
@@ -61,32 +60,25 @@ func (conn *tcpConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err e
 	return
 }
 
-func (conn *tcpConnection) Sendfile(file string) (future async.Future[transport.Outbound]) {
+func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if len(file) == 0 {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, errors.New("no file specified")))
+		future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, errors.New("no file specified")))
 		return
 	}
-	promise, promiseErr := async.Make[transport.Outbound](conn.ctx)
+	promise, promiseErr := async.Make[int](conn.ctx)
 	if promiseErr != nil {
 		if async.IsBusy(promiseErr) {
-			future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, ErrBusy))
+			future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, ErrBusy))
 		} else {
-			future = async.FailedImmediately[transport.Outbound](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, promiseErr))
+			future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, promiseErr))
 		}
 		return
 	}
 	aio.Sendfile(conn.fd, file, func(n int, userdata aio.Userdata, err error) {
 		if err != nil {
-			if n == 0 {
-				promise.Fail(aio.NewOpErr(aio.OpSendfile, conn.fd, err))
-			} else {
-				outbound := transport.NewOutBound(n, aio.NewOpErr(aio.OpSendfile, conn.fd, err))
-				promise.Succeed(outbound)
-			}
-			return
+			err = aio.NewOpErr(aio.OpSendfile, conn.fd, err)
 		}
-		outbound := transport.NewOutBound(n, nil)
-		promise.Succeed(outbound)
+		promise.Complete(n, err)
 		return
 	})
 

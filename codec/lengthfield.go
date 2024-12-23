@@ -83,10 +83,10 @@ func (decoder *LengthFieldDecoder) Decode(inbound transport.Inbound) (ok bool, m
 	return
 }
 
-func LengthFieldEncode(ctx context.Context, writer FutureWriter, p []byte) (future async.Future[transport.Outbound]) {
+func LengthFieldEncode(ctx context.Context, writer FutureWriter, p []byte) (future async.Future[int]) {
 	pLen := len(p)
 	if pLen == 0 {
-		future = async.FailedImmediately[transport.Outbound](ctx, errors.New("codec: empty packet"))
+		future = async.FailedImmediately[int](ctx, errors.New("codec: empty packet"))
 		return
 	}
 	b := make([]byte, lengthFieldSize+pLen)

@@ -37,7 +37,7 @@ type Connection interface {
 	SetKeepAlivePeriod(period time.Duration) (err error)
 	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
 	Read() (future async.Future[transport.Inbound])
-	Write(b []byte) (future async.Future[transport.Outbound])
+	Write(b []byte) (future async.Future[int])
 	Close() (future async.Future[async.Void])
 }
 
@@ -192,12 +192,12 @@ func (conn *TLSConnection) Read() (future async.Future[transport.Inbound]) {
 	return
 }
 
-func (conn *TLSConnection) Write(b []byte) (future async.Future[transport.Outbound]) {
+func (conn *TLSConnection) Write(b []byte) (future async.Future[int]) {
 
 	return
 }
 
-func (conn *TLSConnection) Sendfile(file string) (future async.Future[transport.Outbound]) {
+func (conn *TLSConnection) Sendfile(file string) (future async.Future[int]) {
 
 	return
 }
@@ -334,18 +334,11 @@ func (conn *TLSConnection) sendAlertLocked(err alert) (future async.Future[async
 	}
 	conn.tmp[1] = byte(err)
 
-	conn.writeRecordLocked(recordTypeAlert, conn.tmp[0:2]).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+	conn.writeRecordLocked(recordTypeAlert, conn.tmp[0:2]).OnComplete(func(ctx context.Context, entry int, cause error) {
 		if errors.Is(cause, alertCloseNotify) {
 			// closeNotify is a special case in that it isn't an error.
 			promise.Fail(cause)
 			return
-		}
-		if unexpectedError := entry.UnexpectedError(); unexpectedError != nil {
-			if errors.Is(cause, alertCloseNotify) {
-				// closeNotify is a special case in that it isn't an error.
-				promise.Fail(cause)
-				return
-			}
 		}
 
 		cause = conn.out.setErrorLocked(&net.OpError{Op: "local error", Err: err})
@@ -382,44 +375,36 @@ func (conn *TLSConnection) sendAlert(err alert) (future async.Future[async.Void]
 	return
 }
 
-func (conn *TLSConnection) write(b []byte) (future async.Future[transport.Outbound]) {
+func (conn *TLSConnection) write(b []byte) (future async.Future[int]) {
 	if conn.buffering {
 		conn.sendBuf = append(conn.sendBuf, b...)
-		future = async.SucceedImmediately[transport.Outbound](conn.ctx, transport.NewOutBound(len(b), nil))
+		future = async.SucceedImmediately[int](conn.ctx, len(b))
 		return
 	}
-	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+	promise, promiseErr := async.Make[int](conn.ctx, async.WithWait())
 	if promiseErr != nil {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
 	future = promise.Future()
 
 	aio.Send(conn.fd, b, func(result int, userdata aio.Userdata, err error) {
 		conn.bytesSent += int64(result)
-		if err != nil {
-			if result == 0 {
-				promise.Fail(err)
-			} else {
-				promise.Succeed(transport.NewOutBound(result, err))
-			}
-			return
-		}
-		promise.Succeed(transport.NewOutBound(result, nil))
+		promise.Complete(result, err)
 		return
 	})
 
 	return
 }
 
-func (conn *TLSConnection) flush() (future async.Future[transport.Outbound]) {
+func (conn *TLSConnection) flush() (future async.Future[int]) {
 	if len(conn.sendBuf) == 0 {
-		future = async.SucceedImmediately[transport.Outbound](conn.ctx, transport.NewOutBound(0, nil))
+		future = async.SucceedImmediately[int](conn.ctx, 0)
 		return
 	}
-	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+	promise, promiseErr := async.Make[int](conn.ctx, async.WithWait())
 	if promiseErr != nil {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
 	future = promise.Future()
@@ -429,15 +414,7 @@ func (conn *TLSConnection) flush() (future async.Future[transport.Outbound]) {
 		conn.sendBuf = nil
 		conn.buffering = false
 
-		if err != nil {
-			if result == 0 {
-				promise.Fail(err)
-			} else {
-				promise.Succeed(transport.NewOutBound(result, err))
-			}
-			return
-		}
-		promise.Succeed(transport.NewOutBound(result, nil))
+		promise.Complete(result, err)
 		return
 	})
 
@@ -530,10 +507,10 @@ var outBufPool = sync.Pool{
 
 // writeRecordLocked writes a TLS record with the given type and payload to the
 // connection and updates the record layer state.
-func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (future async.Future[transport.Outbound]) {
-	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (future async.Future[int]) {
+	promise, promiseErr := async.Make[int](conn.ctx, async.WithWait())
 	if promiseErr != nil {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
 	future = promise.Future()
@@ -541,7 +518,7 @@ func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (futur
 	outBufPtr := outBufPool.Get().(*[]byte)
 	outBuf := *outBufPtr
 
-	conn.writeRecordLocked0(typ, data, 0, outBuf).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+	conn.writeRecordLocked0(typ, data, 0, outBuf).OnComplete(func(ctx context.Context, entry int, cause error) {
 		*outBufPtr = outBuf
 		outBufPool.Put(outBufPtr)
 		if cause != nil {
@@ -555,10 +532,10 @@ func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (futur
 	return
 }
 
-func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, written int, outBuf []byte) (future async.Future[transport.Outbound]) {
-	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, written int, outBuf []byte) (future async.Future[int]) {
+	promise, promiseErr := async.Make[int](conn.ctx, async.WithWait())
 	if promiseErr != nil {
-		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
 	future = promise.Future()
@@ -567,15 +544,7 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 		if typ == recordTypeChangeCipherSpec && conn.vers != VersionTLS13 {
 			if err := conn.out.changeCipherSpec(); err != nil {
 				conn.sendAlertLocked(err.(alert)).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					if cause != nil {
-						if written == 0 {
-							promise.Fail(cause)
-						} else {
-							promise.Succeed(transport.NewOutBound(written, cause))
-						}
-						return
-					}
-					promise.Succeed(transport.NewOutBound(written, nil))
+					promise.Complete(written, cause)
 					return
 				})
 				return
@@ -609,25 +578,17 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 	var err error
 	outBuf, err = conn.out.encrypt(outBuf, data[:m], conn.config.rand())
 	if err != nil {
-		if written == 0 {
-			promise.Fail(err)
-		} else {
-			promise.Succeed(transport.NewOutBound(written, err))
-		}
+		promise.Complete(written, err)
 		return
 	}
 
-	conn.write(outBuf).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+	conn.write(outBuf).OnComplete(func(ctx context.Context, entry int, cause error) {
 		if cause != nil {
 			promise.Fail(cause)
 			return
 		}
 
-		written += entry.Wrote()
-		if unexpectedError := entry.UnexpectedError(); unexpectedError != nil {
-			promise.Succeed(transport.NewOutBound(written, unexpectedError))
-			return
-		}
+		written += entry
 
 		data = data[m:]
 
@@ -635,15 +596,7 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 			if typ == recordTypeChangeCipherSpec && conn.vers != VersionTLS13 {
 				if err := conn.out.changeCipherSpec(); err != nil {
 					conn.sendAlertLocked(err.(alert)).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-						if cause != nil {
-							if written == 0 {
-								promise.Fail(cause)
-							} else {
-								promise.Succeed(transport.NewOutBound(written, cause))
-							}
-							return
-						}
-						promise.Succeed(transport.NewOutBound(written, nil))
+						promise.Complete(written, cause)
 						return
 					})
 					return
@@ -652,19 +605,13 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 			return
 		}
 
-		conn.writeRecordLocked0(typ, data, written, outBuf).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+		conn.writeRecordLocked0(typ, data, written, outBuf).OnComplete(func(ctx context.Context, entry int, cause error) {
 			if cause != nil {
 				promise.Fail(err)
 				return
 			}
-
-			written += entry.Wrote()
-			if unexpectedError := entry.UnexpectedError(); unexpectedError != nil {
-				promise.Succeed(transport.NewOutBound(written, unexpectedError))
-				return
-			}
-			promise.Succeed(transport.NewOutBound(written, nil))
-
+			written += entry
+			promise.Succeed(written)
 			return
 		})
 		return

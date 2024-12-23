@@ -3,7 +3,6 @@ package codec_test
 import (
 	"bytes"
 	"context"
-	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 )
 
@@ -18,9 +17,9 @@ type FakeWriter struct {
 	p   []byte
 }
 
-func (w *FakeWriter) Write(p []byte) (future async.Future[transport.Outbound]) {
+func (w *FakeWriter) Write(p []byte) (future async.Future[int]) {
 	w.p = p
-	future = async.SucceedImmediately[transport.Outbound](w.ctx, transport.NewOutBound(len(p), nil))
+	future = async.SucceedImmediately[int](w.ctx, len(p))
 	return
 }
 

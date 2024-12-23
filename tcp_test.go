@@ -121,13 +121,13 @@ func TestTCP(t *testing.T) {
 			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
 			swg.Add(1)
-			conn.Write(p).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+			conn.Write(p).OnComplete(func(ctx context.Context, out int, err error) {
 				defer swg.Done()
 				if err != nil {
 					t.Error("srv write:", err)
 					return
 				}
-				t.Log("srv write:", out.Wrote())
+				t.Log("srv write:", out)
 				swg.Add(1)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 					defer swg.Done()
@@ -145,13 +145,13 @@ func TestTCP(t *testing.T) {
 			cwg.Done()
 			return
 		}
-		conn.Write([]byte("hello word")).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+		conn.Write([]byte("hello word")).OnComplete(func(ctx context.Context, out int, err error) {
 			if err != nil {
 				t.Error("cli write:", err)
 				cwg.Done()
 				return
 			}
-			t.Log("cli write:", out.Wrote())
+			t.Log("cli write:", out)
 			conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
 				if err != nil {
 					t.Error("cli read:", err)
@@ -260,13 +260,13 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 			return
 		}
 
-		tcpConn.Sendfile(filename).OnComplete(func(ctx context.Context, out transport.Outbound, err error) {
+		tcpConn.Sendfile(filename).OnComplete(func(ctx context.Context, out int, err error) {
 			if err != nil {
 				t.Error("cli send:", err)
 				cwg.Done()
 				return
 			}
-			t.Log("cli send:", out.Wrote())
+			t.Log("cli send:", out)
 			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 				cwg.Done()
 				t.Log("cli close:", err)

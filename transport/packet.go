@@ -99,7 +99,7 @@ func (in *packetMsgInbound) Addr() (addr net.Addr) {
 }
 
 type PacketMsgOutbound interface {
-	Wrote() (n int)
+	Written() (n int)
 	OOBWrote() (n int)
 	UnexpectedError() (err error)
 }
@@ -118,7 +118,7 @@ type packetMsgOutbound struct {
 	unexpectedError error
 }
 
-func (out *packetMsgOutbound) Wrote() (n int) {
+func (out *packetMsgOutbound) Written() (n int) {
 	n = out.wrote
 	return
 }
