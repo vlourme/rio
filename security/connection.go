@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"errors"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
@@ -199,7 +201,73 @@ func (conn *TLSConnection) Sendfile(file string) (future async.Future[transport.
 	return
 }
 
+var errEarlyCloseWrite = errors.New("tls: CloseWrite called before handshake complete")
+
+func (conn *TLSConnection) CloseWrite() (future async.Future[async.Void]) {
+	if !conn.isHandshakeComplete.Load() {
+		future = async.FailedImmediately[async.Void](conn.ctx, errEarlyCloseWrite)
+		return
+	}
+	future = conn.closeNotify()
+	return
+}
+
 func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
+	// Interlock with Conn.Write above.
+	var x int32
+	for {
+		x = conn.activeCall.Load()
+		if x&1 != 0 {
+			future = async.FailedImmediately[async.Void](conn.ctx, net.ErrClosed)
+			return
+		}
+		if conn.activeCall.CompareAndSwap(x, x|1) {
+			break
+		}
+	}
+	if x != 0 {
+		// io.Writer and io.Closer should not be used concurrently.
+		// If Close is called while a Write is currently in-flight,
+		// interpret that as a sign that this Close is really just
+		// being used to break the Write and/or clean up resources and
+		// avoid sending the alertCloseNotify, which may block
+		// waiting on handshakeMutex or the c.out mutex.
+		future = conn.closesocket()
+		return
+	}
+
+	if conn.isHandshakeComplete.Load() {
+		promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
+		if promiseErr != nil {
+			future = conn.closesocket()
+			return
+		}
+		future = promise.Future()
+		conn.closeNotify().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+			var alertErr error
+			if cause != nil {
+				alertErr = fmt.Errorf("tls: failed to send closeNotify alert (but connection was closed anyway): %w", cause)
+			}
+			conn.closesocket().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+				if cause != nil {
+					promise.Fail(cause)
+					return
+				}
+				if alertErr != nil {
+					promise.Fail(alertErr)
+					return
+				}
+				promise.Succeed(async.Void{})
+				return
+			})
+		})
+	} else {
+		future = conn.closesocket()
+	}
+	return
+}
+
+func (conn *TLSConnection) closesocket() (future async.Future[async.Void]) {
 	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
 	if promiseErr != nil {
 		conn.rb.Close()
@@ -219,6 +287,95 @@ func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
 		return
 	})
 	future = promise.Future()
+	return
+}
+
+func (conn *TLSConnection) closeNotify() (future async.Future[async.Void]) {
+	conn.out.Lock()
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
+	if promiseErr != nil {
+		conn.out.Unlock()
+		future = async.FailedImmediately[async.Void](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	_ = conn.SetWriteTimeout(5 * time.Second)
+	conn.sendAlertLocked(alertCloseNotify).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+		defer conn.out.Unlock()
+
+		conn.closeNotifyErr = cause
+		conn.closeNotifySent = true
+		_ = conn.SetWriteTimeout(0)
+		if cause != nil {
+			promise.Fail(cause)
+			return
+		}
+		promise.Succeed(async.Void{})
+		return
+	})
+
+	return
+}
+
+func (conn *TLSConnection) sendAlertLocked(err alert) (future async.Future[async.Void]) {
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithWait())
+	if promiseErr != nil {
+		future = async.FailedImmediately[async.Void](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	switch err {
+	case alertNoRenegotiation, alertCloseNotify:
+		conn.tmp[0] = alertLevelWarning
+	default:
+		conn.tmp[0] = alertLevelError
+	}
+	conn.tmp[1] = byte(err)
+
+	conn.writeRecordLocked(recordTypeAlert, conn.tmp[0:2]).OnComplete(func(ctx context.Context, entry int, cause error) {
+		if errors.Is(cause, alertCloseNotify) {
+			// closeNotify is a special case in that it isn't an error.
+			promise.Fail(cause)
+			return
+		}
+		cause = conn.out.setErrorLocked(&net.OpError{Op: "local error", Err: err})
+		if cause != nil {
+			promise.Fail(cause)
+			return
+		}
+		promise.Succeed(async.Void{})
+		return
+	})
+	return
+}
+
+func (conn *TLSConnection) sendAlert(err alert) (future async.Future[async.Void]) {
+	conn.out.Lock()
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
+	if promiseErr != nil {
+		conn.out.Unlock()
+		future = async.FailedImmediately[async.Void](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	conn.sendAlertLocked(err).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+		defer conn.out.Unlock()
+		if cause != nil {
+			promise.Fail(cause)
+			return
+		}
+		promise.Succeed(async.Void{})
+		return
+	})
+
+	return
+}
+
+func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (future async.Future[int]) {
+	// todo
 	return
 }
 

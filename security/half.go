@@ -3,6 +3,7 @@ package security
 import (
 	"crypto/cipher"
 	"crypto/subtle"
+	"errors"
 	"hash"
 	"io"
 	"net"
@@ -32,10 +33,9 @@ type halfConn struct {
 }
 
 func (hc *halfConn) setErrorLocked(err error) error {
-	if e, ok := err.(net.Error); ok {
+	var e net.Error
+	if errors.As(err, &e) {
 		hc.err = &permanentError{err: e}
-	} else {
-		hc.err = err
 	}
 	return hc.err
 }
