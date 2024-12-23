@@ -521,11 +521,8 @@ func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (futur
 	conn.writeRecordLocked0(typ, data, 0, outBuf).OnComplete(func(ctx context.Context, entry int, cause error) {
 		*outBufPtr = outBuf
 		outBufPool.Put(outBufPtr)
-		if cause != nil {
-			promise.Fail(cause)
-			return
-		}
-		promise.Succeed(entry)
+
+		promise.Complete(entry, cause)
 		return
 	})
 
@@ -550,6 +547,7 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 				return
 			}
 		}
+		promise.Succeed(written)
 		return
 	}
 
@@ -575,20 +573,20 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 	outBuf[3] = byte(m >> 8)
 	outBuf[4] = byte(m)
 
-	var err error
-	outBuf, err = conn.out.encrypt(outBuf, data[:m], conn.config.rand())
-	if err != nil {
-		promise.Complete(written, err)
+	var encryptErr error
+	outBuf, encryptErr = conn.out.encrypt(outBuf, data[:m], conn.config.rand())
+	if encryptErr != nil {
+		promise.Complete(written, encryptErr)
 		return
 	}
 
 	conn.write(outBuf).OnComplete(func(ctx context.Context, entry int, cause error) {
+		written += entry
+
 		if cause != nil {
-			promise.Fail(cause)
+			promise.Complete(written, cause)
 			return
 		}
-
-		written += entry
 
 		data = data[m:]
 
@@ -602,16 +600,13 @@ func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, writt
 					return
 				}
 			}
+			promise.Succeed(written)
 			return
 		}
 
 		conn.writeRecordLocked0(typ, data, written, outBuf).OnComplete(func(ctx context.Context, entry int, cause error) {
-			if cause != nil {
-				promise.Fail(err)
-				return
-			}
 			written += entry
-			promise.Succeed(written)
+			promise.Complete(written, cause)
 			return
 		})
 		return
