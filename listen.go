@@ -2,7 +2,6 @@ package rio
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
@@ -215,7 +214,7 @@ type listener struct {
 	unlinkOnClose                 bool
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
-	tlsConfig                     *tls.Config
+	tlsConfig                     *security.Config
 	tlsConnBuilder                security.ConnectionBuilder
 	defaultReadTimeout            time.Duration
 	defaultWriteTimeout           time.Duration

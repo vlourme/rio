@@ -1,17 +1,20 @@
 package security
 
 import (
+	"bytes"
 	"context"
-	"crypto/tls"
+	"crypto/x509"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
-type ConnectionBuilder func(ctx context.Context, fd aio.NetFd, config *tls.Config) (conn Connection, err error)
+type ConnectionBuilder func(ctx context.Context, fd aio.NetFd, config *Config) (conn Connection, err error)
 
 type Connection interface {
 	Context() (ctx context.Context)
@@ -36,10 +39,52 @@ type Connection interface {
 }
 
 type TLSConnection struct {
-	ctx context.Context
-	fd  aio.NetFd
-	rb  transport.InboundBuffer
-	rbs int
+	ctx                   context.Context
+	fd                    aio.NetFd
+	rb                    transport.InboundBuffer
+	rbs                   int
+	isClient              bool
+	handshakeFn           func(ctx context.Context) (future async.Future[async.Void])
+	isHandshakeComplete   atomic.Bool
+	handshakeMutex        sync.Mutex
+	handshakeErr          error   // error resulting from handshake
+	vers                  uint16  // TLS version
+	haveVers              bool    // version has been negotiated
+	config                *Config // configuration passed to constructor
+	handshakes            int
+	extMasterSecret       bool
+	didResume             bool // whether this connection was a session resumption
+	didHRR                bool // whether a HelloRetryRequest was sent/received
+	cipherSuite           uint16
+	curveID               CurveID
+	ocspResponse          []byte   // stapled OCSP response
+	scts                  [][]byte // signed certificate timestamps from server
+	peerCertificates      []*x509.Certificate
+	activeCertHandles     []*activeCert
+	verifiedChains        [][]*x509.Certificate
+	serverName            string
+	secureRenegotiation   bool
+	ekm                   func(label string, context []byte, length int) ([]byte, error)
+	resumptionSecret      []byte
+	echAccepted           bool
+	ticketKeys            []ticketKey
+	clientFinishedIsFirst bool
+	closeNotifyErr        error
+	closeNotifySent       bool
+	clientFinished        [12]byte
+	serverFinished        [12]byte
+	clientProtocol        string
+	in, out               halfConn
+	rawInput              bytes.Buffer // raw input, starting with a record header
+	input                 bytes.Reader // application data waiting to be read, from rawInput.Next
+	hand                  bytes.Buffer // handshake data waiting to be read
+	buffering             bool         // whether records are buffered in sendBuf
+	sendBuf               []byte       // a buffer of records waiting to be sent
+	bytesSent             int64
+	packetsSent           int64
+	retryCount            int
+	activeCall            atomic.Int32
+	tmp                   [16]byte
 }
 
 func (conn *TLSConnection) Context() context.Context {
@@ -110,43 +155,6 @@ func (conn *TLSConnection) SetInboundBuffer(n int) {
 	return
 }
 
-func (conn *TLSConnection) Read() (future async.Future[transport.Inbound]) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *TLSConnection) Write(b []byte) (future async.Future[transport.Outbound]) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *TLSConnection) Sendfile(file string) (future async.Future[transport.Outbound]) {
-	return
-}
-
-func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
-	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
-	if promiseErr != nil {
-		conn.rb.Close()
-		aio.CloseImmediately(conn.fd)
-		timeslimiter.TryRevert(conn.ctx)
-		future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
-		return
-	}
-	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
-		if err != nil {
-			promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))
-		} else {
-			promise.Succeed(async.Void{})
-		}
-		conn.rb.Close()
-		timeslimiter.TryRevert(conn.ctx)
-		return
-	})
-	future = promise.Future()
-	return
-}
-
 func (conn *TLSConnection) MultipathTCP() bool {
 	return aio.IsUsingMultipathTCP(conn.fd)
 }
@@ -174,4 +182,60 @@ func (conn *TLSConnection) SetKeepAlivePeriod(period time.Duration) (err error) 
 func (conn *TLSConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err error) {
 	err = aio.SetKeepAliveConfig(conn.fd, config)
 	return
+}
+
+func (conn *TLSConnection) Read() (future async.Future[transport.Inbound]) {
+
+	return
+}
+
+func (conn *TLSConnection) Write(b []byte) (future async.Future[transport.Outbound]) {
+
+	return
+}
+
+func (conn *TLSConnection) Sendfile(file string) (future async.Future[transport.Outbound]) {
+
+	return
+}
+
+func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
+	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
+	if promiseErr != nil {
+		conn.rb.Close()
+		aio.CloseImmediately(conn.fd)
+		timeslimiter.TryRevert(conn.ctx)
+		future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
+		return
+	}
+	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
+		if err != nil {
+			promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))
+		} else {
+			promise.Succeed(async.Void{})
+		}
+		conn.rb.Close()
+		timeslimiter.TryRevert(conn.ctx)
+		return
+	})
+	future = promise.Future()
+	return
+}
+
+// sessionState returns a partially filled-out [SessionState] with information
+// from the current connection.
+func (conn *TLSConnection) sessionState() *SessionState {
+	return &SessionState{
+		version:           conn.vers,
+		cipherSuite:       conn.cipherSuite,
+		createdAt:         uint64(conn.config.time().Unix()),
+		alpnProtocol:      conn.clientProtocol,
+		peerCertificates:  conn.peerCertificates,
+		activeCertHandles: conn.activeCertHandles,
+		ocspResponse:      conn.ocspResponse,
+		scts:              conn.scts,
+		isClient:          conn.isClient,
+		extMasterSecret:   conn.extMasterSecret,
+		verifiedChains:    conn.verifiedChains,
+	}
 }
