@@ -3,6 +3,7 @@ package security
 import (
 	"bytes"
 	"context"
+	"crypto/cipher"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -333,12 +334,20 @@ func (conn *TLSConnection) sendAlertLocked(err alert) (future async.Future[async
 	}
 	conn.tmp[1] = byte(err)
 
-	conn.writeRecordLocked(recordTypeAlert, conn.tmp[0:2]).OnComplete(func(ctx context.Context, entry int, cause error) {
+	conn.writeRecordLocked(recordTypeAlert, conn.tmp[0:2]).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
 		if errors.Is(cause, alertCloseNotify) {
 			// closeNotify is a special case in that it isn't an error.
 			promise.Fail(cause)
 			return
 		}
+		if unexpectedError := entry.UnexpectedError(); unexpectedError != nil {
+			if errors.Is(cause, alertCloseNotify) {
+				// closeNotify is a special case in that it isn't an error.
+				promise.Fail(cause)
+				return
+			}
+		}
+
 		cause = conn.out.setErrorLocked(&net.OpError{Op: "local error", Err: err})
 		if cause != nil {
 			promise.Fail(cause)
@@ -373,8 +382,293 @@ func (conn *TLSConnection) sendAlert(err alert) (future async.Future[async.Void]
 	return
 }
 
-func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (future async.Future[int]) {
-	// todo
+func (conn *TLSConnection) write(b []byte) (future async.Future[transport.Outbound]) {
+	if conn.buffering {
+		conn.sendBuf = append(conn.sendBuf, b...)
+		future = async.SucceedImmediately[transport.Outbound](conn.ctx, transport.NewOutBound(len(b), nil))
+		return
+	}
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+	if promiseErr != nil {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	aio.Send(conn.fd, b, func(result int, userdata aio.Userdata, err error) {
+		conn.bytesSent += int64(result)
+		if err != nil {
+			if result == 0 {
+				promise.Fail(err)
+			} else {
+				promise.Succeed(transport.NewOutBound(result, err))
+			}
+			return
+		}
+		promise.Succeed(transport.NewOutBound(result, nil))
+		return
+	})
+
+	return
+}
+
+func (conn *TLSConnection) flush() (future async.Future[transport.Outbound]) {
+	if len(conn.sendBuf) == 0 {
+		future = async.SucceedImmediately[transport.Outbound](conn.ctx, transport.NewOutBound(0, nil))
+		return
+	}
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+	if promiseErr != nil {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	aio.Send(conn.fd, conn.sendBuf, func(result int, userdata aio.Userdata, err error) {
+		conn.bytesSent += int64(result)
+		conn.sendBuf = nil
+		conn.buffering = false
+
+		if err != nil {
+			if result == 0 {
+				promise.Fail(err)
+			} else {
+				promise.Succeed(transport.NewOutBound(result, err))
+			}
+			return
+		}
+		promise.Succeed(transport.NewOutBound(result, nil))
+		return
+	})
+
+	return
+}
+
+const (
+	// tcpMSSEstimate is a conservative estimate of the TCP maximum segment
+	// size (MSS). A constant is used, rather than querying the kernel for
+	// the actual MSS, to avoid complexity. The value here is the IPv6
+	// minimum MTU (1280 bytes) minus the overhead of an IPv6 header (40
+	// bytes) and a TCP header with timestamps (32 bytes).
+	tcpMSSEstimate = 1208
+
+	// recordSizeBoostThreshold is the number of bytes of application data
+	// sent after which the TLS record size will be increased to the
+	// maximum.
+	recordSizeBoostThreshold = 128 * 1024
+)
+
+// maxPayloadSizeForWrite returns the maximum TLS payload size to use for the
+// next application data record. There is the following trade-off:
+//
+//   - For latency-sensitive applications, such as web browsing, each TLS
+//     record should fit in one TCP segment.
+//   - For throughput-sensitive applications, such as large file transfers,
+//     larger TLS records better amortize framing and encryption overheads.
+//
+// A simple heuristic that works well in practice is to use small records for
+// the first 1MB of data, then use larger records for subsequent data, and
+// reset back to smaller records after the connection becomes idle. See "High
+// Performance Web Networking", Chapter 4, or:
+// https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
+//
+// In the interests of simplicity and determinism, this code does not attempt
+// to reset the record size once the connection is idle, however.
+func (conn *TLSConnection) maxPayloadSizeForWrite(typ recordType) int {
+	if conn.config.DynamicRecordSizingDisabled || typ != recordTypeApplicationData {
+		return maxPlaintext
+	}
+
+	if conn.bytesSent >= recordSizeBoostThreshold {
+		return maxPlaintext
+	}
+
+	// Subtract TLS overheads to get the maximum payload size.
+	payloadBytes := tcpMSSEstimate - recordHeaderLen - conn.out.explicitNonceLen()
+	if conn.out.cipher != nil {
+		switch ciph := conn.out.cipher.(type) {
+		case cipher.Stream:
+			payloadBytes -= conn.out.mac.Size()
+		case cipher.AEAD:
+			payloadBytes -= ciph.Overhead()
+		case cbcMode:
+			blockSize := ciph.BlockSize()
+			// The payload must fit in a multiple of blockSize, with
+			// room for at least one padding byte.
+			payloadBytes = (payloadBytes & ^(blockSize - 1)) - 1
+			// The MAC is appended before padding so affects the
+			// payload size directly.
+			payloadBytes -= conn.out.mac.Size()
+		default:
+			panic("unknown cipher type")
+		}
+	}
+	if conn.vers == VersionTLS13 {
+		payloadBytes-- // encrypted ContentType
+	}
+
+	// Allow packet growth in arithmetic progression up to max.
+	pkt := conn.packetsSent
+	conn.packetsSent++
+	if pkt > 1000 {
+		return maxPlaintext // avoid overflow in multiply below
+	}
+
+	n := payloadBytes * int(pkt+1)
+	if n > maxPlaintext {
+		n = maxPlaintext
+	}
+	return n
+}
+
+// outBufPool pools the record-sized scratch buffers used by writeRecordLocked.
+var outBufPool = sync.Pool{
+	New: func() any {
+		return new([]byte)
+	},
+}
+
+// writeRecordLocked writes a TLS record with the given type and payload to the
+// connection and updates the record layer state.
+func (conn *TLSConnection) writeRecordLocked(typ recordType, data []byte) (future async.Future[transport.Outbound]) {
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+	if promiseErr != nil {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	outBufPtr := outBufPool.Get().(*[]byte)
+	outBuf := *outBufPtr
+
+	conn.writeRecordLocked0(typ, data, 0, outBuf).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+		*outBufPtr = outBuf
+		outBufPool.Put(outBufPtr)
+		if cause != nil {
+			promise.Fail(cause)
+			return
+		}
+		promise.Succeed(entry)
+		return
+	})
+
+	return
+}
+
+func (conn *TLSConnection) writeRecordLocked0(typ recordType, data []byte, written int, outBuf []byte) (future async.Future[transport.Outbound]) {
+	promise, promiseErr := async.Make[transport.Outbound](conn.ctx, async.WithWait())
+	if promiseErr != nil {
+		future = async.FailedImmediately[transport.Outbound](conn.ctx, promiseErr)
+		return
+	}
+	future = promise.Future()
+
+	if len(data) == 0 {
+		if typ == recordTypeChangeCipherSpec && conn.vers != VersionTLS13 {
+			if err := conn.out.changeCipherSpec(); err != nil {
+				conn.sendAlertLocked(err.(alert)).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					if cause != nil {
+						if written == 0 {
+							promise.Fail(cause)
+						} else {
+							promise.Succeed(transport.NewOutBound(written, cause))
+						}
+						return
+					}
+					promise.Succeed(transport.NewOutBound(written, nil))
+					return
+				})
+				return
+			}
+		}
+		return
+	}
+
+	m := len(data)
+	if maxPayload := conn.maxPayloadSizeForWrite(typ); m > maxPayload {
+		m = maxPayload
+	}
+
+	_, outBuf = sliceForAppend(outBuf[:0], recordHeaderLen)
+	outBuf[0] = byte(typ)
+	vers := conn.vers
+	if vers == 0 {
+		// Some TLS servers fail if the record version is
+		// greater than TLS 1.0 for the initial ClientHello.
+		vers = VersionTLS10
+	} else if vers == VersionTLS13 {
+		// TLS 1.3 froze the record layer version to 1.2.
+		// See RFC 8446, Section 5.1.
+		vers = VersionTLS12
+	}
+	outBuf[1] = byte(vers >> 8)
+	outBuf[2] = byte(vers)
+	outBuf[3] = byte(m >> 8)
+	outBuf[4] = byte(m)
+
+	var err error
+	outBuf, err = conn.out.encrypt(outBuf, data[:m], conn.config.rand())
+	if err != nil {
+		if written == 0 {
+			promise.Fail(err)
+		} else {
+			promise.Succeed(transport.NewOutBound(written, err))
+		}
+		return
+	}
+
+	conn.write(outBuf).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+		if cause != nil {
+			promise.Fail(cause)
+			return
+		}
+
+		written += entry.Wrote()
+		if unexpectedError := entry.UnexpectedError(); unexpectedError != nil {
+			promise.Succeed(transport.NewOutBound(written, unexpectedError))
+			return
+		}
+
+		data = data[m:]
+
+		if len(data) == 0 {
+			if typ == recordTypeChangeCipherSpec && conn.vers != VersionTLS13 {
+				if err := conn.out.changeCipherSpec(); err != nil {
+					conn.sendAlertLocked(err.(alert)).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+						if cause != nil {
+							if written == 0 {
+								promise.Fail(cause)
+							} else {
+								promise.Succeed(transport.NewOutBound(written, cause))
+							}
+							return
+						}
+						promise.Succeed(transport.NewOutBound(written, nil))
+						return
+					})
+					return
+				}
+			}
+			return
+		}
+
+		conn.writeRecordLocked0(typ, data, written, outBuf).OnComplete(func(ctx context.Context, entry transport.Outbound, cause error) {
+			if cause != nil {
+				promise.Fail(err)
+				return
+			}
+
+			written += entry.Wrote()
+			if unexpectedError := entry.UnexpectedError(); unexpectedError != nil {
+				promise.Succeed(transport.NewOutBound(written, unexpectedError))
+				return
+			}
+			promise.Succeed(transport.NewOutBound(written, nil))
+
+			return
+		})
+		return
+	})
 	return
 }
 
