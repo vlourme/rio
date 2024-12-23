@@ -232,14 +232,14 @@ func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
 		// being used to break the Write and/or clean up resources and
 		// avoid sending the alertCloseNotify, which may block
 		// waiting on handshakeMutex or the c.out mutex.
-		future = conn.closesocket()
+		future = conn.closeSocket()
 		return
 	}
 
 	if conn.isHandshakeComplete.Load() {
 		promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
 		if promiseErr != nil {
-			future = conn.closesocket()
+			future = conn.closeSocket()
 			return
 		}
 		future = promise.Future()
@@ -248,7 +248,7 @@ func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
 			if cause != nil {
 				alertErr = fmt.Errorf("tls: failed to send closeNotify alert (but connection was closed anyway): %w", cause)
 			}
-			conn.closesocket().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+			conn.closeSocket().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 				if cause != nil {
 					promise.Fail(cause)
 					return
@@ -262,12 +262,12 @@ func (conn *TLSConnection) Close() (future async.Future[async.Void]) {
 			})
 		})
 	} else {
-		future = conn.closesocket()
+		future = conn.closeSocket()
 	}
 	return
 }
 
-func (conn *TLSConnection) closesocket() (future async.Future[async.Void]) {
+func (conn *TLSConnection) closeSocket() (future async.Future[async.Void]) {
 	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode())
 	if promiseErr != nil {
 		conn.rb.Close()
@@ -326,10 +326,9 @@ func (conn *TLSConnection) sendAlertLocked(err alert) (future async.Future[async
 	}
 	future = promise.Future()
 
-	switch err {
-	case alertNoRenegotiation, alertCloseNotify:
+	if errors.Is(err, alertNoRenegotiation) || errors.Is(err, alertCloseNotify) {
 		conn.tmp[0] = alertLevelWarning
-	default:
+	} else {
 		conn.tmp[0] = alertLevelError
 	}
 	conn.tmp[1] = byte(err)
