@@ -331,14 +331,7 @@ func (ln *listener) acceptOne() {
 			if ln.tlsConfig == nil {
 				conn = newTCPConnection(ln.ctx, connFd)
 			} else {
-				sc, tlsErr := ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
-				if tlsErr != nil {
-					conn.Close().OnComplete(async.DiscardVoidHandler)
-					ln.acceptorPromises.Fail(tlsErr)
-					ln.acceptOne()
-					return
-				}
-				conn = sc
+				conn = ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
 			}
 			break
 		case "unix", "unixpacket":
@@ -347,14 +340,7 @@ func (ln *listener) acceptOne() {
 				if ln.tlsConfig == nil {
 					conn = newTCPConnection(ln.ctx, connFd)
 				} else {
-					sc, tlsErr := ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
-					if tlsErr != nil {
-						conn.Close().OnComplete(async.DiscardVoidHandler)
-						ln.acceptorPromises.Fail(tlsErr)
-						ln.acceptOne()
-						return
-					}
-					conn = sc
+					conn = ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
 				}
 			} else {
 				conn = newPacketConnection(ln.ctx, connFd)
