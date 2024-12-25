@@ -2,6 +2,7 @@ package transport
 
 import (
 	"github.com/brickingsoft/rxp/async"
+	"net"
 	"time"
 )
 
@@ -36,4 +37,23 @@ type TimeoutReader interface {
 type TimeoutWriter interface {
 	Reader
 	SetWriteTimeout(d time.Duration) (err error)
+}
+
+type PacketReader interface {
+	ReadFrom() (future async.Future[PacketInbound])
+}
+
+type PacketWriter interface {
+	WriteTo(b []byte, addr net.Addr) (future async.Future[int])
+}
+
+type PacketReadWriter interface {
+	PacketReader
+	PacketWriter
+}
+
+type PacketReadCloser interface {
+	PacketReader
+	PacketWriter
+	Closer
 }
