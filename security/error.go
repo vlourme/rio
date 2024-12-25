@@ -1,6 +1,9 @@
 package security
 
-import "net"
+import (
+	"github.com/brickingsoft/rio/pkg/aio"
+	"net"
+)
 
 // RecordHeaderError is returned when a TLS record header is invalid.
 type RecordHeaderError struct {
@@ -9,11 +12,11 @@ type RecordHeaderError struct {
 	// RecordHeader contains the five bytes of TLS record header that
 	// triggered the error.
 	RecordHeader [5]byte
-	// Conn provides the underlying net.Conn in the case that a client
+	// Fd provides the underlying aio.NetFd in the case that a client
 	// sent an initial handshake that didn't look like TLS.
 	// It is nil if there's already been a handshake or a TLS alert has
 	// been written to the connection.
-	Conn net.Conn
+	Fd aio.NetFd
 }
 
 func (e RecordHeaderError) Error() string { return "tls: " + e.Msg }

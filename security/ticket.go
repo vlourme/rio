@@ -83,7 +83,7 @@ type SessionState struct {
 	secret            []byte // master secret for TLS 1.2, or the PSK for TLS 1.3
 	extMasterSecret   bool
 	peerCertificates  []*x509.Certificate
-	activeCertHandles []*activeCert
+	activeCertHandles []*ActiveCert
 	ocspResponse      []byte
 	scts              [][]byte
 	verifiedChains    [][]*x509.Certificate
