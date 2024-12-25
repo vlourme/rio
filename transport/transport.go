@@ -23,7 +23,7 @@ type ReadWriter interface {
 	Writer
 }
 
-type ReadWriteCloser interface {
+type Transport interface {
 	Reader
 	Writer
 	Closer
@@ -52,7 +52,7 @@ type PacketReadWriter interface {
 	PacketWriter
 }
 
-type PacketReadCloser interface {
+type PacketTransport interface {
 	PacketReader
 	PacketWriter
 	Closer
