@@ -6,10 +6,6 @@ import (
 	"github.com/brickingsoft/rxp/async"
 )
 
-type FutureReader interface {
-	Read() (future async.Future[transport.Inbound])
-}
-
 // Decoder
 // 解析器。
 // 泛型 T 是解析的结果，建议在结果中自行定义协议解析的错误，因为 Decode 的错误会停止解析。
@@ -24,7 +20,7 @@ type Decoder[T any] interface {
 // Decode
 // 流式解析
 // 默认创建一个流式且无限等待的 async.Promise。
-func Decode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
+func Decode[T any](ctx context.Context, reader transport.Reader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
 	// 默认开启 流 和 强等
 	options = append(options, async.WithStream(), async.WithWait())
 	promise, promiseErr := async.Make[T](ctx, options...)
@@ -39,7 +35,7 @@ func Decode[T any](ctx context.Context, reader FutureReader, decoder Decoder[T],
 
 // DecodeOnce
 // 单次解析
-func DecodeOnce[T any](ctx context.Context, reader FutureReader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
+func DecodeOnce[T any](ctx context.Context, reader transport.Reader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
 	promise, promiseErr := async.Make[T](ctx, options...)
 	if promiseErr != nil {
 		future = async.FailedImmediately[T](ctx, promiseErr)
@@ -50,7 +46,7 @@ func DecodeOnce[T any](ctx context.Context, reader FutureReader, decoder Decoder
 	return
 }
 
-func decode[T any](reader FutureReader, decoder Decoder[T], stream bool, promise async.Promise[T]) {
+func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, promise async.Promise[T]) {
 	reader.Read().OnComplete(func(ctx context.Context, result transport.Inbound, err error) {
 		if err != nil {
 			promise.Fail(err)
