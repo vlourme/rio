@@ -327,21 +327,16 @@ func (ln *listener) acceptOne() {
 
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
-			tcpConn := newTCPConnection(ln.ctx, connFd)
-			if ln.tlsConfig == nil {
-				conn = tcpConn
-			} else {
-				conn = ln.tlsConnBuilder(tcpConn, ln.tlsConfig)
+			conn = newTCPConnection(ln.ctx, connFd)
+			if ln.tlsConfig != nil {
+				conn = ln.tlsConnBuilder(conn, ln.tlsConfig)
 			}
 			break
 		case "unix", "unixpacket":
 			if ln.network == "unix" {
-				// tls
-				tcpConn := newTCPConnection(ln.ctx, connFd)
-				if ln.tlsConfig == nil {
-					conn = tcpConn
-				} else {
-					conn = ln.tlsConnBuilder(tcpConn, ln.tlsConfig)
+				conn = newTCPConnection(ln.ctx, connFd)
+				if ln.tlsConfig != nil {
+					conn = ln.tlsConnBuilder(conn, ln.tlsConfig)
 				}
 			} else {
 				conn = newPacketConnection(ln.ctx, connFd)

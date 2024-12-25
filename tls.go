@@ -3,17 +3,18 @@ package rio
 import (
 	"context"
 	"crypto/tls"
-	"github.com/brickingsoft/rio/pkg/aio"
+	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
-type TLSConnectionBuilder func(conn TCPConnection, config *tls.Config) TLSConnection
+type TLSConnectionBuilder func(conn Connection, config *tls.Config) TLSConnection
 
 type TLSConnection interface {
-	TCPConnection
+	Connection
 	ConnectionState() tls.ConnectionState
 	OCSPResponse() []byte
 	VerifyHostname(host string) error
@@ -21,11 +22,32 @@ type TLSConnection interface {
 	Handshake() (future async.Future[async.Void])
 }
 
+func TLSClient(conn Connection, config *tls.Config) TLSConnection {
+	c := &tlsConnection{
+		inner:    conn,
+		config:   config,
+		isClient: true,
+	}
+	c.handshake = security.ClientHandShaker(conn, config)
+	return c
+}
+
+func TLSServer(conn Connection, config *tls.Config) TLSConnection {
+	c := &tlsConnection{
+		inner:  conn,
+		config: config,
+	}
+	c.handshake = security.ServerHandShaker(conn, config)
+	return c
+}
+
 type tlsConnection struct {
-	inner       TCPConnection
-	config      *tls.Config
-	isClient    bool
-	handshakeFn func() (future async.Future[async.Void])
+	inner             Connection
+	config            *tls.Config
+	isClient          bool
+	handshake         security.HandShaker
+	handshakeComplete atomic.Bool
+	handshakeErr      error
 }
 
 func (conn *tlsConnection) Read() (future async.Future[transport.Inbound]) {
@@ -111,28 +133,4 @@ func (conn *tlsConnection) SetWriteBuffer(n int) error {
 
 func (conn *tlsConnection) SetInboundBuffer(n int) {
 	conn.inner.SetInboundBuffer(n)
-}
-
-func (conn *tlsConnection) MultipathTCP() bool {
-	return conn.inner.MultipathTCP()
-}
-
-func (conn *tlsConnection) SetNoDelay(noDelay bool) error {
-	return conn.inner.SetNoDelay(noDelay)
-}
-
-func (conn *tlsConnection) SetLinger(sec int) error {
-	return conn.inner.SetLinger(sec)
-}
-
-func (conn *tlsConnection) SetKeepAlive(keepalive bool) error {
-	return conn.inner.SetKeepAlive(keepalive)
-}
-
-func (conn *tlsConnection) SetKeepAlivePeriod(period time.Duration) error {
-	return conn.inner.SetKeepAlivePeriod(period)
-}
-
-func (conn *tlsConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) error {
-	return conn.inner.SetKeepAliveConfig(config)
 }

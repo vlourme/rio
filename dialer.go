@@ -109,11 +109,9 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 			switch network {
 			case "tcp", "tcp4", "tcp6":
-				tcpConn := newTCPConnection(ctx, connFd)
-				if opts.TLSConfig == nil {
-					conn = tcpConn
-				} else {
-					conn = opts.TLSConnectionBuilder(tcpConn, opts.TLSConfig)
+				conn = newTCPConnection(ctx, connFd)
+				if opts.TLSConfig != nil {
+					conn = opts.TLSConnectionBuilder(conn, opts.TLSConfig)
 				}
 				break
 			case "udp", "udp4", "udp6":
@@ -121,11 +119,9 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				break
 			case "unix", "unixgram", "unixpacket":
 				if network == "unix" {
-					tcpConn := newTCPConnection(ctx, connFd)
-					if opts.TLSConfig == nil {
-						conn = tcpConn
-					} else {
-						conn = opts.TLSConnectionBuilder(tcpConn, opts.TLSConfig)
+					conn = newTCPConnection(ctx, connFd)
+					if opts.TLSConfig != nil {
+						conn = opts.TLSConnectionBuilder(conn, opts.TLSConfig)
 					}
 				} else {
 					conn = newPacketConnection(ctx, connFd)
