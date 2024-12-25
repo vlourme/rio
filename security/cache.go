@@ -12,20 +12,20 @@ type cacheEntry struct {
 	cert *x509.Certificate
 }
 
-type activeCert struct {
+type ActiveCert struct {
 	cert *x509.Certificate
 }
 
-var globalCertCache = new(certCache)
+var globalCertCache = new(CertCache)
 
-type certCache struct {
+type CertCache struct {
 	sync.Map
 }
 
-func (cc *certCache) active(e *cacheEntry) *activeCert {
+func (cc *CertCache) active(e *cacheEntry) *ActiveCert {
 	e.refs.Add(1)
-	a := &activeCert{e.cert}
-	runtime.SetFinalizer(a, func(_ *activeCert) {
+	a := &ActiveCert{e.cert}
+	runtime.SetFinalizer(a, func(_ *ActiveCert) {
 		if e.refs.Add(-1) == 0 {
 			cc.evict(e)
 		}
@@ -33,11 +33,11 @@ func (cc *certCache) active(e *cacheEntry) *activeCert {
 	return a
 }
 
-func (cc *certCache) evict(e *cacheEntry) {
+func (cc *CertCache) evict(e *cacheEntry) {
 	cc.Delete(string(e.cert.Raw))
 }
 
-func (cc *certCache) newCert(der []byte) (*activeCert, error) {
+func (cc *CertCache) newCert(der []byte) (*ActiveCert, error) {
 	if entry, ok := cc.Load(string(der)); ok {
 		return cc.active(entry.(*cacheEntry)), nil
 	}

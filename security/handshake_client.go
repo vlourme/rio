@@ -2,9 +2,12 @@ package security
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/aio"
+	"crypto/tls"
+	"github.com/brickingsoft/rio/transport"
+	"github.com/brickingsoft/rxp/async"
 )
 
-func Client(ctx context.Context, fd aio.NetFd, config *Config) (conn Connection, err error) {
+func ClientHandshake(ctx context.Context, conn transport.Transport, config *tls.Config) (future async.Future[HandshakeResult]) {
+
 	return
 }
