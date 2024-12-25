@@ -2,10 +2,10 @@ package rio
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
-	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -121,7 +121,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
 			TLSConfig:                  nil,
-			TLSConnectionBuilder:       security.Server,
+			TLSConnectionBuilder:       TLSServer,
 			MultipathTCP:               false,
 			PromiseMakeOptions:         make([]async.Option, 0, 1),
 		},
@@ -214,8 +214,8 @@ type listener struct {
 	unlinkOnClose                 bool
 	connectionsLimiter            *timeslimiter.Bucket
 	connectionsLimiterWaitTimeout time.Duration
-	tlsConfig                     *security.Config
-	tlsConnBuilder                security.ConnectionBuilder
+	tlsConfig                     *tls.Config
+	tlsConnBuilder                TLSConnectionBuilder
 	defaultReadTimeout            time.Duration
 	defaultWriteTimeout           time.Duration
 	defaultReadBuffer             int
@@ -327,20 +327,21 @@ func (ln *listener) acceptOne() {
 
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
-			// tls
+			tcpConn := newTCPConnection(ln.ctx, connFd)
 			if ln.tlsConfig == nil {
-				conn = newTCPConnection(ln.ctx, connFd)
+				conn = tcpConn
 			} else {
-				conn = ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
+				conn = ln.tlsConnBuilder(tcpConn, ln.tlsConfig)
 			}
 			break
 		case "unix", "unixpacket":
 			if ln.network == "unix" {
 				// tls
+				tcpConn := newTCPConnection(ln.ctx, connFd)
 				if ln.tlsConfig == nil {
-					conn = newTCPConnection(ln.ctx, connFd)
+					conn = tcpConn
 				} else {
-					conn = ln.tlsConnBuilder(ln.ctx, connFd, ln.tlsConfig)
+					conn = ln.tlsConnBuilder(tcpConn, ln.tlsConfig)
 				}
 			} else {
 				conn = newPacketConnection(ln.ctx, connFd)
