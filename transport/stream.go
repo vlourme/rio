@@ -1,5 +1,7 @@
 package transport
 
+import "github.com/brickingsoft/rxp/async"
+
 type Inbound interface {
 	Reader() (buf InboundReader)
 	Received() (n int)
@@ -25,4 +27,12 @@ func (in inbound) Reader() (r InboundReader) {
 func (in inbound) Received() (n int) {
 	n = in.n
 	return
+}
+
+type Reader interface {
+	Read() (future async.Future[Inbound])
+}
+
+type Writer interface {
+	Write(b []byte) (future async.Future[int])
 }

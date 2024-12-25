@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"github.com/brickingsoft/rxp/async"
 	"net"
 )
 
@@ -131,4 +132,12 @@ func (out *packetMsgOutbound) OOBWrote() (n int) {
 func (out *packetMsgOutbound) UnexpectedError() (err error) {
 	err = out.unexpectedError
 	return
+}
+
+type PacketReader interface {
+	ReadFrom() (future async.Future[PacketInbound])
+}
+
+type PacketWriter interface {
+	WriteTo(b []byte, addr net.Addr) (future async.Future[int])
 }
