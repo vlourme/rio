@@ -50,10 +50,24 @@ func (encoder *FixedEncoder) Encode(param []byte) (b []byte, err error) {
 }
 
 func (encoder *FixedEncoder) Decode(inbound transport.Inbound) (ok bool, message []byte, err error) {
-	n := inbound.Received()
-	if n < encoder.n {
+	if n := inbound.Received(); n == 0 {
 		return
 	}
+
+	buf := inbound.Reader()
+	if buf == nil {
+		// when reading, buf must not be nil
+		// only conn closed, then buf will be nil
+		// so return io.ErrUnexpectedEOF
+		err = io.ErrUnexpectedEOF
+		return
+	}
+
+	bufLen := buf.Length()
+	if bufLen < encoder.n {
+		return
+	}
+
 	message = make([]byte, encoder.n)
 	rn, rErr := inbound.Reader().Read(message)
 	if rErr != nil {
