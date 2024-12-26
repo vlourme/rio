@@ -46,14 +46,10 @@ type LengthFieldEncoder struct {
 }
 
 func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, message LengthFieldMessage, err error) {
-	n := inbound.Received()
-	if n == 0 {
+	if n := inbound.Received(); n == 0 {
 		return
 	}
-	if encoder.lengthFieldSize > n {
-		// not full
-		return
-	}
+
 	buf := inbound.Reader()
 	if buf == nil {
 		// when reading, buf must not be nil
@@ -62,14 +58,12 @@ func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, m
 		err = io.ErrUnexpectedEOF
 		return
 	}
-
-	if bufLen := buf.Length(); bufLen < n {
-		n = bufLen
-	}
-	if n < encoder.lengthFieldSize {
+	bufLen := buf.Length()
+	if bufLen < encoder.lengthFieldSize {
 		// not full
 		return
 	}
+
 	lengthField := buf.Peek(encoder.lengthFieldSize)
 	size := int(binary.BigEndian.Uint64(lengthField))
 	if size == 0 {
@@ -79,7 +73,7 @@ func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, m
 		ok = true
 		return
 	}
-	if n-encoder.lengthFieldSize < size {
+	if bufLen-encoder.lengthFieldSize < size {
 		// not full
 		return
 	}
