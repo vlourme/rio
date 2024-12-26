@@ -62,12 +62,11 @@ func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, m
 		err = io.ErrUnexpectedEOF
 		return
 	}
-	bufLen := buf.Length()
-	if bufLen < n {
-		err = io.ErrUnexpectedEOF
-		return
+
+	if bufLen := buf.Length(); bufLen < n {
+		n = bufLen
 	}
-	if bufLen < encoder.lengthFieldSize {
+	if n < encoder.lengthFieldSize {
 		// not full
 		return
 	}
@@ -80,7 +79,7 @@ func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, m
 		ok = true
 		return
 	}
-	if bufLen-encoder.lengthFieldSize < size {
+	if n-encoder.lengthFieldSize < size {
 		// not full
 		return
 	}
