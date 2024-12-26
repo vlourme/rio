@@ -302,7 +302,7 @@ func (ln *listener) acceptOne() {
 	aio.Accept(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
 			ln.connectionsLimiter.Revert()
-			if aio.IsUnexpectedCompletionError(err) || async.IsExecutorsClosed(err) {
+			if aio.IsUnexpectedCompletionError(err) || async.IsExecutorsClosed(err) || async.IsEOF(err) {
 				// shutdown then close ln
 				if ln.ok() {
 					ln.running.Store(false)

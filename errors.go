@@ -1,7 +1,6 @@
 package rio
 
 import (
-	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp/async"
@@ -28,10 +27,7 @@ func IsClosed(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	ok := errors.Is(err, async.EOF) || errors.Is(err, async.UnexpectedEOF) ||
-		errors.Is(err, ErrClosed) ||
-		errors.Is(err, context.Canceled) || errors.Is(err, async.UnexpectedContextFailed) ||
-		errors.Is(err, async.ExecutorsClosed)
+	ok := errors.Is(err, async.ExecutorsClosed)
 	return ok
 }
 
