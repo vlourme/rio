@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -16,18 +15,11 @@ import (
 	"unsafe"
 )
 
-const (
-	defaultAcceptMaxConnections                   = int64(0)
-	defaultAcceptMaxConnectionsLimiterWaitTimeout = 500 * time.Millisecond
-)
-
 type ListenOptions struct {
 	Options
-	ParallelAcceptors                      int
-	AcceptMaxConnections                   int64
-	AcceptMaxConnectionsLimiterWaitTimeout time.Duration
-	UnixListenerUnlinkOnClose              bool
-	FastOpen                               int
+	ParallelAcceptors         int
+	UnixListenerUnlinkOnClose bool
+	FastOpen                  int
 }
 
 // WithParallelAcceptors
@@ -44,32 +36,6 @@ func WithParallelAcceptors(parallelAcceptors int) Option {
 		}
 		opts := (*ListenOptions)(unsafe.Pointer(options))
 		opts.ParallelAcceptors = parallelAcceptors
-		return
-	}
-}
-
-// WithAcceptMaxConnections
-// 设置最大链接数。默认为0即无上限。
-func WithAcceptMaxConnections(maxConnections int64) Option {
-	return func(options *Options) (err error) {
-		if maxConnections > 0 {
-			opts := (*ListenOptions)(unsafe.Pointer(options))
-			opts.AcceptMaxConnections = maxConnections
-		}
-		return
-	}
-}
-
-// WithAcceptMaxConnectionsLimiterWaitTimeout
-// 设置最大链接数限制器等待超时。默认为500毫秒。
-//
-// 当10次都没新链接，当前协程会被挂起。
-func WithAcceptMaxConnectionsLimiterWaitTimeout(maxConnectionsLimiterWaitTimeout time.Duration) Option {
-	return func(options *Options) (err error) {
-		if maxConnectionsLimiterWaitTimeout > 0 {
-			opts := (*ListenOptions)(unsafe.Pointer(options))
-			opts.AcceptMaxConnectionsLimiterWaitTimeout = maxConnectionsLimiterWaitTimeout
-		}
 		return
 	}
 }
@@ -125,10 +91,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			MultipathTCP:               false,
 			PromiseMakeOptions:         make([]async.Option, 0, 1),
 		},
-		ParallelAcceptors:                      runtime.NumCPU() * 2,
-		AcceptMaxConnections:                   defaultAcceptMaxConnections,
-		AcceptMaxConnectionsLimiterWaitTimeout: defaultAcceptMaxConnectionsLimiterWaitTimeout,
-		UnixListenerUnlinkOnClose:              false,
+		ParallelAcceptors:         runtime.NumCPU() * 2,
+		UnixListenerUnlinkOnClose: false,
 	}
 	for _, option := range options {
 		err = option((*Options)(unsafe.Pointer(&opt)))
@@ -139,13 +103,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 
 	// parallel acceptors
 	parallelAcceptors := opt.ParallelAcceptors
-	// connections limiter
-	maxConnections := opt.AcceptMaxConnections
-	connectionsLimiter := timeslimiter.New(maxConnections)
-	ctx = timeslimiter.With(ctx, connectionsLimiter)
-	if maxConnections > 0 && maxConnections < int64(parallelAcceptors) {
-		parallelAcceptors = int(maxConnections)
-	}
 
 	// sockets listen
 	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
@@ -186,43 +143,39 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 
 	// create
 	ln = &listener{
-		ctx:                           ctx,
-		running:                       running,
-		network:                       network,
-		fd:                            fd,
-		unlinkOnClose:                 unlinkOnClose,
-		connectionsLimiter:            connectionsLimiter,
-		connectionsLimiterWaitTimeout: opt.AcceptMaxConnectionsLimiterWaitTimeout,
-		tlsConfig:                     opt.TLSConfig,
-		tlsConnBuilder:                opt.TLSConnectionBuilder,
-		defaultReadTimeout:            opt.DefaultConnReadTimeout,
-		defaultWriteTimeout:           opt.DefaultConnWriteTimeout,
-		defaultReadBuffer:             opt.DefaultConnReadBufferSize,
-		defaultWriteBuffer:            opt.DefaultConnWriteBufferSize,
-		defaultInboundBuffer:          opt.DefaultInboundBufferSize,
-		parallelAcceptors:             parallelAcceptors,
-		acceptorPromises:              acceptorPromises,
+		ctx:                  ctx,
+		running:              running,
+		network:              network,
+		fd:                   fd,
+		unlinkOnClose:        unlinkOnClose,
+		tlsConfig:            opt.TLSConfig,
+		tlsConnBuilder:       opt.TLSConnectionBuilder,
+		defaultReadTimeout:   opt.DefaultConnReadTimeout,
+		defaultWriteTimeout:  opt.DefaultConnWriteTimeout,
+		defaultReadBuffer:    opt.DefaultConnReadBufferSize,
+		defaultWriteBuffer:   opt.DefaultConnWriteBufferSize,
+		defaultInboundBuffer: opt.DefaultInboundBufferSize,
+		parallelAcceptors:    parallelAcceptors,
+		acceptorPromises:     acceptorPromises,
 	}
 	return
 }
 
 type listener struct {
-	ctx                           context.Context
-	running                       *atomic.Bool
-	network                       string
-	fd                            aio.NetFd
-	unlinkOnClose                 bool
-	connectionsLimiter            *timeslimiter.Bucket
-	connectionsLimiterWaitTimeout time.Duration
-	tlsConfig                     *tls.Config
-	tlsConnBuilder                TLSConnectionBuilder
-	defaultReadTimeout            time.Duration
-	defaultWriteTimeout           time.Duration
-	defaultReadBuffer             int
-	defaultWriteBuffer            int
-	defaultInboundBuffer          int
-	parallelAcceptors             int
-	acceptorPromises              async.Promise[Connection]
+	ctx                  context.Context
+	running              *atomic.Bool
+	network              string
+	fd                   aio.NetFd
+	unlinkOnClose        bool
+	tlsConfig            *tls.Config
+	tlsConnBuilder       TLSConnectionBuilder
+	defaultReadTimeout   time.Duration
+	defaultWriteTimeout  time.Duration
+	defaultReadBuffer    int
+	defaultWriteBuffer   int
+	defaultInboundBuffer int
+	parallelAcceptors    int
+	acceptorPromises     async.Promise[Connection]
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
@@ -287,22 +240,9 @@ func (ln *listener) acceptOne() {
 	if !ln.ok() {
 		return
 	}
-	limiterCtx, limiterCtxCancel := context.WithTimeout(ln.ctx, ln.connectionsLimiterWaitTimeout)
-	waitErr := ln.connectionsLimiter.Wait(limiterCtx)
-	limiterCtxCancel()
-	if waitErr != nil {
-		if ln.ok() {
-			// just wait timeout
-			runtime.Gosched()
-		}
-		ln.acceptOne()
-		return
-	}
-
 	aio.Accept(ln.fd, func(result int, userdata aio.Userdata, err error) {
 		if err != nil {
-			ln.connectionsLimiter.Revert()
-			if aio.IsUnexpectedCompletionError(err) || async.IsExecutorsClosed(err) || async.IsEOF(err) {
+			if aio.IsUnexpectedCompletionError(err) {
 				// shutdown then close ln
 				if ln.ok() {
 					ln.running.Store(false)
