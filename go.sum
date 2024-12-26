@@ -6,6 +6,8 @@ github.com/brickingsoft/rxp v1.4.2 h1:nxLcFAj4cEgZXFyARjLCk459LALxmUoRc2Un96FVXR
 github.com/brickingsoft/rxp v1.4.2/go.mod h1:HYh1V8mVmyHEcCuW2AbVUH1AGTQKwXYwNFaBqq21BUI=
 github.com/brickingsoft/rxp v1.4.3 h1:whiaIklp6kZkwQXN/7jIbJsiqftwURWSTYNQENUS8Kc=
 github.com/brickingsoft/rxp v1.4.3/go.mod h1:HYh1V8mVmyHEcCuW2AbVUH1AGTQKwXYwNFaBqq21BUI=
+github.com/brickingsoft/rxp v1.4.4 h1:Bp3P6MwLlNhI5osgKzKtZrzWmdeuhGKmz6JK3qAImDg=
+github.com/brickingsoft/rxp v1.4.4/go.mod h1:HYh1V8mVmyHEcCuW2AbVUH1AGTQKwXYwNFaBqq21BUI=
 golang.org/x/crypto v0.31.0 h1:ihbySMvVjLAeSH1IbfcRTkD/iNscyz8rGzjF/E5hV6U=
 golang.org/x/crypto v0.31.0/go.mod h1:kDsLvtWBEx7MV9tJOj9bnXsPbxwJQ6csT/x4KIN4Ssk=
 golang.org/x/sys v0.28.0 h1:Fksou7UEQUWlKvIdsqzJmUmCX3cZuD2+P3XyyzwMhlA=
