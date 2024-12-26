@@ -76,11 +76,11 @@ func IsErrAllocateWrote(err error) bool {
 	return errors.Is(err, ErrAllocateWrote)
 }
 
-func IsTimeout(err error) bool {
+func IsDeadlineExceeded(err error) bool {
 	var opErr *net.OpError
 	isOpErr := errors.As(err, &opErr)
 	if isOpErr {
-		err = opErr.Err
+		err = opErr.Unwrap()
 	}
 	return async.IsDeadlineExceeded(err) || aio.IsOperationDeadlineExceededError(err)
 }
