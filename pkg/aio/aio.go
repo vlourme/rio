@@ -1,14 +1,13 @@
 package aio
 
 import (
-	"context"
 	"errors"
 	"net"
 )
 
 var (
 	ErrUnexpectedCompletion      = errors.New("aio: unexpected completion error")
-	ErrOperationDeadlineExceeded = errors.Join(errors.New("aio: operation deadline exceeded"), context.DeadlineExceeded)
+	ErrOperationDeadlineExceeded = errors.New("aio: operation deadline exceeded")
 	ErrEmptyBytes                = errors.New("aio: empty bytes")
 	ErrNilAddr                   = errors.New("aio: addr is nil")
 	ErrBusy                      = errors.New("aio: busy")
