@@ -50,6 +50,9 @@ func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, pro
 	reader.Read().OnComplete(func(ctx context.Context, result transport.Inbound, err error) {
 		if err != nil {
 			promise.Fail(err)
+			if stream {
+				promise.Cancel()
+			}
 			return
 		}
 		ok, message, decodeErr := decoder.Decode(result)
