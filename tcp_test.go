@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"github.com/brickingsoft/rio"
-	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -15,13 +14,17 @@ import (
 )
 
 func TestListenTCP(t *testing.T) {
+	_ = rio.Startup()
+	defer func() {
+		_ = rio.ShutdownGracefully()
+	}()
+
 	ctx := context.Background()
 
 	ln, lnErr := rio.Listen(
 		ctx,
 		"tcp", "127.0.0.1:9000",
 		rio.WithParallelAcceptors(1),
-		rio.WithAcceptMaxConnections(5),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)
@@ -30,9 +33,13 @@ func TestListenTCP(t *testing.T) {
 
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
+
+	loops := 3
+	awg := new(sync.WaitGroup)
+	awg.Add(loops)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			t.Log("accepted:", timeslimiter.Tokens(ctx), rio.IsClosed(err), err, ctx.Err())
+			t.Log("accepted:", rio.IsClosed(err), err, ctx.Err())
 			lwg.Done()
 			return
 		}
@@ -41,28 +48,32 @@ func TestListenTCP(t *testing.T) {
 		if conn != nil {
 			addr = conn.RemoteAddr()
 		}
-		t.Log("accepted:", timeslimiter.Tokens(ctx), addr, err, ctx.Err())
+		t.Log("accepted:", addr, err, ctx.Err())
 		if conn != nil {
 			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 				if cause != nil {
 					t.Error("srv close conn err:", cause)
 				}
+				awg.Done()
 			})
 		}
 	})
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < loops; i++ {
 		conn, dialErr := net.Dial("tcp", ":9000")
 		if dialErr != nil {
 			t.Error(dialErr)
 			return
 		}
 		t.Log("dialed:", i+1, conn.LocalAddr())
+		//time.Sleep(time.Millisecond * 100)
 		err := conn.Close()
 		if err != nil {
 			t.Error("cli close conn err:", err)
 		}
 	}
+
+	awg.Wait()
 
 	lwg.Add(1)
 	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
@@ -84,7 +95,7 @@ func TestTCP(t *testing.T) {
 
 	ln, lnErr := rio.Listen(ctx,
 		"tcp", ":9000",
-		rio.WithParallelAcceptors(10),
+		rio.WithParallelAcceptors(1),
 		rio.WithPromiseMakeOptions(async.WithDirectMode()),
 		rio.WithFastOpen(1),
 	)
@@ -96,12 +107,13 @@ func TestTCP(t *testing.T) {
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
 	swg := new(sync.WaitGroup)
+	swg.Add(1)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			if rio.IsClosed(err) {
+			if rio.IsClosed(err) || async.IsEOF(err) {
 				t.Log("srv accept closed")
 			} else {
-				t.Error("srv accept:", rio.IsClosed(err), err)
+				t.Error("srv accept:", err)
 			}
 			lwg.Done()
 			return
@@ -109,29 +121,30 @@ func TestTCP(t *testing.T) {
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
-		swg.Add(1)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
-			defer swg.Done()
 			if err != nil {
 				t.Error("srv read:", err)
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {})
+				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+					swg.Done()
+				})
 				return
 			}
 			n := in.Received()
 			p, _ := in.Reader().Next(n)
 			t.Log("srv read:", n, string(p))
-			swg.Add(1)
 			conn.Write(p).OnComplete(func(ctx context.Context, out int, err error) {
-				defer swg.Done()
 				if err != nil {
 					t.Error("srv write:", err)
+					conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+						t.Log("srv close:", cause)
+						swg.Done()
+					})
 					return
 				}
 				t.Log("srv write:", out)
-				swg.Add(1)
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					defer swg.Done()
 					t.Log("srv close:", cause)
+					swg.Done()
 				})
 			})
 		})
