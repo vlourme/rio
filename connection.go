@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/pkg/rate/timeslimiter"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -34,19 +34,21 @@ const (
 
 func newConnection(ctx context.Context, fd aio.NetFd) (conn *connection) {
 	conn = &connection{
-		ctx: ctx,
-		fd:  fd,
-		rb:  transport.NewInboundBuffer(),
-		rbs: defaultReadBufferSize,
+		ctx:    ctx,
+		fd:     fd,
+		closed: atomic.Bool{},
+		rb:     transport.NewInboundBuffer(),
+		rbs:    defaultReadBufferSize,
 	}
 	return
 }
 
 type connection struct {
-	ctx context.Context
-	fd  aio.NetFd
-	rb  transport.InboundBuffer
-	rbs int
+	ctx    context.Context
+	fd     aio.NetFd
+	closed atomic.Bool
+	rb     transport.InboundBuffer
+	rbs    int
 }
 
 func (conn *connection) Context() (ctx context.Context) {
@@ -115,6 +117,10 @@ func (conn *connection) SetInboundBuffer(size int) {
 }
 
 func (conn *connection) Read() (future async.Future[transport.Inbound]) {
+	if conn.disconnected() {
+		future = async.FailedImmediately[transport.Inbound](conn.ctx, net.ErrClosed)
+		return
+	}
 	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
 		future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, errors.Join(ErrAllocate, allocateErr)))
@@ -161,6 +167,10 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 }
 
 func (conn *connection) Write(b []byte) (future async.Future[int]) {
+	if conn.disconnected() {
+		future = async.FailedImmediately[int](conn.ctx, net.ErrClosed)
+		return
+	}
 	bLen := len(b)
 	if bLen == 0 {
 		future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, ErrEmptyBytes))
@@ -212,24 +222,31 @@ func (conn *connection) write(b []byte, bLen int, written int) (future async.Fut
 }
 
 func (conn *connection) Close() (future async.Future[async.Void]) {
-	promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode(), async.WithWait())
-	if promiseErr != nil {
-		aio.CloseImmediately(conn.fd)
-		conn.rb.Close()
-		timeslimiter.TryRevert(conn.ctx)
-		future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
-		return
-	}
-	aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
-		if err != nil {
-			promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))
-		} else {
-			promise.Succeed(async.Void{})
+	if conn.closed.CompareAndSwap(false, true) {
+		promise, promiseErr := async.Make[async.Void](conn.ctx, async.WithUnlimitedMode(), async.WithWait())
+		if promiseErr != nil {
+			aio.CloseImmediately(conn.fd)
+			conn.rb.Close()
+
+			future = async.FailedImmediately[async.Void](conn.ctx, aio.NewOpErr(aio.OpClose, conn.fd, promiseErr))
+			return
 		}
-		conn.rb.Close()
-		timeslimiter.TryRevert(conn.ctx)
-		return
-	})
-	future = promise.Future()
+		aio.Close(conn.fd, func(result int, userdata aio.Userdata, err error) {
+			if err != nil {
+				promise.Fail(aio.NewOpErr(aio.OpClose, conn.fd, err))
+			} else {
+				promise.Succeed(async.Void{})
+			}
+			conn.rb.Close()
+			return
+		})
+		future = promise.Future()
+	} else {
+		future = async.SucceedImmediately[async.Void](conn.ctx, async.Void{})
+	}
 	return
+}
+
+func (conn *connection) disconnected() bool {
+	return conn.closed.Load()
 }
