@@ -9,14 +9,9 @@ import (
 	"io"
 )
 
-type LengthFieldMessage struct {
-	Length int
-	Bytes  []byte
-}
-
-func LengthFieldDecode(ctx context.Context, reader transport.Reader, lengthFieldSize int, options ...async.Option) (future async.Future[LengthFieldMessage]) {
+func LengthFieldDecode(ctx context.Context, reader transport.Reader, lengthFieldSize int, options ...async.Option) (future async.Future[[]byte]) {
 	decoder := NewLengthFieldEncoder(lengthFieldSize)
-	future = Decode[LengthFieldMessage](ctx, reader, decoder, options...)
+	future = Decode[[]byte](ctx, reader, decoder, options...)
 	return
 }
 
@@ -45,7 +40,7 @@ type LengthFieldEncoder struct {
 	lengthFieldSize int
 }
 
-func (encoder *LengthFieldEncoder) Decode(reader transport.InboundReader) (ok bool, message LengthFieldMessage, err error) {
+func (encoder *LengthFieldEncoder) Decode(reader transport.InboundReader) (ok bool, message []byte, err error) {
 	bufLen := reader.Length()
 	if bufLen < encoder.lengthFieldSize {
 		// not full
@@ -76,8 +71,7 @@ func (encoder *LengthFieldEncoder) Decode(reader transport.InboundReader) (ok bo
 		err = io.ErrShortBuffer
 		return
 	}
-	message.Length = size
-	message.Bytes = p[encoder.lengthFieldSize:]
+	message = p[encoder.lengthFieldSize:]
 	ok = true
 	return
 }

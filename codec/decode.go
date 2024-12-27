@@ -2,9 +2,10 @@ package codec
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
-	"io"
+	"net"
 )
 
 // Decoder
@@ -60,8 +61,7 @@ func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, pro
 		if buf == nil {
 			// when reading, buf must not be nil
 			// only conn closed, then buf will be nil
-			// so return io.ErrUnexpectedEOF
-			promise.Fail(io.ErrUnexpectedEOF)
+			promise.Fail(errors.Join(errors.New("coded: reader of inbound is nil, connection maybe closed"), net.ErrClosed))
 			return
 		}
 		for {
