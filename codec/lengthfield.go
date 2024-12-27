@@ -45,31 +45,19 @@ type LengthFieldEncoder struct {
 	lengthFieldSize int
 }
 
-func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, message LengthFieldMessage, err error) {
-	if n := inbound.Received(); n == 0 {
-		return
-	}
-
-	buf := inbound.Reader()
-	if buf == nil {
-		// when reading, buf must not be nil
-		// only conn closed, then buf will be nil
-		// so return io.ErrUnexpectedEOF
-		err = io.ErrUnexpectedEOF
-		return
-	}
-	bufLen := buf.Length()
+func (encoder *LengthFieldEncoder) Decode(reader transport.InboundReader) (ok bool, message LengthFieldMessage, err error) {
+	bufLen := reader.Length()
 	if bufLen < encoder.lengthFieldSize {
 		// not full
 		return
 	}
 
-	lengthField := buf.Peek(encoder.lengthFieldSize)
+	lengthField := reader.Peek(encoder.lengthFieldSize)
 	size := int(binary.BigEndian.Uint64(lengthField))
 	if size == 0 {
 		// decoded but content size is zero
 		// so discard length field
-		buf.Discard(encoder.lengthFieldSize)
+		reader.Discard(encoder.lengthFieldSize)
 		ok = true
 		return
 	}
@@ -79,7 +67,7 @@ func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, m
 	}
 	pLen := encoder.lengthFieldSize + size
 	p := make([]byte, pLen)
-	rn, readErr := buf.Read(p)
+	rn, readErr := reader.Read(p)
 	if readErr != nil {
 		err = readErr
 		return
@@ -94,14 +82,14 @@ func (encoder *LengthFieldEncoder) Decode(inbound transport.Inbound) (ok bool, m
 	return
 }
 
-func (encoder *LengthFieldEncoder) Encode(param []byte) (b []byte, err error) {
-	bLen := len(b)
-	if bLen == 0 {
+func (encoder *LengthFieldEncoder) Encode(p []byte) (b []byte, err error) {
+	pLen := len(p)
+	if pLen == 0 {
 		err = errors.New("codec.LengthFieldEncoder: empty packet")
 		return
 	}
-	b = make([]byte, encoder.lengthFieldSize+bLen)
-	binary.BigEndian.PutUint64(b, uint64(bLen))
-	copy(b[encoder.lengthFieldSize:], param)
+	b = make([]byte, encoder.lengthFieldSize+pLen)
+	binary.BigEndian.PutUint64(b, uint64(pLen))
+	copy(b[encoder.lengthFieldSize:], p)
 	return
 }

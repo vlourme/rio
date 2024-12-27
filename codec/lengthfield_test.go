@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"github.com/brickingsoft/rio/codec"
 	"github.com/brickingsoft/rxp"
+	"github.com/brickingsoft/rxp/async"
+	"io"
 	"sync"
 	"testing"
 )
@@ -23,10 +26,15 @@ func TestLengthFieldDecode(t *testing.T) {
 	r := newFakeReader(ctx, p)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	codec.LengthFieldDecode(ctx, r).OnComplete(func(ctx context.Context, msg codec.LengthFieldMessage, err error) {
-		defer wg.Done()
+	codec.LengthFieldDecode(ctx, r, 8).OnComplete(func(ctx context.Context, msg codec.LengthFieldMessage, err error) {
 		if err != nil {
-			t.Error(err)
+			if async.IsEOF(err) {
+				wg.Done()
+				return
+			}
+			if !errors.Is(err, io.EOF) {
+				t.Error(err)
+			}
 			return
 		}
 		t.Log(bytes.Equal(msg.Bytes, b), string(msg.Bytes))
@@ -41,7 +49,7 @@ func TestLengthFieldEncode(t *testing.T) {
 	w := newFakeWriter(ctx)
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
-	codec.LengthFieldEncode(ctx, w, b).OnComplete(func(ctx context.Context, result int, err error) {
+	codec.LengthFieldEncode(ctx, w, b, 8).OnComplete(func(ctx context.Context, result int, err error) {
 		defer wg.Done()
 		if err != nil {
 			t.Error(err)

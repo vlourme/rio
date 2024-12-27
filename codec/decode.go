@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
+	"io"
 )
 
 // Decoder
@@ -14,7 +15,7 @@ type Decoder[T any] interface {
 	// Decode
 	// 解析 transport.Inbound。
 	// 返回 ok(是否解析到，即message是否为空)，message(消息)，err(错误，并停止解析)
-	Decode(inbound transport.Inbound) (ok bool, message T, err error)
+	Decode(reader transport.InboundReader) (ok bool, message T, err error)
 }
 
 // Decode
@@ -47,7 +48,7 @@ func DecodeOnce[T any](ctx context.Context, reader transport.Reader, decoder Dec
 }
 
 func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, promise async.Promise[T]) {
-	reader.Read().OnComplete(func(ctx context.Context, result transport.Inbound, err error) {
+	reader.Read().OnComplete(func(ctx context.Context, inbound transport.Inbound, err error) {
 		if err != nil {
 			promise.Fail(err)
 			if stream {
@@ -55,22 +56,40 @@ func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, pro
 			}
 			return
 		}
-		ok, message, decodeErr := decoder.Decode(result)
-		if decodeErr != nil {
-			// 解析错误并停止解析
-			promise.Fail(decodeErr)
+		buf := inbound.Reader()
+		if buf == nil {
+			// when reading, buf must not be nil
+			// only conn closed, then buf will be nil
+			// so return io.ErrUnexpectedEOF
+			promise.Fail(io.ErrUnexpectedEOF)
 			return
 		}
-		if ok {
-			// 解析到
-			promise.Succeed(message)
-			if stream {
-				// 流式则循环
-				decode[T](reader, decoder, stream, promise)
+		for {
+			ok, message, decodeErr := decoder.Decode(buf)
+			if decodeErr != nil {
+				// 解析错误并停止解析
+				promise.Fail(decodeErr)
+				return
 			}
-		} else {
-			// 未解析到则继续
-			decode[T](reader, decoder, stream, promise)
+			if ok {
+				promise.Succeed(message)
+			}
+
+			if !stream { // 一次性则退出
+				return
+			}
+
+			if !ok { // 无法从当前已读到的中解析出，则继续读。
+				decode[T](reader, decoder, stream, promise)
+				return
+			}
+
+			if bufLen := buf.Length(); bufLen == 0 { // 已从当前已读到的中解析出，但没有剩余，继续读。
+				decode[T](reader, decoder, stream, promise)
+				return
+			}
+			// 有剩余也解析出，尝试解析 inbound 中剩余的。
+			// 即继续循环处理粘包。
 		}
 	})
 	return

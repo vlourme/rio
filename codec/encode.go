@@ -11,11 +11,11 @@ type Encoder[T any] interface {
 }
 
 func Encode[T any](ctx context.Context, encoder Encoder[T], writer transport.Writer, data T) (future async.Future[int]) {
-	p, encodeErr := encoder.Encode(data)
+	b, encodeErr := encoder.Encode(data)
 	if encodeErr != nil {
 		future = async.FailedImmediately[int](ctx, encodeErr)
 		return
 	}
-	future = writer.Write(p)
+	future = writer.Write(b)
 	return
 }
