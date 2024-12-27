@@ -22,6 +22,7 @@ type Decoder[T any] interface {
 // Decode
 // 流式解析
 // 默认创建一个流式且无限等待的 async.Promise。
+// async.Future 中需要处理 async.Promise 的关闭，即 async.EOF。
 func Decode[T any](ctx context.Context, reader transport.Reader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
 	// 默认开启 流 和 强等
 	options = append(options, async.WithStream(), async.WithWait())
