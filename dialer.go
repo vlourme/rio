@@ -32,8 +32,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			DefaultConnReadBufferSize:  0,
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
-			TLSConfig:                  nil,
-			TLSConnectionBuilder:       TLSClient,
+			TLSConnectionBuilder:       nil,
 			MultipathTCP:               false,
 			PromiseMakeOptions:         nil,
 		},
@@ -110,9 +109,6 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			switch network {
 			case "tcp", "tcp4", "tcp6":
 				conn = newTCPConnection(ctx, connFd)
-				if opts.TLSConfig != nil {
-					conn = opts.TLSConnectionBuilder(conn, opts.TLSConfig)
-				}
 				break
 			case "udp", "udp4", "udp6":
 				conn = newPacketConnection(ctx, connFd)
@@ -120,9 +116,6 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			case "unix", "unixgram", "unixpacket":
 				if network == "unix" {
 					conn = newTCPConnection(ctx, connFd)
-					if opts.TLSConfig != nil {
-						conn = opts.TLSConnectionBuilder(conn, opts.TLSConfig)
-					}
 				} else {
 					conn = newPacketConnection(ctx, connFd)
 				}
@@ -168,6 +161,10 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 				conn.SetInboundBuffer(n)
 			}
 
+			// tls
+			if opts.TLSConnectionBuilder != nil {
+				conn = opts.TLSConnectionBuilder.Client(conn)
+			}
 			promise.Succeed(conn)
 			return
 		})

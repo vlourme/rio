@@ -12,7 +12,6 @@ type Options struct {
 	DefaultConnReadBufferSize  int
 	DefaultConnWriteBufferSize int
 	DefaultInboundBufferSize   int
-	TLSConfig                  *tls.Config
 	TLSConnectionBuilder       TLSConnectionBuilder
 	MultipathTCP               bool
 	PromiseMakeOptions         []async.Option
@@ -24,7 +23,9 @@ type Option func(options *Options) (err error)
 // 设置TLS
 func WithTLSConfig(config *tls.Config) Option {
 	return func(options *Options) (err error) {
-		options.TLSConfig = config
+		options.TLSConnectionBuilder = &defaultTLSConnectionBuilder{
+			config: config,
+		}
 		return
 	}
 }

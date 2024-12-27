@@ -2,7 +2,6 @@ package rio
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp"
@@ -86,8 +85,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			DefaultConnReadBufferSize:  0,
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
-			TLSConfig:                  nil,
-			TLSConnectionBuilder:       TLSServer,
 			MultipathTCP:               false,
 			PromiseMakeOptions:         make([]async.Option, 0, 1),
 		},
@@ -148,7 +145,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		network:              network,
 		fd:                   fd,
 		unlinkOnClose:        unlinkOnClose,
-		tlsConfig:            opt.TLSConfig,
 		tlsConnBuilder:       opt.TLSConnectionBuilder,
 		defaultReadTimeout:   opt.DefaultConnReadTimeout,
 		defaultWriteTimeout:  opt.DefaultConnWriteTimeout,
@@ -167,7 +163,6 @@ type listener struct {
 	network              string
 	fd                   aio.NetFd
 	unlinkOnClose        bool
-	tlsConfig            *tls.Config
 	tlsConnBuilder       TLSConnectionBuilder
 	defaultReadTimeout   time.Duration
 	defaultWriteTimeout  time.Duration
@@ -268,19 +263,9 @@ func (ln *listener) acceptOne() {
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
 			conn = newTCPConnection(ln.ctx, connFd)
-			if ln.tlsConfig != nil {
-				conn = ln.tlsConnBuilder(conn, ln.tlsConfig)
-			}
 			break
 		case "unix", "unixpacket":
-			if ln.network == "unix" {
-				conn = newTCPConnection(ln.ctx, connFd)
-				if ln.tlsConfig != nil {
-					conn = ln.tlsConnBuilder(conn, ln.tlsConfig)
-				}
-			} else {
-				conn = newPacketConnection(ln.ctx, connFd)
-			}
+			conn = newTCPConnection(ln.ctx, connFd)
 			break
 		default:
 			// not matched, so close it
@@ -330,7 +315,10 @@ func (ln *listener) acceptOne() {
 		if ln.defaultInboundBuffer != 0 {
 			conn.SetInboundBuffer(ln.defaultInboundBuffer)
 		}
-
+		// tls
+		if ln.tlsConnBuilder != nil {
+			conn = ln.tlsConnBuilder.Server(conn)
+		}
 		ln.acceptorPromises.Succeed(conn)
 		ln.acceptOne()
 		return

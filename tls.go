@@ -9,11 +9,42 @@ import (
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
 
-type TLSConnectionBuilder func(conn Connection, config *tls.Config) TLSConnection
+type TLSConnectionBuilder interface {
+	Client(conn Connection) TLSConnection
+	Server(conn Connection) TLSConnection
+}
+
+type defaultTLSConnectionBuilder struct {
+	config *tls.Config
+}
+
+func (builder *defaultTLSConnectionBuilder) Client(conn Connection) TLSConnection {
+	c := &tlsConnection{
+		inner:               conn,
+		config:              builder.config,
+		isClient:            true,
+		handshakeBarrier:    async.NewBarrier[async.Void](),
+		handshakeBarrierKey: strconv.Itoa(conn.Fd()),
+	}
+	c.handshakeFn = security.ClientHandshake
+	return c
+}
+
+func (builder *defaultTLSConnectionBuilder) Server(conn Connection) TLSConnection {
+	c := &tlsConnection{
+		inner:               conn,
+		config:              builder.config,
+		handshakeBarrier:    async.NewBarrier[async.Void](),
+		handshakeBarrierKey: strconv.Itoa(conn.Fd()),
+	}
+	c.handshakeFn = security.ServerHandshake
+	return c
+}
 
 type TLSConnection interface {
 	Connection
@@ -24,32 +55,16 @@ type TLSConnection interface {
 	Handshake() (future async.Future[async.Void])
 }
 
-func TLSClient(conn Connection, config *tls.Config) TLSConnection {
-	c := &tlsConnection{
-		inner:    conn,
-		config:   config,
-		isClient: true,
-	}
-	c.handshakeFn = security.ClientHandshake
-	return c
-}
-
-func TLSServer(conn Connection, config *tls.Config) TLSConnection {
-	c := &tlsConnection{
-		inner:  conn,
-		config: config,
-	}
-	c.handshakeFn = security.ServerHandshake
-	return c
-}
-
 type tlsConnection struct {
 	inner    Connection
 	config   *tls.Config
 	isClient bool
 
-	handshakeFn       security.Handshake
-	handshakeComplete atomic.Bool
+	handshakeFn         security.Handshake
+	handshakeComplete   atomic.Bool
+	handshakeErr        error
+	handshakeBarrier    async.Barrier[async.Void]
+	handshakeBarrierKey string
 
 	vers     uint16 // TLS version
 	haveVers bool   // version has been negotiated
@@ -66,7 +81,7 @@ type tlsConnection struct {
 	// activeCertHandles contains the cache handles to certificates in
 	// peerCertificates that are used to track active references.
 	// 来自 verifyServerCertificate
-	activeCertHandles []*security.ActiveCert
+	activeCertHandles []*x509.Certificate
 	// verifiedChains contains the certificate chains that we built, as
 	// opposed to the ones presented by the server.
 	verifiedChains [][]*x509.Certificate
@@ -242,26 +257,27 @@ func (conn *tlsConnection) CloseWrite() (future async.Future[async.Void]) {
 func (conn *tlsConnection) Handshake() (future async.Future[async.Void]) {
 	ctx := conn.Context()
 	if conn.handshakeComplete.Load() {
-		future = async.SucceedImmediately[async.Void](ctx, async.Void{})
-		return
-	}
-	promise, promiseErr := async.Make[async.Void](ctx, async.WithWait())
-	if promiseErr != nil {
-		future = async.FailedImmediately[async.Void](ctx, promiseErr)
-		return
-	}
-	future = promise.Future()
-
-	conn.handshakeFn(ctx, conn.inner, conn.config).OnComplete(func(ctx context.Context, entry security.HandshakeResult, cause error) {
-		if cause != nil {
-			promise.Fail(cause)
-			return
+		if conn.handshakeErr != nil {
+			future = async.FailedImmediately[async.Void](ctx, conn.handshakeErr)
+		} else {
+			future = async.SucceedImmediately[async.Void](ctx, async.Void{})
 		}
-		// todo handle handshake result
-		conn.handshakeComplete.Store(true)
-		promise.Succeed(async.Void{})
 		return
-	})
+	}
+
+	future = conn.handshakeBarrier.Do(ctx, conn.handshakeBarrierKey, func(promise async.Promise[async.Void]) {
+		conn.handshakeFn(ctx, conn.inner, conn.config).OnComplete(func(ctx context.Context, entry security.HandshakeResult, cause error) {
+			conn.handshakeComplete.Store(true)
+			if cause != nil {
+				conn.handshakeErr = cause
+				promise.Fail(cause)
+				return
+			}
+			// todo handle handshake result
+			promise.Succeed(async.Void{})
+			return
+		})
+	}, async.WithWait())
 
 	return
 }
