@@ -48,7 +48,8 @@ type CipherSuite struct {
 	ivLen  int
 	ka     func(version uint16) keyAgreement
 	// flags is a bitmask of the suite* values, above.
-	flags  int
+	flags int
+	// cipher: cipherAES，cipher3DES， cipherRC4
 	cipher func(key, iv []byte, isRead bool) any
 	mac    func(key []byte) hash.Hash
 	aead   func(key, fixedNonce []byte) AEAD
@@ -82,6 +83,7 @@ func (suite *CipherSuite) Insecure() bool {
 
 func (suite *CipherSuite) Encrypt(record []byte, payload []byte, rand io.Reader) (b []byte, err error) {
 	//TODO implement me
+	//todo CipherSuite 不能加密解密，是它的 cipher/mac， aead/hash 的实例 在加密解密
 	panic("implement me")
 }
 
@@ -477,8 +479,8 @@ func aesgcmPreferred(ciphers []uint16) bool {
 }
 
 func cipherRC4(key, iv []byte, isRead bool) any {
-	cipher, _ := rc4.NewCipher(key)
-	return cipher
+	rc4cipher, _ := rc4.NewCipher(key)
+	return rc4cipher
 }
 
 func cipher3DES(key, iv []byte, isRead bool) any {
