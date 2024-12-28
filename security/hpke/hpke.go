@@ -14,10 +14,6 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
-// testingOnlyGenerateKey is only used during testing, to provide
-// a fixed test key to use when checking the RFC 9180 vectors.
-var testingOnlyGenerateKey func() (*ecdh.PrivateKey, error)
-
 type hkdfKDF struct {
 	hash crypto.Hash
 }
@@ -84,11 +80,7 @@ func (dh *dhKEM) ExtractAndExpand(dhKey, kemContext []byte) []byte {
 
 func (dh *dhKEM) Encap(pubRecipient *ecdh.PublicKey) (sharedSecret []byte, encapPub []byte, err error) {
 	var privEph *ecdh.PrivateKey
-	if testingOnlyGenerateKey != nil {
-		privEph, err = testingOnlyGenerateKey()
-	} else {
-		privEph, err = dh.dh.GenerateKey(rand.Reader)
-	}
+	privEph, err = dh.dh.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
