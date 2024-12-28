@@ -10,6 +10,78 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
+// TLS handshake message types.
+const (
+	messageTypeHelloRequest        uint8 = 0
+	messageTypeClientHello         uint8 = 1
+	messageTypeServerHello         uint8 = 2
+	messageTypeNewSessionTicket    uint8 = 4
+	messageTypeEndOfEarlyData      uint8 = 5
+	messageTypeEncryptedExtensions uint8 = 8
+	messageTypeCertificate         uint8 = 11
+	messageTypeServerKeyExchange   uint8 = 12
+	messageTypeCertificateRequest  uint8 = 13
+	messageTypeServerHelloDone     uint8 = 14
+	messageTypeCertificateVerify   uint8 = 15
+	messageTypeClientKeyExchange   uint8 = 16
+	messageTypeFinished            uint8 = 20
+	messageTypeCertificateStatus   uint8 = 22
+	messageTypeKeyUpdate           uint8 = 24
+	messageTypeMessageHash         uint8 = 254 // synthetic message
+)
+
+// TLS signaling cipher suite values
+const (
+	scsvRenegotiation uint16 = 0x00ff
+)
+
+// TLS CertificateStatusType (RFC 3546)
+const (
+	statusTypeOCSP uint8 = 1
+)
+
+// TLS 1.3 Key Share. See RFC 8446, Section 4.2.8.
+type keyShare struct {
+	group tls.CurveID
+	data  []byte
+}
+
+// TLS 1.3 PSK Key Exchange Modes. See RFC 8446, Section 4.2.9.
+const (
+	pskModePlain uint8 = 0
+	pskModeDHE   uint8 = 1
+)
+
+// TLS 1.3 PSK Identity. Can be a Session Ticket, or a reference to a saved
+// session. See RFC 8446, Section 4.2.11.
+type pskIdentity struct {
+	label               []byte
+	obfuscatedTicketAge uint32
+}
+
+// Certificate types (for certificateRequestMsg)
+const (
+	certTypeRSASign   = 1
+	certTypeECDSASign = 64 // ECDSA or EdDSA keys, see RFC 8422, Section 3.
+)
+
+// helloRetryRequestRandom is set as the Random value of a ServerHello
+// to signal that the message is actually a HelloRetryRequest.
+var helloRetryRequestRandom = []byte{ // See RFC 8446, Section 4.1.3.
+	0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
+	0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+	0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
+	0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
+}
+
+const (
+	// downgradeCanaryTLS12 or downgradeCanaryTLS11 is embedded in the server
+	// random as a downgrade protection if the server would be capable of
+	// negotiating a higher version. See RFC 8446, Section 4.1.3.
+	downgradeCanaryTLS12 = "DOWNGRD\x01"
+	downgradeCanaryTLS11 = "DOWNGRD\x00"
+)
+
 type handshakeMessage interface {
 	marshal() ([]byte, error)
 	unmarshal([]byte) bool
@@ -353,7 +425,7 @@ func (m *clientHelloMsg) marshalMsg(echInner bool) ([]byte, error) {
 	}
 
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeClientHello)
+	b.AddUint8(messageTypeClientHello)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint16(m.vers)
 		addBytesWithLength(b, m.random, 32)
@@ -852,7 +924,7 @@ func (m *serverHelloMsg) marshal() ([]byte, error) {
 	}
 
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeServerHello)
+	b.AddUint8(messageTypeServerHello)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint16(m.vers)
 		addBytesWithLength(b, m.random, 32)
@@ -1013,7 +1085,7 @@ type encryptedExtensionsMsg struct {
 
 func (m *encryptedExtensionsMsg) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeEncryptedExtensions)
+	b.AddUint8(messageTypeEncryptedExtensions)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint16LengthPrefixed(func(b *cryptobyte.Builder) {
 			if len(m.alpnProtocol) > 0 {
@@ -1110,7 +1182,7 @@ type endOfEarlyDataMsg struct{}
 
 func (m *endOfEarlyDataMsg) marshal() ([]byte, error) {
 	x := make([]byte, 4)
-	x[0] = MessageTypeEndOfEarlyData
+	x[0] = messageTypeEndOfEarlyData
 	return x, nil
 }
 
@@ -1124,7 +1196,7 @@ type keyUpdateMsg struct {
 
 func (m *keyUpdateMsg) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeKeyUpdate)
+	b.AddUint8(messageTypeKeyUpdate)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		if m.updateRequested {
 			b.AddUint8(1)
@@ -1165,7 +1237,7 @@ type newSessionTicketMsgTLS13 struct {
 
 func (m *newSessionTicketMsgTLS13) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeNewSessionTicket)
+	b.AddUint8(messageTypeNewSessionTicket)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint32(m.lifetime)
 		b.AddUint32(m.ageAdd)
@@ -1240,7 +1312,7 @@ type certificateRequestMsgTLS13 struct {
 
 func (m *certificateRequestMsgTLS13) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeCertificateRequest)
+	b.AddUint8(messageTypeCertificateRequest)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		// certificate_request_context (SHALL be zero length unless used for
 		// post-handshake authentication)
@@ -1386,7 +1458,7 @@ func (m *certificateMsg) marshal() ([]byte, error) {
 
 	length := 3 + 3*len(m.certificates) + i
 	x := make([]byte, 4+length)
-	x[0] = MessageTypeCertificate
+	x[0] = messageTypeCertificate
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
@@ -1452,7 +1524,7 @@ type certificateMsgTLS13 struct {
 
 func (m *certificateMsgTLS13) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeCertificate)
+	b.AddUint8(messageTypeCertificate)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint8(0) // certificate_request_context
 
@@ -1591,7 +1663,7 @@ type serverKeyExchangeMsg struct {
 func (m *serverKeyExchangeMsg) marshal() ([]byte, error) {
 	length := len(m.key)
 	x := make([]byte, length+4)
-	x[0] = MessageTypeServerKeyExchange
+	x[0] = messageTypeServerKeyExchange
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
@@ -1614,7 +1686,7 @@ type certificateStatusMsg struct {
 
 func (m *certificateStatusMsg) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeCertificateStatus)
+	b.AddUint8(messageTypeCertificateStatus)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddUint8(statusTypeOCSP)
 		b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
@@ -1642,7 +1714,7 @@ type serverHelloDoneMsg struct{}
 
 func (m *serverHelloDoneMsg) marshal() ([]byte, error) {
 	x := make([]byte, 4)
-	x[0] = MessageTypeServerHelloDone
+	x[0] = messageTypeServerHelloDone
 	return x, nil
 }
 
@@ -1657,7 +1729,7 @@ type clientKeyExchangeMsg struct {
 func (m *clientKeyExchangeMsg) marshal() ([]byte, error) {
 	length := len(m.ciphertext)
 	x := make([]byte, length+4)
-	x[0] = MessageTypeClientKeyExchange
+	x[0] = messageTypeClientKeyExchange
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
@@ -1684,7 +1756,7 @@ type finishedMsg struct {
 
 func (m *finishedMsg) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeFinished)
+	b.AddUint8(messageTypeFinished)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		b.AddBytes(m.verifyData)
 	})
@@ -1723,7 +1795,7 @@ func (m *certificateRequestMsg) marshal() ([]byte, error) {
 	}
 
 	x := make([]byte, 4+length)
-	x[0] = MessageTypeCertificateRequest
+	x[0] = messageTypeCertificateRequest
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
@@ -1841,7 +1913,7 @@ type certificateVerifyMsg struct {
 
 func (m *certificateVerifyMsg) marshal() ([]byte, error) {
 	var b cryptobyte.Builder
-	b.AddUint8(MessageTypeCertificateVerify)
+	b.AddUint8(messageTypeCertificateVerify)
 	b.AddUint24LengthPrefixed(func(b *cryptobyte.Builder) {
 		if m.hasSignatureAlgorithm {
 			b.AddUint16(uint16(m.signatureAlgorithm))
@@ -1877,7 +1949,7 @@ func (m *newSessionTicketMsg) marshal() ([]byte, error) {
 	ticketLen := len(m.ticket)
 	length := 2 + 4 + ticketLen
 	x := make([]byte, 4+length)
-	x[0] = MessageTypeNewSessionTicket
+	x[0] = messageTypeNewSessionTicket
 	x[1] = uint8(length >> 16)
 	x[2] = uint8(length >> 8)
 	x[3] = uint8(length)
@@ -1912,7 +1984,7 @@ type helloRequestMsg struct {
 }
 
 func (*helloRequestMsg) marshal() ([]byte, error) {
-	return []byte{MessageTypeHelloRequest, 0, 0, 0}, nil
+	return []byte{messageTypeHelloRequest, 0, 0, 0}, nil
 }
 
 func (*helloRequestMsg) unmarshal(data []byte) bool {

@@ -4,6 +4,12 @@ import (
 	"crypto/tls"
 )
 
+// TLS Elliptic Curve Point Formats
+// https://www.iana.org/assignments/tls-parameters/tls-parameters.xml#tls-parameters-9
+const (
+	pointFormatUncompressed uint8 = 0
+)
+
 // supportsECDHE returns whether ECDHE key exchanges can be used with this
 // pre-TLS 1.3 client.
 func supportsECDHE(c *tls.Config, version uint16, supportedCurves []tls.CurveID, supportedPoints []uint8) bool {

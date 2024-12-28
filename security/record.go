@@ -30,7 +30,7 @@ const (
 	CompressionNone uint8 = 0
 )
 
-func WriteRecord(ctx context.Context, writer transport.Writer, cipher CipherSuite, typ RecordType, data []byte) (future async.Future[async.Void]) {
+func WriteRecord(ctx context.Context, writer transport.Writer, cipher *CipherSuite, typ RecordType, data []byte) (future async.Future[async.Void]) {
 
 	return
 }
