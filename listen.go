@@ -191,6 +191,9 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 		return
 	}
 	ln.running.Store(false)
+	// cancel acceptor
+	ln.acceptorPromises.Cancel()
+
 	promise, promiseErr := async.Make[async.Void](ln.ctx, async.WithUnlimitedMode())
 	if promiseErr != nil {
 		if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
@@ -201,7 +204,6 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 				}
 			}
 		}
-		ln.acceptorPromises.Cancel()
 		aio.CloseImmediately(ln.fd)
 		return
 	}
@@ -213,8 +215,8 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 			}
 		}
 	}
+
 	aio.Close(ln.fd, func(result int, userdata aio.Userdata, err error) {
-		ln.acceptorPromises.Cancel()
 		if err != nil {
 			aio.CloseImmediately(ln.fd)
 			promise.Fail(aio.NewOpErr(aio.OpClose, ln.fd, err))

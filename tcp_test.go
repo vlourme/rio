@@ -227,10 +227,10 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 	swg := new(sync.WaitGroup)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			if rio.IsClosed(err) {
+			if rio.IsClosed(err) || async.IsEOF(err) {
 				t.Log("srv accept closed")
 			} else {
-				t.Error("srv accept:", rio.IsClosed(err), err)
+				t.Error("srv accept:", err)
 			}
 			lwg.Done()
 			return
