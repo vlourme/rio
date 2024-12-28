@@ -1,11 +1,15 @@
 package security
 
+import (
+	"crypto/tls"
+)
+
 // supportsECDHE returns whether ECDHE key exchanges can be used with this
 // pre-TLS 1.3 client.
-func supportsECDHE(c *Config, version uint16, supportedCurves []CurveID, supportedPoints []uint8) bool {
+func supportsECDHE(c *tls.Config, version uint16, supportedCurves []tls.CurveID, supportedPoints []uint8) bool {
 	supportsCurve := false
 	for _, curve := range supportedCurves {
-		if c.supportsCurve(version, curve) {
+		if configSupportsCurve(c, version, curve) {
 			supportsCurve = true
 			break
 		}

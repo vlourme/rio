@@ -10,27 +10,182 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"fmt"
+	"golang.org/x/crypto/cryptobyte"
+	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sys/cpu"
 	"hash"
+	"io"
 	"runtime"
+	"slices"
 	_ "unsafe" // for linkname
-
-	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// CipherSuite is a TLS cipher suite. Note that most functions in this package
-// accept and expose cipher suite IDs instead of this type.
+// CipherSuiteName returns the standard name for the passed cipher suite ID
+// (e.g. "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"), or a fallback representation
+// of the ID value if the cipher suite is not implemented by this package.
+func CipherSuiteName(id uint16) string {
+	for _, c := range CipherSuites() {
+		if c.id == id {
+			return c.name
+		}
+	}
+	for _, c := range InsecureCipherSuites() {
+		if c.id == id {
+			return c.name
+		}
+	}
+	return fmt.Sprintf("0x%04X", id)
+}
+
 type CipherSuite struct {
-	ID   uint16
-	Name string
+	id                uint16
+	name              string
+	supportedVersions []uint16
+	insecure          bool
+	// the lengths, in bytes, of the key material needed for each component.
+	keyLen int
+	macLen int
+	ivLen  int
+	ka     func(version uint16) keyAgreement
+	// flags is a bitmask of the suite* values, above.
+	flags  int
+	cipher func(key, iv []byte, isRead bool) any
+	mac    func(key []byte) hash.Hash
+	aead   func(key, fixedNonce []byte) AEAD
+	// hash tls1.3 hash
+	hash crypto.Hash
+}
 
-	// Supported versions is the list of TLS protocol versions that can
-	// negotiate this cipher suite.
-	SupportedVersions []uint16
+func (suite *CipherSuite) Id() uint16 {
+	return suite.id
+}
 
-	// Insecure is true if the cipher suite has known security issues
-	// due to its primitives, design, or implementation.
-	Insecure bool
+func (suite *CipherSuite) Name() string {
+	return suite.name
+}
+
+func (suite *CipherSuite) SupportedVersions() []uint16 {
+	return suite.supportedVersions
+}
+
+func (suite *CipherSuite) SupportedVersion(ver uint16) bool {
+	return slices.Contains(suite.supportedVersions, ver)
+}
+
+func (suite *CipherSuite) Flags() int {
+	return suite.flags
+}
+
+func (suite *CipherSuite) Insecure() bool {
+	return suite.insecure
+}
+
+func (suite *CipherSuite) Encrypt(record []byte, payload []byte, rand io.Reader) (b []byte, err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (suite *CipherSuite) Decrypt(record []byte) (b []byte, rt RecordType, err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+const (
+	resumptionBinderLabel         = "res binder"
+	clientEarlyTrafficLabel       = "c e traffic"
+	clientHandshakeTrafficLabel   = "c hs traffic"
+	serverHandshakeTrafficLabel   = "s hs traffic"
+	clientApplicationTrafficLabel = "c ap traffic"
+	serverApplicationTrafficLabel = "s ap traffic"
+	exporterLabel                 = "exp master"
+	resumptionLabel               = "res master"
+	trafficUpdateLabel            = "traffic upd"
+)
+
+// expandLabel implements HKDF-Expand-Label from RFC 8446, Section 7.1.
+func (suite *CipherSuite) expandLabel(secret []byte, label string, context []byte, length int) []byte {
+	var hkdfLabel cryptobyte.Builder
+	hkdfLabel.AddUint16(uint16(length))
+	hkdfLabel.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddBytes([]byte("tls13 "))
+		b.AddBytes([]byte(label))
+	})
+	hkdfLabel.AddUint8LengthPrefixed(func(b *cryptobyte.Builder) {
+		b.AddBytes(context)
+	})
+	hkdfLabelBytes, err := hkdfLabel.Bytes()
+	if err != nil {
+		// Rather than calling BytesOrPanic, we explicitly handle this error, in
+		// order to provide a reasonable error message. It should be basically
+		// impossible for this to panic, and routing errors back through the
+		// tree rooted in this function is quite painful. The labels are fixed
+		// size, and the context is either a fixed-length computed hash, or
+		// parsed from a field which has the same length limitation. As such, an
+		// error here is likely to only be caused during development.
+		//
+		// NOTE: another reasonable approach here might be to return a
+		// randomized slice if we encounter an error, which would break the
+		// connection, but avoid panicking. This would perhaps be safer but
+		// significantly more confusing to users.
+		panic(fmt.Errorf("failed to construct HKDF label: %s", err))
+	}
+	out := make([]byte, length)
+	n, err := hkdf.Expand(suite.hash.New, secret, hkdfLabelBytes).Read(out)
+	if err != nil || n != length {
+		panic("tls: HKDF-Expand-Label invocation failed unexpectedly")
+	}
+	return out
+}
+
+// deriveSecret implements Derive-Secret from RFC 8446, Section 7.1.
+func (suite *CipherSuite) deriveSecret(secret []byte, label string, transcript hash.Hash) []byte {
+	if transcript == nil {
+		transcript = suite.hash.New()
+	}
+	return suite.expandLabel(secret, label, transcript.Sum(nil), suite.hash.Size())
+}
+
+// extract implements HKDF-Extract with the cipher suite hash.
+func (suite *CipherSuite) extract(newSecret, currentSecret []byte) []byte {
+	if newSecret == nil {
+		newSecret = make([]byte, suite.hash.Size())
+	}
+	return hkdf.Extract(suite.hash.New, newSecret, currentSecret)
+}
+
+// nextTrafficSecret generates the next traffic secret, given the current one,
+// according to RFC 8446, Section 7.2.
+func (suite *CipherSuite) nextTrafficSecret(trafficSecret []byte) []byte {
+	return suite.expandLabel(trafficSecret, trafficUpdateLabel, nil, suite.hash.Size())
+}
+
+// trafficKey generates traffic keys according to RFC 8446, Section 7.3.
+func (suite *CipherSuite) trafficKey(trafficSecret []byte) (key, iv []byte) {
+	key = suite.expandLabel(trafficSecret, "key", nil, suite.keyLen)
+	iv = suite.expandLabel(trafficSecret, "iv", nil, aeadNonceLength)
+	return
+}
+
+// finishedHash generates the Finished verify_data or PskBinderEntry according
+// to RFC 8446, Section 4.4.4. See sections 4.4 and 4.2.11.2 for the baseKey
+// selection.
+func (suite *CipherSuite) finishedHash(baseKey []byte, transcript hash.Hash) []byte {
+	finishedKey := suite.expandLabel(baseKey, "finished", nil, suite.hash.Size())
+	verifyData := hmac.New(suite.hash.New, finishedKey)
+	verifyData.Write(transcript.Sum(nil))
+	return verifyData.Sum(nil)
+}
+
+// exportKeyingMaterial implements RFC5705 exporters for TLS 1.3 according to
+// RFC 8446, Section 7.5.
+func (suite *CipherSuite) exportKeyingMaterial(masterSecret []byte, transcript hash.Hash) func(string, []byte, int) ([]byte, error) {
+	expMasterSecret := suite.deriveSecret(masterSecret, exporterLabel, transcript)
+	return func(label string, context []byte, length int) ([]byte, error) {
+		secret := suite.deriveSecret(expMasterSecret, label, nil)
+		h := suite.hash.New()
+		h.Write(context)
+		return suite.expandLabel(secret, "exporter", h.Sum(nil), length), nil
+	}
 }
 
 var (
@@ -38,73 +193,6 @@ var (
 	supportedOnlyTLS12 = []uint16{VersionTLS12}
 	supportedOnlyTLS13 = []uint16{VersionTLS13}
 )
-
-// CipherSuites returns a list of cipher suites currently implemented by this
-// package, excluding those with security issues, which are returned by
-// [InsecureCipherSuites].
-//
-// The list is sorted by ID. Note that the default cipher suites selected by
-// this package might depend on logic that can't be captured by a static list,
-// and might not match those returned by this function.
-func CipherSuites() []*CipherSuite {
-	return []*CipherSuite{
-		{TLS_AES_128_GCM_SHA256, "TLS_AES_128_GCM_SHA256", supportedOnlyTLS13, false},
-		{TLS_AES_256_GCM_SHA384, "TLS_AES_256_GCM_SHA384", supportedOnlyTLS13, false},
-		{TLS_CHACHA20_POLY1305_SHA256, "TLS_CHACHA20_POLY1305_SHA256", supportedOnlyTLS13, false},
-
-		{TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", supportedUpToTLS12, false},
-		{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", supportedUpToTLS12, false},
-		{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", supportedUpToTLS12, false},
-		{TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", supportedUpToTLS12, false},
-		{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", supportedOnlyTLS12, false},
-		{TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", supportedOnlyTLS12, false},
-		{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", supportedOnlyTLS12, false},
-		{TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", supportedOnlyTLS12, false},
-		{TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", supportedOnlyTLS12, false},
-		{TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", supportedOnlyTLS12, false},
-	}
-}
-
-// InsecureCipherSuites returns a list of cipher suites currently implemented by
-// this package and which have security issues.
-//
-// Most applications should not use the cipher suites in this list, and should
-// only use those returned by [CipherSuites].
-func InsecureCipherSuites() []*CipherSuite {
-	// This list includes RC4, CBC_SHA256, and 3DES cipher suites. See
-	// cipherSuitesPreferenceOrder for details.
-	return []*CipherSuite{
-		{TLS_RSA_WITH_RC4_128_SHA, "TLS_RSA_WITH_RC4_128_SHA", supportedUpToTLS12, true},
-		{TLS_RSA_WITH_3DES_EDE_CBC_SHA, "TLS_RSA_WITH_3DES_EDE_CBC_SHA", supportedUpToTLS12, true},
-		{TLS_RSA_WITH_AES_128_CBC_SHA, "TLS_RSA_WITH_AES_128_CBC_SHA", supportedUpToTLS12, true},
-		{TLS_RSA_WITH_AES_256_CBC_SHA, "TLS_RSA_WITH_AES_256_CBC_SHA", supportedUpToTLS12, true},
-		{TLS_RSA_WITH_AES_128_CBC_SHA256, "TLS_RSA_WITH_AES_128_CBC_SHA256", supportedOnlyTLS12, true},
-		{TLS_RSA_WITH_AES_128_GCM_SHA256, "TLS_RSA_WITH_AES_128_GCM_SHA256", supportedOnlyTLS12, true},
-		{TLS_RSA_WITH_AES_256_GCM_SHA384, "TLS_RSA_WITH_AES_256_GCM_SHA384", supportedOnlyTLS12, true},
-		{TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA", supportedUpToTLS12, true},
-		{TLS_ECDHE_RSA_WITH_RC4_128_SHA, "TLS_ECDHE_RSA_WITH_RC4_128_SHA", supportedUpToTLS12, true},
-		{TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA, "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA", supportedUpToTLS12, true},
-		{TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256", supportedOnlyTLS12, true},
-		{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", supportedOnlyTLS12, true},
-	}
-}
-
-// CipherSuiteName returns the standard name for the passed cipher suite ID
-// (e.g. "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"), or a fallback representation
-// of the ID value if the cipher suite is not implemented by this package.
-func CipherSuiteName(id uint16) string {
-	for _, c := range CipherSuites() {
-		if c.ID == id {
-			return c.Name
-		}
-	}
-	for _, c := range InsecureCipherSuites() {
-		if c.ID == id {
-			return c.Name
-		}
-	}
-	return fmt.Sprintf("0x%04X", id)
-}
 
 const (
 	// suiteECDHE indicates that the cipher suite involves elliptic curve
@@ -125,88 +213,80 @@ const (
 	suiteSHA384
 )
 
-// A cipherSuite is a TLS 1.0–1.2 cipher suite, and defines the key exchange
-// mechanism, as well as the cipher+MAC pair or the AEAD.
-type cipherSuite struct {
-	id uint16
-	// the lengths, in bytes, of the key material needed for each component.
-	keyLen int
-	macLen int
-	ivLen  int
-	ka     func(version uint16) keyAgreement
-	// flags is a bitmask of the suite* values, above.
-	flags  int
-	cipher func(key, iv []byte, isRead bool) any
-	mac    func(key []byte) hash.Hash
-	aead   func(key, fixedNonce []byte) aead
+var (
+	cipherSuites = []*CipherSuite{
+		{TLS_AES_128_GCM_SHA256, "TLS_AES_128_GCM_SHA256", supportedOnlyTLS13, false, 16, 0, 0, nil, 0, nil, nil, aeadAESGCMTLS13, crypto.SHA256},
+		{TLS_AES_256_GCM_SHA384, "TLS_AES_256_GCM_SHA384", supportedOnlyTLS13, false, 32, 0, 0, nil, 0, nil, nil, aeadAESGCMTLS13, crypto.SHA384},
+		{TLS_CHACHA20_POLY1305_SHA256, "TLS_CHACHA20_POLY1305_SHA256", supportedOnlyTLS13, false, 32, 0, 0, nil, 0, nil, nil, aeadChaCha20Poly1305, crypto.SHA256},
+
+		{TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", supportedUpToTLS12, false, 16, 20, 16, ecdheECDSAKA, suiteECDHE | suiteECSign, cipherAES, macSHA1, nil, 0},
+		{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", supportedUpToTLS12, false, 32, 20, 16, ecdheECDSAKA, suiteECDHE | suiteECSign, cipherAES, macSHA1, nil, 0},
+		{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", supportedUpToTLS12, false, 16, 20, 16, ecdheRSAKA, suiteECDHE, cipherAES, macSHA1, nil, 0},
+		{TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", supportedUpToTLS12, false, 32, 20, 16, ecdheRSAKA, suiteECDHE, cipherAES, macSHA1, nil, 0},
+		{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", supportedOnlyTLS12, false, 16, 0, 4, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, nil, nil, aeadAESGCM, 0},
+		{TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", supportedOnlyTLS12, false, 32, 0, 4, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM, 0},
+		{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", supportedOnlyTLS12, false, 16, 0, 4, ecdheRSAKA, suiteECDHE | suiteTLS12, nil, nil, aeadAESGCM, 0},
+		{TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", supportedOnlyTLS12, false, 32, 0, 4, ecdheRSAKA, suiteECDHE | suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM, 0},
+		{TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", supportedOnlyTLS12, false, 32, 0, 12, ecdheRSAKA, suiteECDHE | suiteTLS12, nil, nil, aeadChaCha20Poly1305, 0},
+		{TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", supportedOnlyTLS12, false, 32, 0, 12, ecdheRSAKA, suiteECDHE | suiteTLS12, nil, nil, aeadChaCha20Poly1305, 0},
+		{TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", supportedOnlyTLS12, false, 32, 0, 12, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, nil, nil, aeadChaCha20Poly1305, 0},
+		{TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", supportedOnlyTLS12, false, 32, 0, 12, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, nil, nil, aeadChaCha20Poly1305, 0},
+	}
+
+	insecureCipherSuites = []*CipherSuite{
+		{TLS_RSA_WITH_RC4_128_SHA, "TLS_RSA_WITH_RC4_128_SHA", supportedUpToTLS12, true, 16, 20, 0, rsaKA, 0, cipherRC4, macSHA1, nil, 0},
+		{TLS_RSA_WITH_3DES_EDE_CBC_SHA, "TLS_RSA_WITH_3DES_EDE_CBC_SHA", supportedUpToTLS12, true, 24, 20, 8, rsaKA, 0, cipher3DES, macSHA1, nil, 0},
+		{TLS_RSA_WITH_AES_128_CBC_SHA, "TLS_RSA_WITH_AES_128_CBC_SHA", supportedUpToTLS12, true, 16, 20, 16, rsaKA, 0, cipherAES, macSHA1, nil, 0},
+		{TLS_RSA_WITH_AES_256_CBC_SHA, "TLS_RSA_WITH_AES_256_CBC_SHA", supportedUpToTLS12, true, 32, 20, 16, rsaKA, 0, cipherAES, macSHA1, nil, 0},
+		{TLS_RSA_WITH_AES_128_CBC_SHA256, "TLS_RSA_WITH_AES_128_CBC_SHA256", supportedOnlyTLS12, true, 16, 32, 16, rsaKA, suiteTLS12, cipherAES, macSHA256, nil, 0},
+		{TLS_RSA_WITH_AES_128_GCM_SHA256, "TLS_RSA_WITH_AES_128_GCM_SHA256", supportedOnlyTLS12, true, 16, 0, 4, rsaKA, suiteTLS12, nil, nil, aeadAESGCM, 0},
+		{TLS_RSA_WITH_AES_256_GCM_SHA384, "TLS_RSA_WITH_AES_256_GCM_SHA384", supportedOnlyTLS12, true, 32, 0, 4, rsaKA, suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM, 0},
+		{TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA", supportedUpToTLS12, true, 16, 20, 0, ecdheECDSAKA, suiteECDHE | suiteECSign, cipherRC4, macSHA1, nil, 0},
+		{TLS_ECDHE_RSA_WITH_RC4_128_SHA, "TLS_ECDHE_RSA_WITH_RC4_128_SHA", supportedUpToTLS12, true, 16, 20, 0, ecdheRSAKA, suiteECDHE, cipherRC4, macSHA1, nil, 0},
+		{TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA, "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA", supportedUpToTLS12, true, 24, 20, 8, ecdheRSAKA, suiteECDHE, cipher3DES, macSHA1, nil, 0},
+		{TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256", supportedOnlyTLS12, true, 16, 32, 16, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, cipherAES, macSHA256, nil, 0},
+		{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", supportedOnlyTLS12, true, 16, 32, 16, ecdheRSAKA, suiteECDHE | suiteTLS12, cipherAES, macSHA256, nil, 0},
+	}
+)
+
+// CipherSuites returns a list of cipher suites currently implemented by this
+// package, excluding those with security issues, which are returned by
+// [InsecureCipherSuites].
+//
+// The list is sorted by ID. Note that the default cipher suites selected by
+// this package might depend on logic that can't be captured by a static list,
+// and might not match those returned by this function.
+func CipherSuites() []*CipherSuite {
+	return cipherSuites
 }
 
-var cipherSuites = []*cipherSuite{ // TODO: replace with a map, since the order doesn't matter.
-	{TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305, 32, 0, 12, ecdheRSAKA, suiteECDHE | suiteTLS12, nil, nil, aeadChaCha20Poly1305},
-	{TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, 32, 0, 12, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, nil, nil, aeadChaCha20Poly1305},
-	{TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, 16, 0, 4, ecdheRSAKA, suiteECDHE | suiteTLS12, nil, nil, aeadAESGCM},
-	{TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, 16, 0, 4, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, nil, nil, aeadAESGCM},
-	{TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, 32, 0, 4, ecdheRSAKA, suiteECDHE | suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM},
-	{TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, 32, 0, 4, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM},
-	{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, 16, 32, 16, ecdheRSAKA, suiteECDHE | suiteTLS12, cipherAES, macSHA256, nil},
-	{TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, 16, 20, 16, ecdheRSAKA, suiteECDHE, cipherAES, macSHA1, nil},
-	{TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, 16, 32, 16, ecdheECDSAKA, suiteECDHE | suiteECSign | suiteTLS12, cipherAES, macSHA256, nil},
-	{TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, 16, 20, 16, ecdheECDSAKA, suiteECDHE | suiteECSign, cipherAES, macSHA1, nil},
-	{TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, 32, 20, 16, ecdheRSAKA, suiteECDHE, cipherAES, macSHA1, nil},
-	{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, 32, 20, 16, ecdheECDSAKA, suiteECDHE | suiteECSign, cipherAES, macSHA1, nil},
-	{TLS_RSA_WITH_AES_128_GCM_SHA256, 16, 0, 4, rsaKA, suiteTLS12, nil, nil, aeadAESGCM},
-	{TLS_RSA_WITH_AES_256_GCM_SHA384, 32, 0, 4, rsaKA, suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM},
-	{TLS_RSA_WITH_AES_128_CBC_SHA256, 16, 32, 16, rsaKA, suiteTLS12, cipherAES, macSHA256, nil},
-	{TLS_RSA_WITH_AES_128_CBC_SHA, 16, 20, 16, rsaKA, 0, cipherAES, macSHA1, nil},
-	{TLS_RSA_WITH_AES_256_CBC_SHA, 32, 20, 16, rsaKA, 0, cipherAES, macSHA1, nil},
-	{TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA, 24, 20, 8, ecdheRSAKA, suiteECDHE, cipher3DES, macSHA1, nil},
-	{TLS_RSA_WITH_3DES_EDE_CBC_SHA, 24, 20, 8, rsaKA, 0, cipher3DES, macSHA1, nil},
-	{TLS_RSA_WITH_RC4_128_SHA, 16, 20, 0, rsaKA, 0, cipherRC4, macSHA1, nil},
-	{TLS_ECDHE_RSA_WITH_RC4_128_SHA, 16, 20, 0, ecdheRSAKA, suiteECDHE, cipherRC4, macSHA1, nil},
-	{TLS_ECDHE_ECDSA_WITH_RC4_128_SHA, 16, 20, 0, ecdheECDSAKA, suiteECDHE | suiteECSign, cipherRC4, macSHA1, nil},
+// InsecureCipherSuites returns a list of cipher suites currently implemented by
+// this package and which have security issues.
+//
+// Most applications should not use the cipher suites in this list, and should
+// only use those returned by [CipherSuites].
+func InsecureCipherSuites() []*CipherSuite {
+	// This list includes RC4, CBC_SHA256, and 3DES cipher suites. See
+	// cipherSuitesPreferenceOrder for details.
+	return insecureCipherSuites
 }
 
 // selectCipherSuite returns the first TLS 1.0–1.2 cipher suite from ids which
 // is also in supportedIDs and passes the ok filter.
-func selectCipherSuite(ids, supportedIDs []uint16, ok func(*cipherSuite) bool) *cipherSuite {
+func selectCipherSuite(ids, supportedIds []uint16, ok func(*CipherSuite) bool) *CipherSuite {
 	for _, id := range ids {
-		candidate := cipherSuiteByID(id)
+		candidate := cipherSuiteById(id)
 		if candidate == nil || !ok(candidate) {
 			continue
 		}
 
-		for _, suppID := range supportedIDs {
+		for _, suppID := range supportedIds {
 			if id == suppID {
 				return candidate
 			}
 		}
 	}
 	return nil
-}
-
-// A cipherSuiteTLS13 defines only the pair of the AEAD algorithm and hash
-// algorithm to be used with HKDF. See RFC 8446, Appendix B.4.
-type cipherSuiteTLS13 struct {
-	id     uint16
-	keyLen int
-	aead   func(key, fixedNonce []byte) aead
-	hash   crypto.Hash
-}
-
-// cipherSuitesTLS13 should be an internal detail,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/quic-go/quic-go
-//   - github.com/sagernet/quic-go
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
-//go:linkname cipherSuitesTLS13
-var cipherSuitesTLS13 = []*cipherSuiteTLS13{ // TODO: replace with a map.
-	{TLS_AES_128_GCM_SHA256, 16, aeadAESGCMTLS13, crypto.SHA256},
-	{TLS_CHACHA20_POLY1305_SHA256, 32, aeadChaCha20Poly1305, crypto.SHA256},
-	{TLS_AES_256_GCM_SHA384, 32, aeadAESGCMTLS13, crypto.SHA384},
 }
 
 // cipherSuitesPreferenceOrder is the order in which we'll select (on the
@@ -386,10 +466,10 @@ var aesgcmCiphers = map[uint16]bool{
 // is an AES-GCM cipher, implying the peer has hardware support for it.
 func aesgcmPreferred(ciphers []uint16) bool {
 	for _, cID := range ciphers {
-		if c := cipherSuiteByID(cID); c != nil {
+		if c := cipherSuiteById(cID); c != nil {
 			return aesgcmCiphers[cID]
 		}
-		if c := cipherSuiteTLS13ByID(cID); c != nil {
+		if c := cipherSuiteTLS13ById(cID); c != nil {
 			return aesgcmCiphers[cID]
 		}
 	}
@@ -423,9 +503,6 @@ func macSHA1(key []byte) hash.Hash {
 	// The BoringCrypto SHA1 does not have a constant-time
 	// checksum function, so don't try to use it.
 
-	//if !boring.Enabled {
-	//	h = newConstantTimeHash(h)
-	//}
 	h = newConstantTimeHash(h)
 
 	return hmac.New(h, key)
@@ -435,144 +512,6 @@ func macSHA1(key []byte) hash.Hash {
 // is currently only used in disabled-by-default cipher suites.
 func macSHA256(key []byte) hash.Hash {
 	return hmac.New(sha256.New, key)
-}
-
-type aead interface {
-	cipher.AEAD
-
-	// explicitNonceLen returns the number of bytes of explicit nonce
-	// included in each record. This is eight for older AEADs and
-	// zero for modern ones.
-	explicitNonceLen() int
-}
-
-const (
-	aeadNonceLength   = 12
-	noncePrefixLength = 4
-)
-
-// prefixNonceAEAD wraps an AEAD and prefixes a fixed portion of the nonce to
-// each call.
-type prefixNonceAEAD struct {
-	// nonce contains the fixed part of the nonce in the first four bytes.
-	nonce [aeadNonceLength]byte
-	aead  cipher.AEAD
-}
-
-func (f *prefixNonceAEAD) NonceSize() int        { return aeadNonceLength - noncePrefixLength }
-func (f *prefixNonceAEAD) Overhead() int         { return f.aead.Overhead() }
-func (f *prefixNonceAEAD) explicitNonceLen() int { return f.NonceSize() }
-
-func (f *prefixNonceAEAD) Seal(out, nonce, plaintext, additionalData []byte) []byte {
-	copy(f.nonce[4:], nonce)
-	return f.aead.Seal(out, f.nonce[:], plaintext, additionalData)
-}
-
-func (f *prefixNonceAEAD) Open(out, nonce, ciphertext, additionalData []byte) ([]byte, error) {
-	copy(f.nonce[4:], nonce)
-	return f.aead.Open(out, f.nonce[:], ciphertext, additionalData)
-}
-
-// xorNonceAEAD wraps an AEAD by XORing in a fixed pattern to the nonce
-// before each call.
-type xorNonceAEAD struct {
-	nonceMask [aeadNonceLength]byte
-	aead      cipher.AEAD
-}
-
-func (f *xorNonceAEAD) NonceSize() int        { return 8 } // 64-bit sequence number
-func (f *xorNonceAEAD) Overhead() int         { return f.aead.Overhead() }
-func (f *xorNonceAEAD) explicitNonceLen() int { return 0 }
-
-func (f *xorNonceAEAD) Seal(out, nonce, plaintext, additionalData []byte) []byte {
-	for i, b := range nonce {
-		f.nonceMask[4+i] ^= b
-	}
-	result := f.aead.Seal(out, f.nonceMask[:], plaintext, additionalData)
-	for i, b := range nonce {
-		f.nonceMask[4+i] ^= b
-	}
-
-	return result
-}
-
-func (f *xorNonceAEAD) Open(out, nonce, ciphertext, additionalData []byte) ([]byte, error) {
-	for i, b := range nonce {
-		f.nonceMask[4+i] ^= b
-	}
-	result, err := f.aead.Open(out, f.nonceMask[:], ciphertext, additionalData)
-	for i, b := range nonce {
-		f.nonceMask[4+i] ^= b
-	}
-
-	return result, err
-}
-
-func aeadAESGCM(key, noncePrefix []byte) aead {
-	if len(noncePrefix) != noncePrefixLength {
-		panic("tls: internal error: wrong nonce length")
-	}
-	aes, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err)
-	}
-	var aead cipher.AEAD
-	//if boring.Enabled {
-	//	aead, err = boring.NewGCMTLS(aes)
-	//} else {
-	//	boring.Unreachable()
-	//	aead, err = cipher.NewGCM(aes)
-	//}
-	aead, err = cipher.NewGCM(aes)
-	if err != nil {
-		panic(err)
-	}
-
-	ret := &prefixNonceAEAD{aead: aead}
-	copy(ret.nonce[:], noncePrefix)
-	return ret
-}
-
-// aeadAESGCMTLS13 should be an internal detail,
-// but widely used packages access it using linkname.
-// Notable members of the hall of shame include:
-//   - github.com/xtls/xray-core
-//   - github.com/v2fly/v2ray-core
-//
-// Do not remove or change the type signature.
-// See go.dev/issue/67401.
-//
-//go:linkname aeadAESGCMTLS13
-func aeadAESGCMTLS13(key, nonceMask []byte) aead {
-	if len(nonceMask) != aeadNonceLength {
-		panic("tls: internal error: wrong nonce length")
-	}
-	aes, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err)
-	}
-	aead, err := cipher.NewGCM(aes)
-	if err != nil {
-		panic(err)
-	}
-
-	ret := &xorNonceAEAD{aead: aead}
-	copy(ret.nonceMask[:], nonceMask)
-	return ret
-}
-
-func aeadChaCha20Poly1305(key, nonceMask []byte) aead {
-	if len(nonceMask) != aeadNonceLength {
-		panic("tls: internal error: wrong nonce length")
-	}
-	aead, err := chacha20poly1305.New(key)
-	if err != nil {
-		panic(err)
-	}
-
-	ret := &xorNonceAEAD{aead: aead}
-	copy(ret.nonceMask[:], nonceMask)
-	return ret
 }
 
 type constantTimeHash interface {
@@ -632,40 +571,54 @@ func ecdheRSAKA(version uint16) keyAgreement {
 
 // mutualCipherSuite returns a cipherSuite given a list of supported
 // ciphersuites and the id requested by the peer.
-func mutualCipherSuite(have []uint16, want uint16) *cipherSuite {
+func mutualCipherSuite(have []uint16, want uint16) *CipherSuite {
 	for _, id := range have {
 		if id == want {
-			return cipherSuiteByID(id)
+			return cipherSuiteById(id)
 		}
 	}
 	return nil
 }
 
-func cipherSuiteByID(id uint16) *cipherSuite {
-	for _, cipherSuite := range cipherSuites {
-		if cipherSuite.id == id {
-			return cipherSuite
+func cipherSuiteById(id uint16) *CipherSuite {
+	for _, suite := range cipherSuites {
+		if suite.Id() == id {
+			return suite
 		}
 	}
 	return nil
 }
 
-func mutualCipherSuiteTLS13(have []uint16, want uint16) *cipherSuiteTLS13 {
+func mutualCipherSuiteTLS13(have []uint16, want uint16) *CipherSuite {
 	for _, id := range have {
 		if id == want {
-			return cipherSuiteTLS13ByID(id)
+			return cipherSuiteTLS13ById(id)
 		}
 	}
 	return nil
 }
 
-func cipherSuiteTLS13ByID(id uint16) *cipherSuiteTLS13 {
-	for _, cipherSuite := range cipherSuitesTLS13 {
-		if cipherSuite.id == id {
-			return cipherSuite
+func cipherSuiteTLS13ById(id uint16) *CipherSuite {
+	for _, suite := range cipherSuites {
+		if slices.Contains(suite.SupportedVersions(), VersionTLS13) && suite.Id() == id {
+			return suite
 		}
 	}
 	return nil
+}
+
+// sliceForAppend extends the input slice by n bytes. head is the full extended
+// slice, while tail is the appended part. If the original slice has sufficient
+// capacity no allocation is performed.
+func sliceForAppend(in []byte, n int) (head, tail []byte) {
+	if total := len(in) + n; cap(in) >= total {
+		head = in[:total]
+	} else {
+		head = make([]byte, total)
+		copy(head, in)
+	}
+	tail = head[len(in):]
+	return
 }
 
 // A list of cipher suite IDs that are, or have been, implemented by this

@@ -1,15 +1,9 @@
 package security
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/sha256"
-	"crypto/subtle"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"io"
-
 	"golang.org/x/crypto/cryptobyte"
 )
 
@@ -131,7 +125,7 @@ func (s *SessionState) Bytes() ([]byte, error) {
 	} else {
 		b.AddUint8(0)
 	}
-	marshalCertificate(&b, Certificate{
+	marshalCertificate(&b, tls.Certificate{
 		Certificate:                 certificatesToBytesSlice(s.peerCertificates),
 		OCSPStaple:                  s.ocspResponse,
 		SignedCertificateTimestamps: s.scts,
@@ -179,7 +173,7 @@ func ParseSessionState(data []byte) (*SessionState, error) {
 	ss := &SessionState{}
 	s := cryptobyte.String(data)
 	var typ, extMasterSecret, earlyData uint8
-	var cert Certificate
+	var cert tls.Certificate
 	var extra cryptobyte.String
 	if !s.ReadUint16(&ss.version) ||
 		!s.ReadUint8(&typ) ||
@@ -282,94 +276,6 @@ func ParseSessionState(data []byte) (*SessionState, error) {
 		return nil, errors.New("tls: invalid session encoding")
 	}
 	return ss, nil
-}
-
-// EncryptTicket encrypts a ticket with the [Config]'s configured (or default)
-// session ticket keys. It can be used as a [Config.WrapSession] implementation.
-func (c *Config) EncryptTicket(cs ConnectionState, ss *SessionState) ([]byte, error) {
-	ticketKeys := c.ticketKeys(nil)
-	stateBytes, err := ss.Bytes()
-	if err != nil {
-		return nil, err
-	}
-	return c.encryptTicket(stateBytes, ticketKeys)
-}
-
-func (c *Config) encryptTicket(state []byte, ticketKeys []ticketKey) ([]byte, error) {
-	if len(ticketKeys) == 0 {
-		return nil, errors.New("tls: internal error: session ticket keys unavailable")
-	}
-
-	encrypted := make([]byte, aes.BlockSize+len(state)+sha256.Size)
-	iv := encrypted[:aes.BlockSize]
-	ciphertext := encrypted[aes.BlockSize : len(encrypted)-sha256.Size]
-	authenticated := encrypted[:len(encrypted)-sha256.Size]
-	macBytes := encrypted[len(encrypted)-sha256.Size:]
-
-	if _, err := io.ReadFull(c.rand(), iv); err != nil {
-		return nil, err
-	}
-	key := ticketKeys[0]
-	block, err := aes.NewCipher(key.aesKey[:])
-	if err != nil {
-		return nil, errors.New("tls: failed to create cipher while encrypting ticket: " + err.Error())
-	}
-	cipher.NewCTR(block, iv).XORKeyStream(ciphertext, state)
-
-	mac := hmac.New(sha256.New, key.hmacKey[:])
-	mac.Write(authenticated)
-	mac.Sum(macBytes[:0])
-
-	return encrypted, nil
-}
-
-// DecryptTicket decrypts a ticket encrypted by [Config.EncryptTicket]. It can
-// be used as a [Config.UnwrapSession] implementation.
-//
-// If the ticket can't be decrypted or parsed, DecryptTicket returns (nil, nil).
-func (c *Config) DecryptTicket(identity []byte, cs ConnectionState) (*SessionState, error) {
-	ticketKeys := c.ticketKeys(nil)
-	stateBytes := c.decryptTicket(identity, ticketKeys)
-	if stateBytes == nil {
-		return nil, nil
-	}
-	s, err := ParseSessionState(stateBytes)
-	if err != nil {
-		return nil, nil // drop unparsable tickets on the floor
-	}
-	return s, nil
-}
-
-func (c *Config) decryptTicket(encrypted []byte, ticketKeys []ticketKey) []byte {
-	if len(encrypted) < aes.BlockSize+sha256.Size {
-		return nil
-	}
-
-	iv := encrypted[:aes.BlockSize]
-	ciphertext := encrypted[aes.BlockSize : len(encrypted)-sha256.Size]
-	authenticated := encrypted[:len(encrypted)-sha256.Size]
-	macBytes := encrypted[len(encrypted)-sha256.Size:]
-
-	for _, key := range ticketKeys {
-		mac := hmac.New(sha256.New, key.hmacKey[:])
-		mac.Write(authenticated)
-		expected := mac.Sum(nil)
-
-		if subtle.ConstantTimeCompare(macBytes, expected) != 1 {
-			continue
-		}
-
-		block, err := aes.NewCipher(key.aesKey[:])
-		if err != nil {
-			return nil
-		}
-		plaintext := make([]byte, len(ciphertext))
-		cipher.NewCTR(block, iv).XORKeyStream(plaintext, ciphertext)
-
-		return plaintext
-	}
-
-	return nil
 }
 
 // ClientSessionState contains the state needed by a client to

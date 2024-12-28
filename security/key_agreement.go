@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -20,15 +21,15 @@ type keyAgreement interface {
 	// In the case that the key agreement protocol doesn't use a
 	// ServerKeyExchange message, generateServerKeyExchange can return nil,
 	// nil.
-	generateServerKeyExchange(*Config, *Certificate, *clientHelloMsg, *serverHelloMsg) (*serverKeyExchangeMsg, error)
-	processClientKeyExchange(*Config, *Certificate, *clientKeyExchangeMsg, uint16) ([]byte, error)
+	generateServerKeyExchange(*tls.Config, *tls.Certificate, *clientHelloMsg, *serverHelloMsg) (*serverKeyExchangeMsg, error)
+	processClientKeyExchange(*tls.Config, *tls.Certificate, *clientKeyExchangeMsg, uint16) ([]byte, error)
 
 	// On the client side, the next two methods are called in order.
 
 	// This method may not be called if the server doesn't send a
 	// ServerKeyExchange message.
-	processServerKeyExchange(*Config, *clientHelloMsg, *serverHelloMsg, *x509.Certificate, *serverKeyExchangeMsg) error
-	generateClientKeyExchange(*Config, *clientHelloMsg, *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error)
+	processServerKeyExchange(*tls.Config, *clientHelloMsg, *serverHelloMsg, *x509.Certificate, *serverKeyExchangeMsg) error
+	generateClientKeyExchange(*tls.Config, *clientHelloMsg, *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error)
 }
 
 var errClientKeyExchange = errors.New("tls: invalid ClientKeyExchange message")
@@ -38,11 +39,11 @@ var errServerKeyExchange = errors.New("tls: invalid ServerKeyExchange message")
 // encrypts the pre-master secret to the server's public key.
 type rsaKeyAgreement struct{}
 
-func (ka rsaKeyAgreement) generateServerKeyExchange(config *Config, cert *Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
+func (ka rsaKeyAgreement) generateServerKeyExchange(config *tls.Config, cert *tls.Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
 	return nil, nil
 }
 
-func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
+func (ka rsaKeyAgreement) processClientKeyExchange(config *tls.Config, cert *tls.Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
 	if len(ckx.ciphertext) < 2 {
 		return nil, errClientKeyExchange
 	}
@@ -57,7 +58,7 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 		return nil, errors.New("tls: certificate private key does not implement crypto.Decrypter")
 	}
 	// Perform constant time RSA PKCS #1 v1.5 decryption
-	preMasterSecret, err := priv.Decrypt(config.rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
+	preMasterSecret, err := priv.Decrypt(configRand(config), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
 	if err != nil {
 		return nil, err
 	}
@@ -70,15 +71,15 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *Config, cert *Certifi
 	return preMasterSecret, nil
 }
 
-func (ka rsaKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
+func (ka rsaKeyAgreement) processServerKeyExchange(config *tls.Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
 	return errors.New("tls: unexpected ServerKeyExchange")
 }
 
-func (ka rsaKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
+func (ka rsaKeyAgreement) generateClientKeyExchange(config *tls.Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
 	preMasterSecret := make([]byte, 48)
 	preMasterSecret[0] = byte(clientHello.vers >> 8)
 	preMasterSecret[1] = byte(clientHello.vers)
-	_, err := io.ReadFull(config.rand(), preMasterSecret[2:])
+	_, err := io.ReadFull(configRand(config), preMasterSecret[2:])
 	if err != nil {
 		return nil, nil, err
 	}
@@ -87,7 +88,7 @@ func (ka rsaKeyAgreement) generateClientKeyExchange(config *Config, clientHello 
 	if !ok {
 		return nil, nil, errors.New("tls: server certificate contains incorrect key type for selected ciphersuite")
 	}
-	encrypted, err := rsa.EncryptPKCS1v15(config.rand(), rsaKey, preMasterSecret)
+	encrypted, err := rsa.EncryptPKCS1v15(configRand(config), rsaKey, preMasterSecret)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -162,10 +163,10 @@ type ecdheKeyAgreement struct {
 	preMasterSecret []byte
 }
 
-func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *Config, cert *Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
-	var curveID CurveID
+func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert *tls.Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
+	var curveID tls.CurveID
 	for _, c := range clientHello.supportedCurves {
-		if config.supportsCurve(ka.version, c) {
+		if configSupportsCurve(config, ka.version, c) {
 			curveID = c
 			break
 		}
@@ -178,7 +179,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *Config, cert *Cer
 		return nil, errors.New("tls: CurvePreferences includes unsupported curve")
 	}
 
-	key, err := generateECDHEKey(config.rand(), curveID)
+	key, err := generateECDHEKey(configRand(config), curveID)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +199,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *Config, cert *Cer
 		return nil, fmt.Errorf("tls: certificate private key of type %T does not implement crypto.Signer", cert.PrivateKey)
 	}
 
-	var signatureAlgorithm SignatureScheme
+	var signatureAlgorithm tls.SignatureScheme
 	var sigType uint8
 	var sigHash crypto.Hash
 	if ka.version >= VersionTLS12 {
@@ -226,7 +227,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *Config, cert *Cer
 	if sigType == signatureRSAPSS {
 		signOpts = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: sigHash}
 	}
-	sig, err := priv.Sign(config.rand(), signed, signOpts)
+	sig, err := priv.Sign(configRand(config), signed, signOpts)
 	if err != nil {
 		return nil, errors.New("tls: failed to sign ECDHE parameters: " + err.Error())
 	}
@@ -251,7 +252,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *Config, cert *Cer
 	return skx, nil
 }
 
-func (ka *ecdheKeyAgreement) processClientKeyExchange(config *Config, cert *Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
+func (ka *ecdheKeyAgreement) processClientKeyExchange(config *tls.Config, cert *tls.Certificate, ckx *clientKeyExchangeMsg, version uint16) ([]byte, error) {
 	if len(ckx.ciphertext) == 0 || int(ckx.ciphertext[0]) != len(ckx.ciphertext)-1 {
 		return nil, errClientKeyExchange
 	}
@@ -268,14 +269,14 @@ func (ka *ecdheKeyAgreement) processClientKeyExchange(config *Config, cert *Cert
 	return preMasterSecret, nil
 }
 
-func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
+func (ka *ecdheKeyAgreement) processServerKeyExchange(config *tls.Config, clientHello *clientHelloMsg, serverHello *serverHelloMsg, cert *x509.Certificate, skx *serverKeyExchangeMsg) error {
 	if len(skx.key) < 4 {
 		return errServerKeyExchange
 	}
 	if skx.key[0] != 3 { // named curve
 		return errors.New("tls: server selected unsupported curve")
 	}
-	curveID := CurveID(skx.key[1])<<8 | CurveID(skx.key[2])
+	curveID := tls.CurveID(skx.key[1])<<8 | tls.CurveID(skx.key[2])
 
 	publicLen := int(skx.key[3])
 	if publicLen+4 > len(skx.key) {
@@ -293,7 +294,7 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHell
 		return errors.New("tls: server selected unsupported curve")
 	}
 
-	key, err := generateECDHEKey(config.rand(), curveID)
+	key, err := generateECDHEKey(configRand(config), curveID)
 	if err != nil {
 		return err
 	}
@@ -317,7 +318,7 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHell
 	var sigType uint8
 	var sigHash crypto.Hash
 	if ka.version >= VersionTLS12 {
-		signatureAlgorithm := SignatureScheme(sig[0])<<8 | SignatureScheme(sig[1])
+		signatureAlgorithm := tls.SignatureScheme(sig[0])<<8 | tls.SignatureScheme(sig[1])
 		sig = sig[2:]
 		if len(sig) < 2 {
 			return errServerKeyExchange
@@ -353,7 +354,7 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *Config, clientHell
 	return nil
 }
 
-func (ka *ecdheKeyAgreement) generateClientKeyExchange(config *Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
+func (ka *ecdheKeyAgreement) generateClientKeyExchange(config *tls.Config, clientHello *clientHelloMsg, cert *x509.Certificate) ([]byte, *clientKeyExchangeMsg, error) {
 	if ka.ckx == nil {
 		return nil, nil, errors.New("tls: missing ServerKeyExchange message")
 	}

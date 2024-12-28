@@ -1,34 +1,55 @@
 package security
 
 import (
-	"context"
-	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/transport"
-	"github.com/brickingsoft/rxp/async"
+	"crypto/tls"
+	"crypto/x509"
 	"net"
-	"time"
+	"unsafe"
 )
 
-type ConnectionBuilder func(ctx context.Context, fd aio.NetFd, config *Config) (conn Connection)
-
-type Connection interface {
-	Context() (ctx context.Context)
-	ConfigContext(config func(ctx context.Context) context.Context)
-	Fd() int
-	LocalAddr() (addr net.Addr)
-	RemoteAddr() (addr net.Addr)
-	SetReadTimeout(d time.Duration) (err error)
-	SetWriteTimeout(d time.Duration) (err error)
-	SetReadBuffer(n int) (err error)
-	SetWriteBuffer(n int) (err error)
-	SetInboundBuffer(n int)
-	MultipathTCP() bool
-	SetNoDelay(noDelay bool) (err error)
-	SetLinger(sec int) (err error)
-	SetKeepAlive(keepalive bool) (err error)
-	SetKeepAlivePeriod(period time.Duration) (err error)
-	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
-	Read() (future async.Future[transport.Inbound])
-	Write(b []byte) (future async.Future[int])
-	Close() (future async.Future[async.Void])
+type ConnectionState struct {
+	Version                     uint16
+	HandshakeComplete           bool
+	DidResume                   bool
+	CipherSuite                 uint16
+	NegotiatedProtocol          string
+	NegotiatedProtocolIsMutual  bool
+	ServerName                  string
+	PeerCertificates            []*x509.Certificate
+	VerifiedChains              [][]*x509.Certificate
+	SignedCertificateTimestamps [][]byte
+	OCSPResponse                []byte
+	TLSUnique                   []byte
+	ECHAccepted                 bool
+	ekm                         func(label string, context []byte, length int) ([]byte, error)
 }
+
+func (cs *ConnectionState) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
+	return cs.ekm(label, context, length)
+}
+
+func (cs *ConnectionState) SetExportKeyingMaterial(config *tls.Config, version uint16, extMasterSecret bool, defaultEKM ExportKeyingMaterial) {
+	if config.Renegotiation != tls.RenegotiateNever {
+		cs.ekm = noEKMBecauseRenegotiation
+	} else if version != tls.VersionTLS13 && !extMasterSecret {
+		cs.ekm = func(label string, context []byte, length int) ([]byte, error) {
+			return noEKMBecauseNoEMS(label, context, length)
+		}
+	} else {
+		cs.ekm = defaultEKM
+	}
+}
+
+func (cs *ConnectionState) AsTLSConnectionState() tls.ConnectionState {
+	state := (*tls.ConnectionState)(unsafe.Pointer(cs))
+	return *state
+}
+
+type permanentError struct {
+	err net.Error
+}
+
+func (e *permanentError) Error() string   { return e.err.Error() }
+func (e *permanentError) Unwrap() error   { return e.err }
+func (e *permanentError) Timeout() bool   { return e.err.Timeout() }
+func (e *permanentError) Temporary() bool { return false }

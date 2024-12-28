@@ -16,6 +16,10 @@ type ActiveCert struct {
 	cert *x509.Certificate
 }
 
+func (e *ActiveCert) Cert() *x509.Certificate {
+	return e.cert
+}
+
 var globalCertCache = new(CertCache)
 
 type CertCache struct {

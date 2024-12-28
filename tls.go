@@ -8,10 +8,8 @@ import (
 	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
-	"net"
 	"strconv"
 	"sync/atomic"
-	"time"
 )
 
 type TLSConnectionBuilder interface {
@@ -25,7 +23,7 @@ type defaultTLSConnectionBuilder struct {
 
 func (builder *defaultTLSConnectionBuilder) Client(conn Connection) TLSConnection {
 	c := &tlsConnection{
-		inner:               conn,
+		Connection:          conn,
 		config:              builder.config,
 		isClient:            true,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
@@ -37,7 +35,7 @@ func (builder *defaultTLSConnectionBuilder) Client(conn Connection) TLSConnectio
 
 func (builder *defaultTLSConnectionBuilder) Server(conn Connection) TLSConnection {
 	c := &tlsConnection{
-		inner:               conn,
+		Connection:          conn,
 		config:              builder.config,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(conn.Fd()),
@@ -56,7 +54,7 @@ type TLSConnection interface {
 }
 
 type tlsConnection struct {
-	inner    Connection
+	Connection
 	config   *tls.Config
 	isClient bool
 
@@ -266,7 +264,7 @@ func (conn *tlsConnection) Handshake() (future async.Future[async.Void]) {
 	}
 
 	future = conn.handshakeBarrier.Do(ctx, conn.handshakeBarrierKey, func(promise async.Promise[async.Void]) {
-		conn.handshakeFn(ctx, conn.inner, conn.config).OnComplete(func(ctx context.Context, entry security.HandshakeResult, cause error) {
+		conn.handshakeFn(ctx, conn.Connection, conn.config).OnComplete(func(ctx context.Context, entry security.HandshakeResult, cause error) {
 			conn.handshakeComplete.Store(true)
 			if cause != nil {
 				conn.handshakeErr = cause
@@ -280,44 +278,4 @@ func (conn *tlsConnection) Handshake() (future async.Future[async.Void]) {
 	}, async.WithWait())
 
 	return
-}
-
-func (conn *tlsConnection) Context() context.Context {
-	return conn.inner.Context()
-}
-
-func (conn *tlsConnection) ConfigContext(config func(ctx context.Context) context.Context) {
-	conn.inner.ConfigContext(config)
-}
-
-func (conn *tlsConnection) Fd() int {
-	return conn.inner.Fd()
-}
-
-func (conn *tlsConnection) LocalAddr() net.Addr {
-	return conn.inner.LocalAddr()
-}
-
-func (conn *tlsConnection) RemoteAddr() net.Addr {
-	return conn.inner.RemoteAddr()
-}
-
-func (conn *tlsConnection) SetReadTimeout(d time.Duration) error {
-	return conn.inner.SetReadTimeout(d)
-}
-
-func (conn *tlsConnection) SetWriteTimeout(d time.Duration) error {
-	return conn.inner.SetWriteTimeout(d)
-}
-
-func (conn *tlsConnection) SetReadBuffer(n int) error {
-	return conn.inner.SetReadBuffer(n)
-}
-
-func (conn *tlsConnection) SetWriteBuffer(n int) error {
-	return conn.inner.SetWriteBuffer(n)
-}
-
-func (conn *tlsConnection) SetInboundBuffer(n int) {
-	conn.inner.SetInboundBuffer(n)
 }
