@@ -1,18 +1,17 @@
-package adapter
+package transport
 
 import (
-	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
 )
 
-func NetConn(conn rio.Connection) net.Conn {
+func AdaptToNetConn(conn Connection) net.Conn {
 	return &netConn{conn}
 }
 
 type netConn struct {
-	inner rio.Connection
+	inner Connection
 }
 
 func (conn *netConn) Read(b []byte) (n int, err error) {
