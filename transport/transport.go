@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
@@ -14,29 +15,20 @@ type Writer interface {
 	Write(b []byte) (future async.Future[int])
 }
 
-type Closer interface {
-	Close() (future async.Future[async.Void])
-}
-
-type ReadWriter interface {
-	Reader
-	Writer
-}
-
-type Transport interface {
-	Reader
-	Writer
-	Closer
-}
-
-type TimeoutReader interface {
-	Reader
+type Connection interface {
+	Context() (ctx context.Context)
+	ConfigContext(config func(ctx context.Context) context.Context)
+	Fd() int
+	LocalAddr() (addr net.Addr)
+	RemoteAddr() (addr net.Addr)
 	SetReadTimeout(d time.Duration) (err error)
-}
-
-type TimeoutWriter interface {
-	Reader
 	SetWriteTimeout(d time.Duration) (err error)
+	SetReadBuffer(n int) (err error)
+	SetWriteBuffer(n int) (err error)
+	SetInboundBuffer(n int)
+	Read() (future async.Future[Inbound])
+	Write(b []byte) (future async.Future[int])
+	Close() (future async.Future[async.Void])
 }
 
 type PacketReader interface {
@@ -47,13 +39,11 @@ type PacketWriter interface {
 	WriteTo(b []byte, addr net.Addr) (future async.Future[int])
 }
 
-type PacketReadWriter interface {
-	PacketReader
-	PacketWriter
-}
-
-type PacketTransport interface {
-	PacketReader
-	PacketWriter
-	Closer
+type PacketConnection interface {
+	Connection
+	ReadFrom() (future async.Future[PacketInbound])
+	WriteTo(b []byte, addr net.Addr) (future async.Future[int])
+	SetReadMsgOOBBufferSize(size int)
+	ReadMsg() (future async.Future[PacketMsgInbound])
+	WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[PacketMsgOutbound])
 }
