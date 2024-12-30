@@ -7,7 +7,7 @@ import (
 	"github.com/brickingsoft/rxp/async"
 )
 
-func ClientHandshake(ctx context.Context, conn transport.Transport, config *tls.Config) (future async.Future[HandshakeResult]) {
+func ClientHandshake(ctx context.Context, conn transport.Connection, config *tls.Config) (future async.Future[HandshakeResult]) {
 
 	return
 }

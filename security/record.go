@@ -30,7 +30,22 @@ const (
 	CompressionNone uint8 = 0
 )
 
-func WriteRecord(ctx context.Context, writer transport.Writer, cipher *CipherSuite, typ RecordType, data []byte) (future async.Future[async.Void]) {
+func EncodeRecord(typ RecordType, version int, payload []byte) (b []byte) {
+
+	return
+}
+
+func DecodeRecord(b []byte) (typ RecordType, version int, length int, payload []byte) {
+
+	return
+}
+
+func ReadRecord(ctx context.Context, reader transport.Reader) (future async.Future[[]byte]) {
+
+	return
+}
+
+func WriteRecord(ctx context.Context, writer transport.Writer, record []byte) (future async.Future[int]) {
 
 	return
 }
@@ -42,11 +57,11 @@ type RecordHeaderError struct {
 	// RecordHeader contains the five bytes of TLS record header that
 	// triggered the error.
 	RecordHeader [5]byte
-	// Transport provides the underlying transport.Transport in the case that a client
+	// Connection provides the underlying transport.Connection in the case that a client
 	// sent an initial handshake that didn't look like TLS.
 	// It is nil if there's already been a handshake or a TLS Alert has
 	// been written to the transport.
-	Transport transport.Transport
+	Connection transport.Connection
 }
 
 func (e RecordHeaderError) Error() string { return "security: " + e.Msg }

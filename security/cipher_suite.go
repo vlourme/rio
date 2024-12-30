@@ -14,7 +14,6 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sys/cpu"
 	"hash"
-	"io"
 	"runtime"
 	"slices"
 	_ "unsafe" // for linkname
@@ -79,17 +78,6 @@ func (suite *CipherSuite) Flags() int {
 
 func (suite *CipherSuite) Insecure() bool {
 	return suite.insecure
-}
-
-func (suite *CipherSuite) Encrypt(record []byte, payload []byte, rand io.Reader) (b []byte, err error) {
-	//TODO implement me
-	//todo CipherSuite 不能加密解密，是它的 cipher/mac， aead/hash 的实例 在加密解密
-	panic("implement me")
-}
-
-func (suite *CipherSuite) Decrypt(record []byte) (b []byte, rt RecordType, err error) {
-	//TODO implement me
-	panic("implement me")
 }
 
 const (

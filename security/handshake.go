@@ -8,6 +8,7 @@ import (
 )
 
 type HandshakeResult struct {
+	Cipher Cipher
 }
 
-type Handshake func(ctx context.Context, conn transport.Transport, config *tls.Config) (future async.Future[HandshakeResult])
+type Handshake func(ctx context.Context, conn transport.Connection, config *tls.Config) (future async.Future[HandshakeResult])

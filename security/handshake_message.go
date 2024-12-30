@@ -1991,6 +1991,11 @@ func (*helloRequestMsg) unmarshal(data []byte) bool {
 	return len(data) == 4
 }
 
+// transcriptHash
+// Transcript-Hash 和 HKDF 使用的 Hash 函数是密码套件哈希算法。
+// Hash.length 是其输出长度(以字节为单位)。
+// 消息是表示的握手消息的串联，包括握手消息类型和长度字段，但不包括记录层头。
+// 请注意，在某些情况下，零长度 context（由 "" 表示）传递给 HKDF-Expand-Label。
 type transcriptHash interface {
 	Write([]byte) (int, error)
 }

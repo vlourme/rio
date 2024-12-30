@@ -15,7 +15,7 @@ const (
 func supportsECDHE(c *tls.Config, version uint16, supportedCurves []tls.CurveID, supportedPoints []uint8) bool {
 	supportsCurve := false
 	for _, curve := range supportedCurves {
-		if configSupportsCurve(c, version, curve) {
+		if asConfig(c).supportsCurve(version, curve) {
 			supportsCurve = true
 			break
 		}
