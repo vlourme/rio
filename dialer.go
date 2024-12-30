@@ -123,6 +123,11 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			case "ip", "ip4", "ip6":
 				conn = newPacketConnection(ctx, connFd)
 				break
+			default:
+				// not matched, so close it
+				aio.CloseImmediately(connFd)
+				promise.Fail(ErrNetworkUnmatched)
+				return
 			}
 
 			if n := opts.DefaultConnReadTimeout; n > 0 {

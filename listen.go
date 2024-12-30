@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
+	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -163,7 +164,7 @@ type listener struct {
 	network              string
 	fd                   aio.NetFd
 	unlinkOnClose        bool
-	tlsConnBuilder       TLSConnectionBuilder
+	tlsConnBuilder       security.ConnectionBuilder
 	defaultReadTimeout   time.Duration
 	defaultWriteTimeout  time.Duration
 	defaultReadBuffer    int
@@ -271,8 +272,7 @@ func (ln *listener) acceptOne() {
 			break
 		default:
 			// not matched, so close it
-			conn = newConnection(ln.ctx, connFd)
-			conn.Close().OnComplete(async.DiscardVoidHandler)
+			aio.CloseImmediately(connFd)
 			ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, ErrNetworkUnmatched))
 			ln.acceptOne()
 			return

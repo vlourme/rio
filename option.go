@@ -2,6 +2,7 @@ package rio
 
 import (
 	"crypto/tls"
+	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rxp/async"
 	"time"
 )
@@ -12,7 +13,7 @@ type Options struct {
 	DefaultConnReadBufferSize  int
 	DefaultConnWriteBufferSize int
 	DefaultInboundBufferSize   int
-	TLSConnectionBuilder       TLSConnectionBuilder
+	TLSConnectionBuilder       security.ConnectionBuilder
 	MultipathTCP               bool
 	PromiseMakeOptions         []async.Option
 }
@@ -23,16 +24,14 @@ type Option func(options *Options) (err error)
 // 设置TLS
 func WithTLSConfig(config *tls.Config) Option {
 	return func(options *Options) (err error) {
-		options.TLSConnectionBuilder = &defaultTLSConnectionBuilder{
-			config: config,
-		}
+		options.TLSConnectionBuilder = security.NewConnectionBuilder(config)
 		return
 	}
 }
 
 // WithTLSConnectionBuilder
-// 设置 TLSConnectionBuilder。
-func WithTLSConnectionBuilder(builder TLSConnectionBuilder) Option {
+// 设置 security.ConnectionBuilder。
+func WithTLSConnectionBuilder(builder security.ConnectionBuilder) Option {
 	return func(options *Options) (err error) {
 		if builder != nil {
 			options.TLSConnectionBuilder = builder

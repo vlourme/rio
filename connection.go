@@ -13,40 +13,28 @@ import (
 )
 
 type Connection interface {
-	Context() (ctx context.Context)
-	ConfigContext(config func(ctx context.Context) context.Context)
-	Fd() int
-	LocalAddr() (addr net.Addr)
-	RemoteAddr() (addr net.Addr)
-	SetReadTimeout(d time.Duration) (err error)
-	SetWriteTimeout(d time.Duration) (err error)
-	SetReadBuffer(n int) (err error)
-	SetWriteBuffer(n int) (err error)
-	SetInboundBuffer(n int)
-	Read() (future async.Future[transport.Inbound])
-	Write(b []byte) (future async.Future[int])
-	Close() (future async.Future[async.Void])
+	transport.Connection
 }
 
 const (
 	defaultReadBufferSize = 1024
 )
 
-func newConnection(ctx context.Context, fd aio.NetFd) (conn *connection) {
-	conn = &connection{
+func newConnection(ctx context.Context, fd aio.NetFd) connection {
+	conn := connection{
 		ctx:    ctx,
 		fd:     fd,
-		closed: atomic.Bool{},
+		closed: &atomic.Bool{},
 		rb:     transport.NewInboundBuffer(),
 		rbs:    defaultReadBufferSize,
 	}
-	return
+	return conn
 }
 
 type connection struct {
 	ctx    context.Context
 	fd     aio.NetFd
-	closed atomic.Bool
+	closed *atomic.Bool
 	rb     transport.InboundBuffer
 	rbs    int
 }

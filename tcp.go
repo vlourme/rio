@@ -20,9 +20,8 @@ type TCPConnection interface {
 }
 
 func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
-	c := newConnection(ctx, fd)
 	conn = &tcpConnection{
-		connection: *c,
+		connection: newConnection(ctx, fd),
 	}
 	return
 }

@@ -10,12 +10,7 @@ import (
 )
 
 type PacketConnection interface {
-	Connection
-	ReadFrom() (future async.Future[transport.PacketInbound])
-	WriteTo(b []byte, addr net.Addr) (future async.Future[int])
-	SetReadMsgOOBBufferSize(size int)
-	ReadMsg() (future async.Future[transport.PacketMsgInbound])
-	WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound])
+	transport.PacketConnection
 }
 
 const (
@@ -24,7 +19,7 @@ const (
 
 func newPacketConnection(ctx context.Context, fd aio.NetFd) (conn PacketConnection) {
 	conn = &packetConnection{
-		connection: *newConnection(ctx, fd),
+		connection: newConnection(ctx, fd),
 		oob:        transport.NewInboundBuffer(),
 		oobn:       defaultOOBBufferSize,
 	}
