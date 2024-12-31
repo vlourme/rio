@@ -14,6 +14,10 @@ type netConn struct {
 	inner Connection
 }
 
+func (conn *netConn) Connection() Connection {
+	return conn.inner
+}
+
 func (conn *netConn) Read(b []byte) (n int, err error) {
 	bLen := len(b)
 	if bLen == 0 {
