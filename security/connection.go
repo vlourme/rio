@@ -32,7 +32,8 @@ func (builder *defaultConnectionBuilder) Client(ts transport.Connection) Connect
 		isClient:            true,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(ts.Fd()),
-		inbound:             transport.NewInboundBuffer(),
+		input:               transport.NewInboundBuffer(),
+		hand:                transport.NewInboundBuffer(),
 	}
 	c.handshakeFn = c.clientHandshake
 	return c
@@ -44,7 +45,8 @@ func (builder *defaultConnectionBuilder) Server(ts transport.Connection) Connect
 		config:              builder.config,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(ts.Fd()),
-		inbound:             transport.NewInboundBuffer(),
+		input:               transport.NewInboundBuffer(),
+		hand:                transport.NewInboundBuffer(),
 	}
 	c.handshakeFn = c.serverHandshake
 	return c
@@ -132,8 +134,8 @@ type connection struct {
 
 	// input/output
 	in, out halfConnection
-	inbound transport.InboundBuffer
-
+	input   transport.InboundBuffer
+	hand    transport.InboundBuffer
 	// bytesSent counts the bytes of application data sent.
 	// packetsSent counts packets.
 	bytesSent   int64
