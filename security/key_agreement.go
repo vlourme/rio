@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 )
 
 // A keyAgreement implements the client and server side of a TLS 1.0–1.2 key
@@ -59,6 +60,8 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *tls.Config, cert *tls
 	}
 	// Perform constant time RSA PKCS #1 v1.5 decryption
 	preMasterSecret, err := priv.Decrypt(asConfig(config).rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
+	runtime.KeepAlive(config)
+
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +83,7 @@ func (ka rsaKeyAgreement) generateClientKeyExchange(config *tls.Config, clientHe
 	preMasterSecret[0] = byte(clientHello.vers >> 8)
 	preMasterSecret[1] = byte(clientHello.vers)
 	_, err := io.ReadFull(asConfig(config).rand(), preMasterSecret[2:])
+	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,6 +93,7 @@ func (ka rsaKeyAgreement) generateClientKeyExchange(config *tls.Config, clientHe
 		return nil, nil, errors.New("tls: server certificate contains incorrect key type for selected ciphersuite")
 	}
 	encrypted, err := rsa.EncryptPKCS1v15(asConfig(config).rand(), rsaKey, preMasterSecret)
+	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -171,7 +176,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert 
 			break
 		}
 	}
-
+	runtime.KeepAlive(config)
 	if curveID == 0 {
 		return nil, errors.New("tls: no supported elliptic curves offered")
 	}
@@ -180,6 +185,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert 
 	}
 
 	key, err := generateECDHEKey(asConfig(config).rand(), curveID)
+	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, err
 	}
@@ -228,6 +234,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert 
 		signOpts = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: sigHash}
 	}
 	sig, err := priv.Sign(asConfig(config).rand(), signed, signOpts)
+	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, errors.New("tls: failed to sign ECDHE parameters: " + err.Error())
 	}
@@ -295,6 +302,7 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *tls.Config, client
 	}
 
 	key, err := generateECDHEKey(asConfig(config).rand(), curveID)
+	runtime.KeepAlive(config)
 	if err != nil {
 		return err
 	}

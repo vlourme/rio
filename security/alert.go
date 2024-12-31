@@ -1,81 +1,73 @@
 package security
 
 import (
-	"context"
-	"github.com/brickingsoft/rio/transport"
-	"github.com/brickingsoft/rxp/async"
 	"strconv"
 )
 
 type AlertError uint8
 
 func (e AlertError) Error() string {
-	return Alert(e).String()
+	return alert(e).String()
 }
 
-type Alert uint8
+type alert uint8
 
-func (e Alert) String() string {
+func (e alert) String() string {
 	s, ok := alertText[e]
 	if ok {
 		return "tls: " + s
 	}
-	return "tls: Alert(" + strconv.Itoa(int(e)) + ")"
+	return "tls: alert(" + strconv.Itoa(int(e)) + ")"
 }
 
-func (e Alert) Error() string {
+func (e alert) Error() string {
 	return e.String()
 }
 
-func SendAlert(ctx context.Context, writer transport.Writer, alert AlertError) (future async.Future[async.Void]) {
-
-	return
-}
-
 const (
-	// Alert level
+	// alert level
 	alertLevelWarning = 1
 	alertLevelError   = 2
 )
 
 const (
-	alertCloseNotify                  Alert = 0
-	alertUnexpectedMessage            Alert = 10
-	alertBadRecordMAC                 Alert = 20
-	alertDecryptionFailed             Alert = 21
-	alertRecordOverflow               Alert = 22
-	alertDecompressionFailure         Alert = 30
-	alertHandshakeFailure             Alert = 40
-	alertBadCertificate               Alert = 42
-	alertUnsupportedCertificate       Alert = 43
-	alertCertificateRevoked           Alert = 44
-	alertCertificateExpired           Alert = 45
-	alertCertificateUnknown           Alert = 46
-	alertIllegalParameter             Alert = 47
-	alertUnknownCA                    Alert = 48
-	alertAccessDenied                 Alert = 49
-	alertDecodeError                  Alert = 50
-	alertDecryptError                 Alert = 51
-	alertExportRestriction            Alert = 60
-	alertProtocolVersion              Alert = 70
-	alertInsufficientSecurity         Alert = 71
-	alertInternalError                Alert = 80
-	alertInappropriateFallback        Alert = 86
-	alertUserCanceled                 Alert = 90
-	alertNoRenegotiation              Alert = 100
-	alertMissingExtension             Alert = 109
-	alertUnsupportedExtension         Alert = 110
-	alertCertificateUnobtainable      Alert = 111
-	alertUnrecognizedName             Alert = 112
-	alertBadCertificateStatusResponse Alert = 113
-	alertBadCertificateHashValue      Alert = 114
-	alertUnknownPSKIdentity           Alert = 115
-	alertCertificateRequired          Alert = 116
-	alertNoApplicationProtocol        Alert = 120
-	alertECHRequired                  Alert = 121
+	alertCloseNotify                  alert = 0
+	alertUnexpectedMessage            alert = 10
+	alertBadRecordMAC                 alert = 20
+	alertDecryptionFailed             alert = 21
+	alertRecordOverflow               alert = 22
+	alertDecompressionFailure         alert = 30
+	alertHandshakeFailure             alert = 40
+	alertBadCertificate               alert = 42
+	alertUnsupportedCertificate       alert = 43
+	alertCertificateRevoked           alert = 44
+	alertCertificateExpired           alert = 45
+	alertCertificateUnknown           alert = 46
+	alertIllegalParameter             alert = 47
+	alertUnknownCA                    alert = 48
+	alertAccessDenied                 alert = 49
+	alertDecodeError                  alert = 50
+	alertDecryptError                 alert = 51
+	alertExportRestriction            alert = 60
+	alertProtocolVersion              alert = 70
+	alertInsufficientSecurity         alert = 71
+	alertInternalError                alert = 80
+	alertInappropriateFallback        alert = 86
+	alertUserCanceled                 alert = 90
+	alertNoRenegotiation              alert = 100
+	alertMissingExtension             alert = 109
+	alertUnsupportedExtension         alert = 110
+	alertCertificateUnobtainable      alert = 111
+	alertUnrecognizedName             alert = 112
+	alertBadCertificateStatusResponse alert = 113
+	alertBadCertificateHashValue      alert = 114
+	alertUnknownPSKIdentity           alert = 115
+	alertCertificateRequired          alert = 116
+	alertNoApplicationProtocol        alert = 120
+	alertECHRequired                  alert = 121
 )
 
-var alertText = map[Alert]string{
+var alertText = map[alert]string{
 	alertCloseNotify:                  "close notify",
 	alertUnexpectedMessage:            "unexpected message",
 	alertBadRecordMAC:                 "bad record MAC",

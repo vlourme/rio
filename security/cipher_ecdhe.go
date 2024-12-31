@@ -2,6 +2,7 @@ package security
 
 import (
 	"crypto/tls"
+	"runtime"
 )
 
 // TLS Elliptic Curve Point Formats
@@ -20,6 +21,8 @@ func supportsECDHE(c *tls.Config, version uint16, supportedCurves []tls.CurveID,
 			break
 		}
 	}
+
+	runtime.KeepAlive(c)
 
 	supportsPointFormat := false
 	for _, pointFormat := range supportedPoints {

@@ -6,7 +6,7 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
-type AEAD interface {
+type aead interface {
 	cipher.AEAD
 
 	// explicitNonceLen returns the number of bytes of explicit nonce
@@ -20,7 +20,7 @@ const (
 	noncePrefixLength = 4
 )
 
-// prefixNonceAEAD wraps an AEAD and prefixes a fixed portion of the nonce to
+// prefixNonceAEAD wraps an aead and prefixes a fixed portion of the nonce to
 // each call.
 type prefixNonceAEAD struct {
 	// nonce contains the fixed part of the nonce in the first four bytes.
@@ -42,7 +42,7 @@ func (f *prefixNonceAEAD) Open(out, nonce, ciphertext, additionalData []byte) ([
 	return f.aead.Open(out, f.nonce[:], ciphertext, additionalData)
 }
 
-// xorNonceAEAD wraps an AEAD by XORing in a fixed pattern to the nonce
+// xorNonceAEAD wraps an aead by XORing in a fixed pattern to the nonce
 // before each call.
 type xorNonceAEAD struct {
 	nonceMask [aeadNonceLength]byte
@@ -77,7 +77,7 @@ func (f *xorNonceAEAD) Open(out, nonce, ciphertext, additionalData []byte) ([]by
 	return result, err
 }
 
-func aeadAESGCM(key, noncePrefix []byte) AEAD {
+func aeadAESGCM(key, noncePrefix []byte) aead {
 	if len(noncePrefix) != noncePrefixLength {
 		panic("tls: internal error: wrong nonce length")
 	}
@@ -86,12 +86,7 @@ func aeadAESGCM(key, noncePrefix []byte) AEAD {
 		panic(err)
 	}
 	var aead cipher.AEAD
-	//if boring.Enabled {
-	//	AEAD, err = boring.NewGCMTLS(aes)
-	//} else {
-	//	boring.Unreachable()
-	//	AEAD, err = cipher.NewGCM(aes)
-	//}
+
 	aead, err = cipher.NewGCM(aes)
 	if err != nil {
 		panic(err)
@@ -104,7 +99,7 @@ func aeadAESGCM(key, noncePrefix []byte) AEAD {
 
 // aeadAESGCMTLS13 should be an internal detail,
 // but widely used packages access it using linkname.
-func aeadAESGCMTLS13(key, nonceMask []byte) AEAD {
+func aeadAESGCMTLS13(key, nonceMask []byte) aead {
 	if len(nonceMask) != aeadNonceLength {
 		panic("tls: internal error: wrong nonce length")
 	}
@@ -122,7 +117,7 @@ func aeadAESGCMTLS13(key, nonceMask []byte) AEAD {
 	return ret
 }
 
-func aeadChaCha20Poly1305(key, nonceMask []byte) AEAD {
+func aeadChaCha20Poly1305(key, nonceMask []byte) aead {
 	if len(nonceMask) != aeadNonceLength {
 		panic("tls: internal error: wrong nonce length")
 	}

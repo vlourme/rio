@@ -224,9 +224,9 @@ func computeAndUpdateOuterECHExtension(outer, inner *clientHelloMsg, ech *echCon
 		return err
 	}
 	// NOTE: the tag lengths for all of the supported AEADs are the same (16
-	// bytes), so we have hardcoded it here. If we add support for another AEAD
+	// bytes), so we have hardcoded it here. If we add support for another aead
 	// with a different tag length, we will need to change this.
-	encryptedLen := len(encodedInner) + 16 // AEAD tag length
+	encryptedLen := len(encodedInner) + 16 // aead tag length
 	outer.encryptedClientHello, err = generateOuterECHExt(ech.config.ConfigID, ech.kdfID, ech.aeadID, encapKey, make([]byte, encryptedLen))
 	if err != nil {
 		return err

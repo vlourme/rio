@@ -1,16 +1,13 @@
 package security
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
-	"net"
 	"strconv"
 	"sync/atomic"
-	"unsafe"
 )
 
 type ConnectionBuilder interface {
@@ -35,8 +32,9 @@ func (builder *defaultConnectionBuilder) Client(ts transport.Connection) Connect
 		isClient:            true,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(ts.Fd()),
+		inbound:             transport.NewInboundBuffer(),
 	}
-	c.handshakeFn = ClientHandshake
+	c.handshakeFn = c.clientHandshake
 	return c
 }
 
@@ -46,14 +44,15 @@ func (builder *defaultConnectionBuilder) Server(ts transport.Connection) Connect
 		config:              builder.config,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(ts.Fd()),
+		inbound:             transport.NewInboundBuffer(),
 	}
-	c.handshakeFn = ServerHandshake
+	c.handshakeFn = c.serverHandshake
 	return c
 }
 
 type Connection interface {
 	transport.Connection
-	ConnectionState() tls.ConnectionState
+	ConnectionState() ConnectionState
 	OCSPResponse() []byte
 	VerifyHostname(host string) error
 	CloseWrite() (future async.Future[async.Void])
@@ -131,6 +130,15 @@ type connection struct {
 	// clientProtocol is the negotiated ALPN protocol.
 	clientProtocol string
 
+	// input/output
+	in, out halfConnection
+	inbound transport.InboundBuffer
+
+	// bytesSent counts the bytes of application data sent.
+	// packetsSent counts packets.
+	bytesSent   int64
+	packetsSent int64
+
 	// retryCount counts the number of consecutive non-advancing records
 	// received by Conn.readRecord. That is, records that neither advance the
 	// handshake, nor deliver application data. Protected by in.Mutex.
@@ -143,65 +151,6 @@ type connection struct {
 	tmp [16]byte
 }
 
-func (conn *connection) Read() (future async.Future[transport.Inbound]) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *connection) Write(b []byte) (future async.Future[int]) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *connection) Close() (future async.Future[async.Void]) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *connection) Sendfile(file string) (future async.Future[int]) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (conn *connection) ConnectionState() tls.ConnectionState {
-	var state tls.ConnectionState
-	state.HandshakeComplete = conn.handshakeComplete.Load()
-	state.Version = conn.vers
-	state.NegotiatedProtocol = conn.clientProtocol
-	state.DidResume = conn.didResume
-	// c.curveID is not set on TLS 1.0–1.2 resumptions. Fix that before exposing it.
-	state.NegotiatedProtocolIsMutual = true
-	state.ServerName = conn.serverName
-	state.CipherSuite = conn.cipherSuite
-	state.PeerCertificates = conn.peerCertificates
-	state.VerifiedChains = conn.verifiedChains
-	state.SignedCertificateTimestamps = conn.scts
-	state.OCSPResponse = conn.ocspResponse
-	if (!conn.didResume || conn.extMasterSecret) && conn.vers != tls.VersionTLS13 {
-		if conn.clientFinishedIsFirst {
-			state.TLSUnique = conn.clientFinished[:]
-		} else {
-			state.TLSUnique = conn.serverFinished[:]
-		}
-	}
-	// todo handle ekm
-	//if conn.config.Renegotiation != tls.RenegotiateNever {
-	//	state.ekm = noEKMBecauseRenegotiation
-	//} else if conn.vers != tls.VersionTLS13 && !conn.extMasterSecret {
-	//	state.ekm = func(label string, context []byte, length int) ([]byte, error) {
-	//		if tlsunsafeekm.Value() == "1" {
-	//			tlsunsafeekm.IncNonDefault()
-	//			return c.ekm(label, context, length)
-	//		}
-	//		return noEKMBecauseNoEMS(label, context, length)
-	//	}
-	//} else {
-	//	state.ekm = conn.ekm
-	//}
-	state.ECHAccepted = conn.echAccepted
-	return state
-}
-
 func (conn *connection) OCSPResponse() []byte {
 
 	return conn.ocspResponse
@@ -209,125 +158,13 @@ func (conn *connection) OCSPResponse() []byte {
 
 func (conn *connection) VerifyHostname(host string) error {
 	if !conn.isClient {
-		return errors.New("rio: VerifyHostname called on TLS server connection")
+		return errors.New("tls: VerifyHostname called on TLS server connection")
 	}
 	if !conn.handshakeComplete.Load() {
-		return errors.New("rio: handshake has not yet been performed")
+		return errors.New("tls: handshake has not yet been performed")
 	}
 	if len(conn.verifiedChains) == 0 {
-		return errors.New("rio: handshake did not verify certificate chain")
+		return errors.New("tls: handshake did not verify certificate chain")
 	}
 	return conn.peerCertificates[0].VerifyHostname(host)
 }
-
-var errEarlyCloseWrite = errors.New("rio: CloseWrite called before handshake complete")
-
-func (conn *connection) CloseWrite() (future async.Future[async.Void]) {
-	ctx := conn.Context()
-	if !conn.handshakeComplete.Load() {
-		future = async.FailedImmediately[async.Void](ctx, errEarlyCloseWrite)
-		return
-	}
-	if conn.closeNotifySent {
-		if conn.closeNotifyErr != nil {
-			future = async.FailedImmediately[async.Void](ctx, conn.closeNotifyErr)
-			return
-		}
-		future = async.SucceedImmediately[async.Void](ctx, async.Void{})
-		return
-	}
-
-	promise, promiseErr := async.Make[async.Void](ctx, async.WithWait())
-	if promiseErr != nil {
-		future = async.FailedImmediately[async.Void](ctx, promiseErr)
-		return
-	}
-	future = promise.Future()
-
-	CloseNotify(ctx, conn).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-		conn.closeNotifySent = true
-		if cause != nil {
-			conn.closeNotifyErr = cause
-			promise.Fail(cause)
-		} else {
-			promise.Succeed(async.Void{})
-		}
-		return
-	})
-	return
-}
-
-func (conn *connection) Handshake() (future async.Future[async.Void]) {
-	ctx := conn.Context()
-	if conn.handshakeComplete.Load() {
-		if conn.handshakeErr != nil {
-			future = async.FailedImmediately[async.Void](ctx, conn.handshakeErr)
-		} else {
-			future = async.SucceedImmediately[async.Void](ctx, async.Void{})
-		}
-		return
-	}
-
-	future = conn.handshakeBarrier.Do(ctx, conn.handshakeBarrierKey, func(promise async.Promise[async.Void]) {
-		conn.handshakeFn(ctx, conn.Connection, conn.config).OnComplete(func(ctx context.Context, entry HandshakeResult, cause error) {
-			conn.handshakeComplete.Store(true)
-			if cause != nil {
-				conn.handshakeErr = cause
-				promise.Fail(cause)
-				return
-			}
-			// todo handle handshake result
-			promise.Succeed(async.Void{})
-			return
-		})
-	}, async.WithWait())
-
-	return
-}
-
-type ConnectionState struct {
-	Version                     uint16
-	HandshakeComplete           bool
-	DidResume                   bool
-	CipherSuite                 uint16
-	NegotiatedProtocol          string
-	NegotiatedProtocolIsMutual  bool
-	ServerName                  string
-	PeerCertificates            []*x509.Certificate
-	VerifiedChains              [][]*x509.Certificate
-	SignedCertificateTimestamps [][]byte
-	OCSPResponse                []byte
-	TLSUnique                   []byte
-	ECHAccepted                 bool
-	ekm                         func(label string, context []byte, length int) ([]byte, error)
-}
-
-func (cs *ConnectionState) ExportKeyingMaterial(label string, context []byte, length int) ([]byte, error) {
-	return cs.ekm(label, context, length)
-}
-
-func (cs *ConnectionState) SetExportKeyingMaterial(config *tls.Config, version uint16, extMasterSecret bool, defaultEKM ExportKeyingMaterial) {
-	if config.Renegotiation != tls.RenegotiateNever {
-		cs.ekm = noEKMBecauseRenegotiation
-	} else if version != tls.VersionTLS13 && !extMasterSecret {
-		cs.ekm = func(label string, context []byte, length int) ([]byte, error) {
-			return noEKMBecauseNoEMS(label, context, length)
-		}
-	} else {
-		cs.ekm = defaultEKM
-	}
-}
-
-func (cs *ConnectionState) AsTLSConnectionState() tls.ConnectionState {
-	state := (*tls.ConnectionState)(unsafe.Pointer(cs))
-	return *state
-}
-
-type permanentError struct {
-	err net.Error
-}
-
-func (e *permanentError) Error() string   { return e.err.Error() }
-func (e *permanentError) Unwrap() error   { return e.err }
-func (e *permanentError) Timeout() bool   { return e.err.Timeout() }
-func (e *permanentError) Temporary() bool { return false }

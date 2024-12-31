@@ -9,6 +9,7 @@ import (
 	"crypto/rc4"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/tls"
 	"fmt"
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/hkdf"
@@ -51,7 +52,7 @@ type CipherSuite struct {
 	// cipher: cipherAES，cipher3DES， cipherRC4
 	cipher func(key, iv []byte, isRead bool) any
 	mac    func(key []byte) hash.Hash
-	aead   func(key, fixedNonce []byte) AEAD
+	aead   func(key, fixedNonce []byte) aead
 	// hash tls1.3 hash
 	hash crypto.Hash
 }
@@ -597,18 +598,30 @@ func cipherSuiteTLS13ById(id uint16) *CipherSuite {
 	return nil
 }
 
-// sliceForAppend extends the input slice by n bytes. head is the full extended
-// slice, while tail is the appended part. If the original slice has sufficient
-// capacity no allocation is performed.
-func sliceForAppend(in []byte, n int) (head, tail []byte) {
-	if total := len(in) + n; cap(in) >= total {
-		head = in[:total]
-	} else {
-		head = make([]byte, total)
-		copy(head, in)
+// roleClient and roleServer are meant to call supportedVersions and parents
+// with more readability at the callsite.
+const roleClient = true
+const roleServer = false
+
+func unexpectedMessageError(wanted, got any) error {
+	return fmt.Errorf("tls: received unexpected handshake message of type %T when waiting for %T", got, wanted)
+}
+
+// supportedSignatureAlgorithms returns the supported signature algorithms.
+func supportedSignatureAlgorithms() []tls.SignatureScheme {
+	if !needFIPS() {
+		return defaultSupportedSignatureAlgorithms
 	}
-	tail = head[len(in):]
-	return
+	return defaultSupportedSignatureAlgorithmsFIPS
+}
+
+func isSupportedSignatureAlgorithm(sigAlg tls.SignatureScheme, supportedSignatureAlgorithms []tls.SignatureScheme) bool {
+	for _, s := range supportedSignatureAlgorithms {
+		if s == sigAlg {
+			return true
+		}
+	}
+	return false
 }
 
 // A list of cipher suite IDs that are, or have been, implemented by this

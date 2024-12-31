@@ -154,7 +154,7 @@ type Config struct {
 
 	// ClientAuth determines the server's policy for
 	// TLS Client Authentication. The default is NoClientCert.
-	ClientAuth ClientAuthType
+	ClientAuth tls.ClientAuthType
 
 	// ClientCAs defines the set of root certificate authorities
 	// that servers use if required to verify a client certificate
