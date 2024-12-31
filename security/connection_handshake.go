@@ -17,7 +17,7 @@ func (conn *connection) Handshake() (future async.Future[async.Void]) {
 	}
 
 	future = conn.handshakeBarrier.Do(ctx, conn.handshakeBarrierKey, func(promise async.Promise[async.Void]) {
-		conn.handshakeFn(ctx, conn.Connection, conn.config).OnComplete(func(ctx context.Context, entry HandshakeResult, cause error) {
+		conn.handshakeFn().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 			conn.handshakeComplete.Store(true)
 			if cause != nil {
 				conn.handshakeErr = cause
