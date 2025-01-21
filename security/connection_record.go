@@ -37,6 +37,8 @@ const (
 
 func (conn *connection) readRecordOrCCS(expectChangeCipherSpec bool) (future async.Future[async.Void]) {
 	// todo
+	// readRecordOrCCS 和 readRecord 的关系反一下，readRecordOrCCS 负责读一个 record，readRecord(readRecordOrCCS(false))
+	// 一律返回 data（解密后的 payload）?
 	// readRecord() 来读一个 record
 	// 处理 record
 	// set input/hand
@@ -150,6 +152,8 @@ func (conn *connection) readRecord() (future async.Future[[]byte]) {
 			promise.Fail(io.ErrShortBuffer)
 			return
 		}
+
+		// todo process record(typ+payload)
 		promise.Succeed(record)
 	})
 	return
