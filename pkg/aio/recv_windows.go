@@ -11,16 +11,16 @@ import (
 )
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
-	// op
-	op := fd.ReadOperator()
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
 	}
+	// op
+	op := fd.ReadOperator()
 	// msg
 	buf := op.userdata.Msg.Append(b)
 
@@ -51,7 +51,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("wsa_recv", err))
+		cb(-1, Userdata{}, os.NewSyscallError("wsa_recv", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -74,14 +74,14 @@ func completeRecv(result int, op *Operator, err error) {
 }
 
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
-	// op
-	op := fd.ReadOperator()
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
+	// op
+	op := fd.ReadOperator()
 	// msg
 	addr, addrLen := op.userdata.Msg.BuildRawSockaddrAny()
 	buf := op.userdata.Msg.Append(b)
@@ -113,7 +113,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("wsa_recvfrom", err))
+		cb(-1, Userdata{}, os.NewSyscallError("wsa_recvfrom", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -136,14 +136,14 @@ func completeRecvFrom(result int, op *Operator, err error) {
 }
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
-	// op
-	op := fd.ReadOperator()
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
+	// op
+	op := fd.ReadOperator()
 	// msg
 	op.userdata.Msg.BuildRawSockaddrAny()
 	op.userdata.Msg.Append(b)
@@ -180,7 +180,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("wsa_recvmsg", err))
+		cb(-1, Userdata{}, os.NewSyscallError("wsa_recvmsg", err))
 		// reset
 		op.callback = nil
 		op.completion = nil

@@ -15,7 +15,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
@@ -42,7 +42,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -72,7 +72,7 @@ func completeSend(result int, op *Operator, err error) {
 	timer := op.timer
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, userdata, ErrOperationDeadlineExceeded)
+			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
 			break
 		}
 		n, wErr := syscall.Write(fd, b)
@@ -98,18 +98,18 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 	if addr == nil {
-		cb(0, op.userdata, ErrNilAddr)
+		cb(-1, Userdata{}, ErrNilAddr)
 		return
 	}
 	// msg
 	op.userdata.Msg.Append(b)
 	_, addrErr := op.userdata.Msg.SetAddr(addr)
 	if addrErr != nil {
-		cb(0, op.userdata, addrErr)
+		cb(-1, Userdata{}, addrErr)
 		return
 	}
 
@@ -132,7 +132,7 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -147,8 +147,12 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 func completeSendTo(result int, op *Operator, err error) {
 	cb := op.callback
 	userdata := op.userdata
-	if err != nil || result == 0 {
-		cb(0, userdata, err)
+	if err != nil {
+		cb(result, userdata, err)
+		return
+	}
+	if result == 0 {
+		cb(0, userdata, nil)
 		return
 	}
 
@@ -170,7 +174,7 @@ func completeSendTo(result int, op *Operator, err error) {
 	timer := op.timer
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, userdata, ErrOperationDeadlineExceeded)
+			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
 			break
 		}
 		wErr := syscall.Sendto(fd, b, flags, sa)
@@ -178,7 +182,7 @@ func completeSendTo(result int, op *Operator, err error) {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(0, userdata, wErr)
+			cb(-1, Userdata{}, wErr)
 			break
 		}
 		userdata.QTY = uint32(bLen)
@@ -195,11 +199,11 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 	if addr == nil {
-		cb(0, op.userdata, ErrNilAddr)
+		cb(-1, Userdata{}, ErrNilAddr)
 		return
 	}
 	// msg
@@ -207,7 +211,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.userdata.Msg.SetControl(oob)
 	_, addrErr := op.userdata.Msg.SetAddr(addr)
 	if addrErr != nil {
-		cb(0, op.userdata, addrErr)
+		cb(-1, Userdata{}, addrErr)
 		return
 	}
 
@@ -230,7 +234,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -245,8 +249,12 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 func completeSendMsg(result int, op *Operator, err error) {
 	cb := op.callback
 	userdata := op.userdata
-	if err != nil || result == 0 {
-		cb(0, userdata, err)
+	if err != nil {
+		cb(result, userdata, err)
+		return
+	}
+	if result == 0 {
+		cb(0, userdata, nil)
 		return
 	}
 
@@ -261,7 +269,7 @@ func completeSendMsg(result int, op *Operator, err error) {
 	flags := int(userdata.Msg.Flags())
 	addr, addrErr := userdata.Msg.Addr()
 	if addrErr != nil {
-		cb(0, userdata, addrErr)
+		cb(-1, Userdata{}, addrErr)
 		return
 	}
 	sa := AddrToSockaddr(addr)
@@ -269,7 +277,7 @@ func completeSendMsg(result int, op *Operator, err error) {
 	timer := op.timer
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, userdata, ErrOperationDeadlineExceeded)
+			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
 			break
 		}
 		wErr := syscall.Sendmsg(fd, b, oob, sa, flags)
@@ -277,7 +285,7 @@ func completeSendMsg(result int, op *Operator, err error) {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(0, userdata, wErr)
+			cb(-1, Userdata{}, wErr)
 			break
 		}
 		userdata.QTY = uint32(bLen)

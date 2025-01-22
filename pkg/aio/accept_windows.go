@@ -14,7 +14,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// conn
 	sock, sockErr := newSocket(fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only())
 	if sockErr != nil {
-		cb(0, Userdata{}, errors.Join(errors.New("aio: accept failed"), sockErr))
+		cb(-1, Userdata{}, sockErr)
 		return
 	}
 	// op
@@ -62,7 +62,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	)
 	if acceptErr != nil && !errors.Is(syscall.ERROR_IO_PENDING, acceptErr) {
 		_ = syscall.Closesocket(syscall.Handle(sock))
-		cb(0, op.userdata, os.NewSyscallError("acceptex", acceptErr))
+		cb(-1, Userdata{}, os.NewSyscallError("acceptex", acceptErr))
 
 		op.callback = nil
 		op.completion = nil

@@ -28,7 +28,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -43,7 +43,7 @@ func completeAccept(result int, op *Operator, err error) {
 	cb := op.callback
 	userdata := op.userdata
 	if err != nil || result == 0 {
-		cb(0, userdata, err)
+		cb(-1, Userdata{}, err)
 		return
 	}
 	ln := userdata.Fd.(NetFd)
@@ -52,7 +52,7 @@ func completeAccept(result int, op *Operator, err error) {
 	var sa syscall.Sockaddr
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, Userdata{}, ErrOperationDeadlineExceeded)
+			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
 			return
 		}
 		sock, sa, err = syscall.Accept4(ln.Fd(), syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
@@ -60,7 +60,7 @@ func completeAccept(result int, op *Operator, err error) {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) || errors.Is(err, syscall.ECONNABORTED) {
 				continue
 			}
-			cb(0, Userdata{}, os.NewSyscallError("accept4", err))
+			cb(-1, Userdata{}, os.NewSyscallError("accept4", err))
 			return
 		}
 		break
@@ -70,7 +70,7 @@ func completeAccept(result int, op *Operator, err error) {
 	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
 		_ = syscall.Close(sock)
-		cb(0, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		cb(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)

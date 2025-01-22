@@ -14,7 +14,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(0, Userdata{}, sockErr)
+		cb(-1, Userdata{}, sockErr)
 		return
 	}
 
@@ -23,7 +23,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		setBroadcastErr := syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		if setBroadcastErr != nil {
 			_ = syscall.Close(sock)
-			cb(0, Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
+			cb(-1, Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
 			return
 		}
 	}
@@ -50,7 +50,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		bindErr := syscall.Bind(sock, lsa)
 		if bindErr != nil {
 			_ = syscall.Close(sock)
-			cb(0, Userdata{}, os.NewSyscallError("bind", bindErr))
+			cb(-1, Userdata{}, os.NewSyscallError("bind", bindErr))
 			return
 		}
 		nfd.localAddr = laddr
@@ -64,13 +64,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// remote addr
 	if raddr == nil {
 		_ = syscall.Close(sock)
-		cb(0, Userdata{}, syscall.Errno(22))
+		cb(-1, Userdata{}, syscall.Errno(22))
 		return
 	}
 	sa := AddrToSockaddr(raddr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 	if rsaErr != nil {
-		cb(0, Userdata{}, rsaErr)
+		cb(-1, Userdata{}, rsaErr)
 		return
 	}
 
@@ -90,7 +90,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	runtime.KeepAlive(op)
 	if err != nil {
 		_ = syscall.Close(sock)
-		cb(0, Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -106,7 +106,7 @@ func completeConnect(result int, op *Operator, err error) {
 	// check error
 	if err != nil {
 		_ = syscall.Close(connFd)
-		cb(result, Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
 		return
 	}
 	// get local addr
@@ -114,7 +114,7 @@ func completeConnect(result int, op *Operator, err error) {
 		lsa, lsaErr := syscall.Getsockname(connFd)
 		if lsaErr != nil {
 			_ = syscall.Close(connFd)
-			cb(result, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+			cb(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 			return
 		}
 		la := SockaddrToAddr(conn.Network(), lsa)

@@ -15,7 +15,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
@@ -49,7 +49,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
-		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_recv", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_recv", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -84,7 +84,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 	// msg
@@ -118,7 +118,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.userdata.Msg)), uint32(op.userdata.Msg.Iovlen), 0, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
-		cb(0, op.userdata, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil

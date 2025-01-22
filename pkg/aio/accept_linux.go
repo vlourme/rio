@@ -31,7 +31,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
-		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_accept", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -46,7 +46,7 @@ func completeAccept(result int, op *Operator, err error) {
 	// userdata
 	userdata := op.userdata
 	if err != nil {
-		cb(result, userdata, os.NewSyscallError("io_uring_prep_accept", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
 		return
 	}
 	// conn
@@ -58,7 +58,7 @@ func completeAccept(result int, op *Operator, err error) {
 	lsa, lsaErr := syscall.Getsockname(connFd)
 	if lsaErr != nil {
 		_ = syscall.Close(connFd)
-		op.callback(result, userdata, os.NewSyscallError("getsockname", lsaErr))
+		op.callback(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)
@@ -67,7 +67,7 @@ func completeAccept(result int, op *Operator, err error) {
 	rsa, rsaErr := syscall.Getpeername(connFd)
 	if rsaErr != nil {
 		_ = syscall.Close(connFd)
-		op.callback(result, userdata, os.NewSyscallError("getpeername", rsaErr))
+		op.callback(-1, Userdata{}, os.NewSyscallError("getpeername", rsaErr))
 		return
 	}
 	ra := SockaddrToAddr(ln.Network(), rsa)

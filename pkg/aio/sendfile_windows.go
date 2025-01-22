@@ -12,35 +12,33 @@ import (
 )
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
-	// op
-	op := fd.WriteOperator()
 	if len(filepath) == 0 {
-		cb(0, op.userdata, errors.New("aio.Sendfile: filepath is empty"))
+		cb(-1, Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return
 	}
 	src, openErr := windows.Open(filepath, windows.O_RDONLY|windows.O_NONBLOCK|windows.FILE_FLAG_SEQUENTIAL_SCAN, 0777)
 	if openErr != nil {
-		cb(0, op.userdata, os.NewSyscallError("open", openErr))
+		cb(-1, Userdata{}, os.NewSyscallError("open", openErr))
 		return
 	}
 
 	curpos, seekToCurrentErr := windows.Seek(src, 0, io.SeekCurrent)
 	if seekToCurrentErr != nil {
 		_ = windows.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToCurrentErr))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToCurrentErr))
 		return
 	}
 	// find the number of bytes offset from curpos until the end of the file.
 	remain, seekToEndErr := windows.Seek(src, -curpos, io.SeekEnd)
 	if seekToEndErr != nil {
 		_ = windows.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToEndErr))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToEndErr))
 		return
 	}
 	// now seek back to the original position.
 	if _, seekToStart := windows.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = windows.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToStart))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToStart))
 		return
 	}
 
@@ -87,7 +85,7 @@ func sendfile(fd NetFd, file FileFd, curpos int64, remain int64, wrote int, cb O
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		_ = windows.Close(src)
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("transmit_file", err))
+		cb(-1, Userdata{}, os.NewSyscallError("transmit_file", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -101,7 +99,7 @@ func completeSendfile(result int, op *Operator, err error) {
 	if err != nil {
 		_ = windows.Close(src)
 		err = os.NewSyscallError("transmit_file", err)
-		op.callback(0, op.userdata, err)
+		op.callback(-1, Userdata{}, err)
 		return
 	}
 

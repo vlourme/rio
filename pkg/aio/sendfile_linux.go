@@ -16,7 +16,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// op
 	op := WriteOperator(fd)
 	if len(filepath) == 0 {
-		cb(0, op.userdata, errors.New("aio.Sendfile: filepath is empty"))
+		cb(-1, Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return
 	}
 	op.callback = cb
@@ -28,25 +28,25 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// src
 	src, openErr := syscall.Open(filepath, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NONBLOCK|syscall.O_NDELAY, 0777)
 	if openErr != nil {
-		cb(0, op.userdata, os.NewSyscallError("open", openErr))
+		cb(-1, Userdata{}, os.NewSyscallError("open", openErr))
 		return
 	}
 	curpos, seekToCurrentErr := syscall.Seek(src, 0, io.SeekCurrent)
 	if seekToCurrentErr != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToCurrentErr))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToCurrentErr))
 		return
 	}
 	remain, seekToEndErr := syscall.Seek(src, -curpos, io.SeekEnd)
 	if seekToEndErr != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToEndErr))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToEndErr))
 		return
 	}
 	// now seek back to the original position.
 	if _, seekToStart := syscall.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToStart))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToStart))
 		return
 	}
 	srcFd := &fileFd{
@@ -64,7 +64,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	pipe := make([]int, 2)
 	if pipeErr := Pipe2(pipe); pipeErr != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, pipeErr)
+		cb(-1, Userdata{}, pipeErr)
 		return
 	}
 	op.userdata.Msg.Iovlen = uint64(pipe[0])
@@ -77,7 +77,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
-		cb(0, op.userdata, getErr)
+		cb(-1, Userdata{}, getErr)
 
 		op.callback = nil
 		op.completion = nil
@@ -101,7 +101,7 @@ func completeSendfileToPipe(result int, op *Operator, err error) {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
-		op.callback(result, op.userdata, err)
+		op.callback(-1, Userdata{}, err)
 		return
 	}
 	nop := WriteOperator(op.fd)
@@ -127,7 +127,7 @@ func completeSendfileToPipe(result int, op *Operator, err error) {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
-		nop.callback(0, op.userdata, getErr)
+		nop.callback(-1, Userdata{}, getErr)
 		return
 	}
 
@@ -151,7 +151,7 @@ func completeSendfileFromPipe(result int, op *Operator, err error) {
 	_ = syscall.Close(pipe[1])
 	// handle
 	if err != nil {
-		op.callback(result, op.userdata, err)
+		op.callback(-1, Userdata{}, err)
 		return
 	}
 	op.callback(result, op.userdata, nil)

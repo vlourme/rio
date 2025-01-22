@@ -13,7 +13,7 @@ import (
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, Userdata{}, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 	if bLen > MaxRW {
@@ -38,7 +38,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -54,11 +54,16 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
 	userdata := op.userdata
-	if err != nil || result == 0 {
-		if errors.Is(err, ErrClosed) {
-			err = io.EOF
+	if err != nil {
+		if errors.Is(err, ErrClosed) && result == 0 {
+			cb(0, userdata, io.EOF)
+			return
 		}
-		cb(0, userdata, err)
+		cb(-1, Userdata{}, err)
+		return
+	}
+	if result == 0 {
+		cb(0, userdata, eofError(op.fd, result, err))
 		return
 	}
 
@@ -67,7 +72,7 @@ func completeRecv(result int, op *Operator, err error) {
 	timer := op.timer
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, userdata, ErrOperationDeadlineExceeded)
+			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
 			break
 		}
 		n, rErr := syscall.Read(fd, b)
@@ -90,7 +95,7 @@ func completeRecv(result int, op *Operator, err error) {
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, Userdata{}, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 
@@ -112,7 +117,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -127,31 +132,45 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
 	userdata := op.userdata
-	if err != nil || result == 0 {
-		cb(0, userdata, err)
+	if err != nil {
+		cb(-1, Userdata{}, err)
+		return
+	}
+	if result == 0 {
+		cb(0, userdata, nil)
 		return
 	}
 	fd := op.fd.Fd()
-	b := userdata.Msg.Bytes(0)
+	b := make([]byte, result)
 	timer := op.timer
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, userdata, ErrOperationDeadlineExceeded)
+			cb(-1, userdata, ErrOperationDeadlineExceeded)
 			break
 		}
 		n, sa, rErr := syscall.Recvfrom(fd, b, 0)
 		if rErr != nil {
-			n = 0
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(n, userdata, rErr)
+			cb(-1, userdata, rErr)
 			break
 		}
 		rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 		if rsaErr != nil {
-			cb(n, userdata, rsaErr)
+			cb(-1, userdata, rsaErr)
 			break
+		}
+		p := userdata.Msg.Bytes(0)
+		pLen := len(p)
+		if pLen >= n {
+			copy(p, b)
+		} else {
+			copy(p, b[0:pLen])
+			remainLen := n - pLen
+			remain := make([]byte, remainLen)
+			copy(remain, b[pLen:])
+			userdata.Msg.Append(remain)
 		}
 		userdata.Msg.Name = (*byte)(unsafe.Pointer(rsa))
 		userdata.Msg.Namelen = uint32(rsaLen)
@@ -166,7 +185,7 @@ func completeRecvFrom(result int, op *Operator, err error) {
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, Userdata{}, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 
@@ -189,7 +208,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -204,33 +223,48 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 func completeRecvMsg(result int, op *Operator, err error) {
 	cb := op.callback
 	userdata := op.userdata
-	if err != nil || result == 0 {
-		cb(0, userdata, err)
+	if err != nil {
+		cb(-1, Userdata{}, err)
+		return
+	}
+	if result == 0 {
+		cb(0, userdata, nil)
 		return
 	}
 	fd := op.fd.Fd()
-	b := userdata.Msg.Bytes(0)
+	b := make([]byte, result)
 	oob := userdata.Msg.ControlBytes()
 	timer := op.timer
 	for {
 		if timer != nil && timer.DeadlineExceeded() {
-			cb(0, userdata, ErrOperationDeadlineExceeded)
+			cb(-1, userdata, ErrOperationDeadlineExceeded)
 			break
 		}
 		n, oonb, flags, sa, rErr := syscall.Recvmsg(fd, b, oob, 0)
 		if rErr != nil {
-			n = 0
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(n, userdata, rErr)
+			cb(-1, userdata, rErr)
 			break
 		}
 		rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 		if rsaErr != nil {
-			cb(n, userdata, rsaErr)
+			cb(-1, userdata, rsaErr)
 			break
 		}
+		p := userdata.Msg.Bytes(0)
+		pLen := len(p)
+		if pLen >= n {
+			copy(p, b)
+		} else {
+			copy(p, b[0:pLen])
+			remainLen := n - pLen
+			remain := make([]byte, remainLen)
+			copy(remain, b[pLen:])
+			userdata.Msg.Append(remain)
+		}
+
 		userdata.Msg.Name = (*byte)(unsafe.Pointer(rsa))
 		userdata.Msg.Namelen = uint32(rsaLen)
 		userdata.QTY = uint32(n)

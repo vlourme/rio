@@ -12,16 +12,16 @@ import (
 )
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
-	// op
-	op := fd.WriteOperator()
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
 	}
+	// op
+	op := fd.WriteOperator()
 	// msg
 	buf := op.userdata.Msg.Append(b)
 
@@ -52,7 +52,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("wsa_send", err))
+		cb(-1, Userdata{}, os.NewSyscallError("wsa_send", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -75,18 +75,18 @@ func completeSend(result int, op *Operator, err error) {
 }
 
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
-	// op
-	op := fd.WriteOperator()
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
+	// op
+	op := fd.WriteOperator()
 	// msg
 	sa, saErr := op.userdata.Msg.SetAddr(addr)
 	if saErr != nil {
-		cb(0, op.userdata, errors.Join(errors.New("aio: send to failed"), saErr))
+		cb(-1, Userdata{}, errors.Join(errors.New("aio: send to failed"), saErr))
 		return
 	}
 	buf := op.userdata.Msg.Append(b)
@@ -119,7 +119,7 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("wsa_sendto", err))
+		cb(-1, Userdata{}, os.NewSyscallError("wsa_sendto", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -142,20 +142,20 @@ func completeSendTo(result int, op *Operator, err error) {
 }
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
-	// op
-	op := fd.WriteOperator()
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
+	// op
+	op := fd.WriteOperator()
 	// msg
 	op.userdata.Msg.Append(b)
 	op.userdata.Msg.SetControl(oob)
 	_, saErr := op.userdata.Msg.SetAddr(addr)
 	if saErr != nil {
-		cb(0, op.userdata, errors.Join(errors.New("aio: send msg failed"), saErr))
+		cb(-1, Userdata{}, errors.Join(errors.New("aio: send msg failed"), saErr))
 		return
 	}
 
@@ -188,7 +188,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
-		cb(0, op.userdata, os.NewSyscallError("wsa_sendmsg", err))
+		cb(-1, Userdata{}, os.NewSyscallError("wsa_sendmsg", err))
 		// reset
 		op.callback = nil
 		op.completion = nil

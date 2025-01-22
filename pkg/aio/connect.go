@@ -14,7 +14,7 @@ type ConnectOptions struct {
 func Connect(network string, address string, opts ConnectOptions, callback OperationCallback) {
 	addr, family, ipv6only, addrErr := ResolveAddr(network, address)
 	if addrErr != nil {
-		callback(0, Userdata{}, addrErr)
+		callback(-1, Userdata{}, addrErr)
 		return
 	}
 	switch network {
@@ -58,7 +58,8 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 		var parseProtoError error
 		network, proto, parseProtoError = ParseIpProto(network)
 		if parseProtoError != nil {
-			callback(0, Userdata{}, parseProtoError)
+			callback(-1, Userdata{}, parseProtoError)
+			return
 		}
 		connect(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil, callback)
 		break

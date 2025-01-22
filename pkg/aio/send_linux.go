@@ -19,7 +19,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
@@ -54,7 +54,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	err := cylinder.prepare(opSend, fd.Fd(), bufAddr, bufLen, 0, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
-		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_send", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_send", err))
 		// reset
 		op.callback = nil
 		op.completion = nil
@@ -87,7 +87,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(0, op.userdata, ErrEmptyBytes)
+		cb(-1, Userdata{}, ErrEmptyBytes)
 		return
 	}
 	// msg
@@ -95,7 +95,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.userdata.Msg.SetControl(oob)
 	_, saErr := op.userdata.Msg.SetAddr(addr)
 	if saErr != nil {
-		cb(0, op.userdata, saErr)
+		cb(-1, Userdata{}, saErr)
 		return
 	}
 
@@ -124,7 +124,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	err := cylinder.prepare(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.userdata.Msg)), 1, 0, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
-		cb(0, op.userdata, os.NewSyscallError("io_uring_prep_sendmsg", err))
+		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg", err))
 		// reset
 		op.callback = nil
 		op.completion = nil

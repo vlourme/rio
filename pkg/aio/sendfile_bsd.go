@@ -14,7 +14,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// op
 	op := WriteOperator(fd)
 	if len(filepath) == 0 {
-		cb(0, op.userdata, errors.New("aio.Sendfile: filepath is empty"))
+		cb(-1, Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return
 	}
 	op.callback = cb
@@ -25,30 +25,30 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// src
 	src, openErr := syscall.Open(filepath, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NONBLOCK|syscall.O_NDELAY, 0777)
 	if openErr != nil {
-		cb(0, op.userdata, os.NewSyscallError("open", openErr))
+		cb(-1, Userdata{}, os.NewSyscallError("open", openErr))
 		return
 	}
 	curpos, seekToCurrentErr := syscall.Seek(src, 0, io.SeekCurrent)
 	if seekToCurrentErr != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToCurrentErr))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToCurrentErr))
 		return
 	}
 	remain, seekToEndErr := syscall.Seek(src, -curpos, io.SeekEnd)
 	if seekToEndErr != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToEndErr))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToEndErr))
 		return
 	}
 	if remain == 0 {
 		// empty
-		cb(0, op.userdata, nil)
+		cb(-1, Userdata{}, nil)
 		return
 	}
 	// now seek back to the original position.
 	if _, seekToStart := syscall.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = syscall.Close(src)
-		cb(0, op.userdata, os.NewSyscallError("seek", seekToStart))
+		cb(-1, Userdata{}, os.NewSyscallError("seek", seekToStart))
 		return
 	}
 	srcFd := &fileFd{
@@ -70,7 +70,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// prepare write
 	cylinder := nextKqueueCylinder()
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(0, Userdata{}, err)
+		cb(-1, Userdata{}, err)
 		// reset
 		op.callback = nil
 		op.completion = nil

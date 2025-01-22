@@ -13,7 +13,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(0, Userdata{}, sockErr)
+		cb(-1, Userdata{}, sockErr)
 		return
 	}
 	// try set SO_BROADCAST
@@ -21,7 +21,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		setBroadcastErr := syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		if setBroadcastErr != nil {
 			_ = syscall.Close(sock)
-			cb(0, Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
+			cb(-1, Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
 			return
 		}
 	}
@@ -48,7 +48,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		bindErr := syscall.Bind(sock, lsa)
 		if bindErr != nil {
 			_ = syscall.Close(sock)
-			cb(0, Userdata{}, os.NewSyscallError("bind", bindErr))
+			cb(-1, Userdata{}, os.NewSyscallError("bind", bindErr))
 			return
 		}
 		nfd.localAddr = laddr
@@ -63,7 +63,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// remote addr
 	if raddr == nil {
 		_ = syscall.Close(sock)
-		cb(0, Userdata{}, syscall.Errno(22))
+		cb(-1, Userdata{}, syscall.Errno(22))
 		return
 	}
 	sa := AddrToSockaddr(raddr)
@@ -78,7 +78,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 				continue
 			}
 			_ = syscall.Close(sock)
-			cb(0, Userdata{}, os.NewSyscallError("connect", connectErr))
+			cb(-1, Userdata{}, os.NewSyscallError("connect", connectErr))
 			return
 		}
 		break
@@ -88,7 +88,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		lsa, lsaErr := syscall.Getsockname(sock)
 		if lsaErr != nil {
 			_ = syscall.Close(sock)
-			cb(0, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+			cb(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 			return
 		}
 		la := SockaddrToAddr(network, lsa)
