@@ -17,7 +17,7 @@ type Operator struct {
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
-	timer      *operatorTimer
+	timer      *operatorTimer // todo handle timeout in rio with cancel()
 }
 
 type operatorCanceler struct {

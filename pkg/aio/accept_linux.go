@@ -12,8 +12,6 @@ import (
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
 	op := ReadOperator(fd)
-	// ln
-	lnFd := fd.Fd()
 	// msg
 	rsa, rsaLen := op.userdata.Msg.BuildRawSockaddrAny()
 	addrPtr := uintptr(unsafe.Pointer(rsa))
@@ -26,7 +24,8 @@ func Accept(fd NetFd, cb OperationCallback) {
 		completeAccept(result, cop, err)
 		runtime.KeepAlive(op)
 	}
-
+	// ln
+	lnFd := fd.Fd()
 	// prepare
 	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op)
 	runtime.KeepAlive(op)

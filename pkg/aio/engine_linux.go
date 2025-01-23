@@ -261,7 +261,7 @@ func (cylinder *IOURingCylinder) Loop() {
 		for i := uint32(0); i < peeked; i++ {
 			cqe := cqes[i]
 			if cqe.Res == 0 && cqe.UserData == 0 {
-				// noop then break loop
+				// noop with no result means loop stopped, then break loop
 				stopped = true
 				cylinder.stopped.Store(true)
 				break
@@ -350,7 +350,6 @@ func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, l
 		return
 	}
 	entry.prepareRW(opcode, fd, addr, length, offset, userdata, flags)
-	runtime.KeepAlive(userdata)
 	runtime.KeepAlive(entry)
 	return
 }
