@@ -20,7 +20,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		b = b[:MaxRW]
 	}
 
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	op.userdata.Msg.Append(b)
 	op.callback = cb
 	op.completion = func(result int, cop *Operator, err error) {
@@ -99,7 +99,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		return
 	}
 
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	op.userdata.Msg.Append(b)
 	op.callback = cb
 	op.completion = func(result int, cop *Operator, err error) {
@@ -189,7 +189,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		return
 	}
 
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	op.userdata.Msg.Append(b)
 	op.userdata.Msg.SetControl(oob)
 	op.callback = cb

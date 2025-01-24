@@ -15,7 +15,7 @@ import (
 // https://manpages.debian.org/unstable/liburing-dev/io_uring_enter.2.en.html
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
@@ -83,7 +83,7 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {

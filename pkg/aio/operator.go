@@ -10,6 +10,13 @@ const (
 	MaxRW = 1 << 30
 )
 
+type OperatorKind int
+
+const (
+	ReadOperator = iota + 1
+	WriteOperator
+)
+
 type Userdata struct {
 	Fd  Fd
 	QTY uint32
@@ -27,12 +34,12 @@ func eofError(fd Fd, qty int, err error) error {
 	return err
 }
 
-func ReadOperator(fd Fd) *Operator {
+func readOperator(fd Fd) *Operator {
 	op := fd.ReadOperator()
 	return &op
 }
 
-func WriteOperator(fd Fd) *Operator {
+func writeOperator(fd Fd) *Operator {
 	op := fd.WriteOperator()
 	return &op
 }

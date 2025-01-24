@@ -11,7 +11,7 @@ import (
 
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	// msg
 	rsa, rsaLen := op.userdata.Msg.BuildRawSockaddrAny()
 	addrPtr := uintptr(unsafe.Pointer(rsa))

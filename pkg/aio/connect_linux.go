@@ -75,7 +75,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	}
 
 	// op
-	op := ReadOperator(nfd)
+	op := readOperator(nfd)
 	op.userdata.Fd = nfd
 	// cb
 	op.callback = cb

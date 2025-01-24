@@ -11,7 +11,7 @@ import (
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
@@ -80,7 +80,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {

@@ -260,12 +260,12 @@ func (cylinder *IOURingCylinder) Loop() {
 		peeked := ring.PeekBatchCQE(cqes)
 		for i := uint32(0); i < peeked; i++ {
 			cqe := cqes[i]
-			if cqe.Res == 0 && cqe.UserData == 0 {
-				// noop with no result means loop stopped, then break loop
-				stopped = true
-				cylinder.stopped.Store(true)
-				break
-			}
+			//if cqe.Res == 0 && cqe.UserData == 0 {
+			//	// noop with no result means loop stopped, then break loop
+			//	stopped = true
+			//	cylinder.stopped.Store(true)
+			//	break
+			//}
 			// no userdata means no op
 			if cqe.UserData == 0 {
 				continue
@@ -273,7 +273,13 @@ func (cylinder *IOURingCylinder) Loop() {
 
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
-
+			// handle stop
+			if op.fd == nil {
+				stopped = true
+				cylinder.stopped.Store(true)
+				break
+			}
+			// handle completion
 			if completion := op.completion; completion != nil {
 				result := 0
 				var err error
@@ -313,8 +319,17 @@ func (cylinder *IOURingCylinder) Stop() {
 	if cylinder.stopped.Load() {
 		return
 	}
+	op := &Operator{
+		userdata:   Userdata{},
+		fd:         nil,
+		callback:   nil,
+		completion: nil,
+		timeout:    0,
+		timer:      nil,
+		cylinder:   cylinder,
+	}
 	for {
-		err := cylinder.prepareRW(opNop, -1, 0, 0, 0, 0, 0)
+		err := cylinder.prepare(opNop, -1, 0, 0, 0, 0, op)
 		if err == nil {
 			break
 		}
@@ -322,6 +337,7 @@ func (cylinder *IOURingCylinder) Stop() {
 			break
 		}
 	}
+	runtime.KeepAlive(op)
 	return
 }
 

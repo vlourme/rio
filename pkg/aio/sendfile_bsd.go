@@ -12,7 +12,7 @@ import (
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	if len(filepath) == 0 {
 		cb(-1, Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return

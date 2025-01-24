@@ -13,6 +13,7 @@ import (
 
 type Operator struct {
 	overlapped syscall.Overlapped
+	kind       OperatorKind
 	fd         Fd
 	userdata   Userdata
 	callback   OperationCallback

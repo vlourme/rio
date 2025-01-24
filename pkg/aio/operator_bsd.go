@@ -12,6 +12,7 @@ import (
 )
 
 type Operator struct {
+	kind       OperatorKind
 	userdata   Userdata
 	fd         Fd
 	locker     sync.Mutex
@@ -20,6 +21,7 @@ type Operator struct {
 	completion OperatorCompletion
 	timeout    time.Duration
 	timer      *operatorTimer
+	cylinder   *KqueueCylinder
 }
 
 type operatorCanceler struct {

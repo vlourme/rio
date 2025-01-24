@@ -8,7 +8,7 @@ import (
 )
 
 func Close(fd Fd, cb OperationCallback) {
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	op.userdata.Fd = fd
 	switch fd.(type) {
 	case NetFd:

@@ -10,7 +10,7 @@ import (
 )
 
 func Accept(fd NetFd, cb OperationCallback) {
-	op := ReadOperator(fd)
+	op := readOperator(fd)
 	op.userdata.Fd = fd
 	op.callback = cb
 	op.completion = func(result int, cop *Operator, err error) {

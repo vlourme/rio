@@ -14,7 +14,7 @@ import (
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	if len(filepath) == 0 {
 		cb(-1, Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return
@@ -104,7 +104,7 @@ func completeSendfileToPipe(result int, op *Operator, err error) {
 		op.callback(-1, Userdata{}, err)
 		return
 	}
-	nop := WriteOperator(op.fd)
+	nop := writeOperator(op.fd)
 	nop.userdata.Fd = op.userdata.Fd                         // src
 	nop.userdata.QTY = op.userdata.QTY                       // size
 	nop.userdata.Msg.Iovlen = op.userdata.Msg.Iovlen         // pipe 0

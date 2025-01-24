@@ -13,11 +13,15 @@ func (cylinder *KqueueCylinder) prepareRW(fd int, filter int16, flags uint16, op
 		err = ErrUnexpectedCompletion
 		return
 	}
+	var userdata *byte
+	if op != nil {
+		userdata = (*byte)(unsafe.Pointer(op))
+	}
 	entry := syscall.Kevent_t{
 		Ident:  uint64(fd),
 		Filter: filter,
 		Flags:  flags,
-		Udata:  (*byte)(unsafe.Pointer(op)),
+		Udata:  userdata,
 	}
 	if ok := cylinder.submit(&entry); !ok {
 		time.Sleep(cylinder.eventsWaitTimeout)

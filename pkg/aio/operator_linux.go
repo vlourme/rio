@@ -12,12 +12,14 @@ import (
 )
 
 type Operator struct {
+	kind       OperatorKind
 	userdata   Userdata
 	fd         Fd
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
 	timer      *operatorTimer // todo handle timeout in rio with cancel()
+	cylinder   *IOURingCylinder
 }
 
 type operatorCanceler struct {

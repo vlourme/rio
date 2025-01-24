@@ -11,7 +11,7 @@ import (
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
@@ -94,7 +94,7 @@ func completeSend(result int, op *Operator, err error) {
 
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
@@ -195,7 +195,7 @@ func completeSendTo(result int, op *Operator, err error) {
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {

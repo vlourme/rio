@@ -9,7 +9,7 @@ import (
 )
 
 func Close(fd Fd, cb OperationCallback) {
-	op := WriteOperator(fd)
+	op := writeOperator(fd)
 
 	op.callback = cb
 	op.completion = func(result int, cop *Operator, err error) {
