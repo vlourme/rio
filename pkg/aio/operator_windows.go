@@ -66,7 +66,7 @@ func (op *Operator) clean() {
 	op.msg = Message{}
 	op.callback = nil
 	op.completion = nil
-	op.tryPrepareTimeout()
+	op.tryResetTimeout()
 }
 
 type operatorCanceler struct {

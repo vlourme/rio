@@ -11,9 +11,9 @@ import (
 
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
-	op := readOperator(fd)
+	op := fd.ReadOperator()
 	// msg
-	rsa, rsaLen := op.userdata.Msg.BuildRawSockaddrAny()
+	rsa, rsaLen := op.msg.BuildRawSockaddrAny()
 	addrPtr := uintptr(unsafe.Pointer(rsa))
 	addrLenPtr := uint64(uintptr(unsafe.Pointer(&rsaLen)))
 
@@ -24,28 +24,30 @@ func Accept(fd NetFd, cb OperationCallback) {
 		completeAccept(result, cop, err)
 		runtime.KeepAlive(op)
 	}
+
+	// cylinder
+	cylinder := nextIOURingCylinder()
+	// timeout
+	op.tryPrepareTimeout(cylinder)
+
 	// ln
 	lnFd := fd.Fd()
 	// prepare
-	err := prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op)
-	runtime.KeepAlive(op)
+	err := cylinder.prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op)
 	if err != nil {
-		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
-		// reset
-		op.callback = nil
-		op.completion = nil
-		return
+		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
+		// clean
+		op.clean()
 	}
+	runtime.KeepAlive(op)
 	return
 }
 
 func completeAccept(result int, op *Operator, err error) {
 	// cb
 	cb := op.callback
-	// userdata
-	userdata := op.userdata
 	if err != nil {
-		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
+		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
 		return
 	}
 	// conn
@@ -57,7 +59,7 @@ func completeAccept(result int, op *Operator, err error) {
 	lsa, lsaErr := syscall.Getsockname(connFd)
 	if lsaErr != nil {
 		_ = syscall.Close(connFd)
-		op.callback(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		op.callback(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)
@@ -66,7 +68,7 @@ func completeAccept(result int, op *Operator, err error) {
 	rsa, rsaErr := syscall.Getpeername(connFd)
 	if rsaErr != nil {
 		_ = syscall.Close(connFd)
-		op.callback(-1, Userdata{}, os.NewSyscallError("getpeername", rsaErr))
+		op.callback(Userdata{}, os.NewSyscallError("getpeername", rsaErr))
 		return
 	}
 	ra := SockaddrToAddr(ln.Network(), rsa)
@@ -81,14 +83,13 @@ func completeAccept(result int, op *Operator, err error) {
 		ipv6only:   ln.IPv6Only(),
 		localAddr:  la,
 		remoteAddr: ra,
-		rop:        Operator{},
-		wop:        Operator{},
+		rop:        nil,
+		wop:        nil,
 	}
-	conn.rop.fd = conn
-	conn.wop.fd = conn
 
-	userdata.Fd = conn
+	conn.rop = newOperator(conn)
+	conn.wop = newOperator(conn)
 	// cb
-	cb(connFd, userdata, nil)
+	cb(Userdata{Fd: conn}, nil)
 	return
 }

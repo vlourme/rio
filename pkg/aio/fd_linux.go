@@ -9,7 +9,7 @@ import (
 )
 
 func Close(fd Fd, cb OperationCallback) {
-	op := writeOperator(fd)
+	op := fd.WriteOperator()
 
 	op.callback = cb
 	op.completion = func(result int, cop *Operator, err error) {
@@ -20,20 +20,18 @@ func Close(fd Fd, cb OperationCallback) {
 	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
-		cb(-1, Userdata{}, err)
-		// reset
-		op.completion = nil
-		op.callback = nil
+		cb(Userdata{}, err)
+		op.clean()
 	}
 }
 
-func completeClose(result int, op *Operator, err error) {
+func completeClose(_ int, op *Operator, err error) {
 	if err != nil {
 		err = errors.Join(errors.New("aio.Operator: close failed"), err)
-		op.callback(-1, Userdata{}, err)
+		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(result, op.userdata, nil)
+	op.callback(Userdata{}, nil)
 	return
 }
 

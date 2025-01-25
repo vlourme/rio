@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"io"
 	"os"
 	"runtime"
 	"syscall"
@@ -10,18 +11,18 @@ import (
 )
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
-	// op
-	op := readOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
+		cb(Userdata{}, ErrEmptyBytes)
 		return
 	} else if bLen > MaxRW {
 		b = b[:MaxRW]
 	}
+	// op
+	op := fd.ReadOperator()
 	// msg
-	buf := op.userdata.Msg.Append(b)
+	buf := op.msg.Append(b)
 	bufAddr := uintptr(unsafe.Pointer(buf.Base))
 	bufLen := uint32(buf.Len)
 
@@ -36,40 +37,30 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	cylinder := nextIOURingCylinder()
 
 	// timeout
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			cylinder: cylinder,
-			op:       op,
-		})
-	}
+	op.tryPrepareTimeout(cylinder)
 
 	// prepare
 	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op)
-	runtime.KeepAlive(op)
 	if err != nil {
-		cb(-1, Userdata{}, os.NewSyscallError("io_uring_prep_recv", err))
-		// reset
-		op.callback = nil
-		op.completion = nil
-		if op.timer != nil {
-			timer := op.timer
-			timer.Done()
-			putOperatorTimer(timer)
-			op.timer = nil
-		}
+		cb(Userdata{}, os.NewSyscallError("io_uring_prep_recv", err))
+		op.clean()
 		return
 	}
+	runtime.KeepAlive(op)
 	return
 }
 
 func completeRecv(result int, op *Operator, err error) {
 	if err != nil {
 		err = os.NewSyscallError("io_uring_prep_recv", err)
+		op.callback(Userdata{}, err)
+		return
 	}
-	op.userdata.QTY = uint32(result)
-	op.callback(result, op.userdata, eofError(op.fd, result, err))
+	if result == 0 && op.fd.ZeroReadIsEOF() {
+		op.callback(Userdata{}, io.EOF)
+		return
+	}
+	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
 	return
 }
 
@@ -79,20 +70,20 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 }
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
-	// op
-	op := readOperator(fd)
 	// check buf
 	bLen := len(b)
 	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
+		cb(Userdata{}, ErrEmptyBytes)
 		return
 	}
+	// op
+	op := fd.ReadOperator()
 	// msg
-	op.userdata.Msg.BuildRawSockaddrAny()
-	op.userdata.Msg.Append(b)
-	op.userdata.Msg.SetControl(oob)
+	op.msg.BuildRawSockaddrAny()
+	op.msg.Append(b)
+	op.msg.SetControl(oob)
 	if fd.Family() == syscall.AF_UNIX {
-		op.userdata.Msg.SetFlags(readMsgFlags)
+		op.msg.SetFlags(readMsgFlags)
 	}
 
 	// cb
@@ -106,39 +97,25 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	cylinder := nextIOURingCylinder()
 
 	// timeout
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			cylinder: cylinder,
-			op:       op,
-		})
-	}
+	op.tryPrepareTimeout(cylinder)
+
 	// prepare
-	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.userdata.Msg)), uint32(op.userdata.Msg.Iovlen), 0, 0, op)
-	runtime.KeepAlive(op)
+	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), uint32(op.msg.Iovlen), 0, 0, op)
+
 	if err != nil {
-		cb(-1, Userdata{}, err)
-		// reset
-		op.callback = nil
-		op.completion = nil
-		if op.timer != nil {
-			timer := op.timer
-			timer.Done()
-			putOperatorTimer(timer)
-			op.timer = nil
-		}
-		return
+		cb(Userdata{}, err)
+		op.clean()
 	}
+	runtime.KeepAlive(op)
 	return
 }
 
 func completeRecvMsg(result int, op *Operator, err error) {
 	if err != nil {
 		err = os.NewSyscallError("io_uring_prep_recvmsg", err)
+		op.callback(Userdata{}, err)
+		return
 	}
-	op.userdata.QTY = uint32(result)
-	op.callback(result, op.userdata, err)
-	runtime.KeepAlive(op.userdata)
+	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
 	return
 }

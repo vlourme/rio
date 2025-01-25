@@ -11,14 +11,62 @@ import (
 	"unsafe"
 )
 
+func newOperator(fd Fd) *Operator {
+	return &Operator{
+		fd:         fd,
+		handle:     -1,
+		n:          0,
+		msg:        Message{},
+		callback:   nil,
+		completion: nil,
+		timeout:    0,
+		timer:      nil,
+	}
+}
+
 type Operator struct {
-	userdata   Userdata
 	fd         Fd
+	handle     int
+	n          uint32
+	msg        Message
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
-	timer      *operatorTimer // todo handle timeout in rio with cancel()
-	cylinder   *IOURingCylinder
+	timer      *operatorTimer
+}
+
+func (op *Operator) tryPrepareTimeout(cylinder *IOURingCylinder) {
+	if op.timeout > 0 {
+		op.timer = getOperatorTimer()
+		op.timer.Start(op.timeout, &operatorCanceler{
+			op:       op,
+			cylinder: cylinder,
+		})
+	}
+}
+
+func (op *Operator) deadlineExceeded() (ok bool) {
+	if timer := op.timer; timer != nil {
+		ok = timer.DeadlineExceeded()
+	}
+	return
+}
+
+func (op *Operator) tryResetTimeout() {
+	if timer := op.timer; timer != nil {
+		timer.Done()
+		putOperatorTimer(timer)
+		op.timer = nil
+	}
+}
+
+func (op *Operator) clean() {
+	op.handle = -1
+	op.n = 0
+	op.msg = Message{}
+	op.callback = nil
+	op.completion = nil
+	op.tryResetTimeout()
 }
 
 type operatorCanceler struct {
@@ -29,20 +77,22 @@ type operatorCanceler struct {
 func (canceler *operatorCanceler) Cancel() {
 	cylinder := canceler.cylinder
 	op := canceler.op
-	userdata := uint64(uintptr(unsafe.Pointer(op)))
-	cancelOp := &Operator{
-		userdata:   Userdata{},
-		fd:         nil,
-		callback:   nil,
-		completion: nil,
-		timeout:    0,
-		timer:      nil,
-	}
-	cancelOp.completion = func(_ int, _ *Operator, _ error) {
-		runtime.KeepAlive(cancelOp)
-	}
+	userdata := uintptr(unsafe.Pointer(op))
+	//cancelOp := &Operator{
+	//	fd:         op.fd,
+	//	handle:     -1,
+	//	n:          0,
+	//	msg:        Message{},
+	//	callback:   nil,
+	//	completion: nil,
+	//	timeout:    0,
+	//	timer:      nil,
+	//}
+	//cancelOp.completion = func(_ int, _ *Operator, _ error) {
+	//	runtime.KeepAlive(cancelOp)
+	//}
 	for i := 0; i < 10; i++ {
-		err := cylinder.prepare(opAsyncCancel, -1, uintptr(userdata), 0, 0, 0, cancelOp)
+		err := cylinder.prepareRW(opAsyncCancel, -1, userdata, 0, 0, 0, 0)
 		if err == nil {
 			break
 		}
@@ -50,8 +100,8 @@ func (canceler *operatorCanceler) Cancel() {
 			continue
 		}
 	}
-	runtime.KeepAlive(userdata)
-	runtime.KeepAlive(cancelOp)
+	runtime.KeepAlive(op)
+	//runtime.KeepAlive(cancelOp)
 }
 
 type Message struct {

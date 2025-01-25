@@ -116,7 +116,7 @@ func completeSendTo(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result}, nil)
+	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
 	return
 }
 
@@ -175,6 +175,6 @@ func completeSendMsg(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result}, nil)
+	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
 	return
 }

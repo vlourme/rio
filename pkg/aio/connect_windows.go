@@ -146,7 +146,8 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	op.callback = cb
 	// completion
 	op.completion = completeConnectEx
-
+	// timeout
+	op.tryPrepareTimeout()
 	// overlapped
 	overlapped := &op.overlapped
 
