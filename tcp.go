@@ -64,20 +64,20 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 		future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, errors.New("no file specified")))
 		return
 	}
-	promise, promiseErr := async.Make[int](conn.ctx)
-	if promiseErr != nil {
-		if async.IsBusy(promiseErr) {
-			future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, ErrBusy))
-		} else {
-			future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, promiseErr))
-		}
+	if conn.disconnected() {
+		future = async.FailedImmediately[int](conn.ctx, ErrClosed)
 		return
 	}
-	aio.Sendfile(conn.fd, file, func(n int, userdata aio.Userdata, err error) {
+	promise, promiseErr := async.Make[int](conn.ctx)
+	if promiseErr != nil {
+		future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, promiseErr))
+		return
+	}
+	aio.Sendfile(conn.fd, file, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			err = aio.NewOpErr(aio.OpSendfile, conn.fd, err)
 		}
-		promise.Complete(n, err)
+		promise.Complete(userdata.QTY, err)
 		return
 	})
 

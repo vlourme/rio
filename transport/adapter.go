@@ -24,16 +24,16 @@ func (conn *netConn) Read(b []byte) (n int, err error) {
 		return
 	}
 	af := async.AwaitableFuture(conn.inner.Read())
-	inbound, rErr := af.Await()
+	in, rErr := af.Await()
 	if rErr != nil {
 		err = rErr
 		return
 	}
-	n = inbound.Received()
+	n = in.Received()
 	if n == 0 {
 		return
 	}
-	n, err = inbound.Reader().Read(b)
+	n, err = in.Reader().Read(b)
 	return
 }
 
@@ -61,19 +61,17 @@ func (conn *netConn) RemoteAddr() net.Addr {
 }
 
 func (conn *netConn) SetDeadline(t time.Time) error {
-	if err := conn.inner.SetReadTimeout(time.Until(t)); err != nil {
-		return err
-	}
-	if err := conn.inner.SetWriteTimeout(time.Until(t)); err != nil {
-		return err
-	}
+	conn.inner.SetReadTimeout(time.Until(t))
+	conn.inner.SetWriteTimeout(time.Until(t))
 	return nil
 }
 
 func (conn *netConn) SetReadDeadline(t time.Time) error {
-	return conn.inner.SetReadTimeout(time.Until(t))
+	conn.inner.SetReadTimeout(time.Until(t))
+	return nil
 }
 
 func (conn *netConn) SetWriteDeadline(t time.Time) error {
-	return conn.inner.SetWriteTimeout(time.Until(t))
+	conn.inner.SetWriteTimeout(time.Until(t))
+	return nil
 }

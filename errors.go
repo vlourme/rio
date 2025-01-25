@@ -10,13 +10,12 @@ import (
 
 var (
 	ErrClosed           = errors.New("rio: closed")
-	ErrBusy             = errors.New("rio: system busy")
 	ErrEmptyBytes       = errors.New("rio: empty bytes")
 	ErrNetworkUnmatched = errors.New("rio: network is not matched")
 	ErrNilAddr          = errors.New("rio: addr is nil")
 	ErrAllocate         = errors.New("rio: allocate bytes failed")
-	ErrAllocateWrote    = errors.New("rio: allocate wrote failed")
-	ErrDeadlineExceeded = errors.Join(errors.New("rio: deadline exceeded"), aio.ErrOperationDeadlineExceeded)
+	ErrAllocateWritten  = errors.New("rio: allocate written failed")
+	ErrDeadlineExceeded = errors.New("rio: deadline exceeded")
 )
 
 // IsClosed
@@ -37,7 +36,7 @@ func IsBusy(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	return errors.Is(err, ErrBusy) || aio.IsBusyError(err)
+	return async.IsBusy(err) || aio.IsBusyError(err)
 }
 
 func IsErrEmptyBytes(err error) bool {
@@ -73,7 +72,7 @@ func IsErrAllocateWrote(err error) bool {
 	if isOpErr {
 		err = opErr.Err
 	}
-	return errors.Is(err, ErrAllocateWrote)
+	return errors.Is(err, ErrAllocateWritten)
 }
 
 func IsDeadlineExceeded(err error) bool {

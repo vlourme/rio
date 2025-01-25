@@ -14,26 +14,21 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// conn
 	sock, sockErr := newSocket(fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only())
 	if sockErr != nil {
-		cb(-1, Userdata{}, sockErr)
+		cb(Userdata{}, sockErr)
 		return
 	}
 	// op
 	op := fd.ReadOperator()
-	op.userdata.Fd = &netFd{
-		handle:     sock,
-		network:    fd.Network(),
-		family:     fd.Family(),
-		socketType: fd.SocketType(),
-		protocol:   fd.Protocol(),
-		ipv6only:   fd.IPv6Only(),
-		localAddr:  nil,
-		remoteAddr: nil,
-	}
-	// callback
+	// set sock
+	op.handle = sock
+	// set callback
 	op.callback = cb
-	// completion
+	// set completion
 	op.completion = completeAccept
 
+	// timeout
+	op.tryPrepareTimeout()
+	
 	// overlapped
 	overlapped := &op.overlapped
 
@@ -43,48 +38,29 @@ func Accept(fd NetFd, cb OperationCallback) {
 	rsa := &rawsa[0]
 	rsan := uint32(unsafe.Sizeof(rawsa[0]))
 
-	// timeout
-	if op.timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(op.timeout, &operatorCanceler{
-			handle:     syscall.Handle(sock),
-			overlapped: overlapped,
-		})
-	}
-
 	// accept
 	acceptErr := syscall.AcceptEx(
 		syscall.Handle(fd.Fd()), syscall.Handle(sock),
 		(*byte)(unsafe.Pointer(rsa)), 0,
 		lsan+16, rsan+16,
-		&op.userdata.QTY, overlapped,
+		&op.n, overlapped,
 	)
 	if acceptErr != nil && !errors.Is(syscall.ERROR_IO_PENDING, acceptErr) {
 		_ = syscall.Closesocket(syscall.Handle(sock))
-		cb(-1, Userdata{}, os.NewSyscallError("acceptex", acceptErr))
-
-		op.callback = nil
-		op.completion = nil
-		if op.timer != nil {
-			timer := op.timer
-			timer.Done()
-			putOperatorTimer(timer)
-			op.timer = nil
-		}
+		cb(Userdata{}, os.NewSyscallError("acceptex", acceptErr))
+		op.clean()
 	}
 
 	return
 }
 
-func completeAccept(result int, op *Operator, err error) {
-	userdata := op.userdata
-	// conn
-	conn, _ := userdata.Fd.(*netFd)
-	connFd := syscall.Handle(conn.handle)
+func completeAccept(_ int, op *Operator, err error) {
+	// sock
+	sock := syscall.Handle(op.handle)
+	// handle error
 	if err != nil {
-		_ = syscall.Closesocket(connFd)
-		op.callback(result, userdata, os.NewSyscallError("acceptex", err))
+		_ = syscall.Closesocket(sock)
+		op.callback(Userdata{}, os.NewSyscallError("acceptex", err))
 		return
 	}
 	// ln
@@ -93,46 +69,59 @@ func completeAccept(result int, op *Operator, err error) {
 
 	// set SO_UPDATE_ACCEPT_CONTEXT
 	setAcceptSocketOptErr := syscall.Setsockopt(
-		connFd,
+		sock,
 		windows.SOL_SOCKET, windows.SO_UPDATE_ACCEPT_CONTEXT,
 		(*byte)(unsafe.Pointer(&lnFd)),
 		int32(unsafe.Sizeof(lnFd)),
 	)
 	if setAcceptSocketOptErr != nil {
-		_ = syscall.Closesocket(connFd)
-		op.callback(result, userdata, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
+		_ = syscall.Closesocket(sock)
+		op.callback(Userdata{}, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
 		return
 	}
 
 	// get local addr
-	lsa, lsaErr := syscall.Getsockname(connFd)
+	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
-		_ = syscall.Closesocket(connFd)
-		op.callback(result, userdata, os.NewSyscallError("getsockname", lsaErr))
+		_ = syscall.Closesocket(sock)
+		op.callback(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)
-	conn.localAddr = la
 
 	// get remote addr
-	rsa, rsaErr := syscall.Getpeername(connFd)
+	rsa, rsaErr := syscall.Getpeername(sock)
 	if rsaErr != nil {
-		_ = syscall.Closesocket(connFd)
-		op.callback(result, userdata, os.NewSyscallError("getsockname", rsaErr))
+		_ = syscall.Closesocket(sock)
+		op.callback(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
 		return
 	}
 	ra := SockaddrToAddr(ln.Network(), rsa)
-	conn.remoteAddr = ra
 
 	// create iocp
-	iocpErr := createSubIoCompletionPort(windows.Handle(connFd))
+	iocpErr := createSubIoCompletionPort(windows.Handle(sock))
 	if iocpErr != nil {
-		_ = syscall.Closesocket(connFd)
-		op.callback(result, userdata, iocpErr)
+		_ = syscall.Closesocket(sock)
+		op.callback(Userdata{}, iocpErr)
 		return
 	}
 
+	conn := &netFd{
+		handle:     op.handle,
+		network:    ln.Network(),
+		family:     ln.Family(),
+		socketType: ln.SocketType(),
+		protocol:   ln.Protocol(),
+		ipv6only:   ln.IPv6Only(),
+		localAddr:  la,
+		remoteAddr: ra,
+		rop:        nil,
+		wop:        nil,
+	}
+	conn.rop = newOperator(conn, ReadOperator)
+	conn.wop = newOperator(conn, WriteOperator)
+
 	// callback
-	op.callback(conn.handle, userdata, err)
+	op.callback(Userdata{Fd: conn}, err)
 	return
 }

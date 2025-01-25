@@ -13,26 +13,26 @@ func Close(fd Fd, cb OperationCallback) {
 		handle := fd.Fd()
 		err := syscall.Closesocket(syscall.Handle(handle))
 		if err != nil {
-			cb(-1, Userdata{}, err)
+			cb(Userdata{}, err)
 			return
 		}
-		cb(handle, Userdata{}, nil)
+		cb(Userdata{}, nil)
 		return
 	case FileFd:
 		handle := fd.Fd()
 		err := syscall.Close(syscall.Handle(handle))
 		if err != nil {
-			cb(-1, Userdata{}, err)
+			cb(Userdata{}, err)
 			return
 		}
-		cb(handle, Userdata{}, nil)
+		cb(Userdata{}, nil)
 		return
 	default:
-		cb(-1, Userdata{}, errors.New("aio.Operator: close was not supported"))
+		cb(Userdata{}, errors.New("aio.Operator: close was not supported"))
 		return
 	}
 }
 
 func CloseImmediately(fd Fd) {
-	Close(fd, func(result int, userdata Userdata, err error) {})
+	Close(fd, func(userdata Userdata, err error) {})
 }

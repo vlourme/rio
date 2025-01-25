@@ -21,11 +21,11 @@ func (conn *connection) closeNotify() (future async.Future[async.Void]) {
 		future = promise.Future()
 
 		// Set a Write Deadline to prevent possibly blocking forever.
-		_ = conn.SetWriteTimeout(time.Second * 5)
+		conn.SetWriteTimeout(time.Second * 5)
 		conn.sendAlertLocked(alertCloseNotify).OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 			// Any subsequent writes will fail.
 			// todo use
-			_ = conn.SetWriteTimeout(0)
+			conn.SetWriteTimeout(0)
 			if cause != nil {
 				conn.closeNotifyErr = cause
 				conn.closeNotifySent = true

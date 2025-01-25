@@ -21,7 +21,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(-1, Userdata{}, sockErr)
+		cb(Userdata{}, sockErr)
 		return
 	}
 	handle := syscall.Handle(sock)
@@ -31,7 +31,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		setBroadcastErr := syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		if setBroadcastErr != nil {
 			_ = syscall.Closesocket(handle)
-			cb(-1, Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
+			cb(Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
 			return
 		}
 	}
@@ -41,7 +41,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		bindErr := syscall.Bind(handle, lsa)
 		if bindErr != nil {
 			_ = syscall.Closesocket(handle)
-			cb(-1, Userdata{}, os.NewSyscallError("bind", bindErr))
+			cb(Userdata{}, os.NewSyscallError("bind", bindErr))
 			return
 		}
 	}
@@ -50,7 +50,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	connectErr := syscall.Connect(handle, rsa)
 	if connectErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(-1, Userdata{}, os.NewSyscallError("connect", connectErr))
+		cb(Userdata{}, os.NewSyscallError("connect", connectErr))
 		return
 	}
 	// get local addr
@@ -58,7 +58,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		lsa, lsaErr := syscall.Getsockname(handle)
 		if lsaErr != nil {
 			_ = syscall.Closesocket(handle)
-			cb(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+			cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 			return
 		}
 		laddr = SockaddrToAddr(network, lsa)
@@ -68,7 +68,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(-1, Userdata{}, createIOCPErr)
+		cb(Userdata{}, createIOCPErr)
 		return
 	}
 
@@ -82,23 +82,20 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		ipv6only:   ipv6only,
 		localAddr:  laddr,
 		remoteAddr: raddr,
-		rop:        Operator{},
-		wop:        Operator{},
+		rop:        nil,
+		wop:        nil,
 	}
-	nfd.rop.fd = nfd
-	nfd.wop.fd = nfd
+	nfd.rop = newOperator(nfd, ReadOperator)
+	nfd.wop = newOperator(nfd, WriteOperator)
 
-	userdata := Userdata{
-		Fd: nfd,
-	}
-	cb(sock, userdata, nil)
+	cb(Userdata{Fd: nfd}, nil)
 	return
 }
 
 func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, cb OperationCallback) {
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(-1, Userdata{}, sockErr)
+		cb(Userdata{}, sockErr)
 		return
 	}
 	handle := syscall.Handle(sock)
@@ -114,14 +111,14 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	bindErr := syscall.Bind(handle, lsa)
 	if bindErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(-1, Userdata{}, os.NewSyscallError("bind", bindErr))
+		cb(Userdata{}, os.NewSyscallError("bind", bindErr))
 		return
 	}
 	// create iocp
 	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(-1, Userdata{}, createIOCPErr)
+		cb(Userdata{}, createIOCPErr)
 		return
 	}
 	// remote addr
@@ -136,15 +133,15 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 		ipv6only:   ipv6only,
 		localAddr:  nil,
 		remoteAddr: addr,
-		rop:        Operator{},
-		wop:        Operator{},
+		rop:        nil,
+		wop:        nil,
 	}
-	nfd.rop.fd = nfd
-	nfd.wop.fd = nfd
+	nfd.rop = newOperator(nfd, ReadOperator)
+	nfd.wop = newOperator(nfd, WriteOperator)
 
 	// op
 	op := nfd.ReadOperator()
-	op.userdata.Fd = nfd
+	op.fd = nfd
 	// callback
 	op.callback = cb
 	// completion
@@ -153,40 +150,23 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	// overlapped
 	overlapped := &op.overlapped
 
-	// timeout
-	if op.timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(op.timeout, &operatorCanceler{
-			handle:     syscall.Handle(sock),
-			overlapped: overlapped,
-		})
-	}
-
 	// connect
 	connectErr := syscall.ConnectEx(handle, sa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, syscall.ERROR_IO_PENDING) {
 		_ = syscall.Closesocket(handle)
-		cb(-1, op.userdata, os.NewSyscallError("connectex", connectErr))
-		op.callback = nil
-		op.completion = nil
-		if op.timer != nil {
-			timer := op.timer
-			timer.Done()
-			putOperatorTimer(timer)
-			op.timer = nil
-		}
+		cb(Userdata{}, os.NewSyscallError("connectex", connectErr))
+		op.clean()
 		return
 	}
 	return
 }
 
-func completeConnectEx(result int, op *Operator, err error) {
+func completeConnectEx(_ int, op *Operator, err error) {
 	nfd := op.fd.(*netFd)
 	handle := syscall.Handle(nfd.Fd())
 	if err != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(result, Userdata{}, os.NewSyscallError("connectex", err))
+		op.callback(Userdata{}, os.NewSyscallError("connectex", err))
 		return
 	}
 	// set SO_UPDATE_CONNECT_CONTEXT
@@ -198,14 +178,14 @@ func completeConnectEx(result int, op *Operator, err error) {
 	)
 	if setSocketOptErr != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(-1, Userdata{}, os.NewSyscallError("setsockopt", setSocketOptErr))
+		op.callback(Userdata{}, os.NewSyscallError("setsockopt", setSocketOptErr))
 		return
 	}
 	// get addr
 	lsa, lsaErr := syscall.Getsockname(handle)
 	if lsaErr != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		op.callback(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(nfd.Network(), lsa)
@@ -213,12 +193,12 @@ func completeConnectEx(result int, op *Operator, err error) {
 	rsa, rsaErr := syscall.Getpeername(handle)
 	if rsaErr != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(-1, Userdata{}, os.NewSyscallError("getsockname", rsaErr))
+		op.callback(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
 		return
 	}
 	ra := SockaddrToAddr(nfd.Network(), rsa)
 	nfd.remoteAddr = ra
 
 	// callback
-	op.callback(nfd.Fd(), op.userdata, nil)
+	op.callback(Userdata{Fd: nfd}, nil)
 }

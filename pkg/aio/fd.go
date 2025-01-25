@@ -8,13 +8,10 @@ import (
 
 type Fd interface {
 	Fd() int
-	ReadOperator() Operator
-	WriteOperator() Operator
-	SetOperatorTimeout(d time.Duration)
+	ReadOperator() *Operator
+	WriteOperator() *Operator
 	SetReadTimeout(d time.Duration)
-	ReadTimeout() time.Duration
 	SetWriteTimeout(d time.Duration)
-	WriteTimeout() time.Duration
 	ZeroReadIsEOF() bool
 }
 
@@ -26,45 +23,20 @@ type FileFd interface {
 type fileFd struct {
 	handle int
 	path   string
-	rop    Operator
-	wop    Operator
+	rop    *Operator
+	wop    *Operator
 }
 
 func (fd *fileFd) Fd() int {
 	return fd.handle
 }
 
-func (fd *fileFd) ReadOperator() Operator {
+func (fd *fileFd) ReadOperator() *Operator {
 	return fd.rop
 }
 
-func (fd *fileFd) WriteOperator() Operator {
+func (fd *fileFd) WriteOperator() *Operator {
 	return fd.wop
-}
-
-func (fd *fileFd) SetOperatorTimeout(d time.Duration) {
-	fd.SetReadTimeout(d)
-	fd.SetWriteTimeout(d)
-}
-
-func (fd *fileFd) SetReadTimeout(d time.Duration) {
-	if d > 0 {
-		fd.rop.timeout = d
-	}
-}
-
-func (fd *fileFd) ReadTimeout() time.Duration {
-	return fd.rop.timeout
-}
-
-func (fd *fileFd) SetWriteTimeout(d time.Duration) {
-	if d > 0 {
-		fd.wop.timeout = d
-	}
-}
-
-func (fd *fileFd) WriteTimeout() time.Duration {
-	return fd.wop.timeout
 }
 
 func (fd *fileFd) ZeroReadIsEOF() bool {
@@ -73,6 +45,18 @@ func (fd *fileFd) ZeroReadIsEOF() bool {
 
 func (fd *fileFd) Path() string {
 	return fd.path
+}
+
+func (fd *fileFd) SetReadTimeout(d time.Duration) {
+	if fd.rop != nil && d > -1 {
+		fd.rop.timeout = d
+	}
+}
+
+func (fd *fileFd) SetWriteTimeout(d time.Duration) {
+	if fd.wop != nil && d > -1 {
+		fd.wop.timeout = d
+	}
 }
 
 type NetFd interface {
@@ -95,8 +79,8 @@ type netFd struct {
 	ipv6only   bool
 	localAddr  net.Addr
 	remoteAddr net.Addr
-	rop        Operator
-	wop        Operator
+	rop        *Operator
+	wop        *Operator
 }
 
 func (s *netFd) Fd() int {
@@ -135,35 +119,22 @@ func (s *netFd) RemoteAddr() net.Addr {
 	return s.remoteAddr
 }
 
-func (s *netFd) ReadOperator() Operator {
+func (s *netFd) ReadOperator() *Operator {
 	return s.rop
 }
 
-func (s *netFd) WriteOperator() Operator {
+func (s *netFd) WriteOperator() *Operator {
 	return s.wop
 }
 
-func (s *netFd) SetOperatorTimeout(d time.Duration) {
-	s.SetReadTimeout(d)
-	s.SetWriteTimeout(d)
-}
-
 func (s *netFd) SetReadTimeout(d time.Duration) {
-	if d > 0 {
+	if s.rop != nil && d > -1 {
 		s.rop.timeout = d
 	}
 }
 
-func (s *netFd) ReadTimeout() time.Duration {
-	return s.rop.timeout
-}
-
 func (s *netFd) SetWriteTimeout(d time.Duration) {
-	if d > 0 {
+	if s.wop != nil && d > -1 {
 		s.wop.timeout = d
 	}
-}
-
-func (s *netFd) WriteTimeout() time.Duration {
-	return s.wop.timeout
 }

@@ -14,7 +14,7 @@ type ConnectOptions struct {
 func Connect(network string, address string, opts ConnectOptions, callback OperationCallback) {
 	addr, family, ipv6only, addrErr := ResolveAddr(network, address)
 	if addrErr != nil {
-		callback(-1, Userdata{}, addrErr)
+		callback(Userdata{}, addrErr)
 		return
 	}
 	switch network {
@@ -58,13 +58,13 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 		var parseProtoError error
 		network, proto, parseProtoError = ParseIpProto(network)
 		if parseProtoError != nil {
-			callback(-1, Userdata{}, parseProtoError)
+			callback(Userdata{}, parseProtoError)
 			return
 		}
 		connect(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil, callback)
 		break
 	default:
-		callback(0, Userdata{}, errors.New("aio.Connect: network is not support"))
+		callback(Userdata{}, errors.New("aio.Connect: network is not support"))
 		return
 	}
 	return

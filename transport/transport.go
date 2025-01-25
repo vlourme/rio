@@ -21,8 +21,8 @@ type Connection interface {
 	Fd() int
 	LocalAddr() (addr net.Addr)
 	RemoteAddr() (addr net.Addr)
-	SetReadTimeout(d time.Duration) (err error)
-	SetWriteTimeout(d time.Duration) (err error)
+	SetReadTimeout(d time.Duration)
+	SetWriteTimeout(d time.Duration)
 	SetReadBuffer(n int) (err error)
 	SetWriteBuffer(n int) (err error)
 	SetInboundBuffer(n int)

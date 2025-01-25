@@ -130,31 +130,19 @@ func (cylinder *IOCPCylinder) Loop() {
 		// handle iocp errors
 		if getQueuedCompletionStatusErr != nil {
 			// handle timeout
-			if timer := op.timer; timer != nil {
-				if timer.DeadlineExceeded() {
-					getQueuedCompletionStatusErr = errors.Join(ErrOperationDeadlineExceeded, getQueuedCompletionStatusErr)
-				} else {
-					timer.Done()
-				}
-				putOperatorTimer(timer)
-				op.timer = nil
+			if op.deadlineExceeded() {
+				getQueuedCompletionStatusErr = errors.Join(ErrOperationDeadlineExceeded, getQueuedCompletionStatusErr)
 			}
 			getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
-		} else {
-			// succeed and try close timer
-			if timer := op.timer; timer != nil {
-				timer.Done()
-				putOperatorTimer(timer)
-				op.timer = nil
-			}
 		}
-
-		// complete op
+		// try reset timeout
+		op.tryResetTimeout()
+		// complete
 		if completion := op.completion; completion != nil {
 			completion(int(qty), op, getQueuedCompletionStatusErr)
-			op.completion = nil
 		}
-		op.callback = nil
+		// clean op
+		op.clean()
 		runtime.KeepAlive(op)
 	}
 	runtime.KeepAlive(cylinder)

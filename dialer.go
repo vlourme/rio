@@ -61,26 +61,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 	promise, promiseErr := async.Make[Connection](ctx)
 	if promiseErr != nil {
-		addr, _, _, _ := aio.ResolveAddr(network, address)
-		if async.IsBusy(promiseErr) {
-			promiseErr = &net.OpError{
-				Op:     aio.OpDial,
-				Net:    network,
-				Source: nil,
-				Addr:   addr,
-				Err:    ErrBusy,
-			}
-			future = async.FailedImmediately[Connection](ctx, promiseErr)
-		} else {
-			promiseErr = &net.OpError{
-				Op:     aio.OpDial,
-				Net:    network,
-				Source: nil,
-				Addr:   addr,
-				Err:    promiseErr,
-			}
-			future = async.FailedImmediately[Connection](ctx, promiseErr)
-		}
+		future = async.FailedImmediately[Connection](ctx, promiseErr)
 		return
 	}
 	future = promise.Future()
@@ -90,7 +71,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			MultipathTCP: opts.MultipathTCP,
 			LocalAddr:    opts.LocalAddr,
 		}
-		aio.Connect(network, address, connectOpts, func(result int, userdata aio.Userdata, err error) {
+		aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 			if err != nil {
 				addr, _, _, _ := aio.ResolveAddr(network, address)
 				err = &net.OpError{
@@ -131,20 +112,10 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			}
 
 			if n := opts.DefaultConnReadTimeout; n > 0 {
-				err = conn.SetReadTimeout(n)
-				if err != nil {
-					conn.Close().OnComplete(async.DiscardVoidHandler)
-					promise.Fail(err)
-					return
-				}
+				conn.SetReadTimeout(n)
 			}
 			if n := opts.DefaultConnWriteTimeout; n > 0 {
-				err = conn.SetWriteTimeout(n)
-				if err != nil {
-					conn.Close().OnComplete(async.DiscardVoidHandler)
-					promise.Fail(err)
-					return
-				}
+				conn.SetWriteTimeout(n)
 			}
 			if n := opts.DefaultConnReadBufferSize; n > 0 {
 				err = conn.SetReadBuffer(n)
@@ -176,15 +147,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	})
 
 	if !executed {
-		addr, _, _, _ := aio.ResolveAddr(network, address)
-		err := &net.OpError{
-			Op:     aio.OpDial,
-			Net:    network,
-			Source: nil,
-			Addr:   addr,
-			Err:    ErrBusy,
-		}
-		promise.Fail(err)
+		promise.Fail(async.Busy)
 		return
 	}
 

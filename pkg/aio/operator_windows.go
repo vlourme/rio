@@ -11,24 +11,79 @@ import (
 	"unsafe"
 )
 
+func newOperator(fd Fd, kind OperatorKind) *Operator {
+	return &Operator{
+		overlapped: syscall.Overlapped{},
+		kind:       kind,
+		fd:         fd,
+		handle:     -1,
+		n:          0,
+		msg:        Message{},
+		callback:   nil,
+		completion: nil,
+	}
+}
+
 type Operator struct {
 	overlapped syscall.Overlapped
 	kind       OperatorKind
 	fd         Fd
-	userdata   Userdata
+	handle     int
+	n          uint32
+	msg        Message
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
 	timer      *operatorTimer
 }
 
-type operatorCanceler struct {
-	handle     syscall.Handle
-	overlapped *syscall.Overlapped
+func (op *Operator) tryPrepareTimeout() {
+	if op.timeout > 0 {
+		op.timer = getOperatorTimer()
+		op.timer.Start(op.timeout, &operatorCanceler{
+			op: op,
+		})
+	}
 }
 
-func (op *operatorCanceler) Cancel() {
-	_ = syscall.CancelIoEx(op.handle, op.overlapped)
+func (op *Operator) deadlineExceeded() (ok bool) {
+	if timer := op.timer; timer != nil {
+		ok = timer.DeadlineExceeded()
+	}
+	return
+}
+
+func (op *Operator) tryResetTimeout() {
+	if timer := op.timer; timer != nil {
+		timer.Done()
+		putOperatorTimer(timer)
+		op.timer = nil
+	}
+}
+
+func (op *Operator) clean() {
+	op.overlapped = syscall.Overlapped{}
+	op.handle = -1
+	op.n = 0
+	op.msg = Message{}
+	op.callback = nil
+	op.completion = nil
+	op.tryPrepareTimeout()
+}
+
+type operatorCanceler struct {
+	op *Operator
+}
+
+func (canceler *operatorCanceler) Cancel() {
+	if op := canceler.op; op != nil {
+		if fd := op.fd; fd != nil {
+			handle := syscall.Handle(fd.Fd())
+			overlapped := &op.overlapped
+			_ = syscall.CancelIoEx(handle, overlapped)
+
+		}
+	}
 }
 
 type Message struct {

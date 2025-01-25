@@ -217,7 +217,7 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 		}
 	}
 
-	aio.Close(ln.fd, func(result int, userdata aio.Userdata, err error) {
+	aio.Close(ln.fd, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			aio.CloseImmediately(ln.fd)
 			promise.Fail(aio.NewOpErr(aio.OpClose, ln.fd, err))
@@ -238,7 +238,7 @@ func (ln *listener) acceptOne() {
 	if !ln.ok() {
 		return
 	}
-	aio.Accept(ln.fd, func(result int, userdata aio.Userdata, err error) {
+	aio.Accept(ln.fd, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			if aio.IsUnexpectedCompletionError(err) {
 				// shutdown then close ln
@@ -279,22 +279,10 @@ func (ln *listener) acceptOne() {
 		}
 		// set default
 		if ln.defaultReadTimeout > 0 {
-			err = conn.SetReadTimeout(ln.defaultReadTimeout)
-			if err != nil {
-				conn.Close().OnComplete(async.DiscardVoidHandler)
-				ln.acceptorPromises.Fail(err)
-				ln.acceptOne()
-				return
-			}
+			conn.SetReadTimeout(ln.defaultReadTimeout)
 		}
 		if ln.defaultWriteTimeout > 0 {
-			err = conn.SetWriteTimeout(ln.defaultWriteTimeout)
-			if err != nil {
-				conn.Close().OnComplete(async.DiscardVoidHandler)
-				ln.acceptorPromises.Fail(err)
-				ln.acceptOne()
-				return
-			}
+			conn.SetWriteTimeout(ln.defaultWriteTimeout)
 		}
 		if ln.defaultReadBuffer > 0 {
 			err = conn.SetReadBuffer(ln.defaultReadBuffer)

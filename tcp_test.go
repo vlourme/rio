@@ -104,6 +104,9 @@ func TestTCP(t *testing.T) {
 		return
 	}
 
+	//timeout := time.Second * 1
+	timeout := time.Second * 0
+
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
 	swg := new(sync.WaitGroup)
@@ -120,7 +123,9 @@ func TestTCP(t *testing.T) {
 		}
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
-
+		if timeout > 0 {
+			conn.SetReadTimeout(timeout)
+		}
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
 			if err != nil {
 				t.Error("srv read:", err)
@@ -157,6 +162,9 @@ func TestTCP(t *testing.T) {
 			t.Error("cli dial:", err)
 			cwg.Done()
 			return
+		}
+		if timeout > 0 {
+			time.Sleep(timeout)
 		}
 		conn.Write([]byte("hello word")).OnComplete(func(ctx context.Context, out int, err error) {
 			if err != nil {
