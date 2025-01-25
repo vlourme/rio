@@ -140,8 +140,8 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 		rop:        nil,
 		wop:        nil,
 	}
-	nfd.rop = newOperator(nfd, ReadOperator)
-	nfd.wop = newOperator(nfd, WriteOperator)
+	nfd.rop = newOperator(nfd)
+	nfd.wop = newOperator(nfd)
 
 	v = nfd
 	return

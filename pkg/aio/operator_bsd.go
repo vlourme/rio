@@ -11,8 +11,15 @@ import (
 	"unsafe"
 )
 
+type operatorKind int
+
+const (
+	readOperator = iota + 1
+	writeOperator
+)
+
 type Operator struct {
-	kind       OperatorKind
+	kind       operatorKind
 	userdata   Userdata
 	fd         Fd
 	locker     sync.Mutex

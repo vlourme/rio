@@ -111,7 +111,7 @@ func completeSendfile(result int, op *Operator, err error) {
 	if remain > 0 {
 		dstFd := op.fd.(*netFd)
 		cb := op.callback
-		nop := newOperator(dstFd, WriteOperator)
+		nop := newOperator(dstFd)
 		nop.timeout = dstFd.wop.timeout
 		dstFd.wop = nop
 		sendfile(dstFd, src, curpos, remain, written, cb)

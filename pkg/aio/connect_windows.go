@@ -85,8 +85,8 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		rop:        nil,
 		wop:        nil,
 	}
-	nfd.rop = newOperator(nfd, ReadOperator)
-	nfd.wop = newOperator(nfd, WriteOperator)
+	nfd.rop = newOperator(nfd)
+	nfd.wop = newOperator(nfd)
 
 	cb(Userdata{Fd: nfd}, nil)
 	return
@@ -136,8 +136,8 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 		rop:        nil,
 		wop:        nil,
 	}
-	nfd.rop = newOperator(nfd, ReadOperator)
-	nfd.wop = newOperator(nfd, WriteOperator)
+	nfd.rop = newOperator(nfd)
+	nfd.wop = newOperator(nfd)
 
 	// op
 	op := nfd.ReadOperator()

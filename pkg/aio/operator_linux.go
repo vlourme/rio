@@ -12,7 +12,6 @@ import (
 )
 
 type Operator struct {
-	kind       OperatorKind
 	userdata   Userdata
 	fd         Fd
 	callback   OperationCallback

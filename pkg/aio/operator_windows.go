@@ -11,10 +11,9 @@ import (
 	"unsafe"
 )
 
-func newOperator(fd Fd, kind OperatorKind) *Operator {
+func newOperator(fd Fd) *Operator {
 	return &Operator{
 		overlapped: syscall.Overlapped{},
-		kind:       kind,
 		fd:         fd,
 		handle:     -1,
 		n:          0,
@@ -26,7 +25,6 @@ func newOperator(fd Fd, kind OperatorKind) *Operator {
 
 type Operator struct {
 	overlapped syscall.Overlapped
-	kind       OperatorKind
 	fd         Fd
 	handle     int
 	n          uint32

@@ -10,13 +10,6 @@ const (
 	MaxRW = 1 << 30
 )
 
-type OperatorKind int
-
-const (
-	ReadOperator = iota + 1
-	WriteOperator
-)
-
 type Userdata struct {
 	Fd  Fd
 	QTY int

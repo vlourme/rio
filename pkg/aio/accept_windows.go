@@ -28,7 +28,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 	// timeout
 	op.tryPrepareTimeout()
-	
+
 	// overlapped
 	overlapped := &op.overlapped
 
@@ -118,8 +118,8 @@ func completeAccept(_ int, op *Operator, err error) {
 		rop:        nil,
 		wop:        nil,
 	}
-	conn.rop = newOperator(conn, ReadOperator)
-	conn.wop = newOperator(conn, WriteOperator)
+	conn.rop = newOperator(conn)
+	conn.wop = newOperator(conn)
 
 	// callback
 	op.callback(Userdata{Fd: conn}, err)
