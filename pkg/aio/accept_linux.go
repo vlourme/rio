@@ -4,7 +4,6 @@ package aio
 
 import (
 	"os"
-	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -20,10 +19,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeAccept(result, cop, err)
-		runtime.KeepAlive(op)
-	}
+	op.completion = completeAccept
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
@@ -37,7 +33,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 		// clean
 		op.clean()
 	}
-	runtime.KeepAlive(op)
 	return
 }
 

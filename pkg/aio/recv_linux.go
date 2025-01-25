@@ -5,7 +5,6 @@ package aio
 import (
 	"io"
 	"os"
-	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -29,10 +28,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeRecv(result, cop, err)
-		runtime.KeepAlive(op)
-	}
+	op.completion = completeRecv
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
@@ -46,7 +42,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		op.clean()
 		return
 	}
-	runtime.KeepAlive(op)
 	return
 }
 
@@ -89,10 +84,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeRecvMsg(result, cop, err)
-		runtime.KeepAlive(op)
-	}
+	op.completion = completeRecvMsg
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
@@ -106,7 +98,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		cb(Userdata{}, err)
 		op.clean()
 	}
-	runtime.KeepAlive(op)
 	return
 }
 

@@ -5,7 +5,6 @@ package aio
 import (
 	"net"
 	"os"
-	"runtime"
 	"unsafe"
 )
 
@@ -31,10 +30,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeSend(result, cop, err)
-		runtime.KeepAlive(op)
-	}
+	op.completion = completeSend
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
@@ -48,8 +44,6 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_send", err))
 		op.clean()
 	}
-	runtime.KeepAlive(op)
-
 	return
 }
 
@@ -89,11 +83,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeSendMsg(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
+	op.completion = completeSendMsg
 	// cylinder
 	cylinder := nextIOURingCylinder()
 
@@ -106,7 +96,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg", err))
 		op.clean()
 	}
-	runtime.KeepAlive(op)
 	return
 }
 

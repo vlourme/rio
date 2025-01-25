@@ -13,7 +13,6 @@ import (
 )
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
-
 	if len(filepath) == 0 {
 		cb(Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return
@@ -55,10 +54,8 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
 	op.callback = cb
-	op.completion = func(result int, cop *Operator, err error) {
-		completeSendfileToPipe(result, cop, err)
-		runtime.KeepAlive(op)
-	}
+	op.completion = completeSendfileToPipe
+
 	op.handle = src
 	op.n = uint32(remain)
 	op.msg.Iovlen = uint64(pipe[0])
@@ -81,7 +78,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	runtime.KeepAlive(op)
 }
 
-func completeSendfileToPipe(result int, op *Operator, err error) {
+func completeSendfileToPipe(_ int, op *Operator, err error) {
 	// src
 	src := op.handle
 	// pipe
@@ -96,19 +93,17 @@ func completeSendfileToPipe(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	nop := newOperator(op.fd)
+	fd := op.fd.(*netFd)
+	nop := newOperator(fd)
 	nop.handle = op.handle
 	nop.n = op.n                           // size
 	nop.msg.Iovlen = op.msg.Iovlen         // pipe 0
 	nop.msg.Controllen = op.msg.Controllen // pipe 1
 	nop.callback = op.callback
-	nop.completion = func(result int, cop *Operator, err error) {
-		completeSendfileFromPipe(result, cop, err)
-		runtime.KeepAlive(nop)
-	}
+	nop.completion = completeSendfileFromPipe
+	fd.wop = nop
 	// dst
 	dst := nop.fd.Fd()
-
 	// size
 	size := nop.n
 
@@ -120,6 +115,7 @@ func completeSendfileToPipe(result int, op *Operator, err error) {
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
 		nop.callback(Userdata{}, getErr)
+		nop.clean()
 		return
 	}
 

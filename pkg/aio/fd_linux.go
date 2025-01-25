@@ -12,12 +12,9 @@ func Close(fd Fd, cb OperationCallback) {
 	op := fd.WriteOperator()
 
 	op.callback = cb
-	op.completion = func(result int, cop *Operator, err error) {
-		completeClose(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	err := prepare(opClose, fd.Fd(), 0, 0, 0, 0, op)
+	op.completion = completeClose
+	cylinder := nextIOURingCylinder()
+	err := cylinder.prepare(opClose, fd.Fd(), 0, 0, 0, 0, op)
 	runtime.KeepAlive(op)
 	if err != nil {
 		cb(Userdata{}, err)

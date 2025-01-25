@@ -332,13 +332,6 @@ func (cylinder *IOURingCylinder) Actives() int64 {
 	return int64(cylinder.ring.sqReady() + cylinder.ring.cqReady())
 }
 
-func prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
-	cylinder := nextIOURingCylinder()
-	err = cylinder.prepare(opcode, fd, addr, length, offset, flags, op)
-	runtime.KeepAlive(op)
-	return
-}
-
 func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
 	userdata := uint64(uintptr(unsafe.Pointer(op)))
 	err = cylinder.prepareRW(opcode, fd, addr, length, offset, flags, userdata)

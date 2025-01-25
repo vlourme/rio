@@ -78,19 +78,6 @@ func (canceler *operatorCanceler) Cancel() {
 	cylinder := canceler.cylinder
 	op := canceler.op
 	userdata := uintptr(unsafe.Pointer(op))
-	//cancelOp := &Operator{
-	//	fd:         op.fd,
-	//	handle:     -1,
-	//	n:          0,
-	//	msg:        Message{},
-	//	callback:   nil,
-	//	completion: nil,
-	//	timeout:    0,
-	//	timer:      nil,
-	//}
-	//cancelOp.completion = func(_ int, _ *Operator, _ error) {
-	//	runtime.KeepAlive(cancelOp)
-	//}
 	for i := 0; i < 10; i++ {
 		err := cylinder.prepareRW(opAsyncCancel, -1, userdata, 0, 0, 0, 0)
 		if err == nil {
@@ -101,7 +88,6 @@ func (canceler *operatorCanceler) Cancel() {
 		}
 	}
 	runtime.KeepAlive(op)
-	//runtime.KeepAlive(cancelOp)
 }
 
 type Message struct {

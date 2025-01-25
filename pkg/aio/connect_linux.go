@@ -79,10 +79,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeConnect(result, cop, err)
-		runtime.KeepAlive(op)
-	}
+	op.completion = completeConnect
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
@@ -100,7 +97,6 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		// clean
 		op.clean()
 	}
-	runtime.KeepAlive(op)
 	return
 }
 
