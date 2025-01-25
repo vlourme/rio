@@ -4,11 +4,13 @@ import (
 	"errors"
 	"net"
 	"syscall"
+	"time"
 )
 
 type ConnectOptions struct {
 	MultipathTCP bool
 	LocalAddr    net.Addr
+	Timeout      time.Duration
 }
 
 func Connect(network string, address string, opts ConnectOptions, callback OperationCallback) {
@@ -31,7 +33,7 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 		if opts.MultipathTCP {
 			proto = tryGetMultipathTCPProto()
 		}
-		connect(network, family, syscall.SOCK_STREAM, proto, ipv6only, tcpAddr, nil, callback)
+		connect(network, family, syscall.SOCK_STREAM, proto, ipv6only, tcpAddr, nil, opts.Timeout, callback)
 		break
 	case "udp", "udp4", "udp6":
 		udpAddr := addr.(*net.UDPAddr)
@@ -42,16 +44,16 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 				udpAddr.IP = net.ParseIP("127.0.0.1").To4()
 			}
 		}
-		connect(network, family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP, ipv6only, udpAddr, opts.LocalAddr, callback)
+		connect(network, family, syscall.SOCK_DGRAM, syscall.IPPROTO_UDP, ipv6only, udpAddr, opts.LocalAddr, opts.Timeout, callback)
 		break
 	case "unix":
-		connect(network, family, syscall.SOCK_STREAM, 0, ipv6only, addr, nil, callback)
+		connect(network, family, syscall.SOCK_STREAM, 0, ipv6only, addr, nil, opts.Timeout, callback)
 		break
 	case "unixgram":
-		connect(network, family, syscall.SOCK_DGRAM, 0, ipv6only, addr, nil, callback)
+		connect(network, family, syscall.SOCK_DGRAM, 0, ipv6only, addr, nil, opts.Timeout, callback)
 		break
 	case "unixpacket":
-		connect(network, family, syscall.SOCK_SEQPACKET, 0, ipv6only, addr, nil, callback)
+		connect(network, family, syscall.SOCK_SEQPACKET, 0, ipv6only, addr, nil, opts.Timeout, callback)
 		break
 	case "ip", "ip4", "ip6":
 		proto := 0
@@ -61,7 +63,7 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 			callback(Userdata{}, parseProtoError)
 			return
 		}
-		connect(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil, callback)
+		connect(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil, opts.Timeout, callback)
 		break
 	default:
 		callback(Userdata{}, errors.New("aio.Connect: network is not support"))

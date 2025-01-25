@@ -26,9 +26,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// set completion
 	op.completion = completeAccept
 
-	// timeout
-	op.tryPrepareTimeout()
-
 	// overlapped
 	overlapped := &op.overlapped
 

@@ -6,20 +6,35 @@ import (
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
+	"time"
 	"unsafe"
 )
 
 type DialOptions struct {
 	Options
-	LocalAddr net.Addr
+	LocalAddr   net.Addr
+	DialTimeout time.Duration
 }
 
-// WithLocalAddr
-// 设置包链接拨号器的本地地址
-func WithLocalAddr(network string, addr string) Option {
+// WithDialLocalAddr
+// 设置链接拨号器的本地地址
+func WithDialLocalAddr(network string, addr string) Option {
 	return func(options *Options) (err error) {
 		opts := (*DialOptions)(unsafe.Pointer(options))
 		opts.LocalAddr, _, _, err = aio.ResolveAddr(network, addr)
+		return
+	}
+}
+
+// WithDialTimeout
+// 设置链接拨号器的超时
+func WithDialTimeout(d time.Duration) Option {
+	return func(options *Options) (err error) {
+		if d < 1 {
+			return
+		}
+		opts := (*DialOptions)(unsafe.Pointer(options))
+		opts.DialTimeout = d
 		return
 	}
 }
@@ -36,7 +51,8 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			MultipathTCP:               false,
 			PromiseMakeOptions:         nil,
 		},
-		LocalAddr: nil,
+		LocalAddr:   nil,
+		DialTimeout: 0,
 	}
 	for _, o := range options {
 		opt := (*Options)(unsafe.Pointer(&opts))
@@ -70,6 +86,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		connectOpts := aio.ConnectOptions{
 			MultipathTCP: opts.MultipathTCP,
 			LocalAddr:    opts.LocalAddr,
+			Timeout:      opts.DialTimeout,
 		}
 		aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 			if err != nil {

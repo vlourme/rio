@@ -27,8 +27,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
-	// timeout
-	op.tryPrepareTimeout(cylinder)
 
 	// ln
 	lnFd := fd.Fd()
