@@ -60,10 +60,10 @@ func (op *Operator) tryResetTimeout() {
 	}
 }
 
-func (op *Operator) clean() {
+func (op *Operator) reset() {
 	op.handle = -1
 	op.n = 0
-	op.msg = Message{}
+	op.msg.Reset()
 	op.callback = nil
 	op.completion = nil
 	op.tryResetTimeout()
@@ -218,4 +218,14 @@ func (msg *Message) SetControl(b []byte) {
 
 func (msg *Message) SetFlags(flags uint32) {
 	msg.Msghdr.Flags = int32(flags)
+}
+
+func (msg *Message) Reset() {
+	msg.Name = nil
+	msg.Namelen = 0
+	msg.Iov = nil
+	msg.Iovlen = 0
+	msg.Control = nil
+	msg.Controllen = 0
+	msg.Msghdr.Flags = 0
 }

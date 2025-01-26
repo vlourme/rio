@@ -160,7 +160,7 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	if connectErr != nil && !errors.Is(connectErr, syscall.ERROR_IO_PENDING) {
 		_ = syscall.Closesocket(handle)
 		cb(Userdata{}, os.NewSyscallError("connectex", connectErr))
-		op.clean()
+		op.reset()
 		return
 	}
 	return

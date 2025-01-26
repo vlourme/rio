@@ -18,7 +18,7 @@ func Close(fd Fd, cb OperationCallback) {
 	runtime.KeepAlive(op)
 	if err != nil {
 		cb(Userdata{}, err)
-		op.clean()
+		op.reset()
 	}
 }
 

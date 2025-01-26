@@ -69,7 +69,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
 		cb(Userdata{}, getErr)
-		op.clean()
+		op.reset()
 		return
 	}
 	// userdata
@@ -115,7 +115,7 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
 		nop.callback(Userdata{}, getErr)
-		nop.clean()
+		nop.reset()
 		return
 	}
 

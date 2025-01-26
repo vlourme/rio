@@ -94,8 +94,8 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	if err != nil {
 		_ = syscall.Close(sock)
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
-		// clean
-		op.clean()
+		// reset
+		op.reset()
 	}
 	return
 }

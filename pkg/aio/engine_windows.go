@@ -141,8 +141,8 @@ func (cylinder *IOCPCylinder) Loop() {
 		if completion := op.completion; completion != nil {
 			completion(int(qty), op, getQueuedCompletionStatusErr)
 		}
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 		runtime.KeepAlive(op)
 	}
 	runtime.KeepAlive(cylinder)

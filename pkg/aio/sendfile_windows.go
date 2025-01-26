@@ -79,8 +79,8 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 		_ = windows.Close(file)
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("transmit_file", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	runtime.KeepAlive(op)
 }

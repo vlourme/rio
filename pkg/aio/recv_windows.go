@@ -47,8 +47,8 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_recv", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	return
 }
@@ -102,8 +102,8 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_recvfrom", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	return
 }
@@ -158,8 +158,8 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_recvmsg", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	return
 }

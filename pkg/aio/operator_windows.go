@@ -59,11 +59,11 @@ func (op *Operator) tryResetTimeout() {
 	}
 }
 
-func (op *Operator) clean() {
+func (op *Operator) reset() {
 	op.overlapped = syscall.Overlapped{}
 	op.handle = -1
 	op.n = 0
-	op.msg = Message{}
+	op.msg.Reset()
 	op.callback = nil
 	op.completion = nil
 	op.tryResetTimeout()
@@ -186,13 +186,13 @@ func (msg *Message) Append(b []byte) (buf syscall.WSABuf) {
 	if buf.Len > 0 {
 		buf.Buf = &b[0]
 	}
-	wsabuf := (*windows.WSABuf)(unsafe.Pointer(&buf))
+	wsabuf := (*windows.WSABuf)(&buf)
 	if msg.BufferCount == 0 {
 		msg.Buffers = wsabuf
 	} else {
 		buffers := unsafe.Slice(msg.Buffers, msg.BufferCount)
 		buffers = append(buffers, *wsabuf)
-		msg.Buffers = (*windows.WSABuf)(unsafe.Pointer(&buffers[0]))
+		msg.Buffers = &buffers[0]
 	}
 	msg.BufferCount++
 	return
@@ -207,4 +207,14 @@ func (msg *Message) SetControl(b []byte) {
 
 func (msg *Message) SetFlags(flags uint32) {
 	msg.WSAMsg.Flags = flags
+}
+
+func (msg *Message) Reset() {
+	msg.Name = nil
+	msg.Namelen = 0
+	msg.Buffers = nil
+	msg.BufferCount = 0
+	msg.Control.Buf = nil
+	msg.Control.Len = 0
+	msg.WSAMsg.Flags = 0
 }

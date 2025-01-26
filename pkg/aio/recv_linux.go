@@ -39,7 +39,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op)
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_recv", err))
-		op.clean()
+		op.reset()
 		return
 	}
 	return
@@ -96,7 +96,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 
 	if err != nil {
 		cb(Userdata{}, err)
-		op.clean()
+		op.reset()
 	}
 	return
 }

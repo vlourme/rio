@@ -45,7 +45,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	if acceptErr != nil && !errors.Is(syscall.ERROR_IO_PENDING, acceptErr) {
 		_ = syscall.Closesocket(syscall.Handle(sock))
 		cb(Userdata{}, os.NewSyscallError("acceptex", acceptErr))
-		op.clean()
+		op.reset()
 	}
 
 	return

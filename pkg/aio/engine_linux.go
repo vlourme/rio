@@ -295,8 +295,8 @@ func (cylinder *IOURingCylinder) Loop() {
 				// complete
 				completion(result, op, err)
 			}
-			// clean
-			op.clean()
+			// reset
+			op.reset()
 			runtime.KeepAlive(op)
 		}
 		cylinder.advance(peeked)

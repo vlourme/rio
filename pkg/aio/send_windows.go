@@ -47,8 +47,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_send", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	return
 }
@@ -76,7 +76,7 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	sa, saErr := op.msg.SetAddr(addr)
 	if saErr != nil {
 		cb(Userdata{}, errors.Join(errors.New("aio: send to failed"), saErr))
-		op.clean()
+		op.reset()
 		return
 	}
 	buf := op.msg.Append(b)
@@ -104,8 +104,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_sendto", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	return
 }
@@ -135,7 +135,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	_, saErr := op.msg.SetAddr(addr)
 	if saErr != nil {
 		cb(Userdata{}, errors.Join(errors.New("aio: send msg failed"), saErr))
-		op.clean()
+		op.reset()
 		return
 	}
 
@@ -163,8 +163,8 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_sendmsg", err))
-		// clean op
-		op.clean()
+		// reset op
+		op.reset()
 	}
 	return
 }
