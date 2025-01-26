@@ -90,7 +90,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	op.tryPrepareTimeout(cylinder)
 
 	// prepare
-	err := cylinder.prepare(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, op)
+	err := cylinder.prepareRW(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, op.ptr())
 	if err != nil {
 		_ = syscall.Close(sock)
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))

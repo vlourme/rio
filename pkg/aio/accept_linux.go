@@ -27,7 +27,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// ln
 	lnFd := fd.Fd()
 	// prepare
-	err := cylinder.prepare(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op)
+	err := cylinder.prepareRW(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
 		// reset

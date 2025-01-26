@@ -2,6 +2,7 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
@@ -90,6 +91,10 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		}
 		aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 			if err != nil {
+				if errors.Is(err, aio.ErrOperationDeadlineExceeded) {
+					promise.Fail(ErrDeadlineExceeded)
+					return
+				}
 				addr, _, _, _ := aio.ResolveAddr(network, address)
 				err = &net.OpError{
 					Op:     aio.OpDial,

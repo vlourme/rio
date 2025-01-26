@@ -316,7 +316,7 @@ func (cylinder *IOURingCylinder) Stop() {
 		return
 	}
 	for {
-		err := cylinder.prepare(opNop, -1, 0, 0, 0, 0, op)
+		err := cylinder.prepareRW(opNop, -1, 0, 0, 0, 0, op.ptr())
 		if err == nil {
 			break
 		}
@@ -330,13 +330,6 @@ func (cylinder *IOURingCylinder) Stop() {
 
 func (cylinder *IOURingCylinder) Actives() int64 {
 	return int64(cylinder.ring.sqReady() + cylinder.ring.cqReady())
-}
-
-func (cylinder *IOURingCylinder) prepare(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, op *Operator) (err error) {
-	userdata := uint64(uintptr(unsafe.Pointer(op)))
-	err = cylinder.prepareRW(opcode, fd, addr, length, offset, flags, userdata)
-	runtime.KeepAlive(op)
-	return
 }
 
 func (cylinder *IOURingCylinder) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64, flags uint8, userdata uint64) (err error) {
@@ -1272,13 +1265,6 @@ func (entry *SubmissionQueueEntry) prepareRW(opcode uint8, fd int, addr uintptr,
 	entry.BufIG = 0
 	entry.Personality = 0
 	entry.SpliceFdIn = 0
-}
-
-func (entry *SubmissionQueueEntry) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, spliceFlags uint32, userdata uint64) {
-	entry.prepareRW(opSplice, fdOut, 0, nbytes, uint64(offOut), userdata, 0)
-	entry.Addr = uint64(offIn)
-	entry.SpliceFdIn = int32(fdIn)
-	entry.OpcodeFlags = spliceFlags
 }
 
 type CompletionQueue struct {

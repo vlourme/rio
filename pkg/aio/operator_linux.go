@@ -69,6 +69,10 @@ func (op *Operator) reset() {
 	op.tryResetTimeout()
 }
 
+func (op *Operator) ptr() uint64 {
+	return uint64(uintptr(unsafe.Pointer(op)))
+}
+
 type operatorCanceler struct {
 	cylinder *IOURingCylinder
 	op       *Operator

@@ -36,7 +36,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	op.tryPrepareTimeout(cylinder)
 
 	// prepare
-	err := cylinder.prepare(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op)
+	err := cylinder.prepareRW(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_recv", err))
 		op.reset()
@@ -92,11 +92,11 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op.tryPrepareTimeout(cylinder)
 
 	// prepare
-	err := cylinder.prepare(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), uint32(op.msg.Iovlen), 0, 0, op)
-
+	err := cylinder.prepareRW(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), uint32(op.msg.Iovlen), 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, err)
 		op.reset()
+		return
 	}
 	return
 }

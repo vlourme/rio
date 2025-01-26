@@ -39,10 +39,11 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	op.tryPrepareTimeout(cylinder)
 
 	// prepare
-	err := cylinder.prepare(opSend, fd.Fd(), bufAddr, bufLen, 0, 0, op)
+	err := cylinder.prepareRW(opSend, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_send", err))
 		op.reset()
+		return
 	}
 	return
 }
@@ -91,10 +92,11 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.tryPrepareTimeout(cylinder)
 
 	// prepare
-	err := cylinder.prepare(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op)
+	err := cylinder.prepareRW(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg", err))
 		op.reset()
+		return
 	}
 	return
 }

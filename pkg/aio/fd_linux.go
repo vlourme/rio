@@ -14,12 +14,12 @@ func Close(fd Fd, cb OperationCallback) {
 	op.callback = cb
 	op.completion = completeClose
 	cylinder := nextIOURingCylinder()
-	err := cylinder.prepare(opClose, fd.Fd(), 0, 0, 0, 0, op)
-	runtime.KeepAlive(op)
+	err := cylinder.prepareRW(opClose, fd.Fd(), 0, 0, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, err)
 		op.reset()
 	}
+	runtime.KeepAlive(op)
 }
 
 func completeClose(_ int, op *Operator, err error) {

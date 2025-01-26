@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime"
 	"syscall"
-	"unsafe"
 )
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
@@ -72,10 +71,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		op.reset()
 		return
 	}
-	// userdata
-	userdata := uint64(uintptr(unsafe.Pointer(op)))
-	entry.PrepareSplice(src, -1, pipe[1], -1, op.n, unix.SPLICE_F_NONBLOCK, userdata)
-	runtime.KeepAlive(op)
+	prepareSplice(entry, src, -1, pipe[1], -1, op.n, unix.SPLICE_F_NONBLOCK, op.ptr())
 }
 
 func completeSendfileToPipe(_ int, op *Operator, err error) {
@@ -100,8 +96,10 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 	nop.msg.Iovlen = op.msg.Iovlen         // pipe 0
 	nop.msg.Controllen = op.msg.Controllen // pipe 1
 	nop.callback = op.callback
-	nop.completion = completeSendfileFromPipe
-	fd.wop = nop
+	nop.completion = func(result int, cop *Operator, err error) {
+		completeSendfileFromPipe(result, cop, err)
+		runtime.KeepAlive(nop)
+	}
 	// dst
 	dst := nop.fd.Fd()
 	// size
@@ -119,9 +117,7 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 		return
 	}
 
-	// userdata
-	userdata := uint64(uintptr(unsafe.Pointer(nop)))
-	entry.PrepareSplice(pipe[0], -1, dst, -1, size, unix.SPLICE_F_NONBLOCK, userdata)
+	prepareSplice(entry, pipe[0], -1, dst, -1, size, unix.SPLICE_F_NONBLOCK, nop.ptr())
 	runtime.KeepAlive(nop)
 	return
 }
@@ -144,4 +140,11 @@ func completeSendfileFromPipe(result int, op *Operator, err error) {
 	}
 	op.callback(Userdata{QTY: result}, nil)
 	return
+}
+
+func prepareSplice(entry *SubmissionQueueEntry, fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, spliceFlags uint32, userdata uint64) {
+	entry.prepareRW(opSplice, fdOut, 0, nbytes, uint64(offOut), userdata, 0)
+	entry.Addr = uint64(offIn)
+	entry.SpliceFdIn = int32(fdIn)
+	entry.OpcodeFlags = spliceFlags
 }
