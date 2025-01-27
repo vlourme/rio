@@ -12,9 +12,9 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
 	// msg
-	rsa, rsaLen := op.msg.BuildRawSockaddrAny()
-	addrPtr := uintptr(unsafe.Pointer(rsa))
-	addrLenPtr := uint64(uintptr(unsafe.Pointer(&rsaLen)))
+	addrPtr := uintptr(unsafe.Pointer(new(syscall.RawSockaddrAny)))
+	addrLen := syscall.SizeofSockaddrAny
+	addrLenPtr := uint64(uintptr(unsafe.Pointer(&addrLen)))
 
 	// cb
 	op.callback = cb

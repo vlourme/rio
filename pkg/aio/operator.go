@@ -10,9 +10,11 @@ const (
 )
 
 type Userdata struct {
-	Fd  Fd
-	QTY int
-	Msg Message
+	Fd           Fd
+	N            int
+	OOBN         int
+	Addr         net.Addr
+	MessageFlags int
 }
 
 type OperationCallback func(userdata Userdata, err error)

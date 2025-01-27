@@ -55,10 +55,16 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	op.callback = cb
 	op.completion = completeSendfileToPipe
 
-	op.handle = src
-	op.n = uint32(remain)
-	op.msg.Iovlen = uint64(pipe[0])
-	op.msg.Controllen = uint64(pipe[1])
+	op.sfr = &SendfileResult{
+		file:   src,
+		remain: uint32(remain),
+		pipe:   pipe,
+	}
+
+	//op.handle = src
+	//op.n = uint32(remain)
+	//op.msg.Iovlen = uint64(pipe[0])
+	//op.msg.Controllen = uint64(pipe[1])
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
@@ -71,17 +77,15 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		op.reset()
 		return
 	}
-	prepareSplice(entry, src, -1, pipe[1], -1, op.n, unix.SPLICE_F_NONBLOCK, op.ptr())
+	prepareSplice(entry, src, -1, pipe[1], -1, op.sfr.remain, unix.SPLICE_F_NONBLOCK, op.ptr())
 }
 
 func completeSendfileToPipe(_ int, op *Operator, err error) {
 	// src
-	src := op.handle
+	src := op.sfr.file
 	// pipe
-	pipe := []int{
-		int(op.msg.Iovlen),
-		int(op.msg.Controllen),
-	}
+	pipe := op.sfr.pipe
+
 	if err != nil {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
@@ -91,10 +95,11 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 	}
 	fd := op.fd.(*netFd)
 	nop := newOperator(fd)
-	nop.handle = op.handle
-	nop.n = op.n                           // size
-	nop.msg.Iovlen = op.msg.Iovlen         // pipe 0
-	nop.msg.Controllen = op.msg.Controllen // pipe 1
+	nop.sfr = op.sfr
+	//nop.handle = op.handle
+	//nop.n = op.n                           // size
+	//nop.msg.Iovlen = op.msg.Iovlen         // pipe 0
+	//nop.msg.Controllen = op.msg.Controllen // pipe 1
 	nop.callback = op.callback
 	nop.completion = func(result int, cop *Operator, err error) {
 		completeSendfileFromPipe(result, cop, err)
@@ -103,7 +108,7 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 	// dst
 	dst := nop.fd.Fd()
 	// size
-	size := nop.n
+	size := nop.sfr.remain
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
@@ -124,13 +129,9 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 
 func completeSendfileFromPipe(result int, op *Operator, err error) {
 	// src
-	src := op.handle
-	_ = syscall.Close(src)
+	_ = syscall.Close(op.sfr.file)
 	// pipe
-	pipe := []int{
-		int(op.msg.Iovlen),
-		int(op.msg.Controllen),
-	}
+	pipe := op.sfr.pipe
 	_ = syscall.Close(pipe[0])
 	_ = syscall.Close(pipe[1])
 	// handle
@@ -138,7 +139,7 @@ func completeSendfileFromPipe(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result}, nil)
+	op.callback(Userdata{N: result}, nil)
 	return
 }
 

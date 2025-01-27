@@ -23,7 +23,10 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
 	// msg
-	buf := op.msg.Append(b)
+	buf := syscall.WSABuf{
+		Len: uint32(bLen),
+		Buf: &b[0],
+	}
 
 	// cb
 	op.callback = cb
@@ -39,8 +42,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// send
 	err := syscall.WSASend(
 		syscall.Handle(fd.Fd()),
-		&buf, op.msg.BufferCount,
-		&op.n, op.msg.WSAMsg.Flags,
+		&buf, 1,
+		&op.n, 0,
 		overlapped,
 		nil,
 	)
@@ -59,7 +62,7 @@ func completeSend(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result}, nil)
+	op.callback(Userdata{N: result}, nil)
 	return
 }
 
@@ -73,13 +76,11 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
 	// msg
-	sa, saErr := op.msg.SetAddr(addr)
-	if saErr != nil {
-		cb(Userdata{}, errors.Join(errors.New("aio: send to failed"), saErr))
-		op.reset()
-		return
+	buf := syscall.WSABuf{
+		Len: uint32(bLen),
+		Buf: &b[0],
 	}
-	buf := op.msg.Append(b)
+	sa := AddrToSockaddr(addr)
 
 	// cb
 	op.callback = cb
@@ -95,8 +96,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// send to
 	err := syscall.WSASendto(
 		syscall.Handle(fd.Fd()),
-		&buf, op.msg.BufferCount,
-		&op.n, op.msg.WSAMsg.Flags,
+		&buf, 1,
+		&op.n, 0,
 		sa,
 		overlapped,
 		nil,
@@ -116,7 +117,7 @@ func completeSendTo(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
+	op.callback(Userdata{N: result}, nil)
 	return
 }
 
@@ -127,16 +128,30 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		cb(Userdata{}, ErrEmptyBytes)
 		return
 	}
+	sa := AddrToSockaddr(addr)
+	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
+	if rsaErr != nil {
+		cb(Userdata{}, errors.Join(errors.New("aio: send msg failed"), rsaErr))
+		return
+	}
+
 	// op
 	op := fd.WriteOperator()
 	// msg
-	op.msg.Append(b)
-	op.msg.SetControl(oob)
-	_, saErr := op.msg.SetAddr(addr)
-	if saErr != nil {
-		cb(Userdata{}, errors.Join(errors.New("aio: send msg failed"), saErr))
-		op.reset()
-		return
+	op.msg = &windows.WSAMsg{
+		Name:    rsa,
+		Namelen: rsaLen,
+		Buffers: &windows.WSABuf{
+			Len: uint32(bLen),
+			Buf: &b[0],
+		},
+		BufferCount: 1,
+		Control:     windows.WSABuf{},
+		Flags:       0,
+	}
+	if oobLen := len(oob); oobLen > 0 {
+		op.msg.Control.Len = uint32(oobLen)
+		op.msg.Control.Buf = &oob[0]
 	}
 
 	// cb
@@ -154,8 +169,8 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// send msg
 	err := windows.WSASendMsg(
 		windows.Handle(fd.Fd()),
-		&op.msg.WSAMsg,
-		op.msg.WSAMsg.Flags,
+		op.msg,
+		op.msg.Flags,
 		&op.n,
 		wsaoverlapped,
 		nil,
@@ -175,6 +190,7 @@ func completeSendMsg(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
+	oobn := int(op.msg.Control.Len)
+	op.callback(Userdata{N: result, OOBN: oobn}, nil)
 	return
 }

@@ -139,11 +139,11 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 			}
 			return
 		}
-		if awErr := conn.rb.AllocatedWrote(userdata.QTY); awErr != nil {
+		if awErr := conn.rb.AllocatedWrote(userdata.N); awErr != nil {
 			promise.Fail(aio.NewOpErr(aio.OpRead, conn.fd, errors.Join(ErrAllocate, errors.Join(ErrAllocateWritten, awErr))))
 			return
 		}
-		inbound := transport.NewInbound(conn.rb, userdata.QTY)
+		inbound := transport.NewInbound(conn.rb, userdata.N)
 		promise.Succeed(inbound)
 		return
 	})
@@ -185,12 +185,12 @@ func (conn *connection) write(b []byte, bLen int, written int) (future async.Fut
 				return
 			}
 			err = aio.NewOpErr(aio.OpWrite, conn.fd, err)
-			written += userdata.QTY
+			written += userdata.N
 			promise.Complete(written, err)
 			return
 		}
 
-		written += userdata.QTY
+		written += userdata.N
 
 		if written == bLen {
 			promise.Succeed(written)

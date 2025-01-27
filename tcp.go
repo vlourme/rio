@@ -77,7 +77,7 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 		if err != nil {
 			err = aio.NewOpErr(aio.OpSendfile, conn.fd, err)
 		}
-		promise.Complete(userdata.QTY, err)
+		promise.Complete(userdata.N, err)
 		return
 	})
 

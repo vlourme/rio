@@ -19,23 +19,41 @@ const (
 )
 
 type Operator struct {
-	kind       operatorKind
-	userdata   Userdata
-	fd         Fd
+	kind     operatorKind
+	userdata Userdata
+	fd       Fd
+	handle   int
+	n        uint32
+	// todo
+	cn         uint32
+	addr       net.Addr
+	msg        Message // todo remove
 	locker     sync.Mutex
 	done       bool
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
 	timer      *operatorTimer
-	cylinder   *KqueueCylinder
 }
 
 type operatorCanceler struct {
-	op *Operator
+	op       *Operator
+	cylinder *KqueueCylinder
 }
 
 func (canceler *operatorCanceler) Cancel() {
+	// todo no op, handle origin op in engine, if flags is  EV_DELETE, then timeout
+	switch canceler.op.kind {
+	case readOperator:
+		fd := canceler.op.fd.Fd()
+		_ = canceler.cylinder.prepareRW(fd, syscall.EVFILT_READ, syscall.EV_DELETE, canceler.op)
+	case writeOperator:
+		fd := canceler.op.fd.Fd()
+		_ = canceler.cylinder.prepareRW(fd, syscall.EVFILT_WRITE, syscall.EV_DELETE, canceler.op)
+	default:
+		return
+	}
+
 	canceler.op.locker.Lock()
 	defer canceler.op.locker.Unlock()
 	if canceler.op.done {

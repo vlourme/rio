@@ -340,6 +340,49 @@ func RawToSockaddr(rsa *syscall.RawSockaddrAny) (syscall.Sockaddr, error) {
 	return nil, errors.New("aio.AddrToSockaddr: sockaddr type is invalid")
 }
 
+func RawToAddr(rsa *syscall.RawSockaddrAny) (addr net.Addr, err error) {
+	if rsa == nil {
+		err = errors.Join(errors.New("aio.RawToAddr: raw addr to net addr failed"), errors.New("addr is nil"))
+		return
+	}
+	sa, saErr := RawToSockaddr(rsa)
+	if saErr != nil {
+		err = errors.Join(errors.New("aio.RawToAddr: raw addr to net addr failed"), saErr)
+		return
+	}
+
+	switch a := sa.(type) {
+	case *syscall.SockaddrInet4:
+		addr = &net.UDPAddr{
+			IP:   append([]byte{}, a.Addr[:]...),
+			Port: a.Port,
+		}
+		break
+	case *syscall.SockaddrInet6:
+		zone := ""
+		if a.ZoneId != 0 {
+			ifi, ifiErr := net.InterfaceByIndex(int(a.ZoneId))
+			if ifiErr != nil {
+				err = errors.Join(errors.New("aio.RawToAddr: raw addr to net addr failed"), ifiErr)
+			}
+			zone = ifi.Name
+		}
+		addr = &net.UDPAddr{
+			IP:   append([]byte{}, a.Addr[:]...),
+			Port: a.Port,
+			Zone: zone,
+		}
+		break
+	case *syscall.SockaddrUnix:
+		addr = &net.UnixAddr{Net: "unixgram", Name: a.Name}
+		break
+	default:
+		err = errors.Join(errors.New("aio.RawToAddr: raw addr to net addr failed"), errors.New("unknown address type"))
+		return
+	}
+	return
+}
+
 func tcpAddrToSockaddr(family int, addr *net.TCPAddr) (syscall.Sockaddr, error) {
 	if addr == nil {
 		return nil, nil

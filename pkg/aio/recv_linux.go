@@ -21,9 +21,8 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
 	// msg
-	buf := op.msg.Append(b)
-	bufAddr := uintptr(unsafe.Pointer(buf.Base))
-	bufLen := uint32(buf.Len)
+	bufAddr := uintptr(unsafe.Pointer(&b[0]))
+	bufLen := uint32(bLen)
 
 	// cb
 	op.callback = cb
@@ -55,7 +54,7 @@ func completeRecv(result int, op *Operator, err error) {
 		op.callback(Userdata{}, io.EOF)
 		return
 	}
-	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
+	op.callback(Userdata{N: result}, nil)
 	return
 }
 
@@ -74,11 +73,30 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
 	// msg
-	op.msg.BuildRawSockaddrAny()
-	op.msg.Append(b)
-	op.msg.SetControl(oob)
+	op.msg = &syscall.Msghdr{
+		Name:      (*byte)(unsafe.Pointer(new(syscall.RawSockaddrAny))),
+		Namelen:   syscall.SizeofSockaddrAny,
+		Pad_cgo_0: [4]byte{},
+		Iov: &syscall.Iovec{
+			Base: &b[0],
+			Len:  uint64(bLen),
+		},
+		Iovlen:     1,
+		Control:    nil,
+		Controllen: 0,
+		Flags:      0,
+		Pad_cgo_1:  [4]byte{},
+	}
+	if oobLen := len(oob); oobLen > 0 {
+		if oobLen > 64 {
+			oob = oob[:64]
+			oobLen = 64
+		}
+		op.msg.Control = &oob[0]
+		op.msg.Controllen = uint64(oobLen)
+	}
 	if fd.Family() == syscall.AF_UNIX {
-		op.msg.SetFlags(readMsgFlags)
+		op.msg.Flags = readMsgFlags
 	}
 
 	// cb
@@ -92,7 +110,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op.tryPrepareTimeout(cylinder)
 
 	// prepare
-	err := cylinder.prepareRW(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), uint32(op.msg.Iovlen), 0, 0, op.ptr())
+	err := cylinder.prepareRW(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), uint32(op.msg.Iovlen), 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, err)
 		op.reset()
@@ -107,6 +125,13 @@ func completeRecvMsg(result int, op *Operator, err error) {
 		op.callback(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{QTY: result, Msg: op.msg}, nil)
+	rsa := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
+	addr, addrErr := RawToAddr(rsa)
+	if addrErr != nil {
+		op.callback(Userdata{}, addrErr)
+		return
+	}
+	oobn := int(op.msg.Controllen)
+	op.callback(Userdata{N: result, OOBN: oobn, Addr: addr}, nil)
 	return
 }

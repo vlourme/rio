@@ -49,7 +49,6 @@ const maxChunkSizePerCall = int64(0x7fffffff - 1)
 
 func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written int, cb OperationCallback) {
 	op := fd.WriteOperator()
-	op.handle = int(file)
 	op.completion = completeSendfile
 	op.callback = cb
 
@@ -57,10 +56,12 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 	if chunkSize > remain {
 		chunkSize = remain
 	}
-
-	op.msg.BufferCount = uint32(remain)
-	op.msg.Control.Len = uint32(curpos)
-	op.msg.WSAMsg.Flags = uint32(written)
+	op.sfr = &SendfileResult{
+		file:    file,
+		curpos:  curpos,
+		remain:  remain,
+		written: written,
+	}
 
 	op.n = uint32(chunkSize)
 	op.overlapped.Offset = uint32(curpos)
@@ -73,7 +74,6 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 	// timeout
 	op.tryPrepareTimeout()
 
-	// syscall.TransmitFile(o.fd.Sysfd, o.handle, o.qty, 0, &o.o, nil, syscall.TF_WRITE_BEHIND)
 	err := windows.TransmitFile(dst, file, op.n, 0, wsaOverlapped, nil, windows.TF_WRITE_BEHIND)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		_ = windows.Close(file)
@@ -86,7 +86,7 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 }
 
 func completeSendfile(result int, op *Operator, err error) {
-	src := windows.Handle(op.handle)
+	src := windows.Handle(op.sfr.file)
 
 	if err != nil {
 		_ = windows.Close(src)
@@ -95,15 +95,15 @@ func completeSendfile(result int, op *Operator, err error) {
 		return
 	}
 
-	curpos := int64(op.msg.Control.Len)
-	remain := int64(op.msg.BufferCount)
-	written := int(op.msg.WSAMsg.Flags) + result
+	curpos := op.sfr.curpos
+	remain := op.sfr.remain
+	written := op.sfr.written + result
 
 	curpos += int64(result)
 
 	if _, seekToStart := windows.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = windows.Close(src)
-		op.callback(Userdata{QTY: written}, os.NewSyscallError("seek", seekToStart))
+		op.callback(Userdata{N: written}, os.NewSyscallError("seek", seekToStart))
 		return
 	}
 
@@ -119,6 +119,6 @@ func completeSendfile(result int, op *Operator, err error) {
 	}
 
 	_ = windows.Close(src)
-	op.callback(Userdata{QTY: written}, nil)
+	op.callback(Userdata{N: written}, nil)
 	return
 }
