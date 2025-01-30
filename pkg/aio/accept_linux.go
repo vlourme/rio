@@ -8,6 +8,16 @@ import (
 	"unsafe"
 )
 
+/*
+https://sf-zhou.github.io/linux/io_uring_network_programming.html
+
+one accpet multi cb
+对 server 来说，需要监听一个地址，处理所有 incoming 的连接。
+liburing 中提供了 io_uring_prep_multishot_accept 方法，
+或者你可以手动给 sqe->ioprio 增加一个 IORING_ACCEPT_MULTISHOT 标记。
+这样每当有新的连接进来时，都会产生一个新的 CQE，返回的 flags 中会带有 IORING_CQE_F_MORE 标记。
+如果希望优雅的退出，可以使用 io_uring_prep_cancel 或者 io_uring_prep_cancel_fd 取消掉监听操作。
+*/
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()

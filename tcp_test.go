@@ -113,7 +113,7 @@ func TestTCP(t *testing.T) {
 	swg.Add(1)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			if rio.IsClosed(err) || async.IsEOF(err) {
+			if rio.IsClosed(err) || async.IsCanceled(err) {
 				t.Log("srv accept closed")
 			} else {
 				t.Error("srv accept:", err)
@@ -235,7 +235,7 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 	swg := new(sync.WaitGroup)
 	ln.Accept().OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
 		if err != nil {
-			if rio.IsClosed(err) || async.IsEOF(err) {
+			if rio.IsClosed(err) || async.IsCanceled(err) {
 				t.Log("srv accept closed")
 			} else {
 				t.Error("srv accept:", err)
