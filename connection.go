@@ -111,7 +111,7 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 	}
 	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
-		future = async.FailedImmediately[transport.Inbound](conn.ctx, aio.NewOpErr(aio.OpRead, conn.fd, errors.Join(ErrAllocate, allocateErr)))
+		future = async.FailedImmediately[transport.Inbound](conn.ctx, errors.Join(ErrAllocate, allocateErr))
 		return
 	}
 
@@ -140,7 +140,7 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 			return
 		}
 		if awErr := conn.rb.AllocatedWrote(userdata.N); awErr != nil {
-			promise.Fail(aio.NewOpErr(aio.OpRead, conn.fd, errors.Join(ErrAllocate, errors.Join(ErrAllocateWritten, awErr))))
+			promise.Fail(errors.Join(ErrAllocate, errors.Join(ErrAllocateWritten, awErr)))
 			return
 		}
 		inbound := transport.NewInbound(conn.rb, userdata.N)
@@ -170,10 +170,10 @@ func (conn *connection) write(b []byte, bLen int, written int) (future async.Fut
 	promise, promiseErr := async.Make[int](conn.ctx)
 	if promiseErr != nil {
 		if async.IsExecutorsClosed(promiseErr) {
-			future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, ErrClosed))
+			future = async.FailedImmediately[int](conn.ctx, ErrClosed)
 			aio.CloseImmediately(conn.fd)
 		} else {
-			future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpWrite, conn.fd, promiseErr))
+			future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		}
 		return
 	}
