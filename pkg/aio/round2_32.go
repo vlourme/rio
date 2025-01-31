@@ -9,7 +9,7 @@ func RoundupPow2(n int) int {
 		return 0
 	}
 
-	x := uint64(n - 1)
+	x := uint32(n - 1)
 	x |= x >> 1
 	x |= x >> 2
 	x |= x >> 4
