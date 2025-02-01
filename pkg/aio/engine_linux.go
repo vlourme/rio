@@ -267,6 +267,7 @@ func (cylinder *IOURingCylinder) Loop() {
 
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
+			op.end()
 			// handle stop
 			if op.fd == nil {
 				stopped = true
@@ -283,15 +284,6 @@ func (cylinder *IOURingCylinder) Loop() {
 				} else {
 					result = int(cqe.Res)
 				}
-				// handle timeout
-				if op.deadlineExceeded() {
-					if err != nil {
-						err = errors.Join(ErrOperationDeadlineExceeded, err)
-					} else {
-						err = ErrOperationDeadlineExceeded
-					}
-				}
-				op.tryResetTimeout()
 				// complete
 				completion(result, op, err)
 			}

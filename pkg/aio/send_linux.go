@@ -15,16 +15,13 @@ import (
 // sendmsg_zc: available since 6.1
 // https://manpages.debian.org/unstable/liburing-dev/io_uring_enter.2.en.html
 func Send(fd NetFd, b []byte, cb OperationCallback) {
-	// check buf
+	op := fd.WriteOperator()
+
+	// msg
 	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	} else if bLen > MaxRW {
+	if bLen > MaxRW {
 		b = b[:MaxRW]
 	}
-	op := fd.WriteOperator()
-	// msg
 	bufAddr := uintptr(unsafe.Pointer(&b[0]))
 	bufLen := uint32(bLen)
 
@@ -35,9 +32,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
-
-	// timeout
-	op.tryPrepareTimeout(cylinder)
+	op.setCylinder(cylinder)
 
 	// prepare
 	err := cylinder.prepareRW(opSend, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
@@ -64,12 +59,6 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 }
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
 	sa := AddrToSockaddr(addr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 	if rsaErr != nil {
@@ -79,6 +68,10 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// op
 	op := fd.WriteOperator()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	op.msg = &syscall.Msghdr{
 		Name:      (*byte)(unsafe.Pointer(rsa)),
 		Namelen:   uint32(rsaLen),
@@ -108,9 +101,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.completion = completeSendMsg
 	// cylinder
 	cylinder := nextIOURingCylinder()
-
-	// timeout
-	op.tryPrepareTimeout(cylinder)
+	op.setCylinder(cylinder)
 
 	// prepare
 	err := cylinder.prepareRW(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), 1, 0, 0, op.ptr())

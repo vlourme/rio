@@ -10,10 +10,10 @@ import (
 
 func Close(fd Fd, cb OperationCallback) {
 	op := fd.WriteOperator()
-
 	op.callback = cb
 	op.completion = completeClose
 	cylinder := nextIOURingCylinder()
+	op.setCylinder(cylinder)
 	err := cylinder.prepareRW(opClose, fd.Fd(), 0, 0, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, err)

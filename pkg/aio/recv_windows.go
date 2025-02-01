@@ -12,18 +12,14 @@ import (
 )
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	} else if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	// op
 	op := fd.ReadOperator()
-	op.begin()
+
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
 		Buf: &b[0],
@@ -51,7 +47,10 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("wsa_recv", err))
 		// reset op
 		op.reset()
+		return
 	}
+	// processing
+	op.begin()
 	return
 }
 
@@ -70,16 +69,13 @@ func completeRecv(result int, op *Operator, err error) {
 }
 
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
 	// op
 	op := fd.ReadOperator()
-	op.begin()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
 		Buf: &b[0],
@@ -111,7 +107,10 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("wsa_recvfrom", err))
 		// reset op
 		op.reset()
+		return
 	}
+	// processing
+	op.begin()
 	return
 }
 
@@ -131,21 +130,14 @@ func completeRecvFrom(result int, op *Operator, err error) {
 }
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
-	oobLen := len(oob)
-	if oobLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
 	// op
 	op := fd.ReadOperator()
-	op.begin()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
+	oobLen := len(oob)
 	rsa := syscall.RawSockaddrAny{}
 	rsaLen := int32(unsafe.Sizeof(rsa))
 
@@ -189,7 +181,10 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("wsa_recvmsg", err))
 		// reset op
 		op.reset()
+		return
 	}
+	// processing
+	op.begin()
 	return
 }
 

@@ -9,8 +9,8 @@ import (
 )
 
 /*
+Accept
 https://sf-zhou.github.io/linux/io_uring_network_programming.html
-
 one accpet multi cb
 对 server 来说，需要监听一个地址，处理所有 incoming 的连接。
 liburing 中提供了 io_uring_prep_multishot_accept 方法，
@@ -33,6 +33,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
+	op.setCylinder(cylinder)
 
 	// ln
 	lnFd := fd.Fd()

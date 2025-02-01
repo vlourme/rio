@@ -12,18 +12,13 @@ import (
 )
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	} else if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	// op
 	op := fd.WriteOperator()
-	op.begin()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
 		Buf: &b[0],
@@ -50,7 +45,10 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("wsa_send", err))
 		// reset op
 		op.reset()
+		return
 	}
+	// processing
+	op.begin()
 	return
 }
 
@@ -65,16 +63,13 @@ func completeSend(result int, op *Operator, err error) {
 }
 
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
 	// op
 	op := fd.WriteOperator()
-	op.begin()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
 		Buf: &b[0],
@@ -103,7 +98,10 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("wsa_sendto", err))
 		// reset op
 		op.reset()
+		return
 	}
+	// processing
+	op.begin()
 	return
 }
 
@@ -118,12 +116,6 @@ func completeSendTo(result int, op *Operator, err error) {
 }
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
 	sa := AddrToSockaddr(addr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 	if rsaErr != nil {
@@ -133,8 +125,11 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	// op
 	op := fd.WriteOperator()
-	op.begin()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	op.msg = &windows.WSAMsg{
 		Name:    rsa,
 		Namelen: rsaLen,
@@ -174,7 +169,10 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		cb(Userdata{}, os.NewSyscallError("wsa_sendmsg", err))
 		// reset op
 		op.reset()
+		return
 	}
+	// processing
+	op.begin()
 	return
 }
 

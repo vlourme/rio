@@ -35,7 +35,7 @@ func IsBusy(err error) bool {
 }
 
 func IsErrEmptyBytes(err error) bool {
-	return errors.Is(err, ErrEmptyBytes) || aio.IsEmptyBytesError(err)
+	return errors.Is(err, ErrEmptyBytes)
 }
 
 func IsErrNetworkUnmatched(err error) bool {

@@ -7,11 +7,10 @@ import (
 	"os"
 	"runtime"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
-func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, timeout time.Duration, cb OperationCallback) {
+func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, cb OperationCallback) {
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
@@ -83,11 +82,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
-	// timeout
-	if timeout > 0 {
-		op.timeout = timeout
-	}
-	op.tryPrepareTimeout(cylinder)
+	op.setCylinder(cylinder)
 
 	// prepare
 	err := cylinder.prepareRW(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, op.ptr())
@@ -101,9 +96,6 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 }
 
 func completeConnect(_ int, op *Operator, err error) {
-	if op.timeout > 0 {
-		op.timeout = 0
-	}
 	cb := op.callback
 	conn := op.fd.(*netFd)
 	connFd := conn.Fd()

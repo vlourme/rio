@@ -19,7 +19,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 	}
 	// op
 	op := fd.ReadOperator()
-	op.begin()
 	// set sock
 	op.handle = sock
 	// set callback
@@ -47,8 +46,10 @@ func Accept(fd NetFd, cb OperationCallback) {
 		_ = syscall.Closesocket(syscall.Handle(sock))
 		cb(Userdata{}, os.NewSyscallError("acceptex", acceptErr))
 		op.reset()
+		return
 	}
-
+	// processing
+	op.begin()
 	return
 }
 

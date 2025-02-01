@@ -10,17 +10,13 @@ import (
 )
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	} else if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	// op
 	op := fd.ReadOperator()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	bufAddr := uintptr(unsafe.Pointer(&b[0]))
 	bufLen := uint32(bLen)
 
@@ -30,9 +26,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	op.completion = completeRecv
 	// cylinder
 	cylinder := nextIOURingCylinder()
-
-	// timeout
-	op.tryPrepareTimeout(cylinder)
+	op.setCylinder(cylinder)
 
 	// prepare
 	err := cylinder.prepareRW(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
@@ -64,15 +58,13 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 }
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(Userdata{}, ErrEmptyBytes)
-		return
-	}
 	// op
 	op := fd.ReadOperator()
 	// msg
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
+	}
 	op.msg = &syscall.Msghdr{
 		Name:      (*byte)(unsafe.Pointer(new(syscall.RawSockaddrAny))),
 		Namelen:   syscall.SizeofSockaddrAny,
@@ -105,9 +97,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op.completion = completeRecvMsg
 	// cylinder
 	cylinder := nextIOURingCylinder()
-
-	// timeout
-	op.tryPrepareTimeout(cylinder)
+	op.setCylinder(cylinder)
 
 	// prepare
 	err := cylinder.prepareRW(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), uint32(op.msg.Iovlen), 0, 0, op.ptr())

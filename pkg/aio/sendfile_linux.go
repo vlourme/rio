@@ -61,11 +61,6 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		pipe:   pipe,
 	}
 
-	//op.handle = src
-	//op.n = uint32(remain)
-	//op.msg.Iovlen = uint64(pipe[0])
-	//op.msg.Controllen = uint64(pipe[1])
-
 	// cylinder
 	cylinder := nextIOURingCylinder()
 	entry, getErr := cylinder.getSQE()
@@ -77,6 +72,9 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		op.reset()
 		return
 	}
+	op.setCylinder(cylinder)
+
+	// splice
 	prepareSplice(entry, src, -1, pipe[1], -1, op.sfr.remain, unix.SPLICE_F_NONBLOCK, op.ptr())
 }
 
@@ -96,10 +94,7 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 	fd := op.fd.(*netFd)
 	nop := newOperator(fd)
 	nop.sfr = op.sfr
-	//nop.handle = op.handle
-	//nop.n = op.n                           // size
-	//nop.msg.Iovlen = op.msg.Iovlen         // pipe 0
-	//nop.msg.Controllen = op.msg.Controllen // pipe 1
+
 	nop.callback = op.callback
 	nop.completion = func(result int, cop *Operator, err error) {
 		completeSendfileFromPipe(result, cop, err)
@@ -121,7 +116,9 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 		nop.reset()
 		return
 	}
-
+	nop.setCylinder(cylinder)
+	fd.wop = nop
+	// splice
 	prepareSplice(entry, pipe[0], -1, dst, -1, size, unix.SPLICE_F_NONBLOCK, nop.ptr())
 	runtime.KeepAlive(nop)
 	return

@@ -49,7 +49,7 @@ const maxChunkSizePerCall = int64(0x7fffffff - 1)
 
 func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written int, cb OperationCallback) {
 	op := fd.WriteOperator()
-	op.begin()
+
 	op.completion = completeSendfile
 	op.callback = cb
 
@@ -79,8 +79,13 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 		cb(Userdata{}, os.NewSyscallError("transmit_file", err))
 		// reset op
 		op.reset()
+		runtime.KeepAlive(op)
+		return
 	}
+	// processing
+	op.begin()
 	runtime.KeepAlive(op)
+	return
 }
 
 func completeSendfile(result int, op *Operator, err error) {

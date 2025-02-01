@@ -141,7 +141,6 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 
 	// op
 	op := nfd.ReadOperator()
-	op.begin()
 	// fd
 	op.fd = nfd
 	// callback
@@ -160,6 +159,8 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 		op.reset()
 		return
 	}
+	// processing
+	op.begin()
 	return
 }
 

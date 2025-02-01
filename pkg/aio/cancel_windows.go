@@ -10,5 +10,4 @@ func Cancel(op *Operator) {
 		overlapped := &op.overlapped
 		_ = syscall.CancelIoEx(handle, overlapped)
 	}
-
 }
