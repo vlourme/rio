@@ -4,6 +4,7 @@ package aio
 
 import (
 	"bufio"
+	"net"
 	"os"
 	"syscall"
 )
@@ -52,4 +53,22 @@ func maxAckBacklog(n int) int {
 
 func setDeferAccept(sock int) error {
 	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1))
+}
+
+func newListener(sock int, network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr) *netFd {
+	nfd := &netFd{
+		handle:     sock,
+		network:    network,
+		family:     family,
+		socketType: sotype,
+		protocol:   proto,
+		ipv6only:   ipv6only,
+		localAddr:  addr,
+		remoteAddr: nil,
+		rop:        nil,
+		wop:        nil,
+	}
+	nfd.rop = newOperator(nfd)
+	nfd.wop = newOperator(nfd)
+	return nfd
 }

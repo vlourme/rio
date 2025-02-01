@@ -28,7 +28,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("seek", seekToCurrentErr))
 		return
 	}
-	// find the number of bytes offset from curpos until the end of the file.
+	// find the number of b offset from curpos until the end of the file.
 	remain, seekToEndErr := windows.Seek(src, -curpos, io.SeekEnd)
 	if seekToEndErr != nil {
 		_ = windows.Close(src)

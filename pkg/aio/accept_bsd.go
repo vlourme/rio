@@ -10,57 +10,40 @@ import (
 )
 
 func Accept(fd NetFd, cb OperationCallback) {
-	op := readOperator(fd)
-	op.userdata.Fd = fd
+	op := fd.ReadOperator()
 	op.callback = cb
-	op.completion = func(result int, cop *Operator, err error) {
-		completeAccept(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeAccept
 
 	cylinder := nextKqueueCylinder()
+	op.setCylinder(cylinder)
+
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
+		op.reset()
 	}
 }
 
 func completeAccept(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
-	if err != nil || result == 0 {
-		cb(-1, Userdata{}, err)
+	if err != nil {
+		cb(Userdata{}, err)
 		return
 	}
-	ln := userdata.Fd.(NetFd)
-	timer := op.timer
+	if result == 0 {
+		cb(Userdata{}, ErrBusy)
+		return
+	}
+	ln := op.fd.(NetFd)
 	sock := 0
 	var sa syscall.Sockaddr
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
-			return
-		}
 		sock, sa, err = syscall.Accept4(ln.Fd(), syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) || errors.Is(err, syscall.ECONNABORTED) {
 				continue
 			}
-			cb(-1, Userdata{}, os.NewSyscallError("accept4", err))
+			cb(Userdata{}, os.NewSyscallError("accept4", err))
 			return
 		}
 		break
@@ -70,7 +53,7 @@ func completeAccept(result int, op *Operator, err error) {
 	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
 		_ = syscall.Close(sock)
-		cb(-1, Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)
@@ -87,13 +70,13 @@ func completeAccept(result int, op *Operator, err error) {
 		ipv6only:   ln.IPv6Only(),
 		localAddr:  la,
 		remoteAddr: ra,
-		rop:        Operator{},
-		wop:        Operator{},
+		rop:        nil,
+		wop:        nil,
 	}
-	conn.rop.fd = conn
-	conn.wop.fd = conn
+	conn.rop = newOperator(conn, readOperator)
+	conn.wop = newOperator(conn, writeOperator)
 
-	cb(sock, Userdata{Fd: conn}, nil)
+	cb(Userdata{Fd: conn}, nil)
 	runtime.KeepAlive(ln)
 	return
 }

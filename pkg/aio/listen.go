@@ -26,11 +26,12 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 			proto = tryGetMultipathTCPProto()
 		}
 		fd, err = newListenerFd(network, family, syscall.SOCK_STREAM, proto, ipv6only, addr, nil)
-		if opts.FastOpen > 0 {
-			if err = SetFastOpen(fd, opts.FastOpen); err != nil {
-				CloseImmediately(fd)
-				return
-			}
+		if err == nil && opts.FastOpen > 0 {
+			_ = SetFastOpen(fd, opts.FastOpen)
+			//if err = SetFastOpen(fd, opts.FastOpen); err != nil {
+			//	CloseImmediately(fd)
+			//	return
+			//}
 		}
 		break
 	case "udp", "udp4", "udp6":

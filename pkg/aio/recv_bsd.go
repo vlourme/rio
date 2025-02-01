@@ -7,273 +7,187 @@ import (
 	"io"
 	"runtime"
 	"syscall"
-	"unsafe"
 )
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
+	// op
+	op := fd.ReadOperator()
+	// msg
 	bLen := len(b)
-	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
-		return
-	}
 	if bLen > MaxRW {
 		b = b[:MaxRW]
 	}
+	op.b = b
 
-	op := readOperator(fd)
-	op.userdata.Msg.Append(b)
 	op.callback = cb
-	op.completion = func(result int, cop *Operator, err error) {
-		completeRecv(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeRecv
 
 	cylinder := nextKqueueCylinder()
-	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
-		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
-	}
+	op.setCylinder(cylinder)
 
+	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		cb(Userdata{}, err)
+		// reset
+		op.reset()
+	}
 	return
 }
 
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
 	if err != nil {
 		if errors.Is(err, ErrClosed) && result == 0 {
-			cb(0, userdata, io.EOF)
+			cb(Userdata{}, io.EOF)
 			return
 		}
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
-	if result == 0 {
-		cb(0, userdata, eofError(op.fd, result, err))
+	if result == 0 && op.fd.ZeroReadIsEOF() {
+		cb(Userdata{}, io.EOF)
 		return
 	}
 
 	fd := op.fd.Fd()
-	b := userdata.Msg.Bytes(0)
-	timer := op.timer
+	b := op.b
+	if result > len(b) {
+		b = b[:result]
+	}
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
-			break
-		}
 		n, rErr := syscall.Read(fd, b)
 		if rErr != nil {
 			n = 0
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(n, userdata, rErr)
+			cb(Userdata{}, rErr)
 			break
 		}
-		userdata.QTY = uint32(n)
-		cb(n, userdata, eofError(op.fd, n, nil))
+		if n == 0 && op.fd.ZeroReadIsEOF() {
+			cb(Userdata{}, io.EOF)
+			break
+		}
+		cb(Userdata{N: n}, nil)
 		break
 	}
-	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(b)
 	return
 }
 
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
+	// op
+	op := fd.ReadOperator()
+	// msg
 	bLen := len(b)
-	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
-		return
+	if bLen > MaxRW {
+		b = b[:MaxRW]
 	}
+	op.b = b
 
-	op := readOperator(fd)
-	op.userdata.Msg.Append(b)
 	op.callback = cb
-	op.completion = func(result int, cop *Operator, err error) {
-		completeRecvFrom(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeRecvFrom
 
 	cylinder := nextKqueueCylinder()
+	op.setCylinder(cylinder)
+
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
+		op.reset()
 	}
 	return
 }
 
 func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
+
 	if err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
 	if result == 0 {
-		cb(0, userdata, nil)
+		cb(Userdata{}, nil)
 		return
 	}
 	fd := op.fd.Fd()
-	b := make([]byte, result)
-	timer := op.timer
+	network := op.fd.(NetFd).Network()
+	b := op.b
+	if result > len(b) {
+		b = b[:result]
+	}
+
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, userdata, ErrOperationDeadlineExceeded)
-			break
-		}
 		n, sa, rErr := syscall.Recvfrom(fd, b, 0)
 		if rErr != nil {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(-1, userdata, rErr)
+			cb(Userdata{}, rErr)
 			break
 		}
-		rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
-		if rsaErr != nil {
-			cb(-1, userdata, rsaErr)
-			break
-		}
-		p := userdata.Msg.Bytes(0)
-		pLen := len(p)
-		if pLen >= n {
-			copy(p, b)
-		} else {
-			copy(p, b[0:pLen])
-			remainLen := n - pLen
-			remain := make([]byte, remainLen)
-			copy(remain, b[pLen:])
-			userdata.Msg.Append(remain)
-		}
-		userdata.Msg.Name = (*byte)(unsafe.Pointer(rsa))
-		userdata.Msg.Namelen = uint32(rsaLen)
-		userdata.QTY = uint32(n)
-		cb(n, userdata, nil)
+		addr := SockaddrToAddr(network, sa)
+		cb(Userdata{N: n, Addr: addr}, nil)
 		break
 	}
-	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(b)
 	return
 }
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
+	// op
+	op := fd.ReadOperator()
+	// msg
 	bLen := len(b)
-	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
-		return
+	if bLen > MaxRW {
+		b = b[:MaxRW]
 	}
+	op.b = b
+	op.oob = oob
 
-	op := readOperator(fd)
-	op.userdata.Msg.Append(b)
-	op.userdata.Msg.SetControl(oob)
 	op.callback = cb
-	op.completion = func(result int, cop *Operator, err error) {
-		completeRecvMsg(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeRecvMsg
 
 	cylinder := nextKqueueCylinder()
+	op.setCylinder(cylinder)
+
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
+		op.reset()
 	}
 	return
 }
 
 func completeRecvMsg(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
 	if err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
 	if result == 0 {
-		cb(0, userdata, nil)
+		cb(Userdata{}, nil)
 		return
 	}
 	fd := op.fd.Fd()
-	b := make([]byte, result)
-	oob := userdata.Msg.ControlBytes()
-	timer := op.timer
+	network := op.fd.(NetFd).Network()
+	b := op.b
+	if result > len(b) {
+		b = b[:result]
+	}
+	oob := op.oob
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, userdata, ErrOperationDeadlineExceeded)
-			break
-		}
-		n, oonb, flags, sa, rErr := syscall.Recvmsg(fd, b, oob, 0)
+		n, oobn, flags, sa, rErr := syscall.Recvmsg(fd, b, oob, 0)
 		if rErr != nil {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(-1, userdata, rErr)
+			cb(Userdata{}, rErr)
 			break
 		}
-		rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
-		if rsaErr != nil {
-			cb(-1, userdata, rsaErr)
-			break
-		}
-		p := userdata.Msg.Bytes(0)
-		pLen := len(p)
-		if pLen >= n {
-			copy(p, b)
-		} else {
-			copy(p, b[0:pLen])
-			remainLen := n - pLen
-			remain := make([]byte, remainLen)
-			copy(remain, b[pLen:])
-			userdata.Msg.Append(remain)
-		}
-
-		userdata.Msg.Name = (*byte)(unsafe.Pointer(rsa))
-		userdata.Msg.Namelen = uint32(rsaLen)
-		userdata.QTY = uint32(n)
-		userdata.Msg.Controllen = uint32(oonb)
-		userdata.Msg.SetFlags(uint32(flags))
-
-		cb(n, userdata, nil)
+		addr := SockaddrToAddr(network, sa)
+		cb(Userdata{N: n, OOBN: oobn, Addr: addr, MessageFlags: flags}, nil)
 		break
 	}
-	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(b)
 	return
 }

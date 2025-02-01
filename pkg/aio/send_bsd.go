@@ -11,287 +11,188 @@ import (
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := writeOperator(fd)
-	// check buf
+	op := fd.WriteOperator()
+	// msg
 	bLen := len(b)
-	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
-		return
-	} else if bLen > MaxRW {
+	if bLen > MaxRW {
 		b = b[:MaxRW]
 	}
-	// msg
-	op.userdata.Msg.Append(b)
+	op.b = b
 
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeSend(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	// timeout
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeSend
 
 	cylinder := nextKqueueCylinder()
+	op.setCylinder(cylinder)
+
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
+		op.reset()
 	}
 	return
 }
 
 func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
-	if err != nil || result == 0 {
-		cb(0, userdata, err)
+	if err != nil {
+		cb(Userdata{}, err)
+		return
+	}
+	if result == 0 {
+		cb(Userdata{}, nil)
 		return
 	}
 
 	fd := op.fd.Fd()
-	b := userdata.Msg.Bytes(0)
-	bLen := len(b)
-	if bLen > result {
+	b := op.b
+	if len(b) > result {
 		b = b[:result]
-		bLen = result
 	}
-	timer := op.timer
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
-			break
-		}
 		n, wErr := syscall.Write(fd, b)
 		if wErr != nil {
 			n = 0
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(n, userdata, wErr)
+			cb(Userdata{}, wErr)
 			break
 		}
-		userdata.QTY = uint32(n)
-		cb(n, userdata, nil)
+		cb(Userdata{N: n}, nil)
 		break
 	}
-	runtime.KeepAlive(userdata)
+
+	runtime.KeepAlive(b)
 	return
 }
 
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := writeOperator(fd)
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
-		return
-	}
-	if addr == nil {
-		cb(-1, Userdata{}, ErrNilAddr)
-		return
-	}
+	op := fd.WriteOperator()
 	// msg
-	op.userdata.Msg.Append(b)
-	_, addrErr := op.userdata.Msg.SetAddr(addr)
-	if addrErr != nil {
-		cb(-1, Userdata{}, addrErr)
-		return
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
 	}
+	op.b = b
+	op.sa = AddrToSockaddr(addr)
 
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeSendTo(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	// timeout
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeSendTo
 
 	cylinder := nextKqueueCylinder()
+	op.setCylinder(cylinder)
+
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
+		op.reset()
 	}
 	return
 }
 
 func completeSendTo(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
 	if err != nil {
-		cb(result, userdata, err)
+		cb(Userdata{}, err)
 		return
 	}
 	if result == 0 {
-		cb(0, userdata, nil)
+		cb(Userdata{}, nil)
 		return
 	}
 
 	fd := op.fd.Fd()
-	b := userdata.Msg.Bytes(0)
+	b := op.b
 	bLen := len(b)
 	if bLen > result {
 		b = b[:result]
 		bLen = result
 	}
-	flags := int(userdata.Msg.Flags())
-	addr, addrErr := userdata.Msg.Addr()
-	if addrErr != nil {
-		cb(0, userdata, addrErr)
-		return
-	}
-	sa := AddrToSockaddr(addr)
-
-	timer := op.timer
+	sa := op.sa
+	flags := 0
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
-			break
-		}
 		wErr := syscall.Sendto(fd, b, flags, sa)
 		if wErr != nil {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(-1, Userdata{}, wErr)
+			cb(Userdata{}, wErr)
 			break
 		}
-		userdata.QTY = uint32(bLen)
-		cb(bLen, userdata, nil)
+		cb(Userdata{N: bLen}, nil)
 		break
 	}
-	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(b)
 	return
 }
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := writeOperator(fd)
-	// check buf
-	bLen := len(b)
-	if bLen == 0 {
-		cb(-1, Userdata{}, ErrEmptyBytes)
-		return
-	}
-	if addr == nil {
-		cb(-1, Userdata{}, ErrNilAddr)
-		return
-	}
+	op := fd.WriteOperator()
 	// msg
-	op.userdata.Msg.Append(b)
-	op.userdata.Msg.SetControl(oob)
-	_, addrErr := op.userdata.Msg.SetAddr(addr)
-	if addrErr != nil {
-		cb(-1, Userdata{}, addrErr)
-		return
+	bLen := len(b)
+	if bLen > MaxRW {
+		b = b[:MaxRW]
 	}
+	op.b = b
+	op.oob = oob
+	op.sa = AddrToSockaddr(addr)
 
 	// cb
 	op.callback = cb
 	// completion
-	op.completion = func(result int, cop *Operator, err error) {
-		completeSendMsg(result, cop, err)
-		runtime.KeepAlive(op)
-	}
-
-	// timeout
-	if timeout := op.timeout; timeout > 0 {
-		timer := getOperatorTimer()
-		op.timer = timer
-		timer.Start(timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+	op.completion = completeSendMsg
 
 	cylinder := nextKqueueCylinder()
+	op.setCylinder(cylinder)
+
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
-		cb(-1, Userdata{}, err)
+		cb(Userdata{}, err)
 		// reset
-		op.callback = nil
-		op.completion = nil
-		if timer := op.timer; timer != nil {
-			timer.Done()
-			putOperatorTimer(timer)
-		}
+		op.reset()
 	}
 	return
 }
 
 func completeSendMsg(result int, op *Operator, err error) {
 	cb := op.callback
-	userdata := op.userdata
 	if err != nil {
-		cb(result, userdata, err)
+		cb(Userdata{}, err)
 		return
 	}
 	if result == 0 {
-		cb(0, userdata, nil)
+		cb(Userdata{}, nil)
 		return
 	}
 
 	fd := op.fd.Fd()
-	b := userdata.Msg.Bytes(0)
+	b := op.b
 	bLen := len(b)
 	if bLen > result {
 		b = b[:result]
 		bLen = result
 	}
-	oob := userdata.Msg.ControlBytes()
-	flags := int(userdata.Msg.Flags())
-	addr, addrErr := userdata.Msg.Addr()
-	if addrErr != nil {
-		cb(-1, Userdata{}, addrErr)
-		return
-	}
-	sa := AddrToSockaddr(addr)
-
-	timer := op.timer
+	oob := op.oob
+	flags := 0
+	sa := op.sa
 	for {
-		if timer != nil && timer.DeadlineExceeded() {
-			cb(-1, Userdata{}, ErrOperationDeadlineExceeded)
-			break
-		}
 		wErr := syscall.Sendmsg(fd, b, oob, sa, flags)
 		if wErr != nil {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(-1, Userdata{}, wErr)
+			cb(Userdata{}, wErr)
 			break
 		}
-		userdata.QTY = uint32(bLen)
-		cb(bLen, userdata, nil)
+		cb(Userdata{N: bLen}, nil)
 		break
 	}
-	runtime.KeepAlive(userdata)
+	runtime.KeepAlive(b)
 	return
 }

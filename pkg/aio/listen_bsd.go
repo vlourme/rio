@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"net"
 	"runtime"
 	"syscall"
 )
@@ -36,4 +37,22 @@ func maxListenerBacklog() int {
 
 func setDeferAccept(_ int) error {
 	return nil
+}
+
+func newListener(sock int, network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr) *netFd {
+	nfd := &netFd{
+		handle:     sock,
+		network:    network,
+		family:     family,
+		socketType: sotype,
+		protocol:   proto,
+		ipv6only:   ipv6only,
+		localAddr:  addr,
+		remoteAddr: nil,
+		rop:        nil,
+		wop:        nil,
+	}
+	nfd.rop = newOperator(nfd, readOperator)
+	nfd.wop = newOperator(nfd, writeOperator)
+	return nfd
 }

@@ -8,23 +8,27 @@ import (
 )
 
 func Close(fd Fd, cb OperationCallback) {
-	op := writeOperator(fd)
-	op.userdata.Fd = fd
 	switch fd.(type) {
 	case NetFd:
 		handle := fd.Fd()
 		err := syscall.Close(handle)
 		if err != nil {
-			cb(-1, Userdata{}, err)
+			cb(Userdata{}, err)
 			return
 		}
-		cb(handle, op.userdata, err)
+		cb(Userdata{}, nil)
 		return
 	case FileFd:
-		cb(-1, Userdata{}, errors.New("aio.Operator: close was not supported"))
+		handle := fd.Fd()
+		err := syscall.Close(handle)
+		if err != nil {
+			cb(Userdata{}, err)
+			return
+		}
+		cb(Userdata{}, nil)
 		return
 	default:
-		cb(-1, Userdata{}, errors.New("aio.Operator: close was not supported"))
+		cb(Userdata{}, errors.New("aio.Operator: close was not supported"))
 		return
 	}
 }

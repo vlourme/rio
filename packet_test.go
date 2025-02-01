@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
-	"net"
 	"sync"
 	"testing"
 )
@@ -112,23 +111,19 @@ func TestListenPacketMsg(t *testing.T) {
 		oob, _ := entry.OOB().Next(entry.OOReceived())
 		t.Log("srv read bytes from:", entry.Addr(), entry.Received(), string(p))
 		t.Log("srv read oob from:", entry.Addr(), entry.OOReceived(), string(oob))
-		srv.WriteTo(p[0:entry.Received()], entry.Addr()).OnComplete(func(ctx context.Context, entry int, cause error) {
+
+		srv.WriteMsg(p[0:entry.Received()], nil, entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
 			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
 				return
 			}
-			t.Log("srv write to:", entry)
+			t.Log("srv write to:", entry.Written(), entry.OOBWritten(), entry.UnexpectedError())
 		})
 	})
 
 	cwg := new(sync.WaitGroup)
 	cwg.Add(1)
-	srvAddr, srvAddrErr := net.ResolveUDPAddr("udp", "127.0.0.1:9000")
-	if srvAddrErr != nil {
-		t.Error(srvAddrErr)
-		return
-	}
 	rio.Dial(ctx, "udp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, cause error) {
 		if cause != nil {
 			t.Error("cli read dial err:", cause)
@@ -136,14 +131,14 @@ func TestListenPacketMsg(t *testing.T) {
 			return
 		}
 		pack := conn.(rio.PacketConnection)
-		pack.WriteMsg([]byte("hello world"), []byte("oob"), srvAddr).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
+		pack.Write([]byte("hello world")).OnComplete(func(ctx context.Context, n int, cause error) {
 			if cause != nil {
 				t.Error("cli write err:", cause)
 				cwg.Done()
 				return
 			}
-			t.Log("cli write:", entry.Written(), entry.OOBWrote())
-			pack.ReadFrom().OnComplete(func(ctx context.Context, entry transport.PacketInbound, cause error) {
+			t.Log("cli write:", n)
+			pack.Read().OnComplete(func(ctx context.Context, entry transport.Inbound, cause error) {
 				if cause != nil {
 					t.Error("cli read err:", cause)
 					cwg.Done()
