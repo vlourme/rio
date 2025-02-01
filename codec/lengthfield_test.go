@@ -28,7 +28,7 @@ func TestLengthFieldDecode(t *testing.T) {
 	wg.Add(1)
 	codec.LengthFieldDecode(ctx, r, 8).OnComplete(func(ctx context.Context, msg []byte, err error) {
 		if err != nil {
-			if async.IsEOF(err) {
+			if async.IsCanceled(err) {
 				wg.Done()
 				return
 			}
