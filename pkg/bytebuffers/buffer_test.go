@@ -35,10 +35,7 @@ func TestBuffer_Allocate(t *testing.T) {
 		t.Fatal(allocateErr)
 	}
 	copy(p, "abc")
-	awErr := buf.AllocatedWrote(3)
-	if awErr != nil {
-		t.Fatal(awErr)
-	}
+	buf.AllocatedWrote(3)
 	_, _ = buf.Write([]byte("012"))
 	t.Log(string(buf.Peek(100)))
 }
