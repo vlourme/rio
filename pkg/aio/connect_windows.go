@@ -8,13 +8,12 @@ import (
 	"net"
 	"os"
 	"syscall"
-	"time"
 )
 
-func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, timeout time.Duration, cb OperationCallback) {
+func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, cb OperationCallback) {
 	// stream
 	if sotype == syscall.SOCK_STREAM {
-		connectEx(network, family, sotype, proto, ipv6only, raddr, timeout, cb)
+		connectEx(network, family, sotype, proto, ipv6only, raddr, cb)
 		return
 	}
 	// packet
@@ -93,7 +92,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	return
 }
 
-func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, timeout time.Duration, cb OperationCallback) {
+func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, cb OperationCallback) {
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
 		cb(Userdata{}, sockErr)
@@ -142,16 +141,14 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 
 	// op
 	op := nfd.ReadOperator()
+	op.begin()
+	// fd
 	op.fd = nfd
 	// callback
 	op.callback = cb
 	// completion
 	op.completion = completeConnectEx
-	// timeout
-	if timeout > 0 {
-		op.timeout = timeout
-		op.tryPrepareTimeout()
-	}
+
 	// overlapped
 	overlapped := &op.overlapped
 
@@ -167,9 +164,6 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 }
 
 func completeConnectEx(_ int, op *Operator, err error) {
-	if op.timeout > 0 {
-		op.timeout = 0
-	}
 	nfd := op.fd.(*netFd)
 	handle := syscall.Handle(nfd.Fd())
 	if err != nil {

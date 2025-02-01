@@ -17,6 +17,7 @@ type SendfileResult struct {
 
 func newOperator(fd Fd) *Operator {
 	return &Operator{
+		cylinder:   nil,
 		fd:         fd,
 		handle:     -1,
 		n:          0,
@@ -32,6 +33,7 @@ func newOperator(fd Fd) *Operator {
 }
 
 type Operator struct {
+	cylinder   *IOURingCylinder
 	fd         Fd
 	handle     int
 	n          uint32
@@ -43,6 +45,10 @@ type Operator struct {
 	completion OperatorCompletion
 	timeout    time.Duration
 	timer      *operatorTimer
+}
+
+func (op *Operator) setCylinder(cylinder *IOURingCylinder) {
+	op.cylinder = cylinder
 }
 
 func (op *Operator) tryPrepareTimeout(cylinder *IOURingCylinder) {
@@ -71,6 +77,7 @@ func (op *Operator) tryResetTimeout() {
 }
 
 func (op *Operator) reset() {
+	op.cylinder = nil
 	op.handle = -1
 	op.n = 0
 	op.oobn = 0
@@ -100,7 +107,7 @@ func (canceler *operatorCanceler) Cancel() {
 		if err == nil {
 			break
 		}
-		if IsBusyError(err) {
+		if IsBusy(err) {
 			continue
 		}
 	}

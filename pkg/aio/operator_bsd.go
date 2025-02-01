@@ -18,22 +18,46 @@ const (
 	writeOperator
 )
 
+type SendfileResult struct {
+	file    int
+	curpos  int64
+	remain  int64
+	written int
+}
 type Operator struct {
+	cylinder *KqueueCylinder
 	kind     operatorKind
 	userdata Userdata
 	fd       Fd
 	handle   int
 	n        uint32
+	oobn     uint32
+	rsa      *syscall.RawSockaddrAny
+	msg      *syscall.Msghdr
+	sfr      *SendfileResult
 	// todo
-	cn         uint32
-	addr       net.Addr
-	msg        Message // todo remove
 	locker     sync.Mutex
 	done       bool
 	callback   OperationCallback
 	completion OperatorCompletion
 	timeout    time.Duration
 	timer      *operatorTimer
+}
+
+func (op *Operator) setCylinder(cylinder *KqueueCylinder) {
+	op.cylinder = cylinder
+}
+
+func (op *Operator) reset() {
+	op.cylinder = nil
+	op.handle = -1
+	op.n = 0
+	op.oobn = 0
+	op.rsa = nil
+	op.msg = nil
+	op.sfr = nil
+	op.callback = nil
+	op.completion = nil
 }
 
 type operatorCanceler struct {

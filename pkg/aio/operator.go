@@ -37,10 +37,10 @@ const (
 )
 
 func NewOpErr(op string, fd NetFd, err error) *net.OpError {
-	var ope *net.OpError
-	if ok := errors.As(err, &ope); ok && ope != nil {
-		return ope
-	}
+	//var ope *net.OpError
+	//if ok := errors.As(err, &ope); ok && ope != nil {
+	//	return ope
+	//}
 	return &net.OpError{
 		Op:     op,
 		Net:    fd.Network(),

@@ -70,24 +70,23 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		ctx = rxp.With(ctx, getExecutors())
 	}
 
-	// promise make options
+	// promise
 	promiseMakeOptions := opts.PromiseMakeOptions
-	if len(promiseMakeOptions) > 0 {
-		ctx = async.WithOptions(ctx, promiseMakeOptions...)
+	if timeout := opts.DialTimeout; timeout > 0 {
+		promiseMakeOptions = append(promiseMakeOptions, async.WithTimeout(timeout))
 	}
-
-	promise, promiseErr := async.Make[Connection](ctx)
+	promise, promiseErr := async.Make[Connection](ctx, promiseMakeOptions...)
 	if promiseErr != nil {
 		future = async.FailedImmediately[Connection](ctx, promiseErr)
 		return
 	}
 	future = promise.Future()
 
+	// execute
 	executed := rxp.TryExecute(ctx, func() {
 		connectOpts := aio.ConnectOptions{
 			MultipathTCP: opts.MultipathTCP,
 			LocalAddr:    opts.LocalAddr,
-			Timeout:      opts.DialTimeout,
 		}
 		aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 			if err != nil {
@@ -163,7 +162,9 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			if opts.TLSConnectionBuilder != nil {
 				conn = opts.TLSConnectionBuilder.Client(conn)
 			}
-			promise.Succeed(conn)
+			if !promise.Succeed(conn) {
+				conn.Close().OnComplete(async.DiscardVoidHandler)
+			}
 			return
 		})
 	})

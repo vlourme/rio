@@ -3,15 +3,12 @@ package aio
 import (
 	"net"
 	"syscall"
-	"time"
 )
 
 type Fd interface {
 	Fd() int
 	ReadOperator() *Operator
 	WriteOperator() *Operator
-	SetReadTimeout(d time.Duration)
-	SetWriteTimeout(d time.Duration)
 	ZeroReadIsEOF() bool
 }
 
@@ -45,18 +42,6 @@ func (fd *fileFd) ZeroReadIsEOF() bool {
 
 func (fd *fileFd) Path() string {
 	return fd.path
-}
-
-func (fd *fileFd) SetReadTimeout(d time.Duration) {
-	if fd.rop != nil && d > -1 {
-		fd.rop.timeout = d
-	}
-}
-
-func (fd *fileFd) SetWriteTimeout(d time.Duration) {
-	if fd.wop != nil && d > -1 {
-		fd.wop.timeout = d
-	}
 }
 
 type NetFd interface {
@@ -125,16 +110,4 @@ func (s *netFd) ReadOperator() *Operator {
 
 func (s *netFd) WriteOperator() *Operator {
 	return s.wop
-}
-
-func (s *netFd) SetReadTimeout(d time.Duration) {
-	if s.rop != nil && d > -1 {
-		s.rop.timeout = d
-	}
-}
-
-func (s *netFd) SetWriteTimeout(d time.Duration) {
-	if s.wop != nil && d > -1 {
-		s.wop.timeout = d
-	}
 }

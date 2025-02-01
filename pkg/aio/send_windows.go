@@ -22,6 +22,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	}
 	// op
 	op := fd.WriteOperator()
+	op.begin()
 	// msg
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -32,9 +33,6 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	op.callback = cb
 	// completion
 	op.completion = completeSend
-
-	// timeout
-	op.tryPrepareTimeout()
 
 	// overlapped
 	overlapped := &op.overlapped
@@ -75,6 +73,7 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	}
 	// op
 	op := fd.WriteOperator()
+	op.begin()
 	// msg
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -86,9 +85,6 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	op.callback = cb
 	// completion
 	op.completion = completeSendTo
-
-	// timeout
-	op.tryPrepareTimeout()
 
 	// overlapped
 	overlapped := &op.overlapped
@@ -137,6 +133,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	// op
 	op := fd.WriteOperator()
+	op.begin()
 	// msg
 	op.msg = &windows.WSAMsg{
 		Name:    rsa,
@@ -158,9 +155,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.callback = cb
 	// completion
 	op.completion = completeSendMsg
-
-	// timeout
-	op.tryPrepareTimeout()
 
 	// overlapped
 	overlapped := &op.overlapped

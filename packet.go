@@ -42,29 +42,29 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrClosed)
 		return
 	}
-	promise, promiseErr := async.Make[transport.PacketInbound](conn.ctx)
+
+	var promise async.Promise[transport.PacketInbound]
+	var promiseErr error
+	if conn.readTimeout > 0 {
+		promise, promiseErr = async.Make[transport.PacketInbound](conn.ctx, async.WithTimeout(conn.readTimeout))
+	} else {
+		promise, promiseErr = async.Make[transport.PacketInbound](conn.ctx)
+	}
 	if promiseErr != nil {
-		_ = conn.rb.AllocatedWrote(0)
-		if async.IsExecutorsClosed(promiseErr) {
-			future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrClosed)
-			aio.CloseImmediately(conn.fd)
-		} else {
-			future = async.FailedImmediately[transport.PacketInbound](conn.ctx, promiseErr)
-		}
+		conn.rb.AllocatedWrote(0)
+		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, promiseErr)
 		return
 	}
+	promise.SetErrInterceptor(conn.handleReadFromErrInterceptor)
 
 	aio.RecvFrom(conn.fd, b, func(userdata aio.Userdata, err error) {
+		n := userdata.N
+		conn.rb.AllocatedWrote(n)
 		if err != nil {
-			_ = conn.rb.AllocatedWrote(0)
 			promise.Fail(aio.NewOpErr(aio.OpReadFrom, conn.fd, err))
 			return
 		}
-		n := userdata.N
-		if awErr := conn.rb.AllocatedWrote(n); awErr != nil {
-			promise.Fail(errors.Join(ErrAllocateWritten, awErr))
-			return
-		}
+
 		addr := userdata.Addr
 		inbound := transport.NewPacketInbound(conn.rb, addr, n)
 		promise.Succeed(inbound)
@@ -88,22 +88,25 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 		future = async.FailedImmediately[int](conn.ctx, ErrClosed)
 		return
 	}
-	promise, promiseErr := async.Make[int](conn.ctx)
+	var promise async.Promise[int]
+	var promiseErr error
+	if conn.writeTimeout > 0 {
+		promise, promiseErr = async.Make[int](conn.ctx, async.WithTimeout(conn.writeTimeout))
+	} else {
+		promise, promiseErr = async.Make[int](conn.ctx)
+	}
 	if promiseErr != nil {
-		if async.IsExecutorsClosed(promiseErr) {
-			future = async.FailedImmediately[int](conn.ctx, ErrClosed)
-			aio.CloseImmediately(conn.fd)
-		} else {
-			future = async.FailedImmediately[int](conn.ctx, promiseErr)
-		}
+		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
+	promise.SetErrInterceptor(conn.handleWriteToErrInterceptor)
 
 	aio.SendTo(conn.fd, b, addr, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			err = aio.NewOpWithAddrErr(aio.OpWriteTo, conn.fd, addr, err)
 		}
-		promise.Complete(userdata.N, err)
+		n := userdata.N
+		promise.Complete(n, err)
 		return
 	})
 
@@ -126,7 +129,7 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	}
 	oob, allocateOOBErr := conn.oob.Allocate(conn.oobn)
 	if allocateOOBErr != nil {
-		_ = conn.rb.AllocatedWrote(0)
+		conn.rb.AllocatedWrote(0)
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, errors.Join(ErrAllocate, allocateOOBErr))
 		return
 	}
@@ -134,36 +137,35 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrClosed)
 		return
 	}
-	promise, promiseErr := async.Make[transport.PacketMsgInbound](conn.ctx)
+
+	var promise async.Promise[transport.PacketMsgInbound]
+	var promiseErr error
+	if conn.readTimeout > 0 {
+		promise, promiseErr = async.Make[transport.PacketMsgInbound](conn.ctx, async.WithTimeout(conn.readTimeout))
+	} else {
+		promise, promiseErr = async.Make[transport.PacketMsgInbound](conn.ctx)
+	}
 	if promiseErr != nil {
-		_ = conn.rb.AllocatedWrote(0)
-		_ = conn.oob.AllocatedWrote(0)
-		if async.IsExecutorsClosed(promiseErr) {
-			future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrClosed)
-			aio.CloseImmediately(conn.fd)
-		} else {
-			future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, promiseErr)
-		}
+		conn.rb.AllocatedWrote(0)
+		conn.oob.AllocatedWrote(0)
+		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, promiseErr)
 		return
 	}
+	promise.SetErrInterceptor(conn.handleReadMsgErrInterceptor)
 
 	aio.RecvMsg(conn.fd, b, oob, func(userdata aio.Userdata, err error) {
 		if err != nil {
-			_ = conn.rb.AllocatedWrote(0)
-			_ = conn.oob.AllocatedWrote(0)
+			conn.rb.AllocatedWrote(0)
+			conn.oob.AllocatedWrote(0)
 			promise.Fail(aio.NewOpErr(aio.OpReadMsg, conn.fd, err))
 			return
 		}
 		n := userdata.N
-		if awErr := conn.rb.AllocatedWrote(n); awErr != nil {
-			promise.Fail(errors.Join(ErrAllocateWritten, awErr))
-			return
-		}
+		conn.rb.AllocatedWrote(n)
+
 		oobn := userdata.OOBN
-		if awErr := conn.oob.AllocatedWrote(oobn); awErr != nil {
-			promise.Fail(errors.Join(ErrAllocateWritten, awErr))
-			return
-		}
+		conn.oob.AllocatedWrote(oobn)
+
 		addr := userdata.Addr
 		flags := userdata.MessageFlags
 		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
@@ -188,30 +190,34 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrClosed)
 		return
 	}
-	promise, promiseErr := async.Make[transport.PacketMsgOutbound](conn.ctx)
+
+	var promise async.Promise[transport.PacketMsgOutbound]
+	var promiseErr error
+	if conn.writeTimeout > 0 {
+		promise, promiseErr = async.Make[transport.PacketMsgOutbound](conn.ctx, async.WithTimeout(conn.writeTimeout))
+	} else {
+		promise, promiseErr = async.Make[transport.PacketMsgOutbound](conn.ctx)
+	}
 	if promiseErr != nil {
-		if async.IsExecutorsClosed(promiseErr) {
-			future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrClosed)
-			aio.CloseImmediately(conn.fd)
-		} else {
-			future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, promiseErr)
-		}
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, promiseErr)
 		return
 	}
+	promise.SetErrInterceptor(conn.handleWriteMsgErrInterceptor)
 
 	aio.SendMsg(conn.fd, b, oob, addr, func(userdata aio.Userdata, err error) {
+		n := userdata.N
 		oobn := userdata.OOBN
 		if err != nil {
-			err = aio.NewOpErr(aio.OpWriteMsg, conn.fd, err)
-			if userdata.N == 0 {
+			err = aio.NewOpWithAddrErr(aio.OpWriteMsg, conn.fd, addr, err)
+			if n == 0 {
 				promise.Fail(err)
 			} else {
-				outbound := transport.NewPacketMsgOutbound(userdata.N, oobn, err)
+				outbound := transport.NewPacketMsgOutbound(n, oobn, err)
 				promise.Succeed(outbound)
 			}
 			return
 		}
-		outbound := transport.NewPacketMsgOutbound(userdata.N, oobn, nil)
+		outbound := transport.NewPacketMsgOutbound(n, oobn, nil)
 		promise.Succeed(outbound)
 		return
 	})
@@ -238,5 +244,45 @@ func (conn *packetConnection) Close() (future async.Future[async.Void]) {
 		conn.oob.Close()
 	})
 	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) handleReadFromErrInterceptor(ctx context.Context, inbound transport.PacketInbound, err error) (future async.Future[transport.PacketInbound]) {
+	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
+		aio.Cancel(conn.fd.ReadOperator())
+	} else if IsShutdown(err) {
+		aio.CloseImmediately(conn.fd)
+	}
+	future = async.Immediately[transport.PacketInbound](ctx, inbound, err)
+	return
+}
+
+func (conn *packetConnection) handleWriteToErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
+	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
+		aio.Cancel(conn.fd.WriteOperator())
+	} else if IsShutdown(err) {
+		aio.CloseImmediately(conn.fd)
+	}
+	future = async.Immediately[int](ctx, n, err)
+	return
+}
+
+func (conn *packetConnection) handleReadMsgErrInterceptor(ctx context.Context, inbound transport.PacketMsgInbound, err error) (future async.Future[transport.PacketMsgInbound]) {
+	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
+		aio.Cancel(conn.fd.ReadOperator())
+	} else if IsShutdown(err) {
+		aio.CloseImmediately(conn.fd)
+	}
+	future = async.Immediately[transport.PacketMsgInbound](ctx, inbound, err)
+	return
+}
+
+func (conn *packetConnection) handleWriteMsgErrInterceptor(ctx context.Context, outbound transport.PacketMsgOutbound, err error) (future async.Future[transport.PacketMsgOutbound]) {
+	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
+		aio.Cancel(conn.fd.WriteOperator())
+	} else if IsShutdown(err) {
+		aio.CloseImmediately(conn.fd)
+	}
+	future = async.Immediately[transport.PacketMsgOutbound](ctx, outbound, err)
 	return
 }

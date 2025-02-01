@@ -63,17 +63,25 @@ func WithFastOpen(n int) Option {
 	}
 }
 
+// Listener
+// 监听器
 type Listener interface {
+	// Addr
+	// 地址
 	Addr() (addr net.Addr)
-	// Accept
-	// 准备接收一个链接
-	//
-	// 接收器是一个流，无需多次调用，当关闭时会返回一个 context.Canceled 错误。
-	// 注意：当具备并行接收时，未来的 handler 是线程不安全的。
-	Accept() (future async.Future[Connection])
+	// OnAccept
+	// 准备接收一个链接。
+	// 当服务关闭时，得到一个 async.Canceled 错误。可以使用 async.IsCanceled 进行判断。
+	// 当得到错误时，务必不要退出 OnAccept，请以是否收到 async.Canceled 来决定退出。
+	// 不支持多次调用。
+	OnAccept(fn func(ctx context.Context, conn Connection, err error))
+	// Close
+	// 关闭
 	Close() (future async.Future[async.Void])
 }
 
+// Listen
+// 监听流
 func Listen(ctx context.Context, network string, addr string, options ...Option) (ln Listener, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -129,9 +137,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
 		return
 	}
-	// running
-	running := new(atomic.Bool)
-	running.Store(true)
 
 	// promise make options
 	promiseMakeOptions := opt.PromiseMakeOptions
@@ -142,7 +147,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	// create
 	ln = &listener{
 		ctx:                  ctx,
-		running:              running,
+		running:              atomic.Bool{},
 		network:              network,
 		fd:                   fd,
 		unlinkOnClose:        unlinkOnClose,
@@ -155,12 +160,13 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		parallelAcceptors:    parallelAcceptors,
 		acceptorPromises:     acceptorPromises,
 	}
+
 	return
 }
 
 type listener struct {
 	ctx                  context.Context
-	running              *atomic.Bool
+	running              atomic.Bool
 	network              string
 	fd                   aio.NetFd
 	unlinkOnClose        bool
@@ -179,22 +185,37 @@ func (ln *listener) Addr() (addr net.Addr) {
 	return
 }
 
-func (ln *listener) Accept() (future async.Future[Connection]) {
-	for i := 0; i < ln.parallelAcceptors; i++ {
-		ln.acceptOne()
+func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err error)) {
+	if ln.running.CompareAndSwap(false, true) {
+		for i := 0; i < ln.parallelAcceptors; i++ {
+			ln.acceptOne()
+		}
+		future := ln.acceptorPromises.Future()
+		future.OnComplete(fn)
+	} else {
+		fn(ln.ctx, nil, errors.New("rio: listener already accepting"))
 	}
-	future = ln.acceptorPromises.Future()
+}
+
+func (ln *listener) Accept() (future async.Future[Connection]) {
+	if ln.running.CompareAndSwap(false, true) {
+		for i := 0; i < ln.parallelAcceptors; i++ {
+			ln.acceptOne()
+		}
+		future = ln.acceptorPromises.Future()
+	} else {
+		future = async.FailedImmediately[Connection](ln.ctx, errors.New("rio: listener already accepting"))
+	}
 	return
 }
 
 func (ln *listener) Close() (future async.Future[async.Void]) {
-	if !ln.running.Load() {
+	if !ln.running.CompareAndSwap(true, false) {
 		return
 	}
-	ln.running.Store(false)
 	// cancel acceptor
 	ln.acceptorPromises.Cancel()
-
+	// close fd
 	promise, promiseErr := async.Make[async.Void](ln.ctx, async.WithUnlimitedMode())
 	if promiseErr != nil {
 		if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
@@ -241,15 +262,13 @@ func (ln *listener) acceptOne() {
 	aio.Accept(ln.fd, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			if aio.IsUnexpectedCompletionError(err) {
-				// shutdown then close ln
+				ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
 				if ln.ok() {
-					ln.running.Store(false)
-					aio.CloseImmediately(ln.fd)
-					ln.acceptorPromises.Cancel()
+					ln.Close()
 				}
 				return
 			}
-			if aio.IsBusyError(err) {
+			if aio.IsBusy(err) {
 				// discard error when busy and try again
 				ln.acceptOne()
 				return
@@ -333,6 +352,7 @@ func WithMulticastUDPInterface(iface *net.Interface) Option {
 }
 
 // ListenPacket
+// 监听包
 func ListenPacket(ctx context.Context, network string, addr string, options ...Option) (conn PacketConnection, err error) {
 	opts := ListenPacketOptions{}
 	for _, o := range options {

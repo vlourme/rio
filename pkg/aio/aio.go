@@ -18,15 +18,11 @@ func IsUnexpectedCompletionError(err error) bool {
 	return errors.Is(err, ErrUnexpectedCompletion)
 }
 
-func IsOperationDeadlineExceededError(err error) bool {
-	return errors.Is(err, ErrOperationDeadlineExceeded)
-}
-
 func IsEmptyBytesError(err error) bool {
 	return errors.Is(err, ErrEmptyBytes)
 }
 
-func IsBusyError(err error) bool {
+func IsBusy(err error) bool {
 	return errors.Is(err, ErrBusy)
 }
 

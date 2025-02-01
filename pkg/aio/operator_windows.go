@@ -5,7 +5,6 @@ package aio
 import (
 	"golang.org/x/sys/windows"
 	"syscall"
-	"time"
 )
 
 type SendfileResult struct {
@@ -27,13 +26,12 @@ func newOperator(fd Fd) *Operator {
 		sfr:        nil,
 		callback:   nil,
 		completion: nil,
-		timeout:    0,
-		timer:      nil,
 	}
 }
 
 type Operator struct {
 	overlapped syscall.Overlapped
+	processing bool
 	fd         Fd
 	handle     int
 	n          uint32
@@ -43,58 +41,47 @@ type Operator struct {
 	sfr        *SendfileResult
 	callback   OperationCallback
 	completion OperatorCompletion
-	timeout    time.Duration
-	timer      *operatorTimer
 }
 
-func (op *Operator) tryPrepareTimeout() {
-	if op.timeout > 0 {
-		op.timer = getOperatorTimer()
-		op.timer.Start(op.timeout, &operatorCanceler{
-			op: op,
-		})
-	}
+func (op *Operator) Processing() bool {
+	return op.processing
 }
 
-func (op *Operator) deadlineExceeded() (ok bool) {
-	if timer := op.timer; timer != nil {
-		ok = timer.DeadlineExceeded()
-	}
-	return
+func (op *Operator) begin() {
+	op.processing = true
 }
 
-func (op *Operator) tryResetTimeout() {
-	if timer := op.timer; timer != nil {
-		timer.Done()
-		putOperatorTimer(timer)
-		op.timer = nil
-	}
+func (op *Operator) end() {
+	op.processing = false
 }
 
 func (op *Operator) reset() {
 	op.overlapped = syscall.Overlapped{}
-	op.handle = -1
-	op.n = 0
-	op.oobn = 0
-	op.rsa = nil
-	op.msg = nil
-	op.sfr = nil
-	op.callback = nil
-	op.completion = nil
-	op.tryResetTimeout()
-}
-
-type operatorCanceler struct {
-	op *Operator
-}
-
-func (canceler *operatorCanceler) Cancel() {
-	if op := canceler.op; op != nil {
-		if fd := op.fd; fd != nil {
-			handle := syscall.Handle(fd.Fd())
-			overlapped := &op.overlapped
-			_ = syscall.CancelIoEx(handle, overlapped)
-
-		}
+	if op.processing {
+		op.processing = false
+	}
+	if op.handle == -1 {
+		op.handle = -1
+	}
+	if op.n > 0 {
+		op.n = 0
+	}
+	if op.oobn > 0 {
+		op.oobn = 0
+	}
+	if op.rsa != nil {
+		op.rsa = nil
+	}
+	if op.msg != nil {
+		op.msg = nil
+	}
+	if op.sfr != nil {
+		op.sfr = nil
+	}
+	if op.callback != nil {
+		op.callback = nil
+	}
+	if op.completion != nil {
+		op.completion = nil
 	}
 }

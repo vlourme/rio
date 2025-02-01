@@ -22,6 +22,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	}
 	// op
 	op := fd.ReadOperator()
+	op.begin()
 	// msg
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -33,9 +34,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	op.callback = cb
 	// completion
 	op.completion = completeRecv
-
-	// timeout
-	op.tryPrepareTimeout()
 
 	// overlapped
 	overlapped := &op.overlapped
@@ -80,6 +78,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	}
 	// op
 	op := fd.ReadOperator()
+	op.begin()
 	// msg
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -94,9 +93,6 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	op.callback = cb
 	// completion
 	op.completion = completeRecvFrom
-
-	// timeout
-	op.tryPrepareTimeout()
 
 	// overlapped
 	overlapped := &op.overlapped
@@ -148,6 +144,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	}
 	// op
 	op := fd.ReadOperator()
+	op.begin()
 	// msg
 	rsa := syscall.RawSockaddrAny{}
 	rsaLen := int32(unsafe.Sizeof(rsa))
@@ -174,9 +171,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op.callback = cb
 	// completion
 	op.completion = completeRecvMsg
-
-	// timeout
-	op.tryPrepareTimeout()
 
 	// overlapped
 	overlapped := &op.overlapped

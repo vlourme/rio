@@ -127,16 +127,12 @@ func (cylinder *IOCPCylinder) Loop() {
 		}
 		// convert to op
 		op := (*Operator)(unsafe.Pointer(overlapped))
+		op.end()
 		// handle iocp errors
 		if getQueuedCompletionStatusErr != nil {
 			// handle timeout
-			if op.deadlineExceeded() {
-				getQueuedCompletionStatusErr = errors.Join(ErrOperationDeadlineExceeded, getQueuedCompletionStatusErr)
-			}
 			getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
 		}
-		// try reset timeout
-		op.tryResetTimeout()
 		// complete
 		if completion := op.completion; completion != nil {
 			completion(int(qty), op, getQueuedCompletionStatusErr)

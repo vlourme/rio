@@ -49,6 +49,7 @@ const maxChunkSizePerCall = int64(0x7fffffff - 1)
 
 func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written int, cb OperationCallback) {
 	op := fd.WriteOperator()
+	op.begin()
 	op.completion = completeSendfile
 	op.callback = cb
 
@@ -71,9 +72,6 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 
 	dst := windows.Handle(fd.Fd())
 
-	// timeout
-	op.tryPrepareTimeout()
-
 	err := windows.TransmitFile(dst, file, op.n, 0, wsaOverlapped, nil, windows.TF_WRITE_BEHIND)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		_ = windows.Close(file)
@@ -86,7 +84,7 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 }
 
 func completeSendfile(result int, op *Operator, err error) {
-	src := windows.Handle(op.sfr.file)
+	src := op.sfr.file
 
 	if err != nil {
 		_ = windows.Close(src)
@@ -112,7 +110,6 @@ func completeSendfile(result int, op *Operator, err error) {
 		dstFd := op.fd.(*netFd)
 		cb := op.callback
 		nop := newOperator(dstFd)
-		nop.timeout = dstFd.wop.timeout
 		dstFd.wop = nop
 		sendfile(dstFd, src, curpos, remain, written, cb)
 		return

@@ -61,26 +61,45 @@ func (conn *tcpConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err e
 
 func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if len(file) == 0 {
-		future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, errors.New("no file specified")))
+		future = async.FailedImmediately[int](conn.ctx, errors.New("no file specified"))
 		return
 	}
 	if conn.disconnected() {
 		future = async.FailedImmediately[int](conn.ctx, ErrClosed)
 		return
 	}
-	promise, promiseErr := async.Make[int](conn.ctx)
+
+	var promise async.Promise[int]
+	var promiseErr error
+	if conn.writeTimeout > 0 {
+		promise, promiseErr = async.Make[int](conn.ctx, async.WithTimeout(conn.writeTimeout))
+	} else {
+		promise, promiseErr = async.Make[int](conn.ctx)
+	}
 	if promiseErr != nil {
-		future = async.FailedImmediately[int](conn.ctx, aio.NewOpErr(aio.OpSendfile, conn.fd, promiseErr))
+		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
+	promise.SetErrInterceptor(conn.handleSendfileErrInterceptor)
+
 	aio.Sendfile(conn.fd, file, func(userdata aio.Userdata, err error) {
-		if err != nil {
-			err = aio.NewOpErr(aio.OpSendfile, conn.fd, err)
-		}
-		promise.Complete(userdata.N, err)
+		n := userdata.N
+		promise.Complete(n, err)
 		return
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *tcpConnection) handleSendfileErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
+	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
+		aio.Cancel(conn.fd.WriteOperator())
+	} else if IsShutdown(err) {
+		aio.CloseImmediately(conn.fd)
+	}
+
+	err = aio.NewOpErr(aio.OpSendfile, conn.fd, err)
+	future = async.Immediately[int](ctx, n, err)
 	return
 }

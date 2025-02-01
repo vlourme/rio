@@ -21,7 +21,7 @@ type Buffer interface {
 	Index(delim byte) (i int)
 	Write(p []byte) (n int, err error)
 	Allocate(size int) (p []byte, err error)
-	AllocatedWrote(n int) (err error)
+	AllocatedWrote(n int)
 	WritePending() bool
 	Reset()
 	Close() (err error)
@@ -222,7 +222,7 @@ func (buf *buffer) Allocate(size int) (p []byte, err error) {
 	return
 }
 
-func (buf *buffer) AllocatedWrote(n int) (err error) {
+func (buf *buffer) AllocatedWrote(n int) {
 	if buf.a == buf.w {
 		return
 	}

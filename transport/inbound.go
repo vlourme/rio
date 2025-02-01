@@ -19,7 +19,7 @@ type InboundReader interface {
 type InboundBuffer interface {
 	InboundReader
 	Allocate(size int) (b []byte, err error)
-	AllocatedWrote(n int) (err error)
+	AllocatedWrote(n int)
 	Write(b []byte) (n int, err error)
 	Close()
 }
@@ -52,9 +52,9 @@ func (buf *inboundBuffer) Allocate(size int) (b []byte, err error) {
 	return
 }
 
-func (buf *inboundBuffer) AllocatedWrote(n int) (err error) {
+func (buf *inboundBuffer) AllocatedWrote(n int) {
 	if buf.b != nil {
-		err = buf.b.AllocatedWrote(n)
+		buf.b.AllocatedWrote(n)
 	}
 	return
 }
@@ -144,9 +144,7 @@ func (buf *inboundBuffer) Length() (n int) {
 func (buf *inboundBuffer) Close() {
 	if buf.b != nil {
 		if buf.b.WritePending() {
-			if awErr := buf.b.AllocatedWrote(0); awErr != nil {
-				return
-			}
+			buf.b.AllocatedWrote(0)
 		}
 		putBuffer(buf.b)
 		buf.b = nil
