@@ -64,7 +64,7 @@ func completeSend(result int, op *Operator, err error) {
 			op.n = uint32(result)
 			return
 		}
-		if op.cqeFlags&cqeFNotify != 0 {
+		if op.cqeFlags&cqeFNotification != 0 {
 			op.hijacked = false
 			op.callback(Userdata{N: int(op.n)}, nil)
 		}
@@ -152,12 +152,13 @@ func completeSendMsg(result int, op *Operator, err error) {
 		if op.cqeFlags&cqeFMore != 0 {
 			op.hijacked = true
 			op.n = uint32(result)
-			op.oobn = op.msg.Controllen
 			return
 		}
-		if op.cqeFlags&cqeFNotify != 0 {
+		if op.cqeFlags&cqeFNotification != 0 {
 			op.hijacked = false
-			op.callback(Userdata{N: int(op.n), OOBN: int(op.oobn)}, nil)
+			n := int(op.n)
+			oobn := int(op.msg.Controllen)
+			op.callback(Userdata{N: n, OOBN: oobn}, nil)
 		}
 		return
 	}

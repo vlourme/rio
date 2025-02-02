@@ -1323,7 +1323,7 @@ const (
 	cqeFBuffer uint32 = 1 << iota
 	cqeFMore
 	cqeFSockNonEmpty
-	cqeFNotify
+	cqeFNotification
 	cqeFBufMore
 )
 
