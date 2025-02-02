@@ -1,6 +1,7 @@
 package aio
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
@@ -79,6 +80,7 @@ type Engine struct {
 	wg                    sync.WaitGroup
 	lock                  sync.Mutex
 	running               bool
+	startupErr            error
 }
 
 func (engine *Engine) stopped() bool {
@@ -88,6 +90,14 @@ func (engine *Engine) stopped() bool {
 }
 
 func (engine *Engine) next() Cylinder {
+	if !engine.running {
+		err := errors.New("aio: engine not running")
+		if engine.startupErr != nil {
+			err = errors.Join(err, engine.startupErr)
+		}
+		panic(err)
+		return nil
+	}
 	switch engine.cylindersLoadBalancer {
 	case Least:
 		idx := 0

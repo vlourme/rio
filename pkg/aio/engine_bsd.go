@@ -5,7 +5,6 @@ package aio
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -29,7 +28,7 @@ func (engine *Engine) Start() {
 	engine.lock.Lock()
 	defer engine.lock.Unlock()
 	if engine.running {
-		panic(errors.New("aio: engine start failed cause already running"))
+		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: engine start failed cause already running"))
 		return
 	}
 
@@ -39,7 +38,7 @@ func (engine *Engine) Start() {
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder, cylinderErr := newKqueueCylinder(settings.ChangesQueueSize, settings.ChangesPeekBatchSize, settings.EventsWaitBatchSize, settings.EventsWaitTimeout)
 		if cylinderErr != nil {
-			panic(fmt.Errorf("aio: engine start failed, %v", cylinderErr))
+			engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("create kqueue failed"), cylinderErr)
 			return
 		}
 		engine.cylinders[i] = cylinder

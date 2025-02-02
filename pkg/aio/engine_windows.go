@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"fmt"
 	"golang.org/x/sys/windows"
 	"os"
 	"runtime"
@@ -27,14 +26,14 @@ func (engine *Engine) Start() {
 	engine.lock.Lock()
 	defer engine.lock.Unlock()
 	if engine.running {
-		panic(errors.New("aio: engine start failed cause already running"))
+		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: engine start failed cause already running"))
 		return
 	}
 
 	var data windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &data)
 	if startupErr != nil {
-		panic(fmt.Errorf("aio: engine start failed, %v", startupErr))
+		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), startupErr)
 		return
 	}
 	// settings
@@ -47,7 +46,7 @@ func (engine *Engine) Start() {
 	// iocp
 	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, threadCount)
 	if createIOCPErr != nil {
-		panic(fmt.Errorf("aio: engine start failed, %v", createIOCPErr))
+		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("create iocp failed"), createIOCPErr)
 		return
 	}
 	engine.fd = int(cphandle)

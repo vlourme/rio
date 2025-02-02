@@ -37,14 +37,14 @@ func (engine *Engine) Start() {
 	engine.lock.Lock()
 	defer engine.lock.Unlock()
 	if engine.running {
-		panic(errors.New("aio: engine start failed cause already running"))
+		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: engine start failed cause already running"))
 		return
 	}
 
 	// check kernel version
 	major, minor := KernelVersion()
 	if major < minKernelVersionMajor || (major == minKernelVersionMajor && minor < minKernelVersionMinor) {
-		panic(errors.New("aio: kernel version too old, must newer then 5.16"))
+		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: kernel version too old, must newer then 5.16"))
 		return
 	}
 	// settings
@@ -66,12 +66,6 @@ func (engine *Engine) Start() {
 					// single issuer
 					if settings.Param.Flags&SetupSingleIssuer == 0 {
 						settings.Param.Flags = settings.Param.Flags | SetupSingleIssuer
-					}
-					if compareKernelVersion(major, minor, 6, 1) >= 0 {
-						// defer task run
-						if settings.Param.Flags&SetupDeferTaskRun == 0 {
-							settings.Param.Flags = settings.Param.Flags | SetupDeferTaskRun
-						}
 					}
 				}
 			}
@@ -141,7 +135,7 @@ func (engine *Engine) Start() {
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch, settings.SubmitWaitTimeout, submitWaitForCQEs)
 		if cylinderErr != nil {
-			panic(fmt.Errorf("aio: engine start failed, %v", cylinderErr))
+			engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: iouring setup failed"), cylinderErr)
 			return
 		}
 		engine.cylinders[i] = cylinder
