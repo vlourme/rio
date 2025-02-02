@@ -47,6 +47,18 @@ func (engine *Engine) Start() {
 		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: kernel version too old, must newer then 5.16"))
 		return
 	}
+	// setup send zc
+	if compareKernelVersion(major, minor, 6, 0) >= 0 {
+		opSendCode = opSendZC
+	} else {
+		opSendCode = opSend
+	}
+	if compareKernelVersion(major, minor, 6, 1) >= 0 {
+		opSendMsgCode = opSendMsgZC
+	} else {
+		opSendMsgCode = opSendmsg
+	}
+
 	// settings
 	settings := ResolveSettings[IOURingSettings](engine.settings)
 	// default setting
@@ -258,9 +270,12 @@ func (cylinder *IOURingCylinder) Loop() {
 			if cqe.UserData == 0 {
 				continue
 			}
+			//fmt.Println("cqe:", cqe.Res, cqe.Flags, cqe.Flags&cqeFMore)
 
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
+			op.cqeFlags = cqe.Flags
+
 			op.end()
 			// handle stop
 			if op.fd == nil {
@@ -1302,6 +1317,14 @@ const (
 	offSQRing uint64 = 0
 	offCQRing uint64 = 0x8000000
 	offSQEs   uint64 = 0x10000000
+)
+
+const (
+	cqeFBuffer uint32 = 1 << iota
+	cqeFMore
+	cqeFSockNonEmpty
+	cqeFNotify
+	cqeFBufMore
 )
 
 // setup and features

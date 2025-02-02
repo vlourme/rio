@@ -10,6 +10,8 @@ import (
 	"unsafe"
 )
 
+var opSendCode uint8 = 0
+
 // Send
 // send_zc: available since 6.0
 // sendmsg_zc: available since 6.1
@@ -35,7 +37,7 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	// prepare
-	err := cylinder.prepareRW(opSend, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
+	err := cylinder.prepareRW(opSendCode, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_send", err))
 		op.reset()
@@ -46,10 +48,29 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeSend(result int, op *Operator, err error) {
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_send", err)
+		if opSendCode == opSendZC {
+			op.hijacked = false
+			err = os.NewSyscallError("io_uring_prep_send_zc", err)
+		} else {
+			err = os.NewSyscallError("io_uring_prep_send", err)
+		}
 		op.callback(Userdata{}, err)
 		return
 	}
+	// zc
+	if opSendCode == opSendZC {
+		if op.cqeFlags&cqeFMore != 0 {
+			op.hijacked = true
+			op.n = uint32(result)
+			return
+		}
+		if op.cqeFlags&cqeFNotify != 0 {
+			op.hijacked = false
+			op.callback(Userdata{N: int(op.n)}, nil)
+		}
+		return
+	}
+	// non_zc
 	op.callback(Userdata{N: result}, nil)
 	return
 }
@@ -57,6 +78,8 @@ func completeSend(result int, op *Operator, err error) {
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	SendMsg(fd, b, nil, addr, cb)
 }
+
+var opSendMsgCode uint8 = 0
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	sa := AddrToSockaddr(addr)
@@ -104,7 +127,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.setCylinder(cylinder)
 
 	// prepare
-	err := cylinder.prepareRW(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), 1, 0, 0, op.ptr())
+	err := cylinder.prepareRW(opSendMsgCode, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), 1, 0, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg", err))
 		op.reset()
@@ -115,10 +138,30 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 func completeSendMsg(result int, op *Operator, err error) {
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_sendmsg", err)
+		if opSendMsgCode == opSendMsgZC {
+			op.hijacked = false
+			err = os.NewSyscallError("io_uring_prep_sendmsg_zc", err)
+		} else {
+			err = os.NewSyscallError("io_uring_prep_sendmsg", err)
+		}
 		op.callback(Userdata{}, err)
 		return
 	}
+	// zc
+	if opSendMsgCode == opSendMsgZC {
+		if op.cqeFlags&cqeFMore != 0 {
+			op.hijacked = true
+			op.n = uint32(result)
+			op.oobn = op.msg.Controllen
+			return
+		}
+		if op.cqeFlags&cqeFNotify != 0 {
+			op.hijacked = false
+			op.callback(Userdata{N: int(op.n), OOBN: int(op.oobn)}, nil)
+		}
+		return
+	}
+	// non_zc
 	oobn := int(op.msg.Controllen)
 	op.callback(Userdata{N: result, OOBN: oobn}, nil)
 	return

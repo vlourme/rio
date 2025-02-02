@@ -15,27 +15,20 @@ type SendfileResult struct {
 
 func newOperator(fd Fd) *Operator {
 	return &Operator{
-		processing: false,
-		cylinder:   nil,
-		fd:         fd,
-		handle:     -1,
-		n:          0,
-		oobn:       0,
-		rsa:        nil,
-		msg:        nil,
-		sfr:        nil,
-		callback:   nil,
-		completion: nil,
+		fd:     fd,
+		handle: -1,
 	}
 }
 
 type Operator struct {
 	processing bool
+	hijacked   bool
 	cylinder   *IOURingCylinder
+	cqeFlags   uint32
 	fd         Fd
 	handle     int
 	n          uint32
-	oobn       uint32
+	oobn       uint64
 	rsa        *syscall.RawSockaddrAny
 	msg        *syscall.Msghdr
 	sfr        *SendfileResult
@@ -57,8 +50,14 @@ func (op *Operator) end() {
 }
 
 func (op *Operator) reset() {
+	if op.hijacked {
+		return
+	}
 	if op.processing {
 		op.processing = false
+	}
+	if op.cqeFlags != 0 {
+		op.cqeFlags = 0
 	}
 	if op.cylinder != nil {
 		op.cylinder = nil
