@@ -28,8 +28,6 @@ type Operator struct {
 	fd         Fd
 	handle     int
 	n          uint32
-	oobn       uint64
-	rsa        *syscall.RawSockaddrAny
 	msg        *syscall.Msghdr
 	sfr        *SendfileResult
 	callback   OperationCallback
@@ -67,12 +65,6 @@ func (op *Operator) reset() {
 	}
 	if op.n != 0 {
 		op.n = 0
-	}
-	if op.oobn != 0 {
-		op.oobn = 0
-	}
-	if op.rsa != nil {
-		op.rsa = nil
 	}
 	if op.msg != nil {
 		op.msg = nil
