@@ -270,13 +270,11 @@ func (cylinder *IOURingCylinder) Loop() {
 			if cqe.UserData == 0 {
 				continue
 			}
-			//fmt.Println("cqe:", cqe.Res, cqe.Flags, cqe.Flags&cqeFMore)
 
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
-			op.cqeFlags = cqe.Flags
-
 			op.end()
+
 			// handle stop
 			if op.fd == nil {
 				stopped = true
@@ -286,6 +284,7 @@ func (cylinder *IOURingCylinder) Loop() {
 
 			// handle completion
 			if completion := op.completion; completion != nil {
+				op.cqeFlags = cqe.Flags
 				result := -1
 				var err error
 				if cqe.Res < 0 {
