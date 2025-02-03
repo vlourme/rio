@@ -107,12 +107,12 @@ func TestListenPacketMsg(t *testing.T) {
 			lwg.Done()
 			return
 		}
-		p, _ := entry.Reader().Next(entry.Received())
+		b, _ := entry.Reader().Next(entry.Received())
 		oob, _ := entry.OOB().Next(entry.OOReceived())
-		t.Log("srv read bytes from:", entry.Addr(), entry.Received(), string(p))
+		t.Log("srv read bytes from:", entry.Addr(), entry.Received(), string(b))
 		t.Log("srv read oob from:", entry.Addr(), entry.OOReceived(), string(oob))
 
-		srv.WriteMsg(p[0:entry.Received()], nil, entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
+		srv.WriteMsg(nil, []byte("oob"), entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
 			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
@@ -138,13 +138,15 @@ func TestListenPacketMsg(t *testing.T) {
 				return
 			}
 			t.Log("cli write:", n)
-			pack.Read().OnComplete(func(ctx context.Context, entry transport.Inbound, cause error) {
+			pack.ReadMsg().OnComplete(func(ctx context.Context, entry transport.PacketMsgInbound, cause error) {
 				if cause != nil {
 					t.Error("cli read err:", cause)
 					cwg.Done()
 					return
 				}
-				t.Log("cli read:", string(entry.Reader().Peek(entry.Received())))
+				b, _ := entry.Reader().Next(entry.Received())
+				oob, _ := entry.OOB().Next(entry.OOReceived())
+				t.Log("cli read:", entry.Received(), string(b), entry.OOReceived(), string(oob), entry.Addr(), entry.Flags())
 				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 					if cause != nil {
 						t.Error("cli close:", cause)
