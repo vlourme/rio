@@ -154,18 +154,14 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	promise.SetErrInterceptor(conn.handleReadMsgErrInterceptor)
 
 	aio.RecvMsg(conn.fd, b, oob, func(userdata aio.Userdata, err error) {
+		n := userdata.N
+		conn.rb.AllocatedWrote(n)
+		oobn := userdata.OOBN
+		conn.oob.AllocatedWrote(oobn)
 		if err != nil {
-			conn.rb.AllocatedWrote(0)
-			conn.oob.AllocatedWrote(0)
 			promise.Fail(aio.NewOpErr(aio.OpReadMsg, conn.fd, err))
 			return
 		}
-		n := userdata.N
-		conn.rb.AllocatedWrote(n)
-
-		oobn := userdata.OOBN
-		conn.oob.AllocatedWrote(oobn)
-
 		addr := userdata.Addr
 		flags := userdata.MessageFlags
 		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
@@ -178,10 +174,11 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 }
 
 func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound]) {
-	if len(b) == 0 {
+	if len(b) == 0 && len(oob) == 0 {
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrEmptyBytes)
 		return
 	}
+
 	if addr == nil {
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrNilAddr)
 		return
