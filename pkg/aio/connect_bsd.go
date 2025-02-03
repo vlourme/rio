@@ -31,7 +31,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		handle:     sock,
 		network:    network,
 		family:     family,
-		socketType: sock,
+		socketType: sotype,
 		protocol:   proto,
 		ipv6only:   ipv6only,
 		localAddr:  nil,
