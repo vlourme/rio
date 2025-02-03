@@ -7,6 +7,10 @@ import (
 	"syscall"
 )
 
+const (
+	maxRW = 1 << 30
+)
+
 type SendfileResult struct {
 	file    windows.Handle
 	curpos  int64

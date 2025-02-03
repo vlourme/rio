@@ -5,10 +5,6 @@ import (
 	"net"
 )
 
-const (
-	MaxRW = 1 << 30
-)
-
 type Userdata struct {
 	Fd           Fd
 	N            int
