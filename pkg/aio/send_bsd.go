@@ -13,10 +13,6 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
 	// msg
-	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	op.b = b
 
 	// cb
@@ -73,10 +69,6 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
 	op := fd.WriteOperator()
 	// msg
-	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	op.b = b
 	op.sa = AddrToSockaddr(addr)
 
@@ -136,10 +128,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// op
 	op := fd.WriteOperator()
 	// msg
-	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	op.b = b
 	op.oob = oob
 	op.sa = AddrToSockaddr(addr)

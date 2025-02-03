@@ -13,10 +13,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
 	// msg
-	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	op.b = b
 
 	op.callback = cb
@@ -78,10 +74,6 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
 	// msg
-	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	op.b = b
 
 	op.callback = cb
@@ -137,10 +129,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
 	op := fd.ReadOperator()
 	// msg
-	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
-	}
 	op.b = b
 	op.oob = oob
 
