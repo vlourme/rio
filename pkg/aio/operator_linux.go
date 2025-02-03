@@ -3,6 +3,8 @@
 package aio
 
 import (
+	"net"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -17,17 +19,27 @@ func newOperator(fd Fd) *Operator {
 	return &Operator{
 		fd:     fd,
 		handle: -1,
+		sch:    make(chan sendZCRequest, 8),
 	}
 }
 
+type sendZCRequest struct {
+	b        []byte
+	oob      []byte
+	addr     net.Addr
+	callback OperationCallback
+}
+
 type Operator struct {
-	processing bool
-	hijacked   bool
+	processing atomic.Bool
+	hijacked   atomic.Bool
 	cylinder   *IOURingCylinder
 	cqeFlags   uint32
 	fd         Fd
 	handle     int
 	n          uint32
+	b          []byte
+	sch        chan sendZCRequest
 	msg        *syscall.Msghdr
 	sfr        *SendfileResult
 	callback   OperationCallback
@@ -36,24 +48,22 @@ type Operator struct {
 
 func (op *Operator) setCylinder(cylinder *IOURingCylinder) {
 	op.cylinder = cylinder
-	op.processing = true
+	op.processing.Store(true)
 }
 
 func (op *Operator) Processing() bool {
-	return op.processing
+	return op.processing.Load()
 }
 
 func (op *Operator) end() {
-	op.processing = false
+	op.processing.Store(false)
 }
 
 func (op *Operator) reset() {
-	if op.hijacked {
+	if op.hijacked.Load() {
 		return
 	}
-	if op.processing {
-		op.processing = false
-	}
+	op.processing.Store(false)
 	if op.cqeFlags != 0 {
 		op.cqeFlags = 0
 	}
@@ -65,6 +75,9 @@ func (op *Operator) reset() {
 	}
 	if op.n != 0 {
 		op.n = 0
+	}
+	if op.b != nil {
+		op.b = nil
 	}
 	if op.msg != nil {
 		op.msg = nil
