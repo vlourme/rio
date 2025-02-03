@@ -17,8 +17,8 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 
 	// msg
 	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
+	if bLen > maxRW {
+		b = b[:maxRW]
 	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -73,8 +73,8 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	op := fd.ReadOperator()
 	// msg
 	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
+	if bLen > maxRW {
+		b = b[:maxRW]
 	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -134,26 +134,38 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op := fd.ReadOperator()
 	// msg
 	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
+	if bLen > maxRW {
+		b = b[:maxRW]
 	}
-	oobLen := len(oob)
 	rsa := syscall.RawSockaddrAny{}
 	rsaLen := int32(unsafe.Sizeof(rsa))
 
 	op.msg = &windows.WSAMsg{
-		Name:    &rsa,
-		Namelen: rsaLen,
-		Buffers: &windows.WSABuf{
+		Name:        &rsa,
+		Namelen:     rsaLen,
+		Buffers:     nil,
+		BufferCount: 0,
+		Control:     windows.WSABuf{},
+		Flags:       0,
+	}
+	if bLen > 0 {
+		op.msg.Buffers = &windows.WSABuf{
 			Len: uint32(bLen),
 			Buf: &b[0],
-		},
-		BufferCount: 1,
-		Control: windows.WSABuf{
-			Len: uint32(oobLen),
-			Buf: &oob[0],
-		},
-		Flags: 0,
+		}
+		op.msg.BufferCount = 1
+	}
+	if oobLen := len(oob); oobLen > 0 {
+		op.msg.Control.Len = uint32(oobLen)
+		op.msg.Control.Buf = &oob[0]
+		if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
+			var dummy byte
+			op.msg.Buffers = &windows.WSABuf{
+				Buf: &dummy,
+				Len: uint32(1),
+			}
+			op.msg.BufferCount = 1
+		}
 	}
 	if fd.Family() == syscall.AF_UNIX {
 		op.msg.Flags = readMsgFlags

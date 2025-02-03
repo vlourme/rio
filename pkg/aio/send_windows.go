@@ -16,8 +16,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	op := fd.WriteOperator()
 	// msg
 	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
+	if bLen > maxRW {
+		b = b[:maxRW]
 	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -67,8 +67,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	op := fd.WriteOperator()
 	// msg
 	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
+	if bLen > maxRW {
+		b = b[:maxRW]
 	}
 	buf := syscall.WSABuf{
 		Len: uint32(bLen),
@@ -127,19 +127,23 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op := fd.WriteOperator()
 	// msg
 	bLen := len(b)
-	if bLen > MaxRW {
-		b = b[:MaxRW]
+	if bLen > maxRW {
+		cb(Userdata{}, errors.New("packet is too large (only 1GB is allowed)"))
+		return
 	}
 	op.msg = &windows.WSAMsg{
 		Name:    rsa,
 		Namelen: rsaLen,
 		Buffers: &windows.WSABuf{
 			Len: uint32(bLen),
-			Buf: &b[0],
+			Buf: nil,
 		},
 		BufferCount: 1,
 		Control:     windows.WSABuf{},
 		Flags:       0,
+	}
+	if bLen > 0 {
+		op.msg.Buffers.Buf = &b[0]
 	}
 	if oobLen := len(oob); oobLen > 0 {
 		op.msg.Control.Len = uint32(oobLen)
