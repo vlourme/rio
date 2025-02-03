@@ -180,21 +180,18 @@ func (conn *connection) Write(b []byte) (future async.Future[int]) {
 }
 
 func (conn *connection) write(promise async.Promise[int], b []byte, bLen int, written int) {
-	aio.Send(conn.fd, b[written:], func(userdata aio.Userdata, err error) {
+	aio.Send(conn.fd, b, func(userdata aio.Userdata, err error) {
+		written += userdata.N
 		if err != nil {
 			err = aio.NewOpErr(aio.OpWrite, conn.fd, err)
-			written += userdata.N
 			promise.Complete(written, err)
 			return
 		}
-
-		written += userdata.N
-
 		if written == bLen {
 			promise.Succeed(written)
 			return
 		}
-
+		b = b[userdata.N:]
 		conn.write(promise, b, bLen, written)
 		return
 	})
