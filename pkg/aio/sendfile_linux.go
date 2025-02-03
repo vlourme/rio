@@ -7,7 +7,6 @@ import (
 	"golang.org/x/sys/unix"
 	"io"
 	"os"
-	"runtime"
 	"syscall"
 )
 
@@ -74,6 +73,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	}
 	op.setCylinder(cylinder)
 
+	op.hijacked.Store(true)
 	// splice
 	prepareSplice(entry, src, -1, pipe[1], -1, op.sfr.remain, unix.SPLICE_F_NONBLOCK, op.ptr())
 }
@@ -89,42 +89,32 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
 		op.callback(Userdata{}, err)
+		op.hijacked.Store(false)
 		return
 	}
 	fd := op.fd.(*netFd)
-	nop := newOperator(fd)
-	nop.sfr = op.sfr
-
-	nop.callback = op.callback
-	nop.completion = func(result int, cop *Operator, err error) {
-		completeSendfileFromPipe(result, cop, err)
-		runtime.KeepAlive(nop)
-	}
-	// dst
-	dst := nop.fd.Fd()
-	// size
-	size := nop.sfr.remain
+	op.completion = completeSendfileFromPipe
+	dst := fd.Fd()
+	size := op.sfr.remain
 
 	// cylinder
-	cylinder := nextIOURingCylinder()
+	cylinder := op.cylinder
 	entry, getErr := cylinder.getSQE()
 	if getErr != nil {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
-		nop.callback(Userdata{}, getErr)
-		nop.reset()
+		op.callback(Userdata{}, getErr)
+		op.hijacked.Store(false)
 		return
 	}
-	nop.setCylinder(cylinder)
-	fd.wop = nop
 	// splice
-	prepareSplice(entry, pipe[0], -1, dst, -1, size, unix.SPLICE_F_NONBLOCK, nop.ptr())
-	runtime.KeepAlive(nop)
+	prepareSplice(entry, pipe[0], -1, dst, -1, size, unix.SPLICE_F_NONBLOCK, op.ptr())
 	return
 }
 
 func completeSendfileFromPipe(result int, op *Operator, err error) {
+	op.hijacked.Store(false)
 	// src
 	_ = syscall.Close(op.sfr.file)
 	// pipe
