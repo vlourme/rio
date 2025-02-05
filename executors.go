@@ -17,7 +17,7 @@ func getExecutors() rxp.Executors {
 	executorsOnce.Do(func() {
 		if executors == nil {
 			executors = rxp.New()
-			runtime.SetFinalizer(executors, rxp.Executors.CloseGracefully)
+			runtime.SetFinalizer(executors, rxp.Executors.Close)
 		}
 	})
 	return executors

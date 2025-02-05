@@ -113,7 +113,7 @@ func ShutdownGracefully() error {
 	exec := getExecutors()
 	if exec.Running() {
 		runtime.SetFinalizer(exec, nil)
-		if err := exec.CloseGracefully(); err != nil {
+		if err := exec.Close(); err != nil {
 			return err
 		}
 	}

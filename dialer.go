@@ -83,7 +83,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	future = promise.Future()
 
 	// execute
-	executed := rxp.TryExecute(ctx, func() {
+	executed := rxp.TryExecute(ctx, func(ctx context.Context) {
 		connectOpts := aio.ConnectOptions{
 			MultipathTCP: opts.MultipathTCP,
 			LocalAddr:    opts.LocalAddr,
