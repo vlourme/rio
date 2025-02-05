@@ -234,7 +234,9 @@ func (conn *connection) handleReadErrInterceptor(ctx context.Context, inbound tr
 		return
 	}
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.ReadOperator())
+		if op := conn.fd.Reading(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}
@@ -246,11 +248,12 @@ func (conn *connection) handleReadErrInterceptor(ctx context.Context, inbound tr
 
 func (conn *connection) handleWriteErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.WriteOperator())
+		if op := conn.fd.Writing(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}
-
 	err = aio.NewOpErr(aio.OpWrite, conn.fd, err)
 	future = async.Immediately[int](ctx, n, err)
 	return

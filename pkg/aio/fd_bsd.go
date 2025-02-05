@@ -18,15 +18,6 @@ func Close(fd Fd, cb OperationCallback) {
 		}
 		cb(Userdata{}, nil)
 		return
-	case FileFd:
-		handle := fd.Fd()
-		err := syscall.Close(handle)
-		if err != nil {
-			cb(Userdata{}, err)
-			return
-		}
-		cb(Userdata{}, nil)
-		return
 	default:
 		cb(Userdata{}, errors.New("aio.Operator: close was not supported"))
 		return

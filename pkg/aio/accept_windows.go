@@ -18,7 +18,9 @@ func Accept(fd NetFd, cb OperationCallback) {
 		return
 	}
 	// op
-	op := fd.ReadOperator()
+	op := acquireOperator()
+	// set fd
+	op.setFd(fd)
 	// set sock
 	op.handle = sock
 	// set callback
@@ -45,25 +47,26 @@ func Accept(fd NetFd, cb OperationCallback) {
 	if acceptErr != nil && !errors.Is(syscall.ERROR_IO_PENDING, acceptErr) {
 		_ = syscall.Closesocket(syscall.Handle(sock))
 		cb(Userdata{}, os.NewSyscallError("acceptex", acceptErr))
-		op.reset()
+		releaseOperator(op)
 		return
 	}
-	// processing
-	op.begin()
 	return
 }
 
 func completeAccept(_ int, op *Operator, err error) {
+	cb := op.callback
+	fd := op.fd
 	// sock
 	sock := syscall.Handle(op.handle)
+	fd.finishReading()
 	// handle error
 	if err != nil {
 		_ = syscall.Closesocket(sock)
-		op.callback(Userdata{}, os.NewSyscallError("acceptex", err))
+		cb(Userdata{}, os.NewSyscallError("acceptex", err))
 		return
 	}
 	// ln
-	ln, _ := op.fd.(NetFd)
+	ln, _ := fd.(NetFd)
 	lnFd := syscall.Handle(ln.Fd())
 
 	// set SO_UPDATE_ACCEPT_CONTEXT
@@ -75,7 +78,7 @@ func completeAccept(_ int, op *Operator, err error) {
 	)
 	if setAcceptSocketOptErr != nil {
 		_ = syscall.Closesocket(sock)
-		op.callback(Userdata{}, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
+		cb(Userdata{}, os.NewSyscallError("setsockopt", setAcceptSocketOptErr))
 		return
 	}
 
@@ -83,7 +86,7 @@ func completeAccept(_ int, op *Operator, err error) {
 	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
 		_ = syscall.Closesocket(sock)
-		op.callback(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
 	la := SockaddrToAddr(ln.Network(), lsa)
@@ -92,7 +95,7 @@ func completeAccept(_ int, op *Operator, err error) {
 	rsa, rsaErr := syscall.Getpeername(sock)
 	if rsaErr != nil {
 		_ = syscall.Closesocket(sock)
-		op.callback(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
+		cb(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
 		return
 	}
 	ra := SockaddrToAddr(ln.Network(), rsa)
@@ -101,26 +104,13 @@ func completeAccept(_ int, op *Operator, err error) {
 	iocpErr := createSubIoCompletionPort(windows.Handle(sock))
 	if iocpErr != nil {
 		_ = syscall.Closesocket(sock)
-		op.callback(Userdata{}, iocpErr)
+		cb(Userdata{}, iocpErr)
 		return
 	}
 
-	conn := &netFd{
-		handle:     op.handle,
-		network:    ln.Network(),
-		family:     ln.Family(),
-		socketType: ln.SocketType(),
-		protocol:   ln.Protocol(),
-		ipv6only:   ln.IPv6Only(),
-		localAddr:  la,
-		remoteAddr: ra,
-		rop:        nil,
-		wop:        nil,
-	}
-	conn.rop = newOperator(conn)
-	conn.wop = newOperator(conn)
+	conn := newNetFd(op.handle, ln.Network(), ln.Family(), ln.SocketType(), ln.Protocol(), ln.IPv6Only(), la, ra)
 
 	// callback
-	op.callback(Userdata{Fd: conn}, err)
+	cb(Userdata{Fd: conn}, err)
 	return
 }

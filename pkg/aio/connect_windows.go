@@ -73,22 +73,8 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	}
 
 	// net fd
-	nfd := &netFd{
-		handle:     sock,
-		network:    network,
-		family:     family,
-		socketType: sotype,
-		protocol:   proto,
-		ipv6only:   ipv6only,
-		localAddr:  laddr,
-		remoteAddr: raddr,
-		rop:        nil,
-		wop:        nil,
-	}
-	nfd.rop = newOperator(nfd)
-	nfd.wop = newOperator(nfd)
-
-	cb(Userdata{Fd: nfd}, nil)
+	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, laddr, raddr)
+	cb(Userdata{Fd: conn}, nil)
 	return
 }
 
@@ -124,25 +110,14 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	// remote addr
 	sa := AddrToSockaddr(addr)
 	// net fd
-	nfd := &netFd{
-		handle:     sock,
-		network:    network,
-		family:     family,
-		socketType: sotype,
-		protocol:   proto,
-		ipv6only:   ipv6only,
-		localAddr:  nil,
-		remoteAddr: addr,
-		rop:        nil,
-		wop:        nil,
-	}
-	nfd.rop = newOperator(nfd)
-	nfd.wop = newOperator(nfd)
-
+	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, addr)
 	// op
-	op := nfd.ReadOperator()
-	// fd
-	op.fd = nfd
+	op := conn.prepareWriting()
+	if op == nil {
+		_ = syscall.Closesocket(handle)
+		cb(Userdata{}, errors.New("failed to prepare op"))
+		return
+	}
 	// callback
 	op.callback = cb
 	// completion
@@ -156,20 +131,22 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	if connectErr != nil && !errors.Is(connectErr, syscall.ERROR_IO_PENDING) {
 		_ = syscall.Closesocket(handle)
 		cb(Userdata{}, os.NewSyscallError("connectex", connectErr))
-		op.reset()
+		conn.finishWriting()
 		return
 	}
-	// processing
-	op.begin()
 	return
 }
 
 func completeConnectEx(_ int, op *Operator, err error) {
-	nfd := op.fd.(*netFd)
-	handle := syscall.Handle(nfd.Fd())
+	cb := op.callback
+
+	fd := op.fd
+	fd.finishWriting()
+
+	handle := syscall.Handle(fd.Fd())
 	if err != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(Userdata{}, os.NewSyscallError("connectex", err))
+		cb(Userdata{}, os.NewSyscallError("connectex", err))
 		return
 	}
 	// set SO_UPDATE_CONNECT_CONTEXT
@@ -181,27 +158,28 @@ func completeConnectEx(_ int, op *Operator, err error) {
 	)
 	if setSocketOptErr != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(Userdata{}, os.NewSyscallError("setsockopt", setSocketOptErr))
+		cb(Userdata{}, os.NewSyscallError("setsockopt", setSocketOptErr))
 		return
 	}
 	// get addr
 	lsa, lsaErr := syscall.Getsockname(handle)
 	if lsaErr != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
-	la := SockaddrToAddr(nfd.Network(), lsa)
-	nfd.localAddr = la
+	conn := fd.(*netFd)
+	la := SockaddrToAddr(conn.Network(), lsa)
+	conn.localAddr = la
 	rsa, rsaErr := syscall.Getpeername(handle)
 	if rsaErr != nil {
 		_ = syscall.Closesocket(handle)
-		op.callback(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
+		cb(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
 		return
 	}
-	ra := SockaddrToAddr(nfd.Network(), rsa)
-	nfd.remoteAddr = ra
+	ra := SockaddrToAddr(conn.Network(), rsa)
+	conn.remoteAddr = ra
 
 	// callback
-	op.callback(Userdata{Fd: nfd}, nil)
+	cb(Userdata{Fd: conn}, nil)
 }

@@ -3,6 +3,7 @@ package aio
 import (
 	"errors"
 	"net"
+	"sync"
 )
 
 type Userdata struct {
@@ -54,4 +55,19 @@ func NewOpWithAddrErr(op string, fd NetFd, addr net.Addr, err error) *net.OpErro
 		Addr:   addr,
 		Err:    err,
 	}
+}
+
+var (
+	operators = sync.Pool{New: func() interface{} {
+		return &Operator{}
+	}}
+)
+
+func acquireOperator() *Operator {
+	return operators.Get().(*Operator)
+}
+
+func releaseOperator(op *Operator) {
+	op.reset()
+	operators.Put(op)
 }

@@ -60,36 +60,36 @@ func (op *Operator) end() {
 }
 
 func (op *Operator) reset() {
-	if op.hijacked.Load() {
-		return
-	}
-	op.processing.Store(false)
-	if op.cqeFlags != 0 {
-		op.cqeFlags = 0
-	}
-	if op.cylinder != nil {
-		op.cylinder = nil
-	}
-	if op.handle != -1 {
-		op.handle = -1
-	}
-	if op.n != 0 {
-		op.n = 0
-	}
-	if op.b != nil {
-		op.b = nil
-	}
-	if op.msg != nil {
-		op.msg = nil
-	}
-	if op.sfr != nil {
-		op.sfr = nil
-	}
-	if op.callback != nil {
-		op.callback = nil
-	}
-	if op.completion != nil {
-		op.completion = nil
+	if op.hijacked.CompareAndSwap(false, true) {
+		op.processing.Store(false)
+		if op.cqeFlags != 0 {
+			op.cqeFlags = 0
+		}
+		if op.cylinder != nil {
+			op.cylinder = nil
+		}
+		if op.handle != -1 {
+			op.handle = -1
+		}
+		if op.n != 0 {
+			op.n = 0
+		}
+		if op.b != nil {
+			op.b = nil
+		}
+		if op.msg != nil {
+			op.msg = nil
+		}
+		if op.sfr != nil {
+			op.sfr = nil
+		}
+		if op.callback != nil {
+			op.callback = nil
+		}
+		if op.completion != nil {
+			op.completion = nil
+		}
+		op.hijacked.Store(false)
 	}
 }
 

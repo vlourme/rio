@@ -2,46 +2,22 @@ package aio
 
 import (
 	"net"
+	"sync/atomic"
 	"syscall"
 )
 
 type Fd interface {
 	Fd() int
+	Reading() *Operator
+	Writing() *Operator
 	ReadOperator() *Operator
 	WriteOperator() *Operator
 	ZeroReadIsEOF() bool
-}
 
-type FileFd interface {
-	Fd
-	Path() string
-}
-
-type fileFd struct {
-	handle int
-	path   string
-	rop    *Operator
-	wop    *Operator
-}
-
-func (fd *fileFd) Fd() int {
-	return fd.handle
-}
-
-func (fd *fileFd) ReadOperator() *Operator {
-	return fd.rop
-}
-
-func (fd *fileFd) WriteOperator() *Operator {
-	return fd.wop
-}
-
-func (fd *fileFd) ZeroReadIsEOF() bool {
-	return true
-}
-
-func (fd *fileFd) Path() string {
-	return fd.path
+	prepareReading() (op *Operator)
+	finishReading()
+	prepareWriting() (op *Operator)
+	finishWriting()
 }
 
 type NetFd interface {
@@ -55,6 +31,21 @@ type NetFd interface {
 	RemoteAddr() net.Addr
 }
 
+func newNetFd(handle int, network string, family int, socketType int, protocol int, ipv6only bool, localAddr net.Addr, remoteAddr net.Addr) *netFd {
+	return &netFd{
+		handle:     handle,
+		network:    network,
+		family:     family,
+		socketType: socketType,
+		protocol:   protocol,
+		ipv6only:   ipv6only,
+		localAddr:  localAddr,
+		remoteAddr: remoteAddr,
+		reading:    atomic.Bool{},
+		writing:    atomic.Bool{},
+	}
+}
+
 type netFd struct {
 	handle     int
 	network    string
@@ -64,7 +55,9 @@ type netFd struct {
 	ipv6only   bool
 	localAddr  net.Addr
 	remoteAddr net.Addr
+	reading    atomic.Bool
 	rop        *Operator
+	writing    atomic.Bool
 	wop        *Operator
 }
 
@@ -102,6 +95,54 @@ func (s *netFd) LocalAddr() net.Addr {
 
 func (s *netFd) RemoteAddr() net.Addr {
 	return s.remoteAddr
+}
+
+func (s *netFd) Reading() *Operator {
+	if s.reading.Load() {
+		return s.rop
+	}
+	return nil
+}
+
+func (s *netFd) Writing() *Operator {
+	if s.writing.Load() {
+		return s.wop
+	}
+	return nil
+}
+
+func (s *netFd) prepareReading() (op *Operator) {
+	if s.reading.CompareAndSwap(false, true) {
+		op = acquireOperator()
+		op.setFd(s)
+		s.rop = op
+	}
+	return
+}
+
+func (s *netFd) finishReading() {
+	if s.reading.CompareAndSwap(true, false) {
+		op := s.rop
+		s.rop = nil
+		releaseOperator(op)
+	}
+}
+
+func (s *netFd) prepareWriting() (op *Operator) {
+	if s.writing.CompareAndSwap(false, true) {
+		op = acquireOperator()
+		op.setFd(s)
+		s.wop = op
+	}
+	return
+}
+
+func (s *netFd) finishWriting() {
+	if s.writing.CompareAndSwap(true, false) {
+		op := s.wop
+		s.wop = nil
+		releaseOperator(op)
+	}
 }
 
 func (s *netFd) ReadOperator() *Operator {

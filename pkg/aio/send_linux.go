@@ -47,24 +47,9 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	}
 	// send_zc
 	if op.hijacked.CompareAndSwap(false, true) {
-		bufAddr := uintptr(unsafe.Pointer(&b[0]))
-		bufLen := uint32(bLen)
-		op.b = b
-		// cb
-		op.callback = cb
-		// completion
-		op.completion = completeSendZC
-
-		// cylinder
-		cylinder := nextIOURingCylinder()
-		op.setCylinder(cylinder)
-
-		// prepare
-		err := cylinder.prepareRW(opSendCode, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
-		if err != nil {
-			cb(Userdata{}, os.NewSyscallError("io_uring_prep_send_zc", err))
+		if sent := sendZC(op, b, cb); !sent {
+			op.hijacked.Store(false)
 			op.reset()
-			return
 		}
 	} else {
 		op.sch <- sendZCRequest{
@@ -77,6 +62,38 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	return
 }
 
+func sendZC(op *Operator, b []byte, cb OperationCallback) (ok bool) {
+	bufAddr := uintptr(unsafe.Pointer(&b[0]))
+	bufLen := uint32(len(b))
+	op.b = b
+	// cb
+	op.callback = cb
+	// completion
+	op.completion = completeSendZC
+
+	// cylinder
+	var cylinder *IOURingCylinder
+	if op.cylinder == nil {
+		cylinder = nextIOURingCylinder()
+		op.setCylinder(cylinder)
+	} else {
+		cylinder = op.cylinder
+		op.processing.Store(true)
+	}
+
+	// fd
+	fd := op.fd.Fd()
+	// prepare
+	err := cylinder.prepareRW(opSendCode, fd, bufAddr, bufLen, 0, 0, op.ptr())
+	if err != nil {
+		op.processing.Store(false)
+		cb(Userdata{}, os.NewSyscallError("io_uring_prep_send_zc", err))
+		return
+	}
+	ok = true
+	return
+}
+
 func completeSend(result int, op *Operator, err error) {
 	if err != nil {
 		err = os.NewSyscallError("io_uring_prep_send", err)
@@ -85,6 +102,23 @@ func completeSend(result int, op *Operator, err error) {
 	}
 	op.callback(Userdata{N: result}, nil)
 	return
+}
+
+func trySendCached(op *Operator) {
+
+	select {
+	case r := <-op.sch:
+		b := r.b
+		if sent := sendZC(op, b, op.callback); !sent {
+
+		}
+
+		break
+	default:
+		op.hijacked.Store(false)
+		break
+	}
+
 }
 
 func completeSendZC(result int, op *Operator, err error) {

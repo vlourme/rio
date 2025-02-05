@@ -246,7 +246,9 @@ func (conn *packetConnection) Close() (future async.Future[async.Void]) {
 
 func (conn *packetConnection) handleReadFromErrInterceptor(ctx context.Context, inbound transport.PacketInbound, err error) (future async.Future[transport.PacketInbound]) {
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.ReadOperator())
+		if op := conn.fd.Reading(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}
@@ -256,7 +258,9 @@ func (conn *packetConnection) handleReadFromErrInterceptor(ctx context.Context, 
 
 func (conn *packetConnection) handleWriteToErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.WriteOperator())
+		if op := conn.fd.Writing(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}
@@ -266,7 +270,9 @@ func (conn *packetConnection) handleWriteToErrInterceptor(ctx context.Context, n
 
 func (conn *packetConnection) handleReadMsgErrInterceptor(ctx context.Context, inbound transport.PacketMsgInbound, err error) (future async.Future[transport.PacketMsgInbound]) {
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.ReadOperator())
+		if op := conn.fd.Reading(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}
@@ -276,7 +282,9 @@ func (conn *packetConnection) handleReadMsgErrInterceptor(ctx context.Context, i
 
 func (conn *packetConnection) handleWriteMsgErrInterceptor(ctx context.Context, outbound transport.PacketMsgOutbound, err error) (future async.Future[transport.PacketMsgOutbound]) {
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.WriteOperator())
+		if op := conn.fd.Writing(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}

@@ -13,7 +13,11 @@ import (
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.WriteOperator()
+	op := fd.prepareWriting()
+	if op == nil {
+		cb(Userdata{}, errors.New("operator padding"))
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -44,27 +48,32 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_send", err))
 		// reset op
-		op.reset()
+		fd.finishWriting()
 		return
 	}
-	// processing
-	op.begin()
 	return
 }
 
 func completeSend(result int, op *Operator, err error) {
+	cb := op.callback
+	fd := op.fd
+	fd.finishWriting()
 	if err != nil {
 		err = os.NewSyscallError("wsa_send", err)
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{N: result}, nil)
+	cb(Userdata{N: result}, nil)
 	return
 }
 
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := fd.WriteOperator()
+	op := fd.prepareWriting()
+	if op == nil {
+		cb(Userdata{}, errors.New("operator padding"))
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -97,21 +106,22 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_sendto", err))
 		// reset op
-		op.reset()
+		fd.finishWriting()
 		return
 	}
-	// processing
-	op.begin()
 	return
 }
 
 func completeSendTo(result int, op *Operator, err error) {
+	cb := op.callback
+	fd := op.fd
+	fd.finishWriting()
 	if err != nil {
 		err = os.NewSyscallError("wsa_sendto", err)
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{N: result}, nil)
+	cb(Userdata{N: result}, nil)
 	return
 }
 
@@ -124,7 +134,11 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	}
 
 	// op
-	op := fd.WriteOperator()
+	op := fd.prepareWriting()
+	if op == nil {
+		cb(Userdata{}, errors.New("operator padding"))
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -171,22 +185,24 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_sendmsg", err))
-		// reset op
-		op.reset()
+		// fin op
+		fd.finishWriting()
 		return
 	}
-	// processing
-	op.begin()
 	return
 }
 
 func completeSendMsg(result int, op *Operator, err error) {
+	cb := op.callback
+	msg := op.msg
+	fd := op.fd
+	fd.finishWriting()
 	if err != nil {
 		err = os.NewSyscallError("wsa_sendmsg", err)
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
-	oobn := int(op.msg.Control.Len)
-	op.callback(Userdata{N: result, OOBN: oobn}, nil)
+	oobn := int(msg.Control.Len)
+	cb(Userdata{N: result, OOBN: oobn}, nil)
 	return
 }

@@ -4,7 +4,6 @@ package aio
 
 import (
 	"golang.org/x/sys/windows"
-	"sync/atomic"
 	"syscall"
 )
 
@@ -22,7 +21,6 @@ type SendfileResult struct {
 func newOperator(fd Fd) *Operator {
 	return &Operator{
 		overlapped: syscall.Overlapped{},
-		processing: atomic.Bool{},
 		fd:         fd,
 		handle:     -1,
 	}
@@ -30,33 +28,24 @@ func newOperator(fd Fd) *Operator {
 
 type Operator struct {
 	overlapped syscall.Overlapped
-	processing atomic.Bool
 	fd         Fd
 	handle     int
 	n          uint32
 	oobn       uint32
 	rsa        *syscall.RawSockaddrAny
 	msg        *windows.WSAMsg
-	sfr        *SendfileResult
+	sfr        SendfileResult
 	callback   OperationCallback
 	completion OperatorCompletion
 }
 
-func (op *Operator) Processing() bool {
-	return op.processing.Load()
-}
-
-func (op *Operator) begin() {
-	op.processing.Store(true)
-}
-
-func (op *Operator) end() {
-	op.processing.Store(false)
+func (op *Operator) setFd(fd Fd) {
+	op.fd = fd
 }
 
 func (op *Operator) reset() {
 	op.overlapped = syscall.Overlapped{}
-	op.processing.Store(false)
+	op.fd = nil
 	if op.handle == -1 {
 		op.handle = -1
 	}
@@ -72,9 +61,10 @@ func (op *Operator) reset() {
 	if op.msg != nil {
 		op.msg = nil
 	}
-	if op.sfr != nil {
-		op.sfr = nil
-	}
+	op.sfr.curpos = 0
+	op.sfr.remain = 0
+	op.sfr.written = 0
+	op.sfr.file = windows.InvalidHandle
 	if op.callback != nil {
 		op.callback = nil
 	}

@@ -7,7 +7,6 @@ import (
 	"golang.org/x/sys/windows"
 	"io"
 	"os"
-	"runtime"
 	"unsafe"
 )
 
@@ -48,7 +47,11 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 const maxChunkSizePerCall = int64(0x7fffffff - 1)
 
 func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written int, cb OperationCallback) {
-	op := fd.WriteOperator()
+	op := fd.prepareWriting()
+	if op == nil {
+		cb(Userdata{}, errors.New("operator padding"))
+		return
+	}
 
 	op.completion = completeSendfile
 	op.callback = cb
@@ -57,12 +60,11 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 	if chunkSize > remain {
 		chunkSize = remain
 	}
-	op.sfr = &SendfileResult{
-		file:    file,
-		curpos:  curpos,
-		remain:  remain,
-		written: written,
-	}
+	// sfr
+	op.sfr.file = file
+	op.sfr.curpos = curpos
+	op.sfr.remain = remain
+	op.sfr.written = written
 
 	op.n = uint32(chunkSize)
 	op.overlapped.Offset = uint32(curpos)
@@ -78,49 +80,47 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("transmit_file", err))
 		// reset op
-		op.reset()
-		runtime.KeepAlive(op)
+		fd.finishWriting()
 		return
 	}
-	// processing
-	op.begin()
-	runtime.KeepAlive(op)
 	return
 }
 
 func completeSendfile(result int, op *Operator, err error) {
-	src := op.sfr.file
+	cb := op.callback
+	sfr := op.sfr
+	fd := op.fd
+	fd.finishWriting()
+
+	src := sfr.file
 
 	if err != nil {
 		_ = windows.Close(src)
 		err = os.NewSyscallError("transmit_file", err)
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
 
-	curpos := op.sfr.curpos
-	remain := op.sfr.remain
-	written := op.sfr.written + result
+	curpos := sfr.curpos
+	remain := sfr.remain
+	written := sfr.written + result
 
 	curpos += int64(result)
 
 	if _, seekToStart := windows.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = windows.Close(src)
-		op.callback(Userdata{N: written}, os.NewSyscallError("seek", seekToStart))
+		cb(Userdata{N: written}, os.NewSyscallError("seek", seekToStart))
 		return
 	}
 
 	remain -= int64(result)
 	if remain > 0 {
-		dstFd := op.fd.(*netFd)
-		cb := op.callback
-		nop := newOperator(dstFd)
-		dstFd.wop = nop
+		dstFd := fd.(*netFd)
 		sendfile(dstFd, src, curpos, remain, written, cb)
 		return
 	}
 
 	_ = windows.Close(src)
-	op.callback(Userdata{N: written}, nil)
+	cb(Userdata{N: written}, nil)
 	return
 }
