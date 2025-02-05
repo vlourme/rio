@@ -68,6 +68,7 @@ func acquireOperator() *Operator {
 }
 
 func releaseOperator(op *Operator) {
-	op.reset()
-	operators.Put(op)
+	if op.reset() {
+		operators.Put(op)
+	}
 }

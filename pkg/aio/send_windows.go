@@ -145,17 +145,15 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		cb(Userdata{}, errors.New("packet is too large (only 1GB is allowed)"))
 		return
 	}
-	op.msg = &windows.WSAMsg{
-		Name:    rsa,
-		Namelen: rsaLen,
-		Buffers: &windows.WSABuf{
-			Len: uint32(bLen),
-			Buf: nil,
-		},
-		BufferCount: 1,
-		Control:     windows.WSABuf{},
-		Flags:       0,
+	op.msg.Name = rsa
+	op.msg.Namelen = rsaLen
+
+	op.msg.Buffers = &windows.WSABuf{
+		Len: uint32(bLen),
+		Buf: nil,
 	}
+	op.msg.BufferCount = 1
+
 	if bLen > 0 {
 		op.msg.Buffers.Buf = &b[0]
 	}
@@ -176,7 +174,7 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// send msg
 	err := windows.WSASendMsg(
 		windows.Handle(fd.Fd()),
-		op.msg,
+		&op.msg,
 		op.msg.Flags,
 		&op.n,
 		wsaoverlapped,

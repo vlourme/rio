@@ -92,7 +92,8 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	}
 	rsa := syscall.RawSockaddrAny{}
 	rsaLen := int32(unsafe.Sizeof(rsa))
-	op.rsa = &rsa
+	op.msg.Name = &rsa
+	//op.rsa = &rsa
 
 	flags := uint32(0)
 	// cb
@@ -123,7 +124,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
-	rsa := op.rsa
+	rsa := op.msg.Name
 	fd := op.fd
 	fd.finishReading()
 	if err != nil {
@@ -154,15 +155,9 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	}
 	rsa := syscall.RawSockaddrAny{}
 	rsaLen := int32(unsafe.Sizeof(rsa))
+	op.msg.Name = &rsa
+	op.msg.Namelen = rsaLen
 
-	op.msg = &windows.WSAMsg{
-		Name:        &rsa,
-		Namelen:     rsaLen,
-		Buffers:     nil,
-		BufferCount: 0,
-		Control:     windows.WSABuf{},
-		Flags:       0,
-	}
 	if bLen > 0 {
 		op.msg.Buffers = &windows.WSABuf{
 			Len: uint32(bLen),
@@ -198,7 +193,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// recv msg
 	err := windows.WSARecvMsg(
 		windows.Handle(fd.Fd()),
-		op.msg,
+		&op.msg,
 		&op.n,
 		wsaoverlapped,
 		nil,

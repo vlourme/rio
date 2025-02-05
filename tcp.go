@@ -94,7 +94,9 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 
 func (conn *tcpConnection) handleSendfileErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
 	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		aio.Cancel(conn.fd.WriteOperator())
+		if op := conn.fd.Writing(); op != nil {
+			aio.Cancel(op)
+		}
 	} else if IsShutdown(err) {
 		aio.CloseImmediately(conn.fd)
 	}
