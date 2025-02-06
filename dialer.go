@@ -2,6 +2,7 @@ package rio
 
 import (
 	"context"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
@@ -79,6 +80,19 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		future = async.FailedImmediately[Connection](ctx, promiseErr)
 		return
 	}
+	promise.SetErrInterceptor(func(ctx context.Context, conn Connection, err error) (future async.Future[Connection]) {
+		if err != nil {
+			if !IsEOF(err) {
+				err = errors.New(
+					"connect failed",
+					errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+					errors.WithWrap(err),
+				)
+			}
+		}
+		future = async.Immediately[Connection](ctx, conn, err)
+		return
+	})
 	future = promise.Future()
 
 	// execute
@@ -89,14 +103,11 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		}
 		aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 			if err != nil {
-				addr, _, _, _ := aio.ResolveAddr(network, address)
-				err = &net.OpError{
-					Op:     aio.OpDial,
-					Net:    network,
-					Source: nil,
-					Addr:   addr,
-					Err:    err,
-				}
+				err = errors.New(
+					"connect failed",
+					errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+					errors.WithWrap(err),
+				)
 				promise.Fail(err)
 				return
 			}

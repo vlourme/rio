@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"net"
 	"runtime"
 	"syscall"
@@ -24,6 +24,12 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -38,6 +44,12 @@ func completeSend(result int, op *Operator, err error) {
 	releaseOperator(op)
 
 	if err != nil {
+		err = errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -56,7 +68,13 @@ func completeSend(result int, op *Operator, err error) {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(Userdata{}, wErr)
+			err = errors.New(
+				"send failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSend),
+				errors.WithWrap(wErr),
+			)
+			cb(Userdata{}, err)
 			break
 		}
 		cb(Userdata{N: n}, nil)
@@ -83,6 +101,12 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"send to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -98,6 +122,12 @@ func completeSendTo(result int, op *Operator, err error) {
 	releaseOperator(op)
 
 	if err != nil {
+		err = errors.New(
+			"send to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -118,7 +148,13 @@ func completeSendTo(result int, op *Operator, err error) {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(Userdata{}, wErr)
+			err = errors.New(
+				"send to failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+				errors.WithWrap(wErr),
+			)
+			cb(Userdata{}, err)
 			break
 		}
 		cb(Userdata{N: bLen}, nil)
@@ -129,7 +165,6 @@ func completeSendTo(result int, op *Operator, err error) {
 }
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
-
 	// msg
 	bLen := len(b)
 	oobLen := len(oob)
@@ -137,7 +172,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		cb(Userdata{}, nil)
 	}
 	if bLen > 0 && oobLen > 0 {
-		cb(Userdata{}, errors.New("aio: can not send bytes with oob"))
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.Define("aio: can not send bytes with oob")),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 
@@ -156,6 +197,12 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -173,6 +220,12 @@ func completeSendMsg(result int, op *Operator, err error) {
 	releaseOperator(op)
 
 	if err != nil {
+		err = errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -195,7 +248,13 @@ func completeSendMsg(result int, op *Operator, err error) {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(Userdata{}, wErr)
+			err = errors.New(
+				"send message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+				errors.WithWrap(wErr),
+			)
+			cb(Userdata{}, err)
 			break
 		}
 		cb(Userdata{N: bLen}, nil)

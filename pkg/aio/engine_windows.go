@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/windows"
 	"os"
 	"runtime"
@@ -15,9 +15,13 @@ const dwordMax = 0xffffffff
 func createSubIoCompletionPort(handle windows.Handle) error {
 	eng := engine()
 	cfd := windows.Handle(eng.fd)
-	_, createErr := windows.CreateIoCompletionPort(handle, cfd, 0, 0)
-	if createErr != nil {
-		return os.NewSyscallError("iocp_create_io_completion_port", createErr)
+	if _, err := windows.CreateIoCompletionPort(handle, cfd, 0, 0); err != nil {
+		err = errors.New(
+			"create iocp failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(os.NewSyscallError("iocp_create_io_completion_port", err)),
+		)
+		return err
 	}
 	return nil
 }
@@ -26,14 +30,22 @@ func (engine *Engine) Start() {
 	engine.lock.Lock()
 	defer engine.lock.Unlock()
 	if engine.running {
-		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: engine start failed cause already running"))
+		engine.startupErr = errors.New(
+			"engine start failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.Define("engine is already running")),
+		)
 		return
 	}
 
 	var data windows.WSAData
 	startupErr := windows.WSAStartup(uint32(0x202), &data)
 	if startupErr != nil {
-		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), startupErr)
+		engine.startupErr = errors.New(
+			"engine start failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(startupErr),
+		)
 		return
 	}
 	// settings
@@ -46,7 +58,11 @@ func (engine *Engine) Start() {
 	// iocp
 	cphandle, createIOCPErr := windows.CreateIoCompletionPort(windows.InvalidHandle, 0, 0, threadCount)
 	if createIOCPErr != nil {
-		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("create iocp failed"), createIOCPErr)
+		engine.startupErr = errors.New(
+			"engine start failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(createIOCPErr),
+		)
 		return
 	}
 	engine.fd = int(cphandle)

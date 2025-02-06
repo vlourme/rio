@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
@@ -13,7 +14,12 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		err = sockErr
+		err = errors.New(
+			"listen failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpListen),
+			errors.WithWrap(sockErr),
+		)
 		return
 	}
 	handle := syscall.Handle(sock)
@@ -22,29 +28,49 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 		setOptErr := setDefaultListenerSocketOpts(sock)
 		if setOptErr != nil {
 			_ = syscall.Closesocket(handle)
-			err = setOptErr
+			err = errors.New(
+				"listen failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpListen),
+				errors.WithWrap(setOptErr),
+			)
 			return
 		}
 		// bind
 		sa := AddrToSockaddr(addr)
 		bindErr := syscall.Bind(handle, sa)
 		if bindErr != nil {
-			err = os.NewSyscallError("bind", bindErr)
 			_ = syscall.Closesocket(handle)
+			err = errors.New(
+				"listen failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpListen),
+				errors.WithWrap(os.NewSyscallError("bind", bindErr)),
+			)
 			return
 		}
 		// listen
 		listenErr := syscall.Listen(handle, syscall.SOMAXCONN)
 		if listenErr != nil {
-			err = os.NewSyscallError("listen", listenErr)
 			_ = syscall.Closesocket(handle)
+			err = errors.New(
+				"listen failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpListen),
+				errors.WithWrap(os.NewSyscallError("listen", listenErr)),
+			)
 			return
 		}
 		// lsa
 		lsa, getLsaErr := syscall.Getsockname(handle)
 		if getLsaErr != nil {
-			err = os.NewSyscallError("getsockname", getLsaErr)
 			_ = syscall.Closesocket(handle)
+			err = errors.New(
+				"listen failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpListen),
+				errors.WithWrap(os.NewSyscallError("getsockname", getLsaErr)),
+			)
 			return
 		}
 		addr = SockaddrToAddr(network, lsa)
@@ -57,7 +83,12 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 			if udpAddr.IP != nil && udpAddr.IP.IsMulticast() {
 				if setOptErr := setDefaultMulticastSockopts(sock); setOptErr != nil {
 					_ = syscall.Close(handle)
-					err = setOptErr
+					err = errors.New(
+						"listen failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithMeta(errMetaOpKey, errMetaOpListen),
+						errors.WithWrap(setOptErr),
+					)
 					return
 				}
 				isListenMulticastUDP = true
@@ -78,30 +109,66 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 				if multicastInterface != nil {
 					if err = setIPv4MulticastInterface(handle, multicastInterface); err != nil {
 						_ = syscall.Closesocket(handle)
+						err = errors.New(
+							"listen failed",
+							errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+							errors.WithMeta(errMetaOpKey, errMetaOpListen),
+							errors.WithWrap(err),
+						)
 						return
 					}
 				}
 				if err = setIPv4MulticastLoopback(handle, false); err != nil {
 					_ = syscall.Closesocket(handle)
+					err = errors.New(
+						"listen failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithMeta(errMetaOpKey, errMetaOpListen),
+						errors.WithWrap(err),
+					)
 					return
 				}
 				if err = joinIPv4Group(handle, multicastInterface, ip4); err != nil {
 					_ = syscall.Closesocket(handle)
+					err = errors.New(
+						"listen failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithMeta(errMetaOpKey, errMetaOpListen),
+						errors.WithWrap(err),
+					)
 					return
 				}
 			} else {
 				if multicastInterface != nil {
 					if err = setIPv6MulticastInterface(handle, multicastInterface); err != nil {
 						_ = syscall.Closesocket(handle)
+						err = errors.New(
+							"listen failed",
+							errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+							errors.WithMeta(errMetaOpKey, errMetaOpListen),
+							errors.WithWrap(err),
+						)
 						return
 					}
 				}
 				if err = setIPv6MulticastLoopback(handle, false); err != nil {
 					_ = syscall.Closesocket(handle)
+					err = errors.New(
+						"listen failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithMeta(errMetaOpKey, errMetaOpListen),
+						errors.WithWrap(err),
+					)
 					return
 				}
 				if err = joinIPv6Group(handle, multicastInterface, gaddr.IP); err != nil {
 					_ = syscall.Closesocket(handle)
+					err = errors.New(
+						"listen failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithMeta(errMetaOpKey, errMetaOpListen),
+						errors.WithWrap(err),
+					)
 					return
 				}
 			}
@@ -110,8 +177,13 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 		sa := AddrToSockaddr(addr)
 		bindErr := syscall.Bind(handle, sa)
 		if bindErr != nil {
-			err = os.NewSyscallError("bind", bindErr)
 			_ = syscall.Closesocket(handle)
+			err = errors.New(
+				"listen failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpListen),
+				errors.WithWrap(os.NewSyscallError("bind", bindErr)),
+			)
 			return
 		}
 		break
@@ -122,8 +194,13 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 	// create iocp
 	createListenIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createListenIOCPErr != nil {
-		err = createListenIOCPErr
 		_ = syscall.Closesocket(handle)
+		err = errors.New(
+			"listen failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpListen),
+			errors.WithWrap(createListenIOCPErr),
+		)
 		return
 	}
 

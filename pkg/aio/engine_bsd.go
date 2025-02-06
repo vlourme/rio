@@ -4,7 +4,7 @@ package aio
 
 import (
 	"bytes"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -28,7 +28,11 @@ func (engine *Engine) Start() {
 	engine.lock.Lock()
 	defer engine.lock.Unlock()
 	if engine.running {
-		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: engine start failed cause already running"))
+		engine.startupErr = errors.New(
+			"engine start failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.Define("engine start failed cause already running")),
+		)
 		return
 	}
 
@@ -38,7 +42,11 @@ func (engine *Engine) Start() {
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder, cylinderErr := newKqueueCylinder(settings.ChangesQueueSize, settings.ChangesPeekBatchSize, settings.EventsWaitBatchSize, settings.EventsWaitTimeout)
 		if cylinderErr != nil {
-			engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("create kqueue failed"), cylinderErr)
+			engine.startupErr = errors.New(
+				"engine start failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(cylinderErr),
+			)
 			return
 		}
 		engine.cylinders[i] = cylinder

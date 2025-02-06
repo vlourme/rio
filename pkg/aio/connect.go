@@ -1,7 +1,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"net"
 	"syscall"
 )
@@ -14,7 +14,13 @@ type ConnectOptions struct {
 func Connect(network string, address string, opts ConnectOptions, callback OperationCallback) {
 	addr, family, ipv6only, addrErr := ResolveAddr(network, address)
 	if addrErr != nil {
-		callback(Userdata{}, addrErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(addrErr),
+		)
+		callback(Userdata{}, err)
 		return
 	}
 	switch network {
@@ -64,7 +70,13 @@ func Connect(network string, address string, opts ConnectOptions, callback Opera
 		connect(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil, callback)
 		break
 	default:
-		callback(Userdata{}, errors.New("aio.Connect: network is not support"))
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(errors.Define("network is not support")),
+		)
+		callback(Userdata{}, err)
 		return
 	}
 	return

@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/errors"
 	"net"
 	"os"
 	"syscall"
@@ -13,7 +14,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(Userdata{}, sockErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(sockErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 
@@ -22,7 +29,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		setBroadcastErr := syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		if setBroadcastErr != nil {
 			_ = syscall.Close(sock)
-			cb(Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
+			err := errors.New(
+				"connect failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+				errors.WithWrap(os.NewSyscallError("setsockopt", setBroadcastErr)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 	}
@@ -36,7 +49,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		bindErr := syscall.Bind(sock, lsa)
 		if bindErr != nil {
 			_ = syscall.Close(sock)
-			cb(Userdata{}, os.NewSyscallError("bind", bindErr))
+			err := errors.New(
+				"connect failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+				errors.WithWrap(os.NewSyscallError("bind", bindErr)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 		conn.localAddr = laddr
@@ -48,13 +67,25 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// remote addr
 	if raddr == nil {
 		_ = syscall.Close(sock)
-		cb(Userdata{}, syscall.Errno(22))
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(syscall.Errno(22)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	sa := AddrToSockaddr(raddr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 	if rsaErr != nil {
-		cb(Userdata{}, rsaErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(rsaErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	conn.remoteAddr = raddr
@@ -73,7 +104,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	err := cylinder.prepareRW(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, op.ptr())
 	if err != nil {
 		_ = syscall.Close(sock)
-		cb(Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("io_uring_prep_connect", err)),
+		)
+		cb(Userdata{}, err)
 		// release
 		releaseOperator(op)
 	}
@@ -90,7 +127,13 @@ func completeConnect(_ int, op *Operator, err error) {
 	// check error
 	if err != nil {
 		_ = syscall.Close(sock)
-		cb(Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(err),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// get local addr
@@ -98,7 +141,13 @@ func completeConnect(_ int, op *Operator, err error) {
 		lsa, lsaErr := syscall.Getsockname(sock)
 		if lsaErr != nil {
 			_ = syscall.Close(sock)
-			cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+			err = errors.New(
+				"connect failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+				errors.WithWrap(os.NewSyscallError("getsockname", lsaErr)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 		la := SockaddrToAddr(conn.Network(), lsa)

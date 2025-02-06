@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/errors"
 	"io"
 	"os"
 	"syscall"
@@ -27,7 +28,13 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// prepare
 	err := cylinder.prepareRW(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
 	if err != nil {
-		cb(Userdata{}, os.NewSyscallError("io_uring_prep_recv", err))
+		err = errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(os.NewSyscallError("io_uring_prep_recv", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -38,7 +45,12 @@ func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_recv", err)
+		err = errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -96,6 +108,12 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// prepare
 	err := cylinder.prepareRW(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), uint32(op.msg.Iovlen), 0, 0, op.ptr())
 	if err != nil {
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(os.NewSyscallError("io_uring_prep_recvmsg", err)),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
@@ -108,14 +126,25 @@ func completeRecvMsg(result int, op *Operator, err error) {
 	msg := op.msg
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_recvmsg", err)
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
 	rsa := (*syscall.RawSockaddrAny)(unsafe.Pointer(msg.Name))
 	addr, addrErr := RawToAddr(rsa)
 	if addrErr != nil {
-		cb(Userdata{}, addrErr)
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(addrErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	oobn := int(msg.Controllen)

@@ -21,10 +21,11 @@ func sysSocket(family int, sotype int, protocol int) (fd int, err error) {
 func newSocket(family int, sotype int, protocol int, ipv6only bool) (fd int, err error) {
 	// socket
 	fd, err = sysSocket(family, sotype, protocol)
+	if err != nil {
+		return
+	}
 	// set default opts
-	setDefaultSockOptsErr := setDefaultSocketOpts(fd, family, sotype, ipv6only)
-	if setDefaultSockOptsErr != nil {
-		err = setDefaultSockOptsErr
+	if err = setDefaultSocketOpts(fd, family, sotype, ipv6only); err != nil {
 		_ = windows.Closesocket(windows.Handle(fd))
 		return
 	}

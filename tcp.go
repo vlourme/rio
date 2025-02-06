@@ -2,7 +2,7 @@ package rio
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp/async"
 	"time"
@@ -61,11 +61,21 @@ func (conn *tcpConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err e
 
 func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if len(file) == 0 {
-		future = async.FailedImmediately[int](conn.ctx, errors.New("no file specified"))
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.Define("no file specified")),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 	if conn.disconnected() {
-		future = async.FailedImmediately[int](conn.ctx, ErrClosed)
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrClosed),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 
@@ -77,14 +87,23 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 		promise, promiseErr = async.Make[int](conn.ctx)
 	}
 	if promiseErr != nil {
-		future = async.FailedImmediately[int](conn.ctx, promiseErr)
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(promiseErr),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 
 	aio.Sendfile(conn.fd, file, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		if err != nil {
-			err = aio.NewOpErr(aio.OpSendfile, conn.fd, err)
+			err = errors.New(
+				"sendfile failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
 		}
 		promise.Complete(n, err)
 		return

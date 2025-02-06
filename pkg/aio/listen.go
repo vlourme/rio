@@ -1,7 +1,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"net"
 	"syscall"
 )
@@ -15,7 +15,12 @@ type ListenerOptions struct {
 func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err error) {
 	addr, family, ipv6only, addrErr := ResolveAddr(network, address)
 	if addrErr != nil {
-		err = addrErr
+		err = errors.New(
+			"listen failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpListen),
+			errors.WithWrap(addrErr),
+		)
 		return
 	}
 
@@ -28,10 +33,6 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 		fd, err = newListenerFd(network, family, syscall.SOCK_STREAM, proto, ipv6only, addr, nil)
 		if err == nil && opts.FastOpen > 0 {
 			_ = SetFastOpen(fd, opts.FastOpen)
-			//if err = SetFastOpen(fd, opts.FastOpen); err != nil {
-			//	CloseImmediately(fd)
-			//	return
-			//}
 		}
 		break
 	case "udp", "udp4", "udp6":
@@ -57,7 +58,12 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 		fd, err = newListenerFd(network, family, syscall.SOCK_RAW, proto, ipv6only, addr, nil)
 		break
 	default:
-		err = errors.New("aio.Listen: network is not support")
+		err = errors.New(
+			"listen failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpListen),
+			errors.WithWrap(errors.Define("network is not support")),
+		)
 		return
 	}
 	return

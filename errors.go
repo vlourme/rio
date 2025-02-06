@@ -1,21 +1,25 @@
 package rio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp/async"
 	"io"
 	"time"
 )
 
+const (
+	errMetaPkgKey = "pkg"
+	errMetaPkgVal = "rio"
+)
+
 var (
-	ErrClosed           = errors.New("rio: use a closed connection")
-	ErrEmptyBytes       = errors.New("rio: empty bytes")
-	ErrNetworkUnmatched = errors.New("rio: network is not matched")
-	ErrNilAddr          = errors.New("rio: addr is nil")
-	ErrAllocate         = errors.New("rio: allocate bytes failed")
-	ErrAllocateWritten  = errors.New("rio: allocate written failed")
-	ErrDeadlineExceeded = errors.New("rio: deadline exceeded")
+	ErrClosed           = errors.Define("use a closed connection")
+	ErrEmptyBytes       = errors.Define("empty bytes")
+	ErrNetworkUnmatched = errors.Define("network is not matched")
+	ErrNilAddr          = errors.Define("addr is nil")
+	ErrAllocate         = errors.Define("allocate bytes failed")
+	ErrAllocateWritten  = errors.Define("allocate written failed")
 )
 
 // IsClosed
@@ -53,6 +57,7 @@ func IsErrAllocateWrote(err error) bool {
 func IsDeadlineExceeded(err error) bool {
 	return async.IsDeadlineExceeded(err)
 }
+
 func GetDeadlineFromErr(err error) (time.Time, bool) {
 	deadlineErr, ok := async.AsDeadlineExceededError(err)
 	if ok {

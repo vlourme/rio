@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"net"
 	"os"
 	"syscall"
@@ -42,7 +42,13 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		op.setCylinder(cylinder)
 		err := cylinder.prepareRW(opSend, sock, bufAddr, bufLen, 0, 0, op.ptr())
 		if err != nil {
-			cb(Userdata{}, os.NewSyscallError("io_uring_prep_send", err))
+			err = errors.New(
+				"send failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSend),
+				errors.WithWrap(os.NewSyscallError("io_uring_prep_send", err)),
+			)
+			cb(Userdata{}, err)
 			releaseOperator(op)
 		}
 		break
@@ -55,12 +61,24 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		op.setCylinder(cylinder)
 		err := cylinder.prepareRW(opSendZC, sock, bufAddr, bufLen, 0, 0, op.ptr())
 		if err != nil {
-			cb(Userdata{}, os.NewSyscallError("io_uring_prep_send_zc", err))
+			err = errors.New(
+				"send failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSend),
+				errors.WithWrap(os.NewSyscallError("io_uring_prep_send_zc", err)),
+			)
+			cb(Userdata{}, err)
 			releaseOperator(op)
 		}
 		break
 	default:
-		cb(Userdata{}, errors.New("invalid opSendCode"))
+		err := errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(errors.Define("invalid opSendCode")),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		break
 	}
@@ -71,7 +89,12 @@ func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_send", err)
+		err = errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -85,7 +108,12 @@ func completeSendZC(result int, op *Operator, err error) {
 	if err != nil {
 		releaseOperator(op)
 		if cb != nil {
-			err = os.NewSyscallError("io_uring_prep_send_zc", err)
+			err = errors.New(
+				"send failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSend),
+				errors.WithWrap(err),
+			)
 			cb(Userdata{}, err)
 		}
 		return
@@ -101,7 +129,12 @@ func completeSendZC(result int, op *Operator, err error) {
 	}
 	releaseOperator(op)
 	if cb != nil {
-		err = os.NewSyscallError("io_uring_prep_send_zc", errors.New("invalid cqe flags"))
+		err = errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(errors.Define("invalid cqe flags")),
+		)
 		cb(Userdata{}, err)
 	}
 	return
@@ -117,7 +150,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	sa := AddrToSockaddr(addr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 	if rsaErr != nil {
-		cb(Userdata{}, errors.Join(errors.New("aio: send msg failed"), rsaErr))
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(rsaErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// op
@@ -155,7 +194,14 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		op.setCylinder(cylinder)
 		err := cylinder.prepareRW(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 		if err != nil {
-			cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg", err))
+			err = errors.New(
+				"send message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+				errors.WithWrap(os.NewSyscallError("io_uring_prep_sendmsg", err)),
+			)
+			cb(Userdata{}, err)
+
 			releaseOperator(op)
 		}
 		break
@@ -169,13 +215,25 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		op.setCylinder(cylinder)
 		err := cylinder.prepareRW(opSendMsgZC, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 		if err != nil {
-			cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg_zc", err))
+			err = errors.New(
+				"send message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+				errors.WithWrap(os.NewSyscallError("io_uring_prep_sendmsg_zc", err)),
+			)
+			cb(Userdata{}, err)
 			releaseOperator(op)
 		}
 		break
 	default:
 		releaseOperator(op)
-		cb(Userdata{}, errors.New("invalid opSendMsgCode"))
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.Define("invalid opSendMsgCode")),
+		)
+		cb(Userdata{}, err)
 		break
 	}
 	return
@@ -186,7 +244,12 @@ func completeSendMsg(result int, op *Operator, err error) {
 	msg := op.msg
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_sendmsg", err)
+		err = errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -211,7 +274,12 @@ func completeSendMsgZC(result int, op *Operator, err error) {
 	if err != nil {
 		releaseOperator(op)
 		if cb != nil {
-			err = os.NewSyscallError("io_uring_prep_sendmsg_zc", err)
+			err = errors.New(
+				"send message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+				errors.WithWrap(err),
+			)
 			cb(Userdata{}, err)
 		}
 		return
@@ -235,7 +303,12 @@ func completeSendMsgZC(result int, op *Operator, err error) {
 	}
 	releaseOperator(op)
 	if cb != nil {
-		err = os.NewSyscallError("io_uring_prep_send_zc", errors.New("invalid cqe flags"))
+		err = errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.Define("invalid cqe flags")),
+		)
 		cb(Userdata{}, err)
 	}
 	return

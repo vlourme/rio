@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/windows"
 	"io"
 	"os"
@@ -12,32 +12,62 @@ import (
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	if len(filepath) == 0 {
-		cb(Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(errors.Define("aio.Sendfile: filepath is empty")),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	src, openErr := windows.Open(filepath, windows.O_RDONLY|windows.O_NONBLOCK|windows.FILE_FLAG_SEQUENTIAL_SCAN, 0777)
 	if openErr != nil {
-		cb(Userdata{}, os.NewSyscallError("open", openErr))
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("open", openErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 
 	curpos, seekToCurrentErr := windows.Seek(src, 0, io.SeekCurrent)
 	if seekToCurrentErr != nil {
 		_ = windows.Close(src)
-		cb(Userdata{}, os.NewSyscallError("seek", seekToCurrentErr))
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("seek", seekToCurrentErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// find the number of b offset from curpos until the end of the file.
 	remain, seekToEndErr := windows.Seek(src, -curpos, io.SeekEnd)
 	if seekToEndErr != nil {
 		_ = windows.Close(src)
-		cb(Userdata{}, os.NewSyscallError("seek", seekToEndErr))
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("seek", seekToEndErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// now seek back to the original position.
 	if _, seekToStart := windows.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = windows.Close(src)
-		cb(Userdata{}, os.NewSyscallError("seek", seekToStart))
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("seek", seekToStart)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 
@@ -73,8 +103,13 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 	err := windows.TransmitFile(dst, file, op.n, 0, wsaOverlapped, nil, windows.TF_WRITE_BEHIND)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		_ = windows.Close(file)
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("transmit_file", err))
+		err = errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("transmit_file", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -91,7 +126,12 @@ func completeSendfile(result int, op *Operator, err error) {
 
 	if err != nil {
 		_ = windows.Close(src)
-		err = os.NewSyscallError("transmit_file", err)
+		err = errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("transmit_file", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -104,7 +144,13 @@ func completeSendfile(result int, op *Operator, err error) {
 
 	if _, seekToStart := windows.Seek(src, curpos, io.SeekStart); seekToStart != nil {
 		_ = windows.Close(src)
-		cb(Userdata{N: written}, os.NewSyscallError("seek", seekToStart))
+		err = errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(os.NewSyscallError("seek", seekToStart)),
+		)
+		cb(Userdata{N: written}, err)
 		return
 	}
 

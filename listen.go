@@ -2,7 +2,7 @@ package rio
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/security"
 	"github.com/brickingsoft/rxp"
@@ -103,6 +103,11 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	for _, option := range options {
 		err = option((*Options)(unsafe.Pointer(&opt)))
 		if err != nil {
+			err = errors.New(
+				"listen failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
 			return
 		}
 	}
@@ -117,7 +122,11 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		FastOpen:           opt.FastOpen,
 	})
 	if listenErr != nil {
-		err = &net.OpError{Op: aio.OpListen, Net: network, Err: listenErr}
+		err = errors.New(
+			"listen failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(listenErr),
+		)
 		return
 	}
 	// handle unix
@@ -134,7 +143,11 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	// conn promise
 	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, async.WithDirectMode())
 	if acceptorPromiseErr != nil {
-		err = errors.Join(errors.New("rio: listen failed"), acceptorPromiseErr)
+		err = errors.New(
+			"listen failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(acceptorPromiseErr),
+		)
 		return
 	}
 
@@ -197,7 +210,12 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 			ln.acceptOne()
 		}
 	} else {
-		fn(ln.ctx, nil, errors.New("rio: listener was closed"))
+		err := errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.New("listener was closed")),
+		)
+		fn(ln.ctx, nil, err)
 	}
 }
 
@@ -205,7 +223,12 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	ctx := ln.ctx
 
 	if !ln.running.CompareAndSwap(true, false) {
-		future = async.FailedImmediately[async.Void](ctx, errors.New("rio: listener was closed"))
+		err := errors.New(
+			"close failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.New("listener was closed")),
+		)
+		future = async.FailedImmediately[async.Void](ctx, err)
 		return
 	}
 
@@ -239,7 +262,12 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	aio.Close(ln.fd, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			aio.CloseImmediately(ln.fd)
-			promise.Fail(aio.NewOpErr(aio.OpClose, ln.fd, err))
+			err = errors.New(
+				"close failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
+			promise.Fail(err)
 		} else {
 			promise.Succeed(async.Void{})
 		}
@@ -261,12 +289,22 @@ func (ln *listener) acceptOne() {
 		if err != nil {
 			if ln.ok() {
 				if aio.IsUnexpectedCompletionError(err) {
-					ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
+					err = errors.New(
+						"accept failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithWrap(err),
+					)
+					ln.acceptorPromises.Fail(err)
 					ln.Close()
 				} else if aio.IsBusy(err) {
 					ln.acceptOne()
 				} else {
-					ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
+					err = errors.New(
+						"accept failed",
+						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+						errors.WithWrap(err),
+					)
+					ln.acceptorPromises.Fail(err)
 					ln.acceptOne()
 				}
 			} else {
@@ -289,7 +327,12 @@ func (ln *listener) acceptOne() {
 		default:
 			// not matched, so close it
 			aio.CloseImmediately(connFd)
-			ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, ErrNetworkUnmatched))
+			err = errors.New(
+				"accept failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(ErrNetworkUnmatched),
+			)
+			ln.acceptorPromises.Fail(err)
 			ln.acceptOne()
 			return
 		}
@@ -360,6 +403,11 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 	for _, o := range options {
 		err = o((*Options)(unsafe.Pointer(&opts)))
 		if err != nil {
+			err = errors.New(
+				"listen packet failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
 			return
 		}
 	}
@@ -373,7 +421,11 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 	})
 
 	if listenErr != nil {
-		err = errors.Join(errors.New("rio: listen packet failed"), listenErr)
+		err = errors.New(
+			"listen packet failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(listenErr),
+		)
 		return
 	}
 

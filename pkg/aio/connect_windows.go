@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
@@ -21,7 +21,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(Userdata{}, sockErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(sockErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	handle := syscall.Handle(sock)
@@ -31,7 +37,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		setBroadcastErr := syscall.SetsockoptInt(handle, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		if setBroadcastErr != nil {
 			_ = syscall.Closesocket(handle)
-			cb(Userdata{}, os.NewSyscallError("setsockopt", setBroadcastErr))
+			err := errors.New(
+				"connect failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+				errors.WithWrap(os.NewSyscallError("setsockopt", setBroadcastErr)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 	}
@@ -41,7 +53,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		bindErr := syscall.Bind(handle, lsa)
 		if bindErr != nil {
 			_ = syscall.Closesocket(handle)
-			cb(Userdata{}, os.NewSyscallError("bind", bindErr))
+			err := errors.New(
+				"connect failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+				errors.WithWrap(os.NewSyscallError("bind", bindErr)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 	}
@@ -50,7 +68,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	connectErr := syscall.Connect(handle, rsa)
 	if connectErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("connect", connectErr))
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("connect", connectErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// get local addr
@@ -58,7 +82,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		lsa, lsaErr := syscall.Getsockname(handle)
 		if lsaErr != nil {
 			_ = syscall.Closesocket(handle)
-			cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+			err := errors.New(
+				"connect failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+				errors.WithWrap(os.NewSyscallError("getsockname", lsaErr)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 		laddr = SockaddrToAddr(network, lsa)
@@ -68,7 +98,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, createIOCPErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(createIOCPErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 
@@ -81,7 +117,13 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, cb OperationCallback) {
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
-		cb(Userdata{}, sockErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(sockErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	handle := syscall.Handle(sock)
@@ -97,14 +139,26 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	bindErr := syscall.Bind(handle, lsa)
 	if bindErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("bind", bindErr))
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("bind", bindErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// create iocp
 	createIOCPErr := createSubIoCompletionPort(windows.Handle(sock))
 	if createIOCPErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, createIOCPErr)
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(createIOCPErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// remote addr
@@ -125,7 +179,13 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	connectErr := syscall.ConnectEx(handle, sa, nil, 0, nil, overlapped)
 	if connectErr != nil && !errors.Is(connectErr, syscall.ERROR_IO_PENDING) {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("connectex", connectErr))
+		err := errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("connectex", connectErr)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -142,7 +202,13 @@ func completeConnectEx(_ int, op *Operator, err error) {
 
 	if err != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("connectex", err))
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("connectex", err)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// set SO_UPDATE_CONNECT_CONTEXT
@@ -154,14 +220,26 @@ func completeConnectEx(_ int, op *Operator, err error) {
 	)
 	if setSocketOptErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("setsockopt", setSocketOptErr))
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("setsockopt", setSocketOptErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// get addr
 	lsa, lsaErr := syscall.Getsockname(handle)
 	if lsaErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("getsockname", lsaErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	la := SockaddrToAddr(fd.Network(), lsa)
@@ -169,7 +247,13 @@ func completeConnectEx(_ int, op *Operator, err error) {
 	rsa, rsaErr := syscall.Getpeername(handle)
 	if rsaErr != nil {
 		_ = syscall.Closesocket(handle)
-		cb(Userdata{}, os.NewSyscallError("getsockname", rsaErr))
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpConnect),
+			errors.WithWrap(os.NewSyscallError("getsockname", rsaErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	ra := SockaddrToAddr(fd.Network(), rsa)

@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/windows"
 	"net"
 	"os"
@@ -41,8 +41,13 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("wsa_send", err))
+		err = errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(os.NewSyscallError("wsa_send", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -53,7 +58,12 @@ func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("wsa_send", err)
+		err = errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(os.NewSyscallError("wsa_send", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -93,8 +103,13 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("wsa_sendto", err))
+		err = errors.New(
+			"send to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+			errors.WithWrap(os.NewSyscallError("wsa_sendto", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -105,7 +120,12 @@ func completeSendTo(result int, op *Operator, err error) {
 	cb := op.callback
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("wsa_sendto", err)
+		err = errors.New(
+			"send to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+			errors.WithWrap(os.NewSyscallError("wsa_sendto", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -117,7 +137,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	sa := AddrToSockaddr(addr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
 	if rsaErr != nil {
-		cb(Userdata{}, errors.Join(errors.New("aio: send msg failed"), rsaErr))
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(rsaErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 
@@ -126,7 +152,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
-		cb(Userdata{}, errors.New("packet is too large (only 1GB is allowed)"))
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.Define("packet is too large (only 1GB is allowed)")),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	op.msg.Name = rsa
@@ -165,8 +197,13 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		nil,
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("wsa_sendmsg", err))
+		err = errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(os.NewSyscallError("wsa_sendmsg", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -178,7 +215,12 @@ func completeSendMsg(result int, op *Operator, err error) {
 	msg := op.msg
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("wsa_sendmsg", err)
+		err = errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(os.NewSyscallError("wsa_sendmsg", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}

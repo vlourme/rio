@@ -3,8 +3,8 @@
 package aio
 
 import (
-	"errors"
 	"fmt"
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
@@ -37,14 +37,22 @@ func (engine *Engine) Start() {
 	engine.lock.Lock()
 	defer engine.lock.Unlock()
 	if engine.running {
-		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: engine start failed cause already running"))
+		engine.startupErr = errors.New(
+			"engine start failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.Define("engine is already running")),
+		)
 		return
 	}
 
 	// check kernel version
 	major, minor := KernelVersion()
 	if major < minKernelVersionMajor || (major == minKernelVersionMajor && minor < minKernelVersionMinor) {
-		engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: kernel version too old, must newer then 5.16"))
+		engine.startupErr = errors.New(
+			"engine start failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(errors.Define("kernel version too old, must newer then 5.16")),
+		)
 		return
 	}
 	// setup send zc
@@ -147,7 +155,11 @@ func (engine *Engine) Start() {
 	for i := 0; i < len(engine.cylinders); i++ {
 		cylinder, cylinderErr := newIOURingCylinder(entries, param, batch, settings.SubmitWaitTimeout, submitWaitForCQEs)
 		if cylinderErr != nil {
-			engine.startupErr = errors.Join(errors.New("aio: engine start failed"), errors.New("aio: iouring setup failed"), cylinderErr)
+			engine.startupErr = errors.New(
+				"engine start failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(errors.Define("iouring setup failed")),
+			)
 			return
 		}
 		engine.cylinders[i] = cylinder

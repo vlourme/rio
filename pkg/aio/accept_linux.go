@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/errors"
 	"os"
 	"syscall"
 	"unsafe"
@@ -40,7 +41,13 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// prepare
 	err := cylinder.prepareRW(opAccept, sock, addrPtr, 0, addrLenPtr, 0, op.ptr())
 	if err != nil {
-		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(os.NewSyscallError("io_uring_prep_accept", err)),
+		)
+		cb(Userdata{}, err)
 		// release
 		releaseOperator(op)
 	}
@@ -55,18 +62,28 @@ func completeAccept(result int, op *Operator, err error) {
 	releaseOperator(op)
 
 	if err != nil {
-		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(err),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	// conn
 	sock := result
-	// ln
-	// addr
 	// get local addr
 	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
 		_ = syscall.Close(sock)
-		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(os.NewSyscallError("getsockname", lsaErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	la := SockaddrToAddr(fd.Network(), lsa)
@@ -75,7 +92,13 @@ func completeAccept(result int, op *Operator, err error) {
 	rsa, rsaErr := syscall.Getpeername(sock)
 	if rsaErr != nil {
 		_ = syscall.Close(sock)
-		cb(Userdata{}, os.NewSyscallError("getpeername", rsaErr))
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(os.NewSyscallError("getpeername", rsaErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	ra := SockaddrToAddr(fd.Network(), rsa)

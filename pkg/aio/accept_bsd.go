@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"os"
 	"syscall"
 )
@@ -17,6 +17,12 @@ func Accept(fd NetFd, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -27,10 +33,22 @@ func completeAccept(result int, op *Operator, err error) {
 	fd := op.fd.(NetFd)
 	releaseOperator(op)
 	if err != nil {
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
 	if result == 0 {
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(ErrBusy),
+		)
 		cb(Userdata{}, ErrBusy)
 		return
 	}
@@ -42,7 +60,13 @@ func completeAccept(result int, op *Operator, err error) {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) || errors.Is(err, syscall.ECONNABORTED) {
 				continue
 			}
-			cb(Userdata{}, os.NewSyscallError("accept4", err))
+			err = errors.New(
+				"accept failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+				errors.WithWrap(os.NewSyscallError("accept4", err)),
+			)
+			cb(Userdata{}, err)
 			return
 		}
 		break
@@ -52,7 +76,13 @@ func completeAccept(result int, op *Operator, err error) {
 	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
 		_ = syscall.Close(sock)
-		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		err = errors.New(
+			"accept failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpAccept),
+			errors.WithWrap(os.NewSyscallError("getsockname", lsaErr)),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	la := SockaddrToAddr(fd.Network(), lsa)

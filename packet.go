@@ -2,7 +2,7 @@ package rio
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
@@ -33,16 +33,25 @@ type packetConnection struct {
 }
 
 func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketInbound]) {
+	if conn.disconnected() {
+		err := errors.New(
+			"read from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrClosed),
+		)
+		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, err)
+		return
+	}
 	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
-		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, errors.Join(ErrAllocate, allocateErr))
+		err := errors.New(
+			"read from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrAllocate),
+		)
+		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, err)
 		return
 	}
-	if conn.disconnected() {
-		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, ErrClosed)
-		return
-	}
-
 	var promise async.Promise[transport.PacketInbound]
 	var promiseErr error
 	if conn.readTimeout > 0 {
@@ -52,7 +61,12 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	}
 	if promiseErr != nil {
 		conn.rb.AllocatedWrote(0)
-		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, promiseErr)
+		err := errors.New(
+			"read from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(promiseErr),
+		)
+		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, err)
 		return
 	}
 
@@ -60,7 +74,12 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		n := userdata.N
 		conn.rb.AllocatedWrote(n)
 		if err != nil {
-			promise.Fail(aio.NewOpErr(aio.OpReadFrom, conn.fd, err))
+			err = errors.New(
+				"read from failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
+			promise.Fail(err)
 			return
 		}
 
@@ -76,15 +95,30 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 
 func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Future[int]) {
 	if len(b) == 0 {
-		future = async.FailedImmediately[int](conn.ctx, ErrEmptyBytes)
+		err := errors.New(
+			"write to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrEmptyBytes),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 	if addr == nil {
-		future = async.FailedImmediately[int](conn.ctx, ErrNilAddr)
+		err := errors.New(
+			"write to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrNilAddr),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 	if conn.disconnected() {
-		future = async.FailedImmediately[int](conn.ctx, ErrClosed)
+		err := errors.New(
+			"write to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrClosed),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 	var promise async.Promise[int]
@@ -95,13 +129,22 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 		promise, promiseErr = async.Make[int](conn.ctx)
 	}
 	if promiseErr != nil {
-		future = async.FailedImmediately[int](conn.ctx, promiseErr)
+		err := errors.New(
+			"write to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(promiseErr),
+		)
+		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
 
 	aio.SendTo(conn.fd, b, addr, func(userdata aio.Userdata, err error) {
 		if err != nil {
-			err = aio.NewOpWithAddrErr(aio.OpWriteTo, conn.fd, addr, err)
+			err = errors.New(
+				"write to failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
 		}
 		n := userdata.N
 		promise.Complete(n, err)
@@ -120,19 +163,35 @@ func (conn *packetConnection) SetReadMsgOOBBufferSize(size int) {
 }
 
 func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsgInbound]) {
+	if conn.disconnected() {
+		err := errors.New(
+			"read message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrClosed),
+		)
+		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, err)
+		return
+	}
+
 	b, allocateErr := conn.rb.Allocate(conn.rbs)
 	if allocateErr != nil {
-		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, errors.Join(ErrAllocate, allocateErr))
+		err := errors.New(
+			"read message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrAllocate),
+		)
+		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, err)
 		return
 	}
 	oob, allocateOOBErr := conn.oob.Allocate(conn.oobn)
 	if allocateOOBErr != nil {
 		conn.rb.AllocatedWrote(0)
-		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, errors.Join(ErrAllocate, allocateOOBErr))
-		return
-	}
-	if conn.disconnected() {
-		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, ErrClosed)
+		err := errors.New(
+			"read message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrAllocate),
+		)
+		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, err)
 		return
 	}
 
@@ -146,7 +205,12 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	if promiseErr != nil {
 		conn.rb.AllocatedWrote(0)
 		conn.oob.AllocatedWrote(0)
-		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, promiseErr)
+		err := errors.New(
+			"read message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(promiseErr),
+		)
+		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, err)
 		return
 	}
 
@@ -156,7 +220,12 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		oobn := userdata.OOBN
 		conn.oob.AllocatedWrote(oobn)
 		if err != nil {
-			promise.Fail(aio.NewOpErr(aio.OpReadMsg, conn.fd, err))
+			err = errors.New(
+				"read message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
+			promise.Fail(err)
 			return
 		}
 		addr := userdata.Addr
@@ -172,16 +241,31 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 
 func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[transport.PacketMsgOutbound]) {
 	if len(b) == 0 && len(oob) == 0 {
-		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrEmptyBytes)
+		err := errors.New(
+			"write message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrEmptyBytes),
+		)
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
 		return
 	}
 
 	if addr == nil {
-		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrNilAddr)
+		err := errors.New(
+			"write message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrNilAddr),
+		)
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
 		return
 	}
 	if conn.disconnected() {
-		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, ErrClosed)
+		err := errors.New(
+			"write message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(ErrClosed),
+		)
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
 		return
 	}
 
@@ -193,7 +277,12 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 		promise, promiseErr = async.Make[transport.PacketMsgOutbound](conn.ctx)
 	}
 	if promiseErr != nil {
-		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, promiseErr)
+		err := errors.New(
+			"write message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(promiseErr),
+		)
+		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
 		return
 	}
 
@@ -201,7 +290,11 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 		n := userdata.N
 		oobn := userdata.OOBN
 		if err != nil {
-			err = aio.NewOpWithAddrErr(aio.OpWriteMsg, conn.fd, addr, err)
+			err = errors.New(
+				"write message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(err),
+			)
 			if n == 0 {
 				promise.Fail(err)
 			} else {

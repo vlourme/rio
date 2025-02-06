@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"io"
 	"runtime"
 	"syscall"
@@ -22,6 +22,12 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -40,6 +46,12 @@ func completeRecv(result int, op *Operator, err error) {
 			cb(Userdata{}, io.EOF)
 			return
 		}
+		err = errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -58,7 +70,13 @@ func completeRecv(result int, op *Operator, err error) {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(Userdata{}, rErr)
+			err = errors.New(
+				"receive failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+				errors.WithWrap(rErr),
+			)
+			cb(Userdata{}, err)
 			break
 		}
 		if n == 0 && fd.ZeroReadIsEOF() {
@@ -85,6 +103,12 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -99,6 +123,12 @@ func completeRecvFrom(result int, op *Operator, err error) {
 	releaseOperator(op)
 
 	if err != nil {
+		err = errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -119,7 +149,13 @@ func completeRecvFrom(result int, op *Operator, err error) {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(Userdata{}, rErr)
+			err = errors.New(
+				"receive from failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+				errors.WithWrap(rErr),
+			)
+			cb(Userdata{}, err)
 			break
 		}
 		addr := SockaddrToAddr(network, sa)
@@ -144,6 +180,12 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op.setCylinder(cylinder)
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		releaseOperator(op)
 	}
@@ -158,6 +200,12 @@ func completeRecvMsg(result int, op *Operator, err error) {
 
 	releaseOperator(op)
 	if err != nil {
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(err),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -175,7 +223,13 @@ func completeRecvMsg(result int, op *Operator, err error) {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
 			}
-			cb(Userdata{}, rErr)
+			err = errors.New(
+				"receive message failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+				errors.WithWrap(rErr),
+			)
+			cb(Userdata{}, err)
 			break
 		}
 		addr := SockaddrToAddr(network, sa)

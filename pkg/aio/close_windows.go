@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"syscall"
 )
 
@@ -13,13 +13,25 @@ func Close(fd Fd, cb OperationCallback) {
 		handle := fd.Fd()
 		err := syscall.Closesocket(syscall.Handle(handle))
 		if err != nil {
+			err = errors.New(
+				"close failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithMeta(errMetaOpKey, errMetaOpClose),
+				errors.WithWrap(err),
+			)
 			cb(Userdata{}, err)
 			return
 		}
 		cb(Userdata{}, nil)
 		return
 	default:
-		cb(Userdata{}, errors.New("aio.Operator: close was not supported"))
+		err := errors.New(
+			"close failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpClose),
+			errors.WithWrap(errors.Define("invalid fd")),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 }

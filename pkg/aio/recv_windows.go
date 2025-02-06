@@ -3,7 +3,7 @@
 package aio
 
 import (
-	"errors"
+	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/windows"
 	"io"
 	"os"
@@ -42,8 +42,13 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("wsa_recv", err))
+		err = errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(os.NewSyscallError("wsa_recv", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -54,7 +59,12 @@ func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("wsa_recv", err)
+		err = errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(os.NewSyscallError("wsa_recv", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}
@@ -102,8 +112,13 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("wsa_recvfrom", err))
+		err = errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(os.NewSyscallError("wsa_recvfrom", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -115,13 +130,24 @@ func completeRecvFrom(result int, op *Operator, err error) {
 	rsa := op.msg.Name
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("wsa_recvfrom", err)
+		err = errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(os.NewSyscallError("wsa_recvfrom", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}
 	addr, addrErr := RawToAddr(rsa)
 	if addrErr != nil {
-		cb(Userdata{}, addrErr)
+		err = errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(addrErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	cb(Userdata{N: result, Addr: addr}, nil)
@@ -182,8 +208,13 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
-		// handle err
-		cb(Userdata{}, os.NewSyscallError("wsa_recvmsg", err))
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(os.NewSyscallError("wsa_recvmsg", err)),
+		)
+		cb(Userdata{}, err)
 		releaseOperator(op)
 		return
 	}
@@ -195,13 +226,24 @@ func completeRecvMsg(result int, op *Operator, err error) {
 	msg := op.msg
 	releaseOperator(op)
 	if err != nil {
-		err = os.NewSyscallError("wsa_recvmsg", err)
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(os.NewSyscallError("wsa_recvmsg", err)),
+		)
 		cb(Userdata{}, err)
 		return
 	}
 	addr, addrErr := RawToAddr(msg.Name)
 	if addrErr != nil {
-		cb(Userdata{}, addrErr)
+		err = errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(addrErr),
+		)
+		cb(Userdata{}, err)
 		return
 	}
 	oobn := int(msg.Control.Len)
