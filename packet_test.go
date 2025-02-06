@@ -112,7 +112,7 @@ func TestListenPacketMsg(t *testing.T) {
 		t.Log("srv read bytes from:", entry.Addr(), entry.Received(), string(b))
 		t.Log("srv read oob from:", entry.Addr(), entry.OOReceived(), string(oob))
 
-		srv.WriteMsg(b, []byte("oob"), entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
+		srv.WriteMsg(b, nil, entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
 			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
