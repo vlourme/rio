@@ -221,12 +221,7 @@ func (cylinder *KqueueCylinder) Loop() {
 				} else {
 					completion(int(data), op, nil)
 				}
-				op.callback = nil
-				op.completion = nil
-				runtime.KeepAlive(op)
 			}
-			op.end()
-			runtime.KeepAlive(op)
 			cylinder.completing.Add(-1)
 		}
 	}

@@ -11,7 +11,7 @@ import (
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.WriteOperator()
+	op := acquireOperator(fd)
 	// msg
 	op.b = b
 
@@ -25,14 +25,18 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	b := op.b
+
+	releaseOperator(op)
+
 	if err != nil {
 		cb(Userdata{}, err)
 		return
@@ -42,13 +46,11 @@ func completeSend(result int, op *Operator, err error) {
 		return
 	}
 
-	fd := op.fd.Fd()
-	b := op.b
 	if len(b) > result {
 		b = b[:result]
 	}
 	for {
-		n, wErr := syscall.Write(fd, b)
+		n, wErr := syscall.Write(fd.Fd(), b)
 		if wErr != nil {
 			n = 0
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
@@ -67,7 +69,7 @@ func completeSend(result int, op *Operator, err error) {
 
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := fd.WriteOperator()
+	op := acquireOperator(fd)
 	// msg
 	op.b = b
 	op.sa = AddrToSockaddr(addr)
@@ -82,14 +84,19 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeSendTo(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	b := op.b
+	sa := op.sa
+
+	releaseOperator(op)
+
 	if err != nil {
 		cb(Userdata{}, err)
 		return
@@ -99,17 +106,14 @@ func completeSendTo(result int, op *Operator, err error) {
 		return
 	}
 
-	fd := op.fd.Fd()
-	b := op.b
 	bLen := len(b)
 	if bLen > result {
 		b = b[:result]
 		bLen = result
 	}
-	sa := op.sa
 	flags := 0
 	for {
-		wErr := syscall.Sendto(fd, b, flags, sa)
+		wErr := syscall.Sendto(fd.Fd(), b, flags, sa)
 		if wErr != nil {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue
@@ -126,7 +130,7 @@ func completeSendTo(result int, op *Operator, err error) {
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	// op
-	op := fd.WriteOperator()
+	op := acquireOperator(fd)
 	// msg
 	op.b = b
 	op.oob = oob
@@ -142,14 +146,21 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeSendMsg(result int, op *Operator, err error) {
 	cb := op.callback
+
+	fd := op.fd.Fd()
+	b := op.b
+	oob := op.oob
+	sa := op.sa
+
+	releaseOperator(op)
+
 	if err != nil {
 		cb(Userdata{}, err)
 		return
@@ -159,16 +170,14 @@ func completeSendMsg(result int, op *Operator, err error) {
 		return
 	}
 
-	fd := op.fd.Fd()
-	b := op.b
 	bLen := len(b)
 	if bLen > result {
 		b = b[:result]
 		bLen = result
 	}
-	oob := op.oob
+
 	flags := 0
-	sa := op.sa
+
 	for {
 		wErr := syscall.Sendmsg(fd, b, oob, sa, flags)
 		if wErr != nil {

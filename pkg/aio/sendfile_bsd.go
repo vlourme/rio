@@ -10,14 +10,11 @@ import (
 )
 
 func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
-	// op
-	op := fd.WriteOperator()
 	if len(filepath) == 0 {
 		cb(Userdata{}, errors.New("aio.Sendfile: filepath is empty"))
 		return
 	}
-	op.callback = cb
-	op.completion = completeSendfile
+
 	// src
 	src, openErr := syscall.Open(filepath, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NONBLOCK|syscall.O_NDELAY, 0777)
 	if openErr != nil {
@@ -47,15 +44,15 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		cb(Userdata{}, os.NewSyscallError("seek", seekToStart))
 		return
 	}
-	op.sfr = &SendfileResult{
-		file:    src,
-		curpos:  curpos,
-		remain:  remain,
-		written: 0,
-	}
 
-	op.completion = completeSendfile
+	// op
+	op := acquireOperator(fd)
 	op.callback = cb
+	op.completion = completeSendfile
+	op.sfr.file = src
+	op.sfr.curpos = curpos
+	op.sfr.remain = remain
+	op.sfr.written = 0
 
 	// prepare write
 	cylinder := nextKqueueCylinder()
@@ -63,8 +60,7 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
@@ -72,21 +68,24 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 const maxSendfileSize int = 4 << 20
 
 func completeSendfile(result int, op *Operator, err error) {
+	cb := op.callback
 	dst := op.fd.Fd()
 	src := op.sfr.file
 	written := op.sfr.written
 	curpos := op.sfr.curpos
 	remain := op.sfr.remain
 
+	releaseOperator(op)
+
 	if err != nil {
 		_ = syscall.Close(src)
-		op.callback(Userdata{N: written}, err)
+		cb(Userdata{N: written}, err)
 		return
 	}
 
 	if result == 0 {
 		_ = syscall.Close(src)
-		op.callback(Userdata{N: written}, err)
+		cb(Userdata{N: written}, err)
 		return
 	}
 
@@ -117,6 +116,6 @@ func completeSendfile(result int, op *Operator, err error) {
 
 	}
 	_ = syscall.Close(src)
-	op.callback(Userdata{N: written}, os.NewSyscallError("sendfile", err))
+	cb(Userdata{N: written}, os.NewSyscallError("sendfile", err))
 	return
 }

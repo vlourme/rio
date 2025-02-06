@@ -5,12 +5,11 @@ package aio
 import (
 	"errors"
 	"os"
-	"runtime"
 	"syscall"
 )
 
 func Accept(fd NetFd, cb OperationCallback) {
-	op := fd.ReadOperator()
+	op := acquireOperator(fd)
 	op.callback = cb
 	op.completion = completeAccept
 
@@ -19,13 +18,14 @@ func Accept(fd NetFd, cb OperationCallback) {
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 }
 
 func completeAccept(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd.(NetFd)
+	releaseOperator(op)
 	if err != nil {
 		cb(Userdata{}, err)
 		return
@@ -34,11 +34,10 @@ func completeAccept(result int, op *Operator, err error) {
 		cb(Userdata{}, ErrBusy)
 		return
 	}
-	ln := op.fd.(NetFd)
 	sock := 0
 	var sa syscall.Sockaddr
 	for {
-		sock, sa, err = syscall.Accept4(ln.Fd(), syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
+		sock, sa, err = syscall.Accept4(fd.Fd(), syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 		if err != nil {
 			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EINTR) || errors.Is(err, syscall.ECONNABORTED) {
 				continue
@@ -56,27 +55,13 @@ func completeAccept(result int, op *Operator, err error) {
 		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
-	la := SockaddrToAddr(ln.Network(), lsa)
+	la := SockaddrToAddr(fd.Network(), lsa)
 	// get remote addr
-	ra := SockaddrToAddr(ln.Network(), sa)
+	ra := SockaddrToAddr(fd.Network(), sa)
 
 	// conn
-	conn := &netFd{
-		handle:     sock,
-		network:    ln.Network(),
-		family:     ln.Family(),
-		socketType: ln.SocketType(),
-		protocol:   ln.Protocol(),
-		ipv6only:   ln.IPv6Only(),
-		localAddr:  la,
-		remoteAddr: ra,
-		rop:        nil,
-		wop:        nil,
-	}
-	conn.rop = newOperator(conn, readOperator)
-	conn.wop = newOperator(conn, writeOperator)
+	conn := newNetFd(sock, fd.Network(), fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only(), la, ra)
 
 	cb(Userdata{Fd: conn}, nil)
-	runtime.KeepAlive(ln)
 	return
 }

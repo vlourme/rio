@@ -27,20 +27,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	}
 
 	// net fd
-	conn := &netFd{
-		handle:     sock,
-		network:    network,
-		family:     family,
-		socketType: sotype,
-		protocol:   proto,
-		ipv6only:   ipv6only,
-		localAddr:  nil,
-		remoteAddr: nil,
-		rop:        nil,
-		wop:        nil,
-	}
-	conn.rop = newOperator(conn, readOperator)
-	conn.wop = newOperator(conn, writeOperator)
+	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, nil)
 
 	// local addr
 	if laddr != nil {

@@ -11,7 +11,7 @@ import (
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
+	op := acquireOperator(fd)
 	// msg
 	op.b = b
 
@@ -23,14 +23,18 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	b := op.b
+
+	releaseOperator(op)
+
 	if err != nil {
 		if errors.Is(err, ErrClosed) && result == 0 {
 			cb(Userdata{}, io.EOF)
@@ -39,18 +43,16 @@ func completeRecv(result int, op *Operator, err error) {
 		cb(Userdata{}, err)
 		return
 	}
-	if result == 0 && op.fd.ZeroReadIsEOF() {
+	if result == 0 && fd.ZeroReadIsEOF() {
 		cb(Userdata{}, io.EOF)
 		return
 	}
 
-	fd := op.fd.Fd()
-	b := op.b
 	if result > len(b) {
 		b = b[:result]
 	}
 	for {
-		n, rErr := syscall.Read(fd, b)
+		n, rErr := syscall.Read(fd.Fd(), b)
 		if rErr != nil {
 			n = 0
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
@@ -59,7 +61,7 @@ func completeRecv(result int, op *Operator, err error) {
 			cb(Userdata{}, rErr)
 			break
 		}
-		if n == 0 && op.fd.ZeroReadIsEOF() {
+		if n == 0 && fd.ZeroReadIsEOF() {
 			cb(Userdata{}, io.EOF)
 			break
 		}
@@ -72,7 +74,7 @@ func completeRecv(result int, op *Operator, err error) {
 
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
+	op := acquireOperator(fd)
 	// msg
 	op.b = b
 
@@ -84,14 +86,17 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd.(NetFd)
+	b := op.b
+
+	releaseOperator(op)
 
 	if err != nil {
 		cb(Userdata{}, err)
@@ -101,15 +106,15 @@ func completeRecvFrom(result int, op *Operator, err error) {
 		cb(Userdata{}, nil)
 		return
 	}
-	fd := op.fd.Fd()
-	network := op.fd.(NetFd).Network()
-	b := op.b
+
+	network := fd.Network()
+
 	if result > len(b) {
 		b = b[:result]
 	}
 
 	for {
-		n, sa, rErr := syscall.Recvfrom(fd, b, 0)
+		n, sa, rErr := syscall.Recvfrom(fd.Fd(), b, 0)
 		if rErr != nil {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
@@ -127,7 +132,7 @@ func completeRecvFrom(result int, op *Operator, err error) {
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
+	op := acquireOperator(fd)
 	// msg
 	op.b = b
 	op.oob = oob
@@ -140,14 +145,18 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
 		cb(Userdata{}, err)
-		// reset
-		op.reset()
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeRecvMsg(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd.(NetFd)
+	b := op.b
+	oob := op.oob
+
+	releaseOperator(op)
 	if err != nil {
 		cb(Userdata{}, err)
 		return
@@ -156,15 +165,12 @@ func completeRecvMsg(result int, op *Operator, err error) {
 		cb(Userdata{}, nil)
 		return
 	}
-	fd := op.fd.Fd()
-	network := op.fd.(NetFd).Network()
-	b := op.b
+	network := fd.Network()
 	if result > len(b) {
 		b = b[:result]
 	}
-	oob := op.oob
 	for {
-		n, oobn, flags, sa, rErr := syscall.Recvmsg(fd, b, oob, 0)
+		n, oobn, flags, sa, rErr := syscall.Recvmsg(fd.Fd(), b, oob, 0)
 		if rErr != nil {
 			if errors.Is(rErr, syscall.EINTR) || errors.Is(rErr, syscall.EAGAIN) {
 				continue
