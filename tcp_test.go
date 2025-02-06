@@ -195,7 +195,7 @@ func TestTCP(t *testing.T) {
 	swg.Wait()
 
 	lwg.Add(1)
-	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+	go ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		t.Log("ln close:", cause)
 		lwg.Done()
 	})

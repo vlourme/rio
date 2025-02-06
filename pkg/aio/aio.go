@@ -6,11 +6,9 @@ import (
 )
 
 var (
-	ErrUnexpectedCompletion      = errors.New("aio: unexpected completion error")
-	ErrOperationDeadlineExceeded = errors.New("aio: operation deadline exceeded")
-	ErrNilAddr                   = errors.New("aio: addr is nil")
-	ErrBusy                      = errors.New("aio: busy")
-	ErrClosed                    = errors.Join(errors.New("aio: use of closed network connection"), net.ErrClosed)
+	ErrUnexpectedCompletion = errors.New("aio: unexpected completion error")
+	ErrBusy                 = errors.New("aio: busy")
+	ErrClosed               = errors.Join(errors.New("aio: use of closed network connection"), net.ErrClosed)
 )
 
 func IsUnexpectedCompletionError(err error) bool {
