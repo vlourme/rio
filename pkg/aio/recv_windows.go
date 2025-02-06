@@ -13,12 +13,7 @@ import (
 
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.prepareReading()
-	if op == nil {
-		cb(Userdata{}, errors.New("operator padding"))
-		return
-	}
-
+	op := acquireOperator(fd)
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -49,8 +44,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_recv", err))
-		// reset op
-		fd.finishReading()
+		releaseOperator(op)
 		return
 	}
 	return
@@ -58,8 +52,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
-	fd := op.fd
-	fd.finishReading()
+	releaseOperator(op)
 	if err != nil {
 		err = os.NewSyscallError("wsa_recv", err)
 		cb(Userdata{}, err)
@@ -75,12 +68,7 @@ func completeRecv(result int, op *Operator, err error) {
 
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	// op
-	op := fd.prepareReading()
-	if op == nil {
-		cb(Userdata{}, errors.New("operator padding"))
-		return
-	}
-
+	op := acquireOperator(fd)
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -116,7 +104,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_recvfrom", err))
-		fd.finishReading()
+		releaseOperator(op)
 		return
 	}
 	return
@@ -125,8 +113,7 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
 	rsa := op.msg.Name
-	fd := op.fd
-	fd.finishReading()
+	releaseOperator(op)
 	if err != nil {
 		err = os.NewSyscallError("wsa_recvfrom", err)
 		cb(Userdata{}, err)
@@ -143,11 +130,7 @@ func completeRecvFrom(result int, op *Operator, err error) {
 
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
-	op := fd.prepareReading()
-	if op == nil {
-		cb(Userdata{}, errors.New("operator padding"))
-		return
-	}
+	op := acquireOperator(fd)
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -201,7 +184,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
 		// handle err
 		cb(Userdata{}, os.NewSyscallError("wsa_recvmsg", err))
-		fd.finishReading()
+		releaseOperator(op)
 		return
 	}
 	return
@@ -210,8 +193,7 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 func completeRecvMsg(result int, op *Operator, err error) {
 	cb := op.callback
 	msg := op.msg
-	fd := op.fd
-	fd.finishReading()
+	releaseOperator(op)
 	if err != nil {
 		err = os.NewSyscallError("wsa_recvmsg", err)
 		cb(Userdata{}, err)

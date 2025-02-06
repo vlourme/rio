@@ -133,12 +133,17 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 		future = async.FailedImmediately[transport.Inbound](conn.ctx, promiseErr)
 		return
 	}
-	promise.SetErrInterceptor(conn.handleReadErrInterceptor)
 
 	aio.Recv(conn.fd, b, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		conn.rb.AllocatedWrote(n)
 		if err != nil {
+			if IsEOF(err) {
+				inbound := transport.NewInbound(conn.rb, n)
+				promise.Succeed(inbound)
+				return
+			}
+			err = aio.NewOpErr(aio.OpRead, conn.fd, err)
 			promise.Fail(err)
 			return
 		}
@@ -172,7 +177,6 @@ func (conn *connection) Write(b []byte) (future async.Future[int]) {
 		future = async.FailedImmediately[int](conn.ctx, promiseErr)
 		return
 	}
-	promise.SetErrInterceptor(conn.handleWriteErrInterceptor)
 
 	conn.write(promise, b, bLen, 0)
 	future = promise.Future()
@@ -226,35 +230,4 @@ func (conn *connection) Close() (future async.Future[async.Void]) {
 
 func (conn *connection) disconnected() bool {
 	return conn.closed.Load()
-}
-
-func (conn *connection) handleReadErrInterceptor(ctx context.Context, inbound transport.Inbound, err error) (future async.Future[transport.Inbound]) {
-	if IsEOF(err) {
-		future = async.Immediately[transport.Inbound](ctx, inbound, err)
-		return
-	}
-	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		if op := conn.fd.Reading(); op != nil {
-			aio.Cancel(op)
-		}
-	} else if IsShutdown(err) {
-		aio.CloseImmediately(conn.fd)
-	}
-
-	err = aio.NewOpErr(aio.OpRead, conn.fd, err)
-	future = async.Immediately[transport.Inbound](ctx, inbound, err)
-	return
-}
-
-func (conn *connection) handleWriteErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
-	if IsDeadlineExceeded(err) || IsUnexpectedContextFailed(err) {
-		if op := conn.fd.Writing(); op != nil {
-			aio.Cancel(op)
-		}
-	} else if IsShutdown(err) {
-		aio.CloseImmediately(conn.fd)
-	}
-	err = aio.NewOpErr(aio.OpWrite, conn.fd, err)
-	future = async.Immediately[int](ctx, n, err)
-	return
 }

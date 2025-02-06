@@ -3,8 +3,6 @@
 package aio
 
 import (
-	"net"
-	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -15,82 +13,52 @@ type SendfileResult struct {
 	pipe   []int
 }
 
-func newOperator(fd Fd) *Operator {
-	return &Operator{
-		fd:     fd,
-		handle: -1,
-		sch:    make(chan sendZCRequest, 8),
-	}
-}
-
-type sendZCRequest struct {
-	b        []byte
-	oob      []byte
-	addr     net.Addr
-	callback OperationCallback
-}
-
 type Operator struct {
-	processing atomic.Bool
-	hijacked   atomic.Bool
 	cylinder   *IOURingCylinder
 	cqeFlags   uint32
 	fd         Fd
 	handle     int
 	n          uint32
 	b          []byte
-	sch        chan sendZCRequest
-	msg        *syscall.Msghdr
-	sfr        *SendfileResult
+	msg        syscall.Msghdr
+	sfr        SendfileResult
 	callback   OperationCallback
 	completion OperatorCompletion
 }
 
+func (op *Operator) setFd(fd Fd) {
+	op.fd = fd
+}
+
 func (op *Operator) setCylinder(cylinder *IOURingCylinder) {
 	op.cylinder = cylinder
-	op.processing.Store(true)
-}
-
-func (op *Operator) Processing() bool {
-	return op.processing.Load()
-}
-
-func (op *Operator) end() {
-	op.processing.Store(false)
 }
 
 func (op *Operator) reset() {
-	if op.hijacked.CompareAndSwap(false, true) {
-		op.processing.Store(false)
-		if op.cqeFlags != 0 {
-			op.cqeFlags = 0
-		}
-		if op.cylinder != nil {
-			op.cylinder = nil
-		}
-		if op.handle != -1 {
-			op.handle = -1
-		}
-		if op.n != 0 {
-			op.n = 0
-		}
-		if op.b != nil {
-			op.b = nil
-		}
-		if op.msg != nil {
-			op.msg = nil
-		}
-		if op.sfr != nil {
-			op.sfr = nil
-		}
-		if op.callback != nil {
-			op.callback = nil
-		}
-		if op.completion != nil {
-			op.completion = nil
-		}
-		op.hijacked.Store(false)
-	}
+	op.cylinder = nil
+
+	op.cqeFlags = 0
+
+	op.fd = nil
+	op.handle = -1
+
+	op.n = 0
+	op.b = nil
+	op.msg.Name = nil
+	op.msg.Namelen = 0
+	op.msg.Iov = nil
+	op.msg.Iovlen = 0
+	op.msg.Control = nil
+	op.msg.Controllen = 0
+	op.msg.Flags = 0
+
+	op.sfr.file = -1
+	op.sfr.remain = 0
+	op.sfr.pipe = nil
+
+	op.callback = nil
+	op.completion = nil
+	return
 }
 
 func (op *Operator) ptr() uint64 {

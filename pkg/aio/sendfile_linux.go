@@ -50,15 +50,15 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	}
 
 	// op
-	op := fd.WriteOperator()
+	op := acquireOperator(fd)
+	// callback
 	op.callback = cb
+	// completion
 	op.completion = completeSendfileToPipe
-
-	op.sfr = &SendfileResult{
-		file:   src,
-		remain: uint32(remain),
-		pipe:   pipe,
-	}
+	// result
+	op.sfr.file = src
+	op.sfr.remain = uint32(remain)
+	op.sfr.pipe = pipe
 
 	// cylinder
 	cylinder := nextIOURingCylinder()
@@ -68,17 +68,17 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
 		cb(Userdata{}, getErr)
-		op.reset()
+		releaseOperator(op)
 		return
 	}
 	op.setCylinder(cylinder)
-
-	op.hijacked.Store(true)
 	// splice
 	prepareSplice(entry, src, -1, pipe[1], -1, op.sfr.remain, unix.SPLICE_F_NONBLOCK, op.ptr())
 }
 
 func completeSendfileToPipe(_ int, op *Operator, err error) {
+	cb := op.callback
+	fd := op.fd
 	// src
 	src := op.sfr.file
 	// pipe
@@ -88,11 +88,10 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
-		op.callback(Userdata{}, err)
-		op.hijacked.Store(false)
+		cb(Userdata{}, err)
+		releaseOperator(op)
 		return
 	}
-	fd := op.fd.(*netFd)
 	op.completion = completeSendfileFromPipe
 	dst := fd.Fd()
 	size := op.sfr.remain
@@ -104,8 +103,8 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
-		op.callback(Userdata{}, getErr)
-		op.hijacked.Store(false)
+		cb(Userdata{}, getErr)
+		releaseOperator(op)
 		return
 	}
 	// splice
@@ -114,19 +113,21 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 }
 
 func completeSendfileFromPipe(result int, op *Operator, err error) {
-	op.hijacked.Store(false)
+	cb := op.callback
+	sfr := op.sfr
+	releaseOperator(op)
 	// src
-	_ = syscall.Close(op.sfr.file)
+	_ = syscall.Close(sfr.file)
 	// pipe
-	pipe := op.sfr.pipe
+	pipe := sfr.pipe
 	_ = syscall.Close(pipe[0])
 	_ = syscall.Close(pipe[1])
 	// handle
 	if err != nil {
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{N: result}, nil)
+	cb(Userdata{N: result}, nil)
 	return
 }
 

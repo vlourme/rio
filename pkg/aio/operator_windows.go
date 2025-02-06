@@ -33,11 +33,11 @@ func (op *Operator) setFd(fd Fd) {
 	op.fd = fd
 }
 
-func (op *Operator) reset() bool {
+func (op *Operator) reset() {
 	// overlapped
 	op.overlapped.OffsetHigh = 0
 	op.overlapped.Offset = 0
-	op.overlapped.HEvent = syscall.InvalidHandle
+	op.overlapped.HEvent = 0
 	op.overlapped.Internal = 0
 	op.overlapped.InternalHigh = 0
 	// fd
@@ -61,6 +61,5 @@ func (op *Operator) reset() bool {
 	// fn
 	op.callback = nil
 	op.completion = nil
-
-	return true
+	return
 }

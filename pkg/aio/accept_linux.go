@@ -20,12 +20,7 @@ liburing 中提供了 io_uring_prep_multishot_accept 方法，
 */
 func Accept(fd NetFd, cb OperationCallback) {
 	// op
-	op := fd.ReadOperator()
-	// msg
-	addrPtr := uintptr(unsafe.Pointer(new(syscall.RawSockaddrAny)))
-	addrLen := syscall.SizeofSockaddrAny
-	addrLenPtr := uint64(uintptr(unsafe.Pointer(&addrLen)))
-
+	op := acquireOperator(fd)
 	// cb
 	op.callback = cb
 	// completion
@@ -35,64 +30,58 @@ func Accept(fd NetFd, cb OperationCallback) {
 	cylinder := nextIOURingCylinder()
 	op.setCylinder(cylinder)
 
+	// addr
+	addrPtr := uintptr(unsafe.Pointer(new(syscall.RawSockaddrAny)))
+	addrLen := syscall.SizeofSockaddrAny
+	addrLenPtr := uint64(uintptr(unsafe.Pointer(&addrLen)))
+
 	// ln
-	lnFd := fd.Fd()
+	sock := fd.Fd()
 	// prepare
-	err := cylinder.prepareRW(opAccept, lnFd, addrPtr, 0, addrLenPtr, 0, op.ptr())
+	err := cylinder.prepareRW(opAccept, sock, addrPtr, 0, addrLenPtr, 0, op.ptr())
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
-		// reset
-		op.reset()
+		// release
+		releaseOperator(op)
 	}
 	return
 }
 
 func completeAccept(result int, op *Operator, err error) {
-	// cb
 	cb := op.callback
+	fd := op.fd.(NetFd)
+
+	// release
+	releaseOperator(op)
+
 	if err != nil {
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_accept", err))
 		return
 	}
 	// conn
-	connFd := result
+	sock := result
 	// ln
-	ln, _ := op.fd.(NetFd)
 	// addr
 	// get local addr
-	lsa, lsaErr := syscall.Getsockname(connFd)
+	lsa, lsaErr := syscall.Getsockname(sock)
 	if lsaErr != nil {
-		_ = syscall.Close(connFd)
-		op.callback(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
+		_ = syscall.Close(sock)
+		cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 		return
 	}
-	la := SockaddrToAddr(ln.Network(), lsa)
+	la := SockaddrToAddr(fd.Network(), lsa)
 
 	// get remote addr
-	rsa, rsaErr := syscall.Getpeername(connFd)
+	rsa, rsaErr := syscall.Getpeername(sock)
 	if rsaErr != nil {
-		_ = syscall.Close(connFd)
-		op.callback(Userdata{}, os.NewSyscallError("getpeername", rsaErr))
+		_ = syscall.Close(sock)
+		cb(Userdata{}, os.NewSyscallError("getpeername", rsaErr))
 		return
 	}
-	ra := SockaddrToAddr(ln.Network(), rsa)
+	ra := SockaddrToAddr(fd.Network(), rsa)
 
 	// conn
-	conn := &netFd{
-		handle:     connFd,
-		network:    ln.Network(),
-		family:     ln.Family(),
-		socketType: ln.SocketType(),
-		protocol:   ln.Protocol(),
-		ipv6only:   ln.IPv6Only(),
-		localAddr:  la,
-		remoteAddr: ra,
-		rop:        nil,
-		wop:        nil,
-	}
-
-	conn.rop = newOperator(conn)
-	conn.wop = newOperator(conn)
+	conn := newNetFd(sock, fd.Network(), fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only(), la, ra)
 	// cb
 	cb(Userdata{Fd: conn}, nil)
 	return

@@ -22,138 +22,87 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		cb(Userdata{}, nil)
 		return
 	}
-	op := fd.WriteOperator()
-	if opSendCode == opSend {
-		bufAddr := uintptr(unsafe.Pointer(&b[0]))
-		bufLen := uint32(bLen)
-		op.b = b
-		// cb
-		op.callback = cb
+	// op
+	op := acquireOperator(fd)
+	// cb
+	op.callback = cb
+	// buf
+	bufAddr := uintptr(unsafe.Pointer(&b[0]))
+	bufLen := uint32(bLen)
+	// sock
+	sock := fd.Fd()
+
+	// op code
+	switch opSendCode {
+	case opSend:
 		// completion
 		op.completion = completeSend
-
 		// cylinder
 		cylinder := nextIOURingCylinder()
 		op.setCylinder(cylinder)
-
-		// prepare
-		err := cylinder.prepareRW(opSendCode, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
+		err := cylinder.prepareRW(opSend, sock, bufAddr, bufLen, 0, 0, op.ptr())
 		if err != nil {
 			cb(Userdata{}, os.NewSyscallError("io_uring_prep_send", err))
-			op.reset()
-			return
+			releaseOperator(op)
 		}
-		return
-	}
-	// send_zc
-	if op.hijacked.CompareAndSwap(false, true) {
-		if sent := sendZC(op, b, cb); !sent {
-			op.hijacked.Store(false)
-			op.reset()
-		}
-	} else {
-		op.sch <- sendZCRequest{
-			b:        b,
-			oob:      nil,
-			addr:     nil,
-			callback: cb,
-		}
-	}
-	return
-}
-
-func sendZC(op *Operator, b []byte, cb OperationCallback) (ok bool) {
-	bufAddr := uintptr(unsafe.Pointer(&b[0]))
-	bufLen := uint32(len(b))
-	op.b = b
-	// cb
-	op.callback = cb
-	// completion
-	op.completion = completeSendZC
-
-	// cylinder
-	var cylinder *IOURingCylinder
-	if op.cylinder == nil {
-		cylinder = nextIOURingCylinder()
+		break
+	case opSendZC:
+		op.b = b
+		// completion
+		op.completion = completeSendZC
+		// cylinder
+		cylinder := nextIOURingCylinder()
 		op.setCylinder(cylinder)
-	} else {
-		cylinder = op.cylinder
-		op.processing.Store(true)
+		err := cylinder.prepareRW(opSendZC, sock, bufAddr, bufLen, 0, 0, op.ptr())
+		if err != nil {
+			cb(Userdata{}, os.NewSyscallError("io_uring_prep_send_zc", err))
+			releaseOperator(op)
+		}
+		break
+	default:
+		cb(Userdata{}, errors.New("invalid opSendCode"))
+		releaseOperator(op)
+		break
 	}
-
-	// fd
-	fd := op.fd.Fd()
-	// prepare
-	err := cylinder.prepareRW(opSendCode, fd, bufAddr, bufLen, 0, 0, op.ptr())
-	if err != nil {
-		op.processing.Store(false)
-		cb(Userdata{}, os.NewSyscallError("io_uring_prep_send_zc", err))
-		return
-	}
-	ok = true
 	return
 }
 
 func completeSend(result int, op *Operator, err error) {
+	cb := op.callback
+	releaseOperator(op)
 	if err != nil {
 		err = os.NewSyscallError("io_uring_prep_send", err)
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
-	op.callback(Userdata{N: result}, nil)
+	cb(Userdata{N: result}, nil)
 	return
 }
 
-func trySendCached(op *Operator) {
-
-	select {
-	case r := <-op.sch:
-		b := r.b
-		if sent := sendZC(op, b, op.callback); !sent {
-
-		}
-
-		break
-	default:
-		op.hijacked.Store(false)
-		break
-	}
-
-}
-
 func completeSendZC(result int, op *Operator, err error) {
+	cb := op.callback
+	cqeFlags := op.cqeFlags
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_send_zc", err)
-		op.callback(Userdata{}, err)
-		select {
-		case r := <-op.sch:
-			fd := op.fd.(NetFd)
-			op.hijacked.Store(false)
-			Send(fd, r.b, r.callback)
-			break
-		default:
-			op.hijacked.Store(false)
-			break
+		releaseOperator(op)
+		if cb != nil {
+			err = os.NewSyscallError("io_uring_prep_send_zc", err)
+			cb(Userdata{}, err)
 		}
 		return
 	}
-	if op.cqeFlags&cqeFMore != 0 {
-		op.callback(Userdata{N: result}, nil)
+	if cqeFlags&cqeFMore != 0 {
 		op.callback = nil
+		cb(Userdata{N: result}, nil)
 		return
 	}
 	if op.cqeFlags&cqeFNotification != 0 {
-		select {
-		case r := <-op.sch:
-			fd := op.fd.(NetFd)
-			op.hijacked.Store(false)
-			Send(fd, r.b, r.callback)
-			break
-		default:
-			op.hijacked.Store(false)
-			break
-		}
+		releaseOperator(op)
 		return
+	}
+	releaseOperator(op)
+	if cb != nil {
+		err = os.NewSyscallError("io_uring_prep_send_zc", errors.New("invalid cqe flags"))
+		cb(Userdata{}, err)
 	}
 	return
 }
@@ -164,39 +113,6 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 
 var opSendMsgCode uint8 = 0
 
-func newMsghdr(fd NetFd, b []byte, oob []byte, rsa *syscall.RawSockaddrAny, rsaLen uint32) *syscall.Msghdr {
-	msg := &syscall.Msghdr{
-		Name:       (*byte)(unsafe.Pointer(rsa)),
-		Namelen:    rsaLen,
-		Pad_cgo_0:  [4]byte{},
-		Iov:        nil,
-		Iovlen:     0,
-		Control:    nil,
-		Controllen: 0,
-		Flags:      0,
-		Pad_cgo_1:  [4]byte{},
-	}
-	bLen := len(b)
-	if bLen > 0 {
-		msg.Iov = &syscall.Iovec{
-			Base: &b[0],
-			Len:  uint64(bLen),
-		}
-		msg.Iovlen = 1
-	}
-	if oobLen := len(oob); oobLen > 0 {
-		msg.Control = &oob[0]
-		msg.Controllen = uint64(oobLen)
-		if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
-			var dummy byte
-			msg.Iov.Base = &dummy
-			msg.Iov.Len = uint64(1)
-			msg.Iovlen = 1
-		}
-	}
-	return msg
-}
-
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
 	sa := AddrToSockaddr(addr)
 	rsa, rsaLen, rsaErr := SockaddrToRaw(sa)
@@ -205,114 +121,122 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		return
 	}
 	// op
-	op := fd.WriteOperator()
-	if opSendMsgCode == opSendmsg {
-		op.msg = newMsghdr(fd, b, oob, rsa, uint32(rsaLen))
-		op.b = b
-		// cb
-		op.callback = cb
+	op := acquireOperator(fd)
+	// cb
+	op.callback = cb
+	// msg
+	op.msg.Name = (*byte)(unsafe.Pointer(rsa))
+	op.msg.Namelen = uint32(rsaLen)
+	bLen := len(b)
+	if bLen > 0 {
+		op.msg.Iov = &syscall.Iovec{
+			Base: &b[0],
+			Len:  uint64(bLen),
+		}
+		op.msg.Iovlen = 1
+	}
+	if oobLen := len(oob); oobLen > 0 {
+		op.msg.Control = &oob[0]
+		op.msg.Controllen = uint64(oobLen)
+		if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
+			var dummy byte
+			op.msg.Iov.Base = &dummy
+			op.msg.Iov.Len = uint64(1)
+			op.msg.Iovlen = 1
+		}
+	}
+	// op code
+	switch opSendMsgCode {
+	case opSendmsg:
 		// completion
 		op.completion = completeSendMsg
 		// cylinder
 		cylinder := nextIOURingCylinder()
 		op.setCylinder(cylinder)
-
-		// prepare
-		err := cylinder.prepareRW(opSendMsgCode, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), 1, 0, 0, op.ptr())
+		err := cylinder.prepareRW(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 		if err != nil {
 			cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg", err))
-			op.reset()
-			return
+			releaseOperator(op)
 		}
-	}
-	if op.hijacked.CompareAndSwap(false, true) {
-		op.msg = newMsghdr(fd, b, oob, rsa, uint32(rsaLen))
+		break
+	case opSendMsgZC:
+		// b
 		op.b = b
-		// cb
-		op.callback = cb
 		// completion
 		op.completion = completeSendMsgZC
 		// cylinder
 		cylinder := nextIOURingCylinder()
 		op.setCylinder(cylinder)
-
-		// prepare
-		err := cylinder.prepareRW(opSendMsgCode, fd.Fd(), uintptr(unsafe.Pointer(op.msg)), 1, 0, 0, op.ptr())
+		err := cylinder.prepareRW(opSendMsgZC, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 		if err != nil {
 			cb(Userdata{}, os.NewSyscallError("io_uring_prep_sendmsg_zc", err))
-			op.reset()
-			return
+			releaseOperator(op)
 		}
-	} else {
-		op.sch <- sendZCRequest{
-			b:        b,
-			oob:      oob,
-			addr:     addr,
-			callback: cb,
-		}
+		break
+	default:
+		releaseOperator(op)
+		cb(Userdata{}, errors.New("invalid opSendMsgCode"))
+		break
 	}
 	return
 }
 
 func completeSendMsg(result int, op *Operator, err error) {
+	cb := op.callback
+	msg := op.msg
+	releaseOperator(op)
 	if err != nil {
 		err = os.NewSyscallError("io_uring_prep_sendmsg", err)
-		op.callback(Userdata{}, err)
+		cb(Userdata{}, err)
 		return
 	}
 	bLen := 0
-	if op.msg.Iov != nil {
-		bLen = int(op.msg.Iov.Len)
+	if msg.Iov != nil {
+		bLen = int(msg.Iov.Len)
 	}
-	oobn := int(op.msg.Controllen)
+	oobn := int(msg.Controllen)
 	if oobn > 0 && bLen == 0 {
 		result = 0
 	}
-	op.callback(Userdata{N: result, OOBN: oobn}, nil)
+	cb(Userdata{N: result, OOBN: oobn}, nil)
 	return
 }
 
 func completeSendMsgZC(result int, op *Operator, err error) {
+	defer releaseOperator(op)
+	cb := op.callback
+	cqeFlags := op.cqeFlags
+	msg := op.msg
+
 	if err != nil {
-		err = os.NewSyscallError("io_uring_prep_sendmsg_zc", err)
-		op.callback(Userdata{}, err)
-		select {
-		case r := <-op.sch:
-			fd := op.fd.(NetFd)
-			op.hijacked.Store(false)
-			SendMsg(fd, r.b, r.oob, r.addr, r.callback)
-			break
-		default:
-			op.hijacked.Store(false)
-			break
+		releaseOperator(op)
+		if cb != nil {
+			err = os.NewSyscallError("io_uring_prep_sendmsg_zc", err)
+			cb(Userdata{}, err)
 		}
 		return
 	}
-	if op.cqeFlags&cqeFMore != 0 {
+	if cqeFlags&cqeFMore != 0 {
+		op.callback = nil
 		bLen := 0
-		if op.msg.Iov != nil {
-			bLen = int(op.msg.Iov.Len)
+		if msg.Iov != nil {
+			bLen = int(msg.Iov.Len)
 		}
-		oobn := int(op.msg.Controllen)
+		oobn := int(msg.Controllen)
 		if oobn > 0 && bLen == 0 {
 			result = 0
 		}
-		op.callback(Userdata{N: result, OOBN: oobn}, nil)
-		op.callback = nil
+		cb(Userdata{N: result, OOBN: oobn}, nil)
 		return
 	}
-	if op.cqeFlags&cqeFNotification != 0 {
-		select {
-		case r := <-op.sch:
-			fd := op.fd.(NetFd)
-			op.hijacked.Store(false)
-			SendMsg(fd, r.b, r.oob, r.addr, r.callback)
-			break
-		default:
-			op.hijacked.Store(false)
-			break
-		}
+	if cqeFlags&cqeFNotification != 0 {
+		releaseOperator(op)
 		return
+	}
+	releaseOperator(op)
+	if cb != nil {
+		err = os.NewSyscallError("io_uring_prep_send_zc", errors.New("invalid cqe flags"))
+		cb(Userdata{}, err)
 	}
 	return
 }

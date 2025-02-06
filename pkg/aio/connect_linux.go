@@ -5,7 +5,6 @@ package aio
 import (
 	"net"
 	"os"
-	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -28,21 +27,8 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		}
 	}
 
-	// net fd
-	nfd := &netFd{
-		handle:     sock,
-		network:    network,
-		family:     family,
-		socketType: sotype,
-		protocol:   proto,
-		ipv6only:   ipv6only,
-		localAddr:  nil,
-		remoteAddr: nil,
-		rop:        nil,
-		wop:        nil,
-	}
-	nfd.rop = newOperator(nfd)
-	nfd.wop = newOperator(nfd)
+	// conn
+	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, nil)
 
 	// local addr
 	if laddr != nil {
@@ -53,9 +39,9 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 			cb(Userdata{}, os.NewSyscallError("bind", bindErr))
 			return
 		}
-		nfd.localAddr = laddr
+		conn.localAddr = laddr
 		if raddr == nil {
-			cb(Userdata{Fd: nfd}, nil)
+			cb(Userdata{Fd: conn}, nil)
 			return
 		}
 	}
@@ -71,15 +57,14 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		cb(Userdata{}, rsaErr)
 		return
 	}
-	nfd.remoteAddr = raddr
+	conn.remoteAddr = raddr
 	// op
-	op := nfd.ReadOperator()
+	op := acquireOperator(conn)
 
 	// cb
 	op.callback = cb
 	// completion
 	op.completion = completeConnect
-
 	// cylinder
 	cylinder := nextIOURingCylinder()
 	op.setCylinder(cylinder)
@@ -89,8 +74,8 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	if err != nil {
 		_ = syscall.Close(sock)
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
-		// reset
-		op.reset()
+		// release
+		releaseOperator(op)
 	}
 	return
 }
@@ -98,18 +83,21 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 func completeConnect(_ int, op *Operator, err error) {
 	cb := op.callback
 	conn := op.fd.(*netFd)
-	connFd := conn.Fd()
+
+	releaseOperator(op)
+
+	sock := conn.Fd()
 	// check error
 	if err != nil {
-		_ = syscall.Close(connFd)
+		_ = syscall.Close(sock)
 		cb(Userdata{}, os.NewSyscallError("io_uring_prep_connect", err))
 		return
 	}
 	// get local addr
 	if conn.localAddr == nil {
-		lsa, lsaErr := syscall.Getsockname(connFd)
+		lsa, lsaErr := syscall.Getsockname(sock)
 		if lsaErr != nil {
-			_ = syscall.Close(connFd)
+			_ = syscall.Close(sock)
 			cb(Userdata{}, os.NewSyscallError("getsockname", lsaErr))
 			return
 		}
@@ -118,6 +106,5 @@ func completeConnect(_ int, op *Operator, err error) {
 	}
 	// callback
 	cb(Userdata{Fd: conn}, nil)
-	runtime.KeepAlive(cb)
 	return
 }

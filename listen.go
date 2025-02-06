@@ -144,10 +144,14 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		ctx = async.WithOptions(ctx, promiseMakeOptions...)
 	}
 
+	// running
+	running := new(atomic.Bool)
+	running.Store(true)
+
 	// create
 	ln = &listener{
 		ctx:                  ctx,
-		running:              atomic.Bool{},
+		running:              running,
 		network:              network,
 		fd:                   fd,
 		unlinkOnClose:        unlinkOnClose,
@@ -166,7 +170,7 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 
 type listener struct {
 	ctx                  context.Context
-	running              atomic.Bool
+	running              *atomic.Bool
 	network              string
 	fd                   aio.NetFd
 	unlinkOnClose        bool
@@ -186,37 +190,30 @@ func (ln *listener) Addr() (addr net.Addr) {
 }
 
 func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err error)) {
-	if ln.running.CompareAndSwap(false, true) {
-		for i := 0; i < ln.parallelAcceptors; i++ {
-			ln.acceptOne()
-		}
+	if ln.running.Load() {
 		future := ln.acceptorPromises.Future()
 		future.OnComplete(fn)
-	} else {
-		fn(ln.ctx, nil, errors.New("rio: listener already accepting"))
-	}
-}
-
-func (ln *listener) Accept() (future async.Future[Connection]) {
-	if ln.running.CompareAndSwap(false, true) {
 		for i := 0; i < ln.parallelAcceptors; i++ {
 			ln.acceptOne()
 		}
-		future = ln.acceptorPromises.Future()
 	} else {
-		future = async.FailedImmediately[Connection](ln.ctx, errors.New("rio: listener already accepting"))
+		fn(ln.ctx, nil, errors.New("rio: listener was closed"))
 	}
-	return
 }
 
 func (ln *listener) Close() (future async.Future[async.Void]) {
+	ctx := ln.ctx
+
 	if !ln.running.CompareAndSwap(true, false) {
+		future = async.FailedImmediately[async.Void](ctx, errors.New("rio: listener was closed"))
 		return
 	}
+
 	// cancel acceptor
 	ln.acceptorPromises.Cancel()
+
 	// close fd
-	promise, promiseErr := async.Make[async.Void](ln.ctx, async.WithUnlimitedMode())
+	promise, promiseErr := async.Make[async.Void](ctx, async.WithUnlimitedMode())
 	if promiseErr != nil {
 		if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
 			unixAddr, isUnix := ln.fd.LocalAddr().(*net.UnixAddr)
@@ -227,6 +224,7 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 			}
 		}
 		aio.CloseImmediately(ln.fd)
+		future = async.SucceedImmediately[async.Void](ctx, async.Void{})
 		return
 	}
 	if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
@@ -261,20 +259,19 @@ func (ln *listener) acceptOne() {
 	}
 	aio.Accept(ln.fd, func(userdata aio.Userdata, err error) {
 		if err != nil {
-			if aio.IsUnexpectedCompletionError(err) {
-				ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
-				if ln.ok() {
+			if ln.ok() {
+				if aio.IsUnexpectedCompletionError(err) {
+					ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
 					ln.Close()
+				} else if aio.IsBusy(err) {
+					ln.acceptOne()
+				} else {
+					ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
+					ln.acceptOne()
 				}
-				return
+			} else {
+				ln.Close()
 			}
-			if aio.IsBusy(err) {
-				// discard error when busy and try again
-				ln.acceptOne()
-				return
-			}
-			ln.acceptorPromises.Fail(aio.NewOpErr(aio.OpAccept, ln.fd, err))
-			ln.acceptOne()
 			return
 		}
 		connFd := userdata.Fd.(aio.NetFd)
@@ -328,7 +325,12 @@ func (ln *listener) acceptOne() {
 		if ln.tlsConnBuilder != nil {
 			conn = ln.tlsConnBuilder.Server(conn)
 		}
-		ln.acceptorPromises.Succeed(conn)
+		// send
+		if succeed := ln.acceptorPromises.Succeed(conn); !succeed {
+			conn.Close().OnComplete(async.DiscardVoidHandler)
+			ln.acceptOne()
+			return
+		}
 		ln.acceptOne()
 		return
 	})

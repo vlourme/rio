@@ -273,7 +273,6 @@ func (cylinder *IOURingCylinder) Loop() {
 
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
-			op.end()
 
 			// handle stop
 			if op.fd == nil {
@@ -295,9 +294,6 @@ func (cylinder *IOURingCylinder) Loop() {
 				// complete
 				completion(result, op, err)
 			}
-			// reset
-			op.reset()
-			runtime.KeepAlive(op)
 		}
 		cylinder.advance(peeked)
 
@@ -310,7 +306,7 @@ func (cylinder *IOURingCylinder) Stop() {
 	if cylinder.stopped.Load() {
 		return
 	}
-	op := newOperator(nil)
+	op := &Operator{}
 	op.completion = func(result int, cop *Operator, err error) {
 		runtime.KeepAlive(op)
 		return
@@ -324,7 +320,6 @@ func (cylinder *IOURingCylinder) Stop() {
 			break
 		}
 	}
-	runtime.KeepAlive(op)
 	return
 }
 

@@ -18,9 +18,7 @@ func Accept(fd NetFd, cb OperationCallback) {
 		return
 	}
 	// op
-	op := acquireOperator()
-	// set fd
-	op.setFd(fd)
+	op := acquireOperator(fd)
 	// set sock
 	op.handle = sock
 	// set callback
@@ -58,7 +56,7 @@ func completeAccept(_ int, op *Operator, err error) {
 	fd := op.fd
 	// sock
 	sock := syscall.Handle(op.handle)
-	fd.finishReading()
+	releaseOperator(op)
 	// handle error
 	if err != nil {
 		_ = syscall.Closesocket(sock)
@@ -108,7 +106,7 @@ func completeAccept(_ int, op *Operator, err error) {
 		return
 	}
 
-	conn := newNetFd(op.handle, ln.Network(), ln.Family(), ln.SocketType(), ln.Protocol(), ln.IPv6Only(), la, ra)
+	conn := newNetFd(int(sock), ln.Network(), ln.Family(), ln.SocketType(), ln.Protocol(), ln.IPv6Only(), la, ra)
 
 	// callback
 	cb(Userdata{Fd: conn}, err)

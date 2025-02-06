@@ -56,19 +56,5 @@ func setDeferAccept(sock int) error {
 }
 
 func newListener(sock int, network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr) *netFd {
-	nfd := &netFd{
-		handle:     sock,
-		network:    network,
-		family:     family,
-		socketType: sotype,
-		protocol:   proto,
-		ipv6only:   ipv6only,
-		localAddr:  addr,
-		remoteAddr: nil,
-		rop:        nil,
-		wop:        nil,
-	}
-	nfd.rop = newOperator(nfd)
-	nfd.wop = newOperator(nfd)
-	return nfd
+	return newNetFd(sock, network, family, sotype, proto, ipv6only, addr, nil)
 }

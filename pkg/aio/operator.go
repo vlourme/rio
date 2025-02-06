@@ -63,12 +63,13 @@ var (
 	}}
 )
 
-func acquireOperator() *Operator {
-	return operators.Get().(*Operator)
+func acquireOperator(fd Fd) *Operator {
+	op := operators.Get().(*Operator)
+	op.setFd(fd)
+	return op
 }
 
 func releaseOperator(op *Operator) {
-	if op.reset() {
-		operators.Put(op)
-	}
+	op.reset()
+	operators.Put(op)
 }
