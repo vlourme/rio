@@ -129,9 +129,20 @@ func completeSendTo(result int, op *Operator, err error) {
 }
 
 func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback) {
+
+	// msg
+	bLen := len(b)
+	oobLen := len(oob)
+	if bLen == 0 && oobLen == 0 {
+		cb(Userdata{}, nil)
+	}
+	if bLen > 0 && oobLen > 0 {
+		cb(Userdata{}, errors.New("aio: can not send bytes with oob"))
+		return
+	}
+
 	// op
 	op := acquireOperator(fd)
-	// msg
 	op.b = b
 	op.oob = oob
 	op.sa = AddrToSockaddr(addr)
