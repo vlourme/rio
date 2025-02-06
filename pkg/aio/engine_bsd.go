@@ -56,7 +56,6 @@ func (engine *Engine) Start() {
 			}
 		}(engine, cylinder)
 	}
-
 	engine.running = true
 }
 
@@ -238,6 +237,9 @@ func (cylinder *KqueueCylinder) Stop() {
 	}
 	event := cylinder.createPipeEvent(cylinder.stopBytes)
 	for {
+		if cylinder.stopped.Load() {
+			break
+		}
 		if ok := cylinder.submit(&event); ok {
 			break
 		}
