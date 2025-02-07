@@ -50,7 +50,8 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 			DefaultInboundBufferSize:   0,
 			TLSConnectionBuilder:       nil,
 			MultipathTCP:               false,
-			PromiseMakeOptions:         nil,
+			FastOpen:                   0,
+			PromiseMode:                async.Normal,
 		},
 		LocalAddr:   nil,
 		DialTimeout: 0,
@@ -71,7 +72,19 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	}
 
 	// promise
-	promiseMakeOptions := opts.PromiseMakeOptions
+	promiseMakeOptions := make([]async.Option, 0, 1)
+	if promiseModel := opts.PromiseMode; promiseModel != async.Normal {
+		switch promiseModel {
+		case async.Direct:
+			promiseMakeOptions = append(promiseMakeOptions, async.WithDirectMode())
+			break
+		case async.Unlimited:
+			promiseMakeOptions = append(promiseMakeOptions, async.WithUnlimitedMode())
+			break
+		default:
+			break
+		}
+	}
 	if timeout := opts.DialTimeout; timeout > 0 {
 		promiseMakeOptions = append(promiseMakeOptions, async.WithTimeout(timeout))
 	}
@@ -100,6 +113,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		connectOpts := aio.ConnectOptions{
 			MultipathTCP: opts.MultipathTCP,
 			LocalAddr:    opts.LocalAddr,
+			FastOpen:     opts.FastOpen,
 		}
 		aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 			if err != nil {
