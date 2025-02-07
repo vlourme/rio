@@ -98,7 +98,6 @@ func TestTCP(t *testing.T) {
 	ln, lnErr := rio.Listen(ctx,
 		"tcp", ":9000",
 		rio.WithParallelAcceptors(1),
-		rio.WithPromiseMakeOptions(async.WithDirectMode()),
 		rio.WithFastOpen(1),
 	)
 	if lnErr != nil {
@@ -195,7 +194,7 @@ func TestTCP(t *testing.T) {
 	swg.Wait()
 
 	lwg.Add(1)
-	go ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
+	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
 		t.Log("ln close:", cause)
 		lwg.Done()
 	})
@@ -226,7 +225,6 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 	ln, lnErr := rio.Listen(ctx,
 		"tcp", ":9000",
 		rio.WithParallelAcceptors(10),
-		rio.WithPromiseMakeOptions(async.WithDirectMode()),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)
