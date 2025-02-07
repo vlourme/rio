@@ -20,11 +20,11 @@ var (
 	hasSOLMPTCP    bool
 )
 
-func tryGetMultipathTCPProto() int {
+func tryGetMultipathTCPProto() (int, bool) {
 	if supportsMultipathTCP() {
-		return _IPPROTO_MPTCP
+		return _IPPROTO_MPTCP, true
 	}
-	return 0
+	return 0, false
 }
 
 func supportsMultipathTCP() bool {

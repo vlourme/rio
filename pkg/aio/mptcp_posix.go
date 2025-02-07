@@ -2,12 +2,8 @@
 
 package aio
 
-func supportsMultipathTCP() bool {
-	return false
-}
-
-func tryGetMultipathTCPProto() int {
-	return 0
+func tryGetMultipathTCPProto() (int, bool) {
+	return 0, false
 }
 
 func IsUsingMultipathTCP(fd NetFd) bool {
