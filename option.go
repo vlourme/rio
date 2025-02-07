@@ -15,7 +15,8 @@ type Options struct {
 	DefaultInboundBufferSize   int
 	TLSConnectionBuilder       security.ConnectionBuilder
 	MultipathTCP               bool
-	PromiseMakeOptions         []async.Option
+	FastOpen                   int
+	PromiseMode                async.PromiseMode
 }
 
 type Option func(options *Options) (err error)
@@ -105,11 +106,44 @@ func WithDefaultInboundBufferSize(n int) Option {
 	}
 }
 
-// WithPromiseMakeOptions
-// 设置默认许诺构建选项。
-func WithPromiseMakeOptions(promiseMakeOptions ...async.Option) Option {
+// WithFastOpen
+// 设置 FastOpen。
+func WithFastOpen(n int) Option {
 	return func(options *Options) (err error) {
-		options.PromiseMakeOptions = append(options.PromiseMakeOptions, promiseMakeOptions...)
+		if n < 1 {
+			return
+		}
+		if n > 999 {
+			n = 256
+		}
+		options.FastOpen = n
+		return
+	}
+}
+
+// WithNormalPromiseMode
+// 设置共享许诺模型。
+func WithNormalPromiseMode() Option {
+	return func(options *Options) (err error) {
+		options.PromiseMode = async.Normal
+		return
+	}
+}
+
+// WithDirectPromiseMode
+// 设置独占许诺模型。
+func WithDirectPromiseMode() Option {
+	return func(options *Options) (err error) {
+		options.PromiseMode = async.Direct
+		return
+	}
+}
+
+// WithUnlimitedPromiseMode
+// 设置独占且不受数量限制许诺模型。
+func WithUnlimitedPromiseMode() Option {
+	return func(options *Options) (err error) {
+		options.PromiseMode = async.Unlimited
 		return
 	}
 }
