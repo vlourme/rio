@@ -101,21 +101,18 @@ func (in *packetMsgInbound) Addr() (addr net.Addr) {
 type PacketMsgOutbound interface {
 	Written() (n int)
 	OOBWritten() (n int)
-	UnexpectedError() (err error)
 }
 
-func NewPacketMsgOutbound(n int, oobn int, unexpectedError error) PacketMsgOutbound {
+func NewPacketMsgOutbound(n int, oobn int) PacketMsgOutbound {
 	return &packetMsgOutbound{
-		wrote:           n,
-		oobWrote:        oobn,
-		unexpectedError: unexpectedError,
+		wrote:    n,
+		oobWrote: oobn,
 	}
 }
 
 type packetMsgOutbound struct {
-	wrote           int
-	oobWrote        int
-	unexpectedError error
+	wrote    int
+	oobWrote int
 }
 
 func (out *packetMsgOutbound) Written() (n int) {
@@ -125,10 +122,5 @@ func (out *packetMsgOutbound) Written() (n int) {
 
 func (out *packetMsgOutbound) OOBWritten() (n int) {
 	n = out.oobWrote
-	return
-}
-
-func (out *packetMsgOutbound) UnexpectedError() (err error) {
-	err = out.unexpectedError
 	return
 }

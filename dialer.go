@@ -93,19 +93,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		future = async.FailedImmediately[Connection](ctx, promiseErr)
 		return
 	}
-	promise.SetErrInterceptor(func(ctx context.Context, conn Connection, err error) (future async.Future[Connection]) {
-		if err != nil {
-			if !IsEOF(err) {
-				err = errors.New(
-					"connect failed",
-					errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-					errors.WithWrap(err),
-				)
-			}
-		}
-		future = async.Immediately[Connection](ctx, conn, err)
-		return
-	})
+	promise.SetErrInterceptor(dailErrInterceptor)
 	future = promise.Future()
 
 	// execute
@@ -194,5 +182,17 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		return
 	}
 
+	return
+}
+
+func dailErrInterceptor(ctx context.Context, conn Connection, err error) (future async.Future[Connection]) {
+	if err != nil {
+		err = errors.New(
+			"connect failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(err),
+		)
+	}
+	future = async.Immediately[Connection](ctx, conn, err)
 	return
 }

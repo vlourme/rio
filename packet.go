@@ -69,20 +69,15 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		future = async.FailedImmediately[transport.PacketInbound](conn.ctx, err)
 		return
 	}
+	promise.SetErrInterceptor(conn.readFromErrInterceptor)
 
 	aio.RecvFrom(conn.fd, b, func(userdata aio.Userdata, err error) {
-		n := userdata.N
-		conn.rb.AllocatedWrote(n)
 		if err != nil {
-			err = errors.New(
-				"read from failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(err),
-			)
 			promise.Fail(err)
 			return
 		}
-
+		n := userdata.N
+		conn.rb.AllocatedWrote(n)
 		addr := userdata.Addr
 		inbound := transport.NewPacketInbound(conn.rb, addr, n)
 		promise.Succeed(inbound)
@@ -90,6 +85,17 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) readFromErrInterceptor(ctx context.Context, _ transport.PacketInbound, err error) (future async.Future[transport.PacketInbound]) {
+	conn.rb.AllocatedWrote(conn.rbs)
+	err = errors.New(
+		"read from failed",
+		errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		errors.WithWrap(err),
+	)
+	future = async.Immediately[transport.PacketInbound](ctx, nil, err)
 	return
 }
 
@@ -137,14 +143,12 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
+	promise.SetErrInterceptor(conn.writeToErrInterceptor)
 
 	aio.SendTo(conn.fd, b, addr, func(userdata aio.Userdata, err error) {
 		if err != nil {
-			err = errors.New(
-				"write to failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(err),
-			)
+			promise.Fail(err)
+			return
 		}
 		n := userdata.N
 		promise.Complete(n, err)
@@ -152,6 +156,16 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) writeToErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
+	err = errors.New(
+		"write to failed",
+		errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		errors.WithWrap(err),
+	)
+	future = async.Immediately[int](ctx, n, err)
 	return
 }
 
@@ -213,21 +227,17 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, err)
 		return
 	}
+	promise.SetErrInterceptor(conn.readMsgErrInterceptor)
 
 	aio.RecvMsg(conn.fd, b, oob, func(userdata aio.Userdata, err error) {
+		if err != nil {
+			promise.Fail(err)
+			return
+		}
 		n := userdata.N
 		conn.rb.AllocatedWrote(n)
 		oobn := userdata.OOBN
 		conn.oob.AllocatedWrote(oobn)
-		if err != nil {
-			err = errors.New(
-				"read message failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(err),
-			)
-			promise.Fail(err)
-			return
-		}
 		addr := userdata.Addr
 		flags := userdata.MessageFlags
 		inbound := transport.NewPacketMsgInbound(conn.rb, conn.oob, addr, n, oobn, flags)
@@ -236,6 +246,18 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) readMsgErrInterceptor(ctx context.Context, _ transport.PacketMsgInbound, err error) (future async.Future[transport.PacketMsgInbound]) {
+	conn.rb.AllocatedWrote(conn.rbs)
+	conn.oob.AllocatedWrote(conn.oobn)
+	err = errors.New(
+		"read msg failed",
+		errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		errors.WithWrap(err),
+	)
+	future = async.Immediately[transport.PacketMsgInbound](ctx, nil, err)
 	return
 }
 
@@ -285,30 +307,31 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
 		return
 	}
+	promise.SetErrInterceptor(conn.writeMsgErrInterceptor)
 
 	aio.SendMsg(conn.fd, b, oob, addr, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		oobn := userdata.OOBN
 		if err != nil {
-			err = errors.New(
-				"write message failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(err),
-			)
-			if n == 0 {
-				promise.Fail(err)
-			} else {
-				outbound := transport.NewPacketMsgOutbound(n, oobn, err)
-				promise.Succeed(outbound)
-			}
+			promise.Fail(err)
 			return
 		}
-		outbound := transport.NewPacketMsgOutbound(n, oobn, nil)
+		outbound := transport.NewPacketMsgOutbound(n, oobn)
 		promise.Succeed(outbound)
 		return
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *packetConnection) writeMsgErrInterceptor(ctx context.Context, _ transport.PacketMsgOutbound, err error) (future async.Future[transport.PacketMsgOutbound]) {
+	err = errors.New(
+		"write msg failed",
+		errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		errors.WithWrap(err),
+	)
+	future = async.Immediately[transport.PacketMsgOutbound](ctx, nil, err)
 	return
 }
 
