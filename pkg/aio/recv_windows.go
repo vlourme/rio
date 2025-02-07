@@ -57,6 +57,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -68,7 +69,7 @@ func completeRecv(result int, op *Operator, err error) {
 		cb(Userdata{}, err)
 		return
 	}
-	if result == 0 && op.fd.ZeroReadIsEOF() {
+	if result == 0 && fd.ZeroReadIsEOF() {
 		cb(Userdata{}, io.EOF)
 		return
 	}
