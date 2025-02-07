@@ -6,12 +6,11 @@ import (
 )
 
 func TestStartup(t *testing.T) {
-	err := rio.Startup()
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = rio.Shutdown()
-	if err != nil {
-		t.Error(err)
-	}
+	defer func() {
+		if err := recover(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	rio.Startup()
+	rio.Shutdown()
 }

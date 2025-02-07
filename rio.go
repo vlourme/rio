@@ -1,8 +1,8 @@
 package rio
 
 import (
-	"errors"
 	"fmt"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/process"
 	"github.com/brickingsoft/rxp"
@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	startupOnce = sync.Once{}
+	startupOnce  = sync.Once{}
+	shutdownOnce = sync.Once{}
 )
 
 // Startup
@@ -23,7 +24,7 @@ var (
 // 提供默认值，如果需要定制化，则使用 Startup 完成。
 //
 // 注意：必须在程序起始位置调用，否则无效。
-func Startup(options ...StartupOption) (err error) {
+func Startup(options ...StartupOption) {
 	startupOnce.Do(func() {
 		opts := &StartupOptions{
 			ProcessPriorityLevel: 0,
@@ -35,17 +36,15 @@ func Startup(options ...StartupOption) (err error) {
 			ExecutorsOptions: nil,
 		}
 		for _, option := range options {
-			err = option(opts)
-			if err != nil {
-				err = errors.Join(errors.New("rio: startup failed"), err)
+			if err := option(opts); err != nil {
+				panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err)))
 				return
 			}
 		}
 		// process
 		if opts.ProcessPriorityLevel != process.NORM {
-			err = process.SetCurrentProcessPriority(opts.ProcessPriorityLevel)
-			if err != nil {
-				err = errors.Join(errors.New("rio: startup failed"), err)
+			if err := process.SetCurrentProcessPriority(opts.ProcessPriorityLevel); err != nil {
+				panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err)))
 				return
 			}
 		}
@@ -54,31 +53,18 @@ func Startup(options ...StartupOption) (err error) {
 			if r := recover(); r != nil {
 				switch e := r.(type) {
 				case error:
-					err = e
-					if err != nil {
-						err = errors.Join(errors.New("rio: startup failed"), err)
-						return
-					}
-					break
+					panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(e)))
+					return
 				case string:
-					err = errors.New(e)
-					if err != nil {
-						err = errors.Join(errors.New("rio: startup failed"), err)
-						return
-					}
-					break
+					panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define(e))))
+					return
 				default:
-					err = errors.New(fmt.Sprintf("%+v", r))
-					if err != nil {
-						err = errors.Join(errors.New("rio: startup failed"), err)
-						return
-					}
-					break
+					panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define(fmt.Sprintf("%+v", r)))))
+					return
 				}
 			}
 		}()
 		executors = rxp.New(opts.ExecutorsOptions...)
-
 		// aio.completions
 		aio.Startup(opts.AIOOptions)
 	})
@@ -86,39 +72,16 @@ func Startup(options ...StartupOption) (err error) {
 }
 
 // Shutdown
-// 关闭
+// 优雅关闭。
 //
-// 非优雅的，即不会等待所有协程执行完毕。
-//
-// 一般使用 ShutdownGracefully 来实现等待所有协程执行完毕。
-func Shutdown() error {
-	exec := getExecutors()
-	if exec.Running() {
+// 会等待所有协程执行完毕。
+func Shutdown() {
+	shutdownOnce.Do(func() {
+		exec := getExecutors()
 		runtime.SetFinalizer(exec, nil)
-		if err := exec.Close(); err != nil {
-			return err
-		}
-	}
-	aio.Shutdown()
-	return nil
-}
-
-// ShutdownGracefully
-// 优雅的关闭执行器
-//
-// 它会等待所有协程执行完毕。
-//
-// 如果需要支持超时机制，则需要在 Startup 里进行设置。
-func ShutdownGracefully() error {
-	exec := getExecutors()
-	if exec.Running() {
-		runtime.SetFinalizer(exec, nil)
-		if err := exec.Close(); err != nil {
-			return err
-		}
-	}
-	aio.Shutdown()
-	return nil
+		_ = exec.Close()
+		aio.Shutdown()
+	})
 }
 
 type StartupOptions struct {

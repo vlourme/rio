@@ -14,9 +14,9 @@ import (
 )
 
 func TestListenTCP(t *testing.T) {
-	_ = rio.Startup()
+	rio.Startup()
 	defer func() {
-		_ = rio.ShutdownGracefully()
+		rio.Shutdown()
 	}()
 
 	ctx := context.Background()
@@ -88,9 +88,9 @@ func TestListenTCP(t *testing.T) {
 }
 
 func TestTCP(t *testing.T) {
-	_ = rio.Startup()
+	rio.Startup()
 	defer func() {
-		_ = rio.ShutdownGracefully()
+		rio.Shutdown()
 	}()
 
 	ctx := context.Background()
@@ -215,9 +215,9 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 		_ = file.Close()
 		_ = os.Remove(filename)
 	}()
-	_ = rio.Startup()
+	rio.Startup()
 	defer func() {
-		_ = rio.ShutdownGracefully()
+		rio.Shutdown()
 	}()
 
 	ctx := context.Background()

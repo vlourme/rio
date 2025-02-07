@@ -10,9 +10,9 @@ import (
 )
 
 func TestListenPacket(t *testing.T) {
-	_ = rio.Startup()
+	rio.Startup()
 	defer func() {
-		_ = rio.ShutdownGracefully()
+		rio.Shutdown()
 	}()
 
 	ctx := context.Background()
@@ -86,9 +86,9 @@ func TestListenPacket(t *testing.T) {
 }
 
 func TestListenPacketMsg(t *testing.T) {
-	_ = rio.Startup()
+	rio.Startup()
 	defer func() {
-		_ = rio.ShutdownGracefully()
+		rio.Shutdown()
 	}()
 
 	ctx := context.Background()
