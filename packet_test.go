@@ -118,7 +118,7 @@ func TestListenPacketMsg(t *testing.T) {
 				t.Error("srv write to:", cause)
 				return
 			}
-			t.Log("srv write to:", entry.Written(), entry.OOBWritten(), entry.UnexpectedError())
+			t.Log("srv write to:", entry.Written(), entry.OOBWritten())
 		})
 	})
 
