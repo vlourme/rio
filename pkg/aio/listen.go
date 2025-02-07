@@ -28,7 +28,9 @@ func Listen(network string, address string, opts ListenerOptions) (fd NetFd, err
 	case "tcp", "tcp4", "tcp6":
 		proto := syscall.IPPROTO_TCP
 		if opts.MultipathTCP {
-			proto = tryGetMultipathTCPProto()
+			if multipathProto, ok := tryGetMultipathTCPProto(); ok {
+				proto = multipathProto
+			}
 		}
 		fd, err = newListenerFd(network, family, syscall.SOCK_STREAM, proto, ipv6only, addr, nil)
 		if err == nil && opts.FastOpen > 0 {

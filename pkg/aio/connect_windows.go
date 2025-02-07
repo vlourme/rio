@@ -10,10 +10,10 @@ import (
 	"syscall"
 )
 
-func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, cb OperationCallback) {
+func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, fastOpen int, cb OperationCallback) {
 	// stream
 	if sotype == syscall.SOCK_STREAM {
-		connectEx(network, family, sotype, proto, ipv6only, raddr, cb)
+		connectEx(network, family, sotype, proto, ipv6only, raddr, fastOpen, cb)
 		return
 	}
 	// packet
@@ -114,7 +114,7 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	return
 }
 
-func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, cb OperationCallback) {
+func connectEx(network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr, fastOpen int, cb OperationCallback) {
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
 		err := errors.New(
@@ -126,8 +126,14 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 		cb(Userdata{}, err)
 		return
 	}
+	// conn
+	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, addr)
+	// fast open
+	if fastOpen > 0 {
+		_ = SetFastOpen(conn, fastOpen)
+	}
+	// sock
 	handle := syscall.Handle(sock)
-
 	// lsa
 	var lsa syscall.Sockaddr
 	if family == syscall.AF_INET6 {
@@ -163,8 +169,7 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 	}
 	// remote addr
 	sa := AddrToSockaddr(addr)
-	// net fd
-	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, addr)
+
 	// op
 	op := acquireOperator(conn)
 	// callback

@@ -10,7 +10,7 @@ import (
 	"unsafe"
 )
 
-func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, cb OperationCallback) {
+func connect(network string, family int, sotype int, proto int, ipv6only bool, raddr net.Addr, laddr net.Addr, fastOpen int, cb OperationCallback) {
 	// create sock
 	sock, sockErr := newSocket(family, sotype, proto, ipv6only)
 	if sockErr != nil {
@@ -42,6 +42,10 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 
 	// conn
 	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, nil)
+	// fast open
+	if fastOpen > 0 {
+		_ = SetFastOpen(conn, fastOpen)
+	}
 
 	// local addr
 	if laddr != nil {
