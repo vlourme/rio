@@ -19,7 +19,6 @@ type ListenOptions struct {
 	Options
 	ParallelAcceptors         int
 	UnixListenerUnlinkOnClose bool
-	FastOpen                  int
 }
 
 // WithParallelAcceptors
@@ -46,19 +45,6 @@ func WithUnixListenerUnlinkOnClose() Option {
 	return func(options *Options) (err error) {
 		opts := (*ListenOptions)(unsafe.Pointer(options))
 		opts.UnixListenerUnlinkOnClose = true
-		return
-	}
-}
-
-// WithFastOpen
-// 设置 FastOpen。
-func WithFastOpen(n int) Option {
-	return func(options *Options) (err error) {
-		opts := (*ListenOptions)(unsafe.Pointer(options))
-		if n > 999 {
-			n = 256
-		}
-		opts.FastOpen = n
 		return
 	}
 }
@@ -95,7 +81,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			DefaultConnWriteBufferSize: 0,
 			DefaultInboundBufferSize:   0,
 			MultipathTCP:               false,
-			PromiseMakeOptions:         make([]async.Option, 0, 1),
+			FastOpen:                   0,
+			PromiseMode:                async.Normal,
 		},
 		ParallelAcceptors:         runtime.NumCPU() * 2,
 		UnixListenerUnlinkOnClose: false,
@@ -140,21 +127,18 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 	// executors
 	ctx = rxp.With(ctx, getExecutors())
 
-	// conn promise
-	acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, async.WithDirectMode())
-	if acceptorPromiseErr != nil {
-		err = errors.New(
-			"listen failed",
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-			errors.WithWrap(acceptorPromiseErr),
-		)
-		return
-	}
-
-	// promise make options
-	promiseMakeOptions := opt.PromiseMakeOptions
-	if len(promiseMakeOptions) > 0 {
-		ctx = async.WithOptions(ctx, promiseMakeOptions...)
+	// promise mode
+	if promiseModel := opt.PromiseMode; promiseModel != async.Normal {
+		switch promiseModel {
+		case async.Direct:
+			ctx = async.WithOptions(ctx, async.WithDirectMode())
+			break
+		case async.Unlimited:
+			ctx = async.WithOptions(ctx, async.WithUnlimitedMode())
+			break
+		default:
+			break
+		}
 	}
 
 	// running
@@ -175,9 +159,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		defaultWriteBuffer:   opt.DefaultConnWriteBufferSize,
 		defaultInboundBuffer: opt.DefaultInboundBufferSize,
 		parallelAcceptors:    parallelAcceptors,
-		acceptorPromises:     acceptorPromises,
+		acceptorPromises:     nil,
 	}
-
 	return
 }
 
@@ -203,10 +186,33 @@ func (ln *listener) Addr() (addr net.Addr) {
 }
 
 func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err error)) {
+	ctx := ln.ctx
 	if ln.running.Load() {
-		future := ln.acceptorPromises.Future()
+		if ln.acceptorPromises != nil {
+			err := errors.New(
+				"accept failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(errors.New("cannot accept again")),
+			)
+			fn(ctx, nil, err)
+			return
+		}
+		// accept
+		parallelAcceptors := ln.parallelAcceptors
+		acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, async.WithDirectMode())
+		if acceptorPromiseErr != nil {
+			err := errors.New(
+				"accept failed",
+				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				errors.WithWrap(acceptorPromiseErr),
+			)
+			fn(ctx, nil, err)
+			return
+		}
+		ln.acceptorPromises = acceptorPromises
+		future := acceptorPromises.Future()
 		future.OnComplete(fn)
-		for i := 0; i < ln.parallelAcceptors; i++ {
+		for i := 0; i < parallelAcceptors; i++ {
 			ln.acceptOne()
 		}
 	} else {
@@ -221,7 +227,6 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 
 func (ln *listener) Close() (future async.Future[async.Void]) {
 	ctx := ln.ctx
-
 	if !ln.running.CompareAndSwap(true, false) {
 		err := errors.New(
 			"close failed",
@@ -233,7 +238,9 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 	}
 
 	// cancel acceptor
-	ln.acceptorPromises.Cancel()
+	if acceptorPromises := ln.acceptorPromises; acceptorPromises != nil {
+		acceptorPromises.Cancel()
+	}
 
 	// close fd
 	promise, promiseErr := async.Make[async.Void](ctx, async.WithUnlimitedMode())
@@ -295,7 +302,7 @@ func (ln *listener) acceptOne() {
 						errors.WithWrap(err),
 					)
 					ln.acceptorPromises.Fail(err)
-					ln.Close()
+					ln.Close().OnComplete(async.DiscardVoidHandler)
 				} else if aio.IsBusy(err) {
 					ln.acceptOne()
 				} else {
@@ -308,7 +315,7 @@ func (ln *listener) acceptOne() {
 					ln.acceptOne()
 				}
 			} else {
-				ln.Close()
+				ln.Close().OnComplete(async.DiscardVoidHandler)
 			}
 			return
 		}
