@@ -5,7 +5,6 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/security"
-	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"runtime"
@@ -63,15 +62,12 @@ type Listener interface {
 	OnAccept(fn func(ctx context.Context, conn Connection, err error))
 	// Close
 	// 关闭
-	Close() (future async.Future[async.Void])
+	Close() (err error)
 }
 
 // Listen
 // 监听流
-func Listen(ctx context.Context, network string, addr string, options ...Option) (ln Listener, err error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+func Listen(network string, addr string, options ...Option) (ln Listener, err error) {
 	// opt
 	opt := ListenOptions{
 		Options: Options{
@@ -82,7 +78,6 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 			DefaultInboundBufferSize:   0,
 			MultipathTCP:               false,
 			FastOpen:                   0,
-			PromiseMode:                async.Normal,
 		},
 		ParallelAcceptors:         runtime.NumCPU() * 2,
 		UnixListenerUnlinkOnClose: false,
@@ -124,22 +119,8 @@ func Listen(ctx context.Context, network string, addr string, options ...Option)
 		}
 	}
 
-	// executors
-	ctx = rxp.With(ctx, getExecutors())
-
-	// promise mode
-	if promiseModel := opt.PromiseMode; promiseModel != async.Normal {
-		switch promiseModel {
-		case async.Direct:
-			ctx = async.WithOptions(ctx, async.WithDirectMode())
-			break
-		case async.Unlimited:
-			ctx = async.WithOptions(ctx, async.WithUnlimitedMode())
-			break
-		default:
-			break
-		}
-	}
+	// ctx
+	ctx := Background()
 
 	// running
 	running := new(atomic.Bool)
@@ -177,7 +158,7 @@ type listener struct {
 	defaultWriteBuffer   int
 	defaultInboundBuffer int
 	parallelAcceptors    int
-	acceptorPromises     async.Promise[Connection]
+	acceptorPromises     []async.Promise[Connection]
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
@@ -198,22 +179,40 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 			return
 		}
 		// accept
+		acceptors := &atomic.Int64{}
 		parallelAcceptors := ln.parallelAcceptors
-		acceptorPromises, acceptorPromiseErr := async.StreamPromises[Connection](ctx, parallelAcceptors, async.WithDirectMode())
-		if acceptorPromiseErr != nil {
-			err := errors.New(
-				"accept failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(acceptorPromiseErr),
-			)
-			fn(ctx, nil, err)
-			return
-		}
-		ln.acceptorPromises = acceptorPromises
-		future := acceptorPromises.Future()
-		future.OnComplete(fn)
 		for i := 0; i < parallelAcceptors; i++ {
-			ln.acceptOne()
+			acceptorPromise, acceptorPromiseErr := async.Make[Connection](ctx, async.WithWait(), async.WithStream())
+			if acceptorPromiseErr != nil {
+				for j := 0; j < i; j++ {
+					acceptorPromise = ln.acceptorPromises[j]
+					acceptorPromise.Cancel()
+				}
+				err := errors.New(
+					"accept failed",
+					errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+					errors.WithWrap(acceptorPromiseErr),
+				)
+				fn(ctx, nil, err)
+				return
+			}
+			acceptors.Add(1)
+			acceptorPromise.Future().OnComplete(func(ctx context.Context, conn Connection, err error) {
+				if err != nil {
+					if async.IsCanceled(err) {
+						if remainAcceptors := acceptors.Add(-1); remainAcceptors == 0 {
+							fn(ctx, nil, err)
+						}
+						return
+					}
+					fn(ctx, nil, err)
+					return
+				}
+				fn(ctx, conn, nil)
+				return
+			})
+			ln.acceptorPromises = append(ln.acceptorPromises, acceptorPromise)
+			ln.acceptOne(acceptorPromise)
 		}
 	} else {
 		err := errors.New(
@@ -225,38 +224,19 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 	}
 }
 
-func (ln *listener) Close() (future async.Future[async.Void]) {
-	ctx := ln.ctx
+func (ln *listener) Close() (err error) {
 	if !ln.running.CompareAndSwap(true, false) {
-		err := errors.New(
-			"close failed",
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-			errors.WithWrap(errors.New("listener was closed")),
-		)
-		future = async.FailedImmediately[async.Void](ctx, err)
 		return
 	}
 
 	// cancel acceptor
-	if acceptorPromises := ln.acceptorPromises; acceptorPromises != nil {
-		acceptorPromises.Cancel()
+	if promises := ln.acceptorPromises; promises != nil {
+		for _, promise := range promises {
+			promise.Cancel()
+		}
 	}
 
-	// close fd
-	promise, promiseErr := async.Make[async.Void](ctx, async.WithUnlimitedMode())
-	if promiseErr != nil {
-		if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
-			unixAddr, isUnix := ln.fd.LocalAddr().(*net.UnixAddr)
-			if isUnix {
-				if path := unixAddr.String(); path[0] != '@' {
-					_ = aio.Unlink(path)
-				}
-			}
-		}
-		aio.CloseImmediately(ln.fd)
-		future = async.SucceedImmediately[async.Void](ctx, async.Void{})
-		return
-	}
+	// close
 	if ln.fd.Family() == syscall.AF_UNIX && ln.unlinkOnClose {
 		unixAddr, isUnix := ln.fd.LocalAddr().(*net.UnixAddr)
 		if isUnix {
@@ -265,22 +245,14 @@ func (ln *listener) Close() (future async.Future[async.Void]) {
 			}
 		}
 	}
-
-	aio.Close(ln.fd, func(userdata aio.Userdata, err error) {
-		if err != nil {
-			aio.CloseImmediately(ln.fd)
-			err = errors.New(
-				"close failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(err),
-			)
-			promise.Fail(err)
-		} else {
-			promise.Succeed(async.Void{})
-		}
-		return
-	})
-	future = promise.Future()
+	err = aio.Close(ln.fd)
+	if err != nil {
+		err = errors.New(
+			"close failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(err),
+		)
+	}
 	return
 }
 
@@ -288,7 +260,7 @@ func (ln *listener) ok() bool {
 	return ln.ctx.Err() == nil && ln.running.Load()
 }
 
-func (ln *listener) acceptOne() {
+func (ln *listener) acceptOne(promise async.Promise[Connection]) {
 	if !ln.ok() {
 		return
 	}
@@ -301,21 +273,21 @@ func (ln *listener) acceptOne() {
 						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 						errors.WithWrap(err),
 					)
-					ln.acceptorPromises.Fail(err)
-					ln.Close().OnComplete(async.DiscardVoidHandler)
+					promise.Fail(err)
+					_ = ln.Close()
 				} else if aio.IsBusy(err) {
-					ln.acceptOne()
+					ln.acceptOne(promise)
 				} else {
 					err = errors.New(
 						"accept failed",
 						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 						errors.WithWrap(err),
 					)
-					ln.acceptorPromises.Fail(err)
-					ln.acceptOne()
+					promise.Fail(err)
+					ln.acceptOne(promise)
 				}
 			} else {
-				ln.Close().OnComplete(async.DiscardVoidHandler)
+				_ = ln.Close()
 			}
 			return
 		}
@@ -333,14 +305,14 @@ func (ln *listener) acceptOne() {
 			break
 		default:
 			// not matched, so close it
-			aio.CloseImmediately(connFd)
+			_ = aio.Close(connFd)
 			err = errors.New(
 				"accept failed",
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(ErrNetworkUnmatched),
 			)
-			ln.acceptorPromises.Fail(err)
-			ln.acceptOne()
+			promise.Fail(err)
+			ln.acceptOne(promise)
 			return
 		}
 		// set default
@@ -353,18 +325,18 @@ func (ln *listener) acceptOne() {
 		if ln.defaultReadBuffer > 0 {
 			err = conn.SetReadBuffer(ln.defaultReadBuffer)
 			if err != nil {
-				conn.Close().OnComplete(async.DiscardVoidHandler)
-				ln.acceptorPromises.Fail(err)
-				ln.acceptOne()
+				_ = conn.Close()
+				promise.Fail(err)
+				ln.acceptOne(promise)
 				return
 			}
 		}
 		if ln.defaultWriteBuffer > 0 {
 			err = conn.SetWriteBuffer(ln.defaultWriteBuffer)
 			if err != nil {
-				conn.Close().OnComplete(async.DiscardVoidHandler)
-				ln.acceptorPromises.Fail(err)
-				ln.acceptOne()
+				_ = conn.Close()
+				promise.Fail(err)
+				ln.acceptOne(promise)
 				return
 			}
 		}
@@ -376,12 +348,12 @@ func (ln *listener) acceptOne() {
 			conn = ln.tlsConnBuilder.Server(conn)
 		}
 		// send
-		if succeed := ln.acceptorPromises.Succeed(conn); !succeed {
-			conn.Close().OnComplete(async.DiscardVoidHandler)
-			ln.acceptOne()
+		if succeed := promise.Succeed(conn); !succeed {
+			_ = conn.Close()
+			ln.acceptOne(promise)
 			return
 		}
-		ln.acceptOne()
+		ln.acceptOne(promise)
 		return
 	})
 }
@@ -405,7 +377,7 @@ func WithMulticastUDPInterface(iface *net.Interface) Option {
 
 // ListenPacket
 // 监听包
-func ListenPacket(ctx context.Context, network string, addr string, options ...Option) (conn PacketConnection, err error) {
+func ListenPacket(network string, addr string, options ...Option) (conn PacketConnection, err error) {
 	opts := ListenPacketOptions{}
 	for _, o := range options {
 		err = o((*Options)(unsafe.Pointer(&opts)))
@@ -419,8 +391,6 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 		}
 	}
 
-	// executors
-	ctx = rxp.With(ctx, getExecutors())
 	// inner
 	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
 		MultipathTCP:       false,
@@ -436,6 +406,9 @@ func ListenPacket(ctx context.Context, network string, addr string, options ...O
 		return
 	}
 
+	// ctx
+	ctx := Background()
+	// conn
 	conn = newPacketConnection(ctx, fd)
 	return
 }

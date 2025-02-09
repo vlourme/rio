@@ -15,10 +15,8 @@ func TestBuffer(t *testing.T) {
 	t.Log(buf.Len())
 	p5 := buf.Peek(5)
 	t.Log(string(p5))
-	discardErr := buf.Discard(5)
-	if discardErr != nil {
-		t.Fatal(discardErr)
-	}
+	buf.Discard(5)
+
 	nexted, nextErr := buf.Next(5)
 	if nextErr != nil {
 		t.Fatal(nextErr)
@@ -35,7 +33,7 @@ func TestBuffer_Allocate(t *testing.T) {
 		t.Fatal(allocateErr)
 	}
 	copy(p, "abc")
-	buf.AllocatedWrote(3)
+	buf.Allocated(3)
 	_, _ = buf.Write([]byte("012"))
 	t.Log(string(buf.Peek(100)))
 }

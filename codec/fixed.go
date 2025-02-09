@@ -49,14 +49,14 @@ func (encoder *FixedEncoder) Encode(param []byte) (b []byte, err error) {
 	return
 }
 
-func (encoder *FixedEncoder) Decode(reader transport.InboundReader) (ok bool, message []byte, err error) {
-	bufLen := reader.Length()
+func (encoder *FixedEncoder) Decode(inbound transport.Inbound) (ok bool, message []byte, err error) {
+	bufLen := inbound.Len()
 	if bufLen < encoder.n {
 		return
 	}
 
 	message = make([]byte, encoder.n)
-	rn, rErr := reader.Read(message)
+	rn, rErr := inbound.Read(message)
 	if rErr != nil {
 		err = rErr
 		return

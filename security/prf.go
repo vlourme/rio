@@ -71,8 +71,8 @@ func prf12(hashFunc func() hash.Hash) func(result, secret, label, seed []byte) {
 }
 
 const (
-	masterSecretLength   = 48 // Length of a master secret in TLS 1.1.
-	finishedVerifyLength = 12 // Length of verify_data in a Finished message.
+	masterSecretLength   = 48 // Len of a master secret in TLS 1.1.
+	finishedVerifyLength = 12 // Len of verify_data in a Finished message.
 )
 
 var masterSecretLabel = []byte("master secret")

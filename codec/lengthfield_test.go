@@ -15,7 +15,7 @@ import (
 
 func TestLengthFieldDecode(t *testing.T) {
 	ctx := context.Background()
-	exec := rxp.New()
+	exec, _ := rxp.New()
 	defer exec.Close()
 	ctx = rxp.With(ctx, exec)
 

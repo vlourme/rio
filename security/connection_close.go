@@ -3,9 +3,7 @@ package security
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/brickingsoft/rxp/async"
-	"net"
 	"time"
 )
 
@@ -82,57 +80,7 @@ func (conn *connection) CloseWrite() (future async.Future[async.Void]) {
 	return
 }
 
-func (conn *connection) Close() (future async.Future[async.Void]) {
-	ctx := conn.Context()
-	// Interlock with Conn.Write above.
-	var x int32
-	for {
-		x = conn.activeCall.Load()
-		if x&1 != 0 {
-			future = async.FailedImmediately[async.Void](ctx, net.ErrClosed)
-			return
-		}
-		if conn.activeCall.CompareAndSwap(x, x|1) {
-			break
-		}
-	}
-	if x != 0 {
-		// io.Writer and io.Closer should not be used concurrently.
-		// If Close is called while a Write is currently in-flight,
-		// interpret that as a sign that this Close is really just
-		// being used to break the Write and/or clean up resources and
-		// avoid sending the alertCloseNotify, which may block
-		// waiting on handshakeMutex or the c.out mutex.
-		future = conn.Connection.Close()
-		return
-	}
-	promise, promiseErr := async.Make[async.Void](ctx, async.WithWait())
-	if promiseErr != nil {
-		future = conn.Connection.Close()
-		return
-	}
-	future = promise.Future()
+func (conn *connection) Close() (err error) {
 
-	if conn.handshakeComplete.Load() {
-		conn.closeNotify().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-			var alertErr error
-			if cause != nil {
-				alertErr = fmt.Errorf("tls: failed to send closeNotify alert (but connection was closed anyway): %w", cause)
-			}
-			conn.Connection.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-				if cause != nil {
-					promise.Fail(cause)
-					return
-				}
-				if alertErr != nil {
-					promise.Fail(alertErr)
-					return
-				}
-				promise.Succeed(async.Void{})
-				return
-			})
-		})
-
-	}
 	return
 }

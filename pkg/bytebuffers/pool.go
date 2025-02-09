@@ -1,7 +1,6 @@
 package bytebuffers
 
 import (
-	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -20,9 +19,12 @@ const (
 
 var defaultBufferPool BufferPool
 
-func Get() Buffer { return defaultBufferPool.Get() }
+func Acquire() Buffer { return defaultBufferPool.Acquire() }
 
-func Put(b Buffer) { defaultBufferPool.Put(b) }
+// Release
+// 回收 Buffer，只有当 Buffer.Reset 成功才回收，否则关闭并丢弃。
+// 即无可读或无未完成分配的情况下可回收。
+func Release(b Buffer) { defaultBufferPool.Release(b) }
 
 type BufferPool struct {
 	calls       [steps]uint64
@@ -34,7 +36,7 @@ type BufferPool struct {
 	pool sync.Pool
 }
 
-func (p *BufferPool) Get() Buffer {
+func (p *BufferPool) Acquire() Buffer {
 	v := p.pool.Get()
 	if v != nil {
 		return v.(Buffer)
@@ -42,7 +44,7 @@ func (p *BufferPool) Get() Buffer {
 	return NewBufferWithSize(int(atomic.LoadUint64(&p.defaultSize)))
 }
 
-func (p *BufferPool) Put(b Buffer) {
+func (p *BufferPool) Release(b Buffer) {
 	if b.Cap() > maxSize {
 		_ = b.Close()
 		return
@@ -56,12 +58,14 @@ func (p *BufferPool) Put(b Buffer) {
 
 	size := int(atomic.LoadUint64(&p.maxSize))
 	if size == 0 || b.Cap() <= size {
-		b.Reset()
-		p.pool.Put(b)
+		if b.Reset() {
+			p.pool.Put(b)
+		} else {
+			_ = b.Close()
+		}
 	} else {
 		_ = b.Close()
 	}
-	runtime.KeepAlive(b)
 }
 
 func (p *BufferPool) index(n int) int {

@@ -2,22 +2,21 @@
 
 package bytebuffers
 
-import "runtime"
+import (
+	"runtime"
+)
 
 func (buf *buffer) Close() (err error) {
 	runtime.SetFinalizer(buf, nil)
 	return
 }
 
+const maxInt = int(^uint(0) >> 1)
+
 func (buf *buffer) grow(n int) (err error) {
 	if n < 1 {
 		return
 	}
-	defer func() {
-		if recover() != nil {
-			err = ErrTooLarge
-		}
-	}()
 
 	if buf.b != nil {
 		n = n - buf.r
@@ -31,9 +30,20 @@ func (buf *buffer) grow(n int) (err error) {
 		}
 	}
 
+	if buf.c > maxInt-buf.c-n {
+		err = ErrTooLarge
+		return
+	}
+
 	// has no more place
 	adjustedSize := adjustBufferSize(n)
-	buf.b = append(buf.b, make([]byte, adjustedSize)...)
+	bLen := buf.Len()
+	nb := make([]byte, adjustedSize+bLen)
+	copy(nb, buf.b[buf.r:buf.w])
+	buf.b = nb
+	buf.r = 0
+	buf.w = bLen
+	buf.a = buf.w
 	buf.c += adjustedSize
 	return
 }

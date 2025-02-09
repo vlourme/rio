@@ -3,7 +3,6 @@ package rio
 import (
 	"crypto/tls"
 	"github.com/brickingsoft/rio/security"
-	"github.com/brickingsoft/rxp/async"
 	"time"
 )
 
@@ -16,7 +15,6 @@ type Options struct {
 	TLSConnectionBuilder       security.ConnectionBuilder
 	MultipathTCP               bool
 	FastOpen                   int
-	PromiseMode                async.PromiseMode
 }
 
 type Option func(options *Options) (err error)
@@ -117,33 +115,6 @@ func WithFastOpen(n int) Option {
 			n = 256
 		}
 		options.FastOpen = n
-		return
-	}
-}
-
-// WithNormalPromiseMode
-// 设置共享许诺模型。
-func WithNormalPromiseMode() Option {
-	return func(options *Options) (err error) {
-		options.PromiseMode = async.Normal
-		return
-	}
-}
-
-// WithDirectPromiseMode
-// 设置独占许诺模型。
-func WithDirectPromiseMode() Option {
-	return func(options *Options) (err error) {
-		options.PromiseMode = async.Direct
-		return
-	}
-}
-
-// WithUnlimitedPromiseMode
-// 设置独占且不受数量限制许诺模型。
-func WithUnlimitedPromiseMode() Option {
-	return func(options *Options) (err error) {
-		options.PromiseMode = async.Unlimited
 		return
 	}
 }

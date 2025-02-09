@@ -15,16 +15,11 @@ import (
 
 func TestListenTCP(t *testing.T) {
 	rio.Startup()
-	defer func() {
-		rio.Shutdown()
-	}()
-
-	ctx := context.Background()
+	defer rio.Shutdown()
 
 	ln, lnErr := rio.Listen(
-		ctx,
 		"tcp", "127.0.0.1:9000",
-		rio.WithParallelAcceptors(1),
+		rio.WithParallelAcceptors(3),
 	)
 	if lnErr != nil {
 		t.Error(lnErr)
@@ -52,12 +47,8 @@ func TestListenTCP(t *testing.T) {
 		}
 		t.Log("accepted:", addr, err, ctx.Err())
 		if conn != nil {
-			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-				if cause != nil {
-					t.Error("srv close conn err:", cause)
-				}
-				awg.Done()
-			})
+			_ = conn.Close()
+			awg.Done()
 		}
 	})
 
@@ -77,25 +68,17 @@ func TestListenTCP(t *testing.T) {
 
 	awg.Wait()
 
-	lwg.Add(1)
-	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-		if cause != nil {
-			t.Error("ln close close err:", cause)
-		}
-		lwg.Done()
-	})
+	_ = ln.Close()
 	lwg.Wait()
 }
 
 func TestTCP(t *testing.T) {
 	rio.Startup()
-	defer func() {
-		rio.Shutdown()
-	}()
+	defer rio.Shutdown()
 
-	ctx := context.Background()
+	ctx := rio.Background()
 
-	ln, lnErr := rio.Listen(ctx,
+	ln, lnErr := rio.Listen(
 		"tcp", ":9000",
 		rio.WithParallelAcceptors(1),
 		rio.WithFastOpen(1),
@@ -131,28 +114,23 @@ func TestTCP(t *testing.T) {
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
 			if err != nil {
 				t.Error("srv read:", err)
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					swg.Done()
-				})
+				_ = conn.Close()
+				swg.Done()
 				return
 			}
-			n := in.Received()
-			p, _ := in.Reader().Next(n)
+			n := in.Len()
+			p, _ := in.Next(n)
 			t.Log("srv read:", n, string(p))
 			conn.Write(p).OnComplete(func(ctx context.Context, out int, err error) {
 				if err != nil {
 					t.Error("srv write:", err)
-					conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-						t.Log("srv close:", cause)
-						swg.Done()
-					})
+					_ = conn.Close()
+					swg.Done()
 					return
 				}
 				t.Log("srv write:", out)
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					t.Log("srv close:", cause)
-					swg.Done()
-				})
+				_ = conn.Close()
+				swg.Done()
 			})
 		})
 	})
@@ -181,11 +159,11 @@ func TestTCP(t *testing.T) {
 					cwg.Done()
 					return
 				}
-				t.Log("cli read:", in.Received(), string(in.Reader().Peek(in.Received())))
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					cwg.Done()
-					t.Log("cli close:", err)
-				})
+				n := in.Len()
+				p, _ := in.Next(n)
+				t.Log("cli read:", string(p))
+				_ = conn.Close()
+				cwg.Done()
 			})
 		})
 	})
@@ -193,11 +171,7 @@ func TestTCP(t *testing.T) {
 	cwg.Wait()
 	swg.Wait()
 
-	lwg.Add(1)
-	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-		t.Log("ln close:", cause)
-		lwg.Done()
-	})
+	_ = ln.Close()
 	lwg.Wait()
 }
 
@@ -216,13 +190,11 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 		_ = os.Remove(filename)
 	}()
 	rio.Startup()
-	defer func() {
-		rio.Shutdown()
-	}()
+	defer rio.Shutdown()
 
-	ctx := context.Background()
+	ctx := rio.Background()
 
-	ln, lnErr := rio.Listen(ctx,
+	ln, lnErr := rio.Listen(
 		"tcp", ":9000",
 		rio.WithParallelAcceptors(10),
 	)
@@ -252,18 +224,13 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 			defer swg.Done()
 			if err != nil {
 				t.Error("srv read:", err)
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {})
+				_ = conn.Close()
 				return
 			}
-			n := in.Received()
-			rb, _ := in.Reader().Next(n)
+			n := in.Len()
+			rb, _ := in.Next(n)
 			t.Log("srv read:", n, bytes.Equal(rb, content))
-
-			swg.Add(1)
-			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-				defer swg.Done()
-				t.Log("srv close:", cause)
-			})
+			_ = conn.Close()
 		})
 	})
 
@@ -289,10 +256,8 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 				return
 			}
 			t.Log("cli send:", out)
-			conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-				cwg.Done()
-				t.Log("cli close:", err)
-			})
+			_ = conn.Close()
+			cwg.Done()
 		})
 	})
 
@@ -302,10 +267,6 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 
 	swg.Wait()
 	// close ln
-	lwg.Add(1)
-	ln.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-		t.Log("ln close:", cause)
-		lwg.Done()
-	})
+	_ = ln.Close()
 	lwg.Wait()
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/bytebuffers"
 	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"strconv"
@@ -32,8 +33,8 @@ func (builder *defaultConnectionBuilder) Client(ts transport.Connection) Connect
 		isClient:            true,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(ts.Fd()),
-		input:               transport.NewInboundBuffer(),
-		hand:                transport.NewInboundBuffer(),
+		input:               bytebuffers.Acquire(),
+		hand:                bytebuffers.Acquire(),
 	}
 	c.handshakeFn = c.clientHandshake
 	return c
@@ -45,8 +46,8 @@ func (builder *defaultConnectionBuilder) Server(ts transport.Connection) Connect
 		config:              builder.config,
 		handshakeBarrier:    async.NewBarrier[async.Void](),
 		handshakeBarrierKey: strconv.Itoa(ts.Fd()),
-		input:               transport.NewInboundBuffer(),
-		hand:                transport.NewInboundBuffer(),
+		input:               bytebuffers.Acquire(),
+		hand:                bytebuffers.Acquire(),
 	}
 	c.handshakeFn = c.serverHandshake
 	return c
@@ -134,8 +135,8 @@ type connection struct {
 
 	// input/output
 	in, out halfConnection
-	input   transport.InboundBuffer
-	hand    transport.InboundBuffer
+	input   bytebuffers.Buffer
+	hand    bytebuffers.Buffer
 	// bytesSent counts the bytes of application data sent.
 	// packetsSent counts packets.
 	bytesSent   int64

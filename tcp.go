@@ -4,7 +4,9 @@ import (
 	"context"
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
+	"github.com/brickingsoft/rio/pkg/bytebuffers"
 	"github.com/brickingsoft/rxp/async"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,9 +21,19 @@ type TCPConnection interface {
 	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
 }
 
+var (
+	ErrSendfile = errors.Define("sendfile failed")
+)
+
 func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
 	conn = &tcpConnection{
-		connection: newConnection(ctx, fd),
+		connection: connection{
+			ctx:    ctx,
+			fd:     fd,
+			closed: &atomic.Bool{},
+			rb:     bytebuffers.Acquire(),
+			rbs:    defaultReadBufferSize,
+		},
 	}
 	return
 }
@@ -61,8 +73,8 @@ func (conn *tcpConnection) SetKeepAliveConfig(config aio.KeepAliveConfig) (err e
 
 func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if len(file) == 0 {
-		err := errors.New(
-			"sendfile failed",
+		err := errors.From(
+			ErrSendfile,
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(errors.Define("no file specified")),
 		)
@@ -70,8 +82,8 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 		return
 	}
 	if conn.disconnected() {
-		err := errors.New(
-			"sendfile failed",
+		err := errors.From(
+			ErrSendfile,
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrClosed),
 		)
@@ -81,26 +93,27 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 
 	var promise async.Promise[int]
 	var promiseErr error
-	if conn.writeTimeout > 0 {
-		promise, promiseErr = async.Make[int](conn.ctx, async.WithTimeout(conn.writeTimeout))
+	if timeout := conn.writeTimeout; timeout > 0 {
+		promise, promiseErr = async.Make[int](conn.ctx, async.WithTimeout(timeout))
 	} else {
 		promise, promiseErr = async.Make[int](conn.ctx)
 	}
 	if promiseErr != nil {
-		err := errors.New(
-			"sendfile failed",
+		err := errors.From(
+			ErrSendfile,
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(promiseErr),
 		)
 		future = async.FailedImmediately[int](conn.ctx, err)
 		return
 	}
+	promise.SetErrInterceptor(conn.sendfileErrInterceptor)
 
 	aio.Sendfile(conn.fd, file, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		if err != nil {
-			err = errors.New(
-				"sendfile failed",
+			err = errors.From(
+				ErrSendfile,
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)
@@ -110,5 +123,17 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	})
 
 	future = promise.Future()
+	return
+}
+
+func (conn *connection) sendfileErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
+	if !errors.Is(err, ErrSendfile) {
+		err = errors.From(
+			ErrSendfile,
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithWrap(err),
+		)
+	}
+	future = async.Immediately[int](ctx, n, err)
 	return
 }

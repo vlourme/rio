@@ -65,8 +65,8 @@ func (conn *connection) readRecord() (future async.Future[[]byte]) {
 			promise.Fail(cause)
 			return
 		}
-		reader := inbound.Reader()
-		rn := reader.Length()
+		reader := inbound
+		rn := reader.Len()
 		if rn < recordHeaderLen {
 			conn.readRecord().OnComplete(func(ctx context.Context, record []byte, cause error) {
 				promise.Complete(record, cause)
@@ -248,7 +248,7 @@ func (conn *connection) maxPayloadSizeForWrite(typ recordType) int {
 func (conn *connection) newRecordHeaderError(c transport.Connection, raw []byte, msg string) (err tls.RecordHeaderError) {
 	err.Msg = msg
 	if c != nil {
-		err.Conn = transport.AdaptToNetConn(c)
+		//err.Conn = transport.AdaptToNetConn(c)
 	}
 	copy(err.RecordHeader[:], raw)
 	return err

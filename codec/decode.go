@@ -16,13 +16,13 @@ type Decoder[T any] interface {
 	// Decode
 	// 解析 transport.Inbound。
 	// 返回 ok(是否解析到，即message是否为空)，message(消息)，err(错误，并停止解析)
-	Decode(reader transport.InboundReader) (ok bool, message T, err error)
+	Decode(reader transport.Inbound) (ok bool, message T, err error)
 }
 
 // Decode
 // 流式解析
 // 默认创建一个流式且无限等待的 async.Promise。
-// async.Future 中需要处理 async.Promise 的关闭，即 async.EOF。
+// async.Future 中需要处理 async.Promise 的关闭，即 async.Canceled。
 func Decode[T any](ctx context.Context, reader transport.Reader, decoder Decoder[T], options ...async.Option) (future async.Future[T]) {
 	// 默认开启 流 和 强等
 	options = append(options, async.WithStream(), async.WithWait())
@@ -58,15 +58,14 @@ func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, pro
 			}
 			return
 		}
-		buf := inbound.Reader()
-		if buf == nil {
+		if inbound == nil {
 			// when reading, buf must not be nil
 			// only conn closed, then buf will be nil
 			promise.Fail(errors.Join(errors.New("coded: reader of inbound is nil, connection maybe closed"), net.ErrClosed))
 			return
 		}
 		for {
-			ok, message, decodeErr := decoder.Decode(buf)
+			ok, message, decodeErr := decoder.Decode(inbound)
 			if decodeErr != nil {
 				// 解析错误并停止解析
 				promise.Fail(decodeErr)
@@ -85,7 +84,7 @@ func decode[T any](reader transport.Reader, decoder Decoder[T], stream bool, pro
 				return
 			}
 
-			if bufLen := buf.Length(); bufLen == 0 { // 已从当前已读到的中解析出，但没有剩余，继续读。
+			if bufLen := inbound.Len(); bufLen == 0 { // 已从当前已读到的中解析出，但没有剩余，继续读。
 				decode[T](reader, decoder, stream, promise)
 				return
 			}

@@ -16,7 +16,12 @@ var (
 func getExecutors() rxp.Executors {
 	executorsOnce.Do(func() {
 		if executors == nil {
-			executors = rxp.New()
+			var err error
+			executors, err = rxp.New()
+			if err != nil {
+				panic(err)
+				return
+			}
 			runtime.SetFinalizer(executors, rxp.Executors.Close)
 		}
 	})

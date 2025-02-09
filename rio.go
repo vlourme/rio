@@ -1,7 +1,6 @@
 package rio
 
 import (
-	"fmt"
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/process"
@@ -49,22 +48,12 @@ func Startup(options ...StartupOption) {
 			}
 		}
 		// executors
-		defer func() {
-			if r := recover(); r != nil {
-				switch e := r.(type) {
-				case error:
-					panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(e)))
-					return
-				case string:
-					panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define(e))))
-					return
-				default:
-					panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(errors.Define(fmt.Sprintf("%+v", r)))))
-					return
-				}
-			}
-		}()
-		executors = rxp.New(opts.ExecutorsOptions...)
+		var err error
+		executors, err = rxp.New(opts.ExecutorsOptions...)
+		if err != nil {
+			panic(errors.New("startup failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(err)))
+			return
+		}
 		// aio.completions
 		aio.Startup(opts.AIOOptions)
 	})

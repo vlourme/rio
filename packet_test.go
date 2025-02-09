@@ -4,20 +4,17 @@ import (
 	"context"
 	"github.com/brickingsoft/rio"
 	"github.com/brickingsoft/rio/transport"
-	"github.com/brickingsoft/rxp/async"
 	"sync"
 	"testing"
 )
 
 func TestListenPacket(t *testing.T) {
 	rio.Startup()
-	defer func() {
-		rio.Shutdown()
-	}()
+	defer rio.Shutdown()
 
-	ctx := context.Background()
+	ctx := rio.Background()
 
-	srv, lnErr := rio.ListenPacket(ctx, "udp", ":9000")
+	srv, lnErr := rio.ListenPacket("udp", ":9000")
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
@@ -31,9 +28,10 @@ func TestListenPacket(t *testing.T) {
 			lwg.Done()
 			return
 		}
-		p, _ := entry.Reader().Next(entry.Received())
-		t.Log("srv read from:", entry.Addr(), entry.Received(), string(p))
-		srv.WriteTo(p[0:entry.Received()], entry.Addr()).OnComplete(func(ctx context.Context, entry int, cause error) {
+		p, _ := entry.Next(entry.Len())
+		addr := entry.Addr()
+		t.Log("srv read from:", addr, string(p))
+		srv.WriteTo(p, addr).OnComplete(func(ctx context.Context, entry int, cause error) {
 			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
@@ -64,36 +62,27 @@ func TestListenPacket(t *testing.T) {
 					cwg.Done()
 					return
 				}
-				t.Log("cli read:", string(entry.Reader().Peek(entry.Received())))
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					if cause != nil {
-						t.Error("cli close:", cause)
-					}
-					cwg.Done()
-				})
+				b, _ := entry.Next(entry.Len())
+				t.Log("cli read:", string(b))
+				_ = conn.Close()
+				cwg.Done()
 			})
 		})
 	})
 
 	cwg.Wait()
 
-	lwg.Add(1)
-	srv.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-		t.Log("ln close:", cause)
-		lwg.Done()
-	})
+	_ = srv.Close()
 	lwg.Wait()
 }
 
 func TestListenPacketMsg(t *testing.T) {
 	rio.Startup()
-	defer func() {
-		rio.Shutdown()
-	}()
+	defer rio.Shutdown()
 
-	ctx := context.Background()
+	ctx := rio.Background()
 
-	srv, lnErr := rio.ListenPacket(ctx, "udp", ":9000")
+	srv, lnErr := rio.ListenPacket("udp", ":9000")
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
@@ -107,10 +96,10 @@ func TestListenPacketMsg(t *testing.T) {
 			lwg.Done()
 			return
 		}
-		b, _ := entry.Reader().Next(entry.Received())
-		oob, _ := entry.OOB().Next(entry.OOReceived())
-		t.Log("srv read bytes from:", entry.Addr(), entry.Received(), string(b))
-		t.Log("srv read oob from:", entry.Addr(), entry.OOReceived(), string(oob))
+		b, _ := entry.Next(entry.Len())
+		oob := entry.OOB()
+		t.Log("srv read bytes from:", entry.Addr(), string(b))
+		t.Log("srv read oob from:", entry.Addr(), string(oob))
 
 		srv.WriteMsg(b, nil, entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
 			defer lwg.Done()
@@ -118,7 +107,7 @@ func TestListenPacketMsg(t *testing.T) {
 				t.Error("srv write to:", cause)
 				return
 			}
-			t.Log("srv write to:", entry.Written(), entry.OOBWritten())
+			t.Log("srv write to:", entry.N, entry.OOBN)
 		})
 	})
 
@@ -144,25 +133,17 @@ func TestListenPacketMsg(t *testing.T) {
 					cwg.Done()
 					return
 				}
-				b, _ := entry.Reader().Next(entry.Received())
-				oob, _ := entry.OOB().Next(entry.OOReceived())
-				t.Log("cli read:", entry.Received(), string(b), entry.OOReceived(), string(oob), entry.Addr(), entry.Flags())
-				conn.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-					if cause != nil {
-						t.Error("cli close:", cause)
-					}
-					cwg.Done()
-				})
+				b, _ := entry.Next(entry.Len())
+				oob := entry.OOB()
+				t.Log("cli read:", string(b), string(oob), entry.Addr(), entry.Flags())
+				_ = conn.Close()
+				cwg.Done()
 			})
 		})
 	})
 
 	cwg.Wait()
 
-	lwg.Add(1)
-	srv.Close().OnComplete(func(ctx context.Context, entry async.Void, cause error) {
-		t.Log("ln close:", cause)
-		lwg.Done()
-	})
+	_ = srv.Close()
 	lwg.Wait()
 }

@@ -15,15 +15,15 @@ type Buffer interface {
 	Cap() (n int)
 	Peek(n int) (p []byte)
 	Next(n int) (p []byte, err error)
-	Discard(n int) (err error)
+	Discard(n int)
 	Read(p []byte) (n int, err error)
 	ReadBytes(delim byte) (line []byte, err error)
 	Index(delim byte) (i int)
 	Write(p []byte) (n int, err error)
 	Allocate(size int) (p []byte, err error)
-	AllocatedWrote(n int)
+	Allocated(n int)
 	WritePending() bool
-	Reset()
+	Reset() bool
 	Close() (err error)
 }
 
@@ -32,9 +32,9 @@ var (
 )
 
 var (
-	ErrTooLarge                  = errors.New("bytebuffers.Buffer: too large")
-	ErrWriteBeforeAllocatedWrote = errors.New("bytebuffers.Buffer: cannot write before AllocatedWrote(), cause prev Allocate() was not finished, please call AllocatedWrote() after the area was wrote")
-	ErrAllocateZero              = errors.New("bytebuffers.Buffer: cannot allocate zero")
+	ErrTooLarge             = errors.New("bytebuffers.Buffer: too large")
+	ErrWriteBeforeAllocated = errors.New("bytebuffers.Buffer: cannot write before Allocated(), cause prev Allocate() was not finished, please call Allocated() after the area was written")
+	ErrAllocateZero         = errors.New("bytebuffers.Buffer: cannot allocate zero")
 )
 
 func adjustBufferSize(size int) int {
@@ -98,7 +98,7 @@ func (buf *buffer) Next(n int) (p []byte, err error) {
 		return
 	}
 	bLen := buf.Len()
-	if bLen == 0 && buf.a-buf.w == 0 {
+	if bLen == 0 {
 		err = io.EOF
 		return
 	}
@@ -110,43 +110,48 @@ func (buf *buffer) Next(n int) (p []byte, err error) {
 	copy(p, data)
 	buf.r += n
 
-	buf.tryReset()
+	buf.Reset()
 	return
 }
 
 func (buf *buffer) Read(p []byte) (n int, err error) {
-	bLen := buf.Len()
-	if bLen == 0 && buf.a-buf.w == 0 {
-		buf.Reset()
-		err = io.EOF
-		return
-	}
 	if len(p) == 0 {
 		return
 	}
+
+	bLen := buf.Len()
+	if bLen == 0 {
+		err = io.EOF
+		return
+	}
+
 	n = copy(p, buf.b[buf.r:buf.w])
 	buf.r += n
 
-	buf.tryReset()
+	buf.Reset()
 	return
 }
 
 func (buf *buffer) ReadBytes(delim byte) (line []byte, err error) {
 	bLen := buf.Len()
 	if bLen == 0 {
-		if buf.a == buf.w {
-			err = io.EOF
-		}
+		err = io.EOF
 		return
 	}
 	i := bytes.IndexByte(buf.b[buf.r:buf.w], delim)
-	end := buf.r + i + 1
-	if i < 0 {
-		end = buf.w
-		err = io.EOF
+	if i == -1 {
+		line = make([]byte, buf.w)
+		n := copy(line, buf.b[buf.r:buf.w])
+		buf.r += n
+	} else {
+		end := buf.r + i + 1
+		size := end - buf.r
+		line = make([]byte, size)
+		n := copy(line, buf.b[buf.r:end])
+		buf.r += n
 	}
-	line = buf.b[buf.r:end]
-	buf.r = end
+
+	buf.Reset()
 	return
 }
 
@@ -159,7 +164,7 @@ func (buf *buffer) Index(delim byte) (i int) {
 	return
 }
 
-func (buf *buffer) Discard(n int) (err error) {
+func (buf *buffer) Discard(n int) {
 	if n < 1 {
 		return
 	}
@@ -167,19 +172,17 @@ func (buf *buffer) Discard(n int) (err error) {
 	if bLen == 0 {
 		return
 	}
-	if bLen <= n && buf.a-buf.w == 0 {
-		buf.Reset()
-		return
+	if n > bLen {
+		n = bLen
 	}
 	buf.r += n
-
-	buf.tryReset()
+	buf.Reset()
 	return
 }
 
 func (buf *buffer) Write(p []byte) (n int, err error) {
 	if buf.WritePending() {
-		err = ErrWriteBeforeAllocatedWrote
+		err = ErrWriteBeforeAllocated
 		return
 	}
 	pLen := len(p)
@@ -205,7 +208,7 @@ func (buf *buffer) WritePending() bool {
 
 func (buf *buffer) Allocate(size int) (p []byte, err error) {
 	if buf.WritePending() {
-		err = ErrWriteBeforeAllocatedWrote
+		err = ErrWriteBeforeAllocated
 		return
 	}
 	if size < 1 {
@@ -222,7 +225,7 @@ func (buf *buffer) Allocate(size int) (p []byte, err error) {
 	return
 }
 
-func (buf *buffer) AllocatedWrote(n int) {
+func (buf *buffer) Allocated(n int) {
 	if buf.a == buf.w {
 		return
 	}
@@ -235,15 +238,12 @@ func (buf *buffer) AllocatedWrote(n int) {
 	return
 }
 
-func (buf *buffer) Reset() {
-	buf.r = 0
-	buf.w = 0
-	buf.a = 0
-}
-
-func (buf *buffer) tryReset() {
-	if buf.r == buf.w && buf.a == buf.w {
-		buf.Reset()
-		return
+func (buf *buffer) Reset() bool {
+	ok := buf.r == buf.w && buf.a == buf.w
+	if ok {
+		buf.r = 0
+		buf.w = 0
+		buf.a = 0
 	}
+	return ok
 }

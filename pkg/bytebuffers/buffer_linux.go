@@ -13,6 +13,7 @@ import (
 
 func (buf *buffer) Close() (err error) {
 	runtime.SetFinalizer(buf, nil)
+	buf.closed = true
 	buf.zero()
 	err = munmap(uintptr(unsafe.Pointer(&buf.b[0])), doubleSize(buf.c))
 	if err != nil {

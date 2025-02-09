@@ -7,6 +7,33 @@ import (
 	"time"
 )
 
+type Inbound interface {
+	Peek(n int) (b []byte)
+	Next(n int) (b []byte, err error)
+	Read(b []byte) (n int, err error)
+	Discard(n int)
+	Len() (n int)
+	ReadBytes(delim byte) (line []byte, err error)
+	Index(delim byte) (i int)
+}
+
+type PacketInbound interface {
+	Inbound
+	Addr() (addr net.Addr)
+}
+
+type PacketMsgInbound interface {
+	Inbound
+	OOB() (oob []byte)
+	Flags() (n int)
+	Addr() (addr net.Addr)
+}
+
+type PacketMsgOutbound struct {
+	N    int
+	OOBN int
+}
+
 type Reader interface {
 	Read() (future async.Future[Inbound])
 }
@@ -28,7 +55,7 @@ type Connection interface {
 	SetInboundBuffer(n int)
 	Read() (future async.Future[Inbound])
 	Write(b []byte) (future async.Future[int])
-	Close() (future async.Future[async.Void])
+	Close() (err error)
 }
 
 type PacketReader interface {

@@ -40,8 +40,8 @@ type LengthFieldEncoder struct {
 	lengthFieldSize int
 }
 
-func (encoder *LengthFieldEncoder) Decode(reader transport.InboundReader) (ok bool, message []byte, err error) {
-	bufLen := reader.Length()
+func (encoder *LengthFieldEncoder) Decode(reader transport.Inbound) (ok bool, message []byte, err error) {
+	bufLen := reader.Len()
 	if bufLen < encoder.lengthFieldSize {
 		// not full
 		return
