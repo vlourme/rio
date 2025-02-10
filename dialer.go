@@ -91,7 +91,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		promise: promise,
 	}
 	if executed := rxp.TryExecute(ctx, &task); !executed {
-		promise.Fail(errors.New("dial failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithWrap(rxp.ErrBusy)))
+		promise.Fail(errors.From(ErrDial, errors.WithWrap(rxp.ErrBusy)))
 		return
 	}
 
@@ -100,9 +100,8 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 
 func dialErrInterceptor(ctx context.Context, conn Connection, err error) (future async.Future[Connection]) {
 	if err != nil {
-		err = errors.New(
-			"dial failed",
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		err = errors.From(
+			ErrDial,
 			errors.WithWrap(err),
 		)
 	}
@@ -127,9 +126,8 @@ func (d *dialer) Handle(ctx context.Context) {
 	promise := d.promise
 	aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 		if err != nil {
-			err = errors.New(
-				"dial failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			err = errors.From(
+				ErrDial,
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
@@ -158,7 +156,7 @@ func (d *dialer) Handle(ctx context.Context) {
 		default:
 			// not matched, so close it
 			_ = aio.Close(connFd)
-			promise.Fail(ErrNetworkUnmatched)
+			promise.Fail(errors.From(ErrNetworkUnmatched))
 			return
 		}
 

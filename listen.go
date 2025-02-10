@@ -170,54 +170,43 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 	ctx := ln.ctx
 	if ln.running.Load() {
 		if ln.acceptorPromises != nil {
-			err := errors.New(
-				"accept failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			err := errors.From(
+				ErrAccept,
 				errors.WithWrap(errors.New("cannot accept again")),
 			)
 			fn(ctx, nil, err)
 			return
 		}
 		// accept
-		acceptors := &atomic.Int64{}
-		parallelAcceptors := ln.parallelAcceptors
-		for i := 0; i < parallelAcceptors; i++ {
+		ln.acceptorPromises = make([]async.Promise[Connection], ln.parallelAcceptors)
+		for i := 0; i < ln.parallelAcceptors; i++ {
 			acceptorPromise, acceptorPromiseErr := async.Make[Connection](ctx, async.WithWait(), async.WithStream())
 			if acceptorPromiseErr != nil {
 				for j := 0; j < i; j++ {
 					acceptorPromise = ln.acceptorPromises[j]
+					acceptorPromise.Future().OnComplete(func(ctx context.Context, result Connection, err error) {})
 					acceptorPromise.Cancel()
 				}
-				err := errors.New(
-					"accept failed",
-					errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+				err := errors.From(
+					ErrAccept,
 					errors.WithWrap(acceptorPromiseErr),
 				)
 				fn(ctx, nil, err)
 				return
 			}
-			acceptors.Add(1)
-			acceptorPromise.Future().OnComplete(func(ctx context.Context, conn Connection, err error) {
-				if err != nil {
-					if async.IsCanceled(err) {
-						if remainAcceptors := acceptors.Add(-1); remainAcceptors == 0 {
-							fn(ctx, nil, err)
-						}
-						return
-					}
-					fn(ctx, nil, err)
-					return
-				}
-				fn(ctx, conn, nil)
-				return
-			})
-			ln.acceptorPromises = append(ln.acceptorPromises, acceptorPromise)
-			ln.acceptOne(acceptorPromise)
+			ln.acceptorPromises[i] = acceptorPromise
 		}
+		acceptorFutures := make([]async.Future[Connection], ln.parallelAcceptors)
+		for i, promise := range ln.acceptorPromises {
+			acceptorFutures[i] = promise.Future()
+			ln.acceptOne(promise)
+		}
+
+		combined := async.Combine[Connection](ctx, acceptorFutures)
+		combined.OnComplete(fn)
 	} else {
-		err := errors.New(
-			"accept failed",
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		err := errors.From(
+			ErrAccept,
 			errors.WithWrap(errors.New("listener was closed")),
 		)
 		fn(ln.ctx, nil, err)
@@ -247,9 +236,8 @@ func (ln *listener) Close() (err error) {
 	}
 	err = aio.Close(ln.fd)
 	if err != nil {
-		err = errors.New(
-			"close failed",
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+		err = errors.From(
+			ErrClose,
 			errors.WithWrap(err),
 		)
 	}
@@ -268,9 +256,8 @@ func (ln *listener) acceptOne(promise async.Promise[Connection]) {
 		if err != nil {
 			if ln.ok() {
 				if aio.IsUnexpectedCompletionError(err) {
-					err = errors.New(
-						"accept failed",
-						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+					err = errors.From(
+						ErrAccept,
 						errors.WithWrap(err),
 					)
 					promise.Fail(err)
@@ -278,8 +265,8 @@ func (ln *listener) acceptOne(promise async.Promise[Connection]) {
 				} else if aio.IsBusy(err) {
 					ln.acceptOne(promise)
 				} else {
-					err = errors.New(
-						"accept failed",
+					err = errors.From(
+						ErrAccept,
 						errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 						errors.WithWrap(err),
 					)
@@ -306,8 +293,8 @@ func (ln *listener) acceptOne(promise async.Promise[Connection]) {
 		default:
 			// not matched, so close it
 			_ = aio.Close(connFd)
-			err = errors.New(
-				"accept failed",
+			err = errors.From(
+				ErrAccept,
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(ErrNetworkUnmatched),
 			)

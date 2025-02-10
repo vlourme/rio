@@ -18,6 +18,7 @@ var (
 	ErrNetworkUnmatched = errors.Define("network is not matched", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	ErrNilAddr          = errors.Define("addr is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	ErrAllocateBytes    = errors.Define("allocate bytes failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrClosed           = errors.Define("use a closed connection", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 )
 
 var (
@@ -29,7 +30,8 @@ var (
 	ErrWriteMsg = errors.Define("write msg failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	ErrSendfile = errors.Define("sendfile failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	ErrClose    = errors.Define("close failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
-	ErrClosed   = errors.Define("use a closed connection", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrAccept   = errors.Define("accept failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrDial     = errors.Define("dial failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 )
 
 // IsClosed
