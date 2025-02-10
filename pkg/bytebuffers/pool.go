@@ -45,6 +45,7 @@ func (p *BufferPool) Acquire() Buffer {
 }
 
 func (p *BufferPool) Release(b Buffer) {
+	// todo 处理未能 reset 的请况，一般是因 timeout 而被占用的情况。当前是通过GC来关闭，以及等触发。
 	if reset := b.Reset(); reset {
 		if b.Cap() > maxSize {
 			_ = b.Close()
@@ -63,7 +64,6 @@ func (p *BufferPool) Release(b Buffer) {
 		}
 		return
 	}
-
 }
 
 func (p *BufferPool) index(n int) int {
