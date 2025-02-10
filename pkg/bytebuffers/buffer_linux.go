@@ -13,7 +13,6 @@ import (
 
 func (buf *buffer) Close() (err error) {
 	runtime.SetFinalizer(buf, nil)
-	buf.closed = true
 	buf.zero()
 	err = munmap(uintptr(unsafe.Pointer(&buf.b[0])), doubleSize(buf.c))
 	if err != nil {
@@ -32,11 +31,6 @@ func (buf *buffer) grow(n int) (err error) {
 	if n < 1 {
 		return
 	}
-	defer func() {
-		if ex := recover(); ex != nil {
-			err = fmt.Errorf("bytebuffers.Buffer: grow failed, %v", ex)
-		}
-	}()
 
 	if buf.b != nil {
 		n = n - buf.r
@@ -48,6 +42,11 @@ func (buf *buffer) grow(n int) (err error) {
 		if n < 1 { // has place for n
 			return
 		}
+	}
+
+	if buf.c > maxInt-buf.c-n {
+		err = ErrTooLarge
+		return
 	}
 
 	// has no more place

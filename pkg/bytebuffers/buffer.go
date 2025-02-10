@@ -27,6 +27,8 @@ type Buffer interface {
 	Close() (err error)
 }
 
+const maxInt = int(^uint(0) >> 1)
+
 var (
 	pagesize = os.Getpagesize()
 )

@@ -11,8 +11,6 @@ func (buf *buffer) Close() (err error) {
 	return
 }
 
-const maxInt = int(^uint(0) >> 1)
-
 func (buf *buffer) grow(n int) (err error) {
 	if n < 1 {
 		return
