@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
+	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp"
 	"github.com/brickingsoft/rxp/async"
 	"net"
@@ -40,7 +41,7 @@ func WithDialTimeout(d time.Duration) Option {
 	}
 }
 
-func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[Connection]) {
+func Dial(ctx context.Context, network string, address string, options ...Option) (future async.Future[transport.Connection]) {
 	opts := DialOptions{
 		Options: Options{
 			DefaultConnReadTimeout:     0,
@@ -59,7 +60,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 		opt := (*Options)(unsafe.Pointer(&opts))
 		err := o(opt)
 		if err != nil {
-			future = async.FailedImmediately[Connection](ctx, err)
+			future = async.FailedImmediately[transport.Connection](ctx, err)
 			return
 		}
 	}
@@ -75,9 +76,9 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	if timeout := opts.DialTimeout; timeout > 0 {
 		promiseMakeOptions = append(promiseMakeOptions, async.WithTimeout(timeout))
 	}
-	promise, promiseErr := async.Make[Connection](ctx, promiseMakeOptions...)
+	promise, promiseErr := async.Make[transport.Connection](ctx, promiseMakeOptions...)
 	if promiseErr != nil {
-		future = async.FailedImmediately[Connection](ctx, promiseErr)
+		future = async.FailedImmediately[transport.Connection](ctx, promiseErr)
 		return
 	}
 	promise.SetErrInterceptor(dialErrInterceptor)
@@ -98,14 +99,14 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 	return
 }
 
-func dialErrInterceptor(ctx context.Context, conn Connection, err error) (future async.Future[Connection]) {
+func dialErrInterceptor(ctx context.Context, conn transport.Connection, err error) (future async.Future[transport.Connection]) {
 	if err != nil {
 		err = errors.From(
 			ErrDial,
 			errors.WithWrap(err),
 		)
 	}
-	future = async.Immediately[Connection](ctx, conn, err)
+	future = async.Immediately[transport.Connection](ctx, conn, err)
 	return
 }
 
@@ -113,7 +114,7 @@ type dialer struct {
 	network string
 	address string
 	options DialOptions
-	promise async.Promise[Connection]
+	promise async.Promise[transport.Connection]
 }
 
 func (d *dialer) Handle(ctx context.Context) {
@@ -134,7 +135,7 @@ func (d *dialer) Handle(ctx context.Context) {
 			return
 		}
 		connFd := userdata.Fd.(aio.NetFd)
-		var conn Connection
+		var conn transport.Connection
 
 		switch network {
 		case "tcp", "tcp4", "tcp6":

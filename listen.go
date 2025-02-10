@@ -5,6 +5,7 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/security"
+	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"runtime"
@@ -48,26 +49,9 @@ func WithUnixListenerUnlinkOnClose() Option {
 	}
 }
 
-// Listener
-// 监听器
-type Listener interface {
-	// Addr
-	// 地址
-	Addr() (addr net.Addr)
-	// OnAccept
-	// 准备接收一个链接。
-	// 当服务关闭时，得到一个 async.Canceled 错误。可以使用 async.IsCanceled 进行判断。
-	// 当得到错误时，务必不要退出 OnAccept，请以是否收到 async.Canceled 来决定退出。
-	// 不支持多次调用。
-	OnAccept(fn func(ctx context.Context, conn Connection, err error))
-	// Close
-	// 关闭
-	Close() (err error)
-}
-
 // Listen
 // 监听流
-func Listen(network string, addr string, options ...Option) (ln Listener, err error) {
+func Listen(network string, addr string, options ...Option) (ln transport.Listener, err error) {
 	// opt
 	opt := ListenOptions{
 		Options: Options{
@@ -158,7 +142,7 @@ type listener struct {
 	defaultWriteBuffer   int
 	defaultInboundBuffer int
 	parallelAcceptors    int
-	acceptorPromises     []async.Promise[Connection]
+	acceptorPromises     []async.Promise[transport.Connection]
 }
 
 func (ln *listener) Addr() (addr net.Addr) {
@@ -166,7 +150,7 @@ func (ln *listener) Addr() (addr net.Addr) {
 	return
 }
 
-func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err error)) {
+func (ln *listener) OnAccept(fn func(ctx context.Context, conn transport.Connection, err error)) {
 	ctx := ln.ctx
 	if ln.running.Load() {
 		if ln.acceptorPromises != nil {
@@ -178,13 +162,13 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 			return
 		}
 		// accept
-		ln.acceptorPromises = make([]async.Promise[Connection], ln.parallelAcceptors)
+		ln.acceptorPromises = make([]async.Promise[transport.Connection], ln.parallelAcceptors)
 		for i := 0; i < ln.parallelAcceptors; i++ {
-			acceptorPromise, acceptorPromiseErr := async.Make[Connection](ctx, async.WithWait(), async.WithStream())
+			acceptorPromise, acceptorPromiseErr := async.Make[transport.Connection](ctx, async.WithWait(), async.WithStream())
 			if acceptorPromiseErr != nil {
 				for j := 0; j < i; j++ {
 					acceptorPromise = ln.acceptorPromises[j]
-					acceptorPromise.Future().OnComplete(func(ctx context.Context, result Connection, err error) {})
+					acceptorPromise.Future().OnComplete(func(ctx context.Context, result transport.Connection, err error) {})
 					acceptorPromise.Cancel()
 				}
 				err := errors.From(
@@ -196,13 +180,13 @@ func (ln *listener) OnAccept(fn func(ctx context.Context, conn Connection, err e
 			}
 			ln.acceptorPromises[i] = acceptorPromise
 		}
-		acceptorFutures := make([]async.Future[Connection], ln.parallelAcceptors)
+		acceptorFutures := make([]async.Future[transport.Connection], ln.parallelAcceptors)
 		for i, promise := range ln.acceptorPromises {
 			acceptorFutures[i] = promise.Future()
 			ln.acceptOne(promise)
 		}
 
-		combined := async.Combine[Connection](ctx, acceptorFutures)
+		combined := async.Combine[transport.Connection](ctx, acceptorFutures)
 		combined.OnComplete(fn)
 	} else {
 		err := errors.From(
@@ -248,7 +232,7 @@ func (ln *listener) ok() bool {
 	return ln.ctx.Err() == nil && ln.running.Load()
 }
 
-func (ln *listener) acceptOne(promise async.Promise[Connection]) {
+func (ln *listener) acceptOne(promise async.Promise[transport.Connection]) {
 	if !ln.ok() {
 		return
 	}
@@ -281,7 +265,7 @@ func (ln *listener) acceptOne(promise async.Promise[Connection]) {
 		connFd := userdata.Fd.(aio.NetFd)
 
 		// create conn
-		var conn Connection
+		var conn transport.Connection
 
 		switch ln.network {
 		case "tcp", "tcp4", "tcp6":
@@ -364,7 +348,7 @@ func WithMulticastUDPInterface(iface *net.Interface) Option {
 
 // ListenPacket
 // 监听包
-func ListenPacket(network string, addr string, options ...Option) (conn PacketConnection, err error) {
+func ListenPacket(network string, addr string, options ...Option) (conn transport.PacketConnection, err error) {
 	opts := ListenPacketOptions{}
 	for _, o := range options {
 		err = o((*Options)(unsafe.Pointer(&opts)))

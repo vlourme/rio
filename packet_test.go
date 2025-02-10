@@ -43,7 +43,7 @@ func TestListenPacket(t *testing.T) {
 
 	cwg := new(sync.WaitGroup)
 	cwg.Add(1)
-	rio.Dial(ctx, "udp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, cause error) {
+	rio.Dial(ctx, "udp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn transport.Connection, cause error) {
 		if cause != nil {
 			t.Error("cli read dial err:", cause)
 			cwg.Done()
@@ -113,13 +113,13 @@ func TestListenPacketMsg(t *testing.T) {
 
 	cwg := new(sync.WaitGroup)
 	cwg.Add(1)
-	rio.Dial(ctx, "udp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, cause error) {
+	rio.Dial(ctx, "udp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn transport.Connection, cause error) {
 		if cause != nil {
 			t.Error("cli read dial err:", cause)
 			cwg.Done()
 			return
 		}
-		pack := conn.(rio.PacketConnection)
+		pack := conn.(transport.PacketConnection)
 		pack.Write([]byte("hello world")).OnComplete(func(ctx context.Context, n int, cause error) {
 			if cause != nil {
 				t.Error("cli write err:", cause)

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rxp/async"
 	"net"
 	"time"
@@ -58,6 +59,17 @@ type Connection interface {
 	Close() (err error)
 }
 
+type TCPConnection interface {
+	Connection
+	Sendfile(file string) (future async.Future[int])
+	MultipathTCP() bool
+	SetNoDelay(noDelay bool) (err error)
+	SetLinger(sec int) (err error)
+	SetKeepAlive(keepalive bool) (err error)
+	SetKeepAlivePeriod(period time.Duration) (err error)
+	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
+}
+
 type PacketReader interface {
 	ReadFrom() (future async.Future[PacketInbound])
 }
@@ -73,4 +85,19 @@ type PacketConnection interface {
 	SetReadMsgOOBBufferSize(size int)
 	ReadMsg() (future async.Future[PacketMsgInbound])
 	WriteMsg(b []byte, oob []byte, addr net.Addr) (future async.Future[PacketMsgOutbound])
+}
+
+type Listener interface {
+	// Addr
+	// 地址
+	Addr() (addr net.Addr)
+	// OnAccept
+	// 准备接收一个链接。
+	// 当服务关闭时，得到一个 async.Canceled 错误。可以使用 async.IsCanceled 进行判断。
+	// 当得到错误时，务必不要退出 OnAccept，请以是否收到 async.Canceled 来决定退出。
+	// 不支持多次调用。
+	OnAccept(fn func(ctx context.Context, conn Connection, err error))
+	// Close
+	// 关闭
+	Close() (err error)
 }

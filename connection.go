@@ -12,10 +12,6 @@ import (
 	"time"
 )
 
-type Connection interface {
-	transport.Connection
-}
-
 const (
 	defaultReadBufferSize = 1024
 )

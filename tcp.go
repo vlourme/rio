@@ -5,23 +5,13 @@ import (
 	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/aio"
 	"github.com/brickingsoft/rio/pkg/bytebuffers"
+	"github.com/brickingsoft/rio/transport"
 	"github.com/brickingsoft/rxp/async"
 	"sync/atomic"
 	"time"
 )
 
-type TCPConnection interface {
-	Connection
-	Sendfile(file string) (future async.Future[int])
-	MultipathTCP() bool
-	SetNoDelay(noDelay bool) (err error)
-	SetLinger(sec int) (err error)
-	SetKeepAlive(keepalive bool) (err error)
-	SetKeepAlivePeriod(period time.Duration) (err error)
-	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
-}
-
-func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
+func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn transport.TCPConnection) {
 	conn = &tcpConnection{
 		connection: connection{
 			ctx:    ctx,

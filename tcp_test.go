@@ -32,7 +32,7 @@ func TestListenTCP(t *testing.T) {
 	loops := 3
 	awg := new(sync.WaitGroup)
 	awg.Add(loops)
-	ln.OnAccept(func(ctx context.Context, conn rio.Connection, err error) {
+	ln.OnAccept(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			if !async.IsCanceled(err) {
 				t.Error("accepted failed:", err)
@@ -92,7 +92,7 @@ func TestTCP(t *testing.T) {
 
 	swg := new(sync.WaitGroup)
 	swg.Add(1)
-	ln.OnAccept(func(ctx context.Context, conn rio.Connection, err error) {
+	ln.OnAccept(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			if async.IsCanceled(err) {
 				t.Log("srv closed")
@@ -130,7 +130,7 @@ func TestTCP(t *testing.T) {
 
 	cwg := new(sync.WaitGroup)
 	cwg.Add(1)
-	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			t.Error("cli dial:", err)
 			cwg.Done()
@@ -197,7 +197,7 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
 	swg := new(sync.WaitGroup)
-	ln.OnAccept(func(ctx context.Context, conn rio.Connection, err error) {
+	ln.OnAccept(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			if rio.IsShutdown(err) || async.IsCanceled(err) {
 				t.Log("srv accept closed")
@@ -227,13 +227,13 @@ func TestTcpConnection_Sendfile(t *testing.T) {
 
 	cwg := new(sync.WaitGroup)
 	cwg.Add(1)
-	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn rio.Connection, err error) {
+	rio.Dial(ctx, "tcp", "127.0.0.1:9000").OnComplete(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			t.Error("cli dial:", err)
 			cwg.Done()
 			return
 		}
-		tcpConn, tcpOk := conn.(rio.TCPConnection)
+		tcpConn, tcpOk := conn.(transport.TCPConnection)
 		if !tcpOk {
 			t.Error("conn is not a tcp connection")
 			cwg.Done()
@@ -280,7 +280,7 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
 	swg := new(sync.WaitGroup)
-	ln.OnAccept(func(ctx context.Context, conn rio.Connection, err error) {
+	ln.OnAccept(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			if rio.IsShutdown(err) || async.IsCanceled(err) {
 				t.Log("srv accept closed")

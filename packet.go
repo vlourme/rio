@@ -11,11 +11,7 @@ import (
 	"sync/atomic"
 )
 
-type PacketConnection interface {
-	transport.PacketConnection
-}
-
-func newPacketConnection(ctx context.Context, fd aio.NetFd) (conn PacketConnection) {
+func newPacketConnection(ctx context.Context, fd aio.NetFd) (conn transport.PacketConnection) {
 	conn = &packetConnection{
 		connection: connection{
 			ctx:    ctx,
