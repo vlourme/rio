@@ -22,16 +22,14 @@ func TestListenPacket(t *testing.T) {
 
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
-	srv.ReadFrom().OnComplete(func(ctx context.Context, entry transport.PacketInbound, cause error) {
+	srv.ReadFrom().OnComplete(func(ctx context.Context, in transport.PacketInbound, cause error) {
 		if cause != nil {
 			t.Error("srv read from:", cause)
 			lwg.Done()
 			return
 		}
-		p, _ := entry.Next(entry.Len())
-		addr := entry.Addr()
-		t.Log("srv read from:", addr, string(p))
-		srv.WriteTo(p, addr).OnComplete(func(ctx context.Context, entry int, cause error) {
+		t.Log("srv read from:", in.Addr, string(in.Bytes))
+		srv.WriteTo(in.Bytes, in.Addr).OnComplete(func(ctx context.Context, entry int, cause error) {
 			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
@@ -90,18 +88,19 @@ func TestListenPacketMsg(t *testing.T) {
 
 	lwg := new(sync.WaitGroup)
 	lwg.Add(1)
-	srv.ReadMsg().OnComplete(func(ctx context.Context, entry transport.PacketMsgInbound, cause error) {
+	srv.ReadMsg().OnComplete(func(ctx context.Context, in transport.PacketMsgInbound, cause error) {
 		if cause != nil {
 			t.Error("srv read from:", cause)
 			lwg.Done()
 			return
 		}
-		b, _ := entry.Next(entry.Len())
-		oob := entry.OOB()
-		t.Log("srv read bytes from:", entry.Addr(), string(b))
-		t.Log("srv read oob from:", entry.Addr(), string(oob))
+		b := in.Bytes
+		oob := in.OOB
+		addr := in.Addr
+		t.Log("srv read bytes from:", addr, string(b))
+		t.Log("srv read oob from:", addr, string(oob))
 
-		srv.WriteMsg(b, nil, entry.Addr()).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
+		srv.WriteMsg(b, nil, addr).OnComplete(func(ctx context.Context, entry transport.PacketMsgOutbound, cause error) {
 			defer lwg.Done()
 			if cause != nil {
 				t.Error("srv write to:", cause)
@@ -127,15 +126,17 @@ func TestListenPacketMsg(t *testing.T) {
 				return
 			}
 			t.Log("cli write:", n)
-			pack.ReadMsg().OnComplete(func(ctx context.Context, entry transport.PacketMsgInbound, cause error) {
+			pack.ReadMsg().OnComplete(func(ctx context.Context, in transport.PacketMsgInbound, cause error) {
 				if cause != nil {
 					t.Error("cli read err:", cause)
 					cwg.Done()
 					return
 				}
-				b, _ := entry.Next(entry.Len())
-				oob := entry.OOB()
-				t.Log("cli read:", string(b), string(oob), entry.Addr(), entry.Flags())
+				b := in.Bytes
+				oob := in.OOB
+				addr := in.Addr
+				flags := in.Flags
+				t.Log("cli read:", string(b), string(oob), addr, flags)
 				_ = conn.Close()
 				cwg.Done()
 			})

@@ -18,16 +18,16 @@ type Inbound interface {
 	Index(delim byte) (i int)
 }
 
-type PacketInbound interface {
-	Inbound
-	Addr() (addr net.Addr)
+type PacketInbound struct {
+	Bytes []byte
+	Addr  net.Addr
 }
 
-type PacketMsgInbound interface {
-	Inbound
-	OOB() (oob []byte)
-	Flags() (n int)
-	Addr() (addr net.Addr)
+type PacketMsgInbound struct {
+	Bytes []byte
+	OOB   []byte
+	Flags int
+	Addr  net.Addr
 }
 
 type PacketMsgOutbound struct {
@@ -54,6 +54,7 @@ type Connection interface {
 	SetReadBuffer(n int) (err error)
 	SetWriteBuffer(n int) (err error)
 	SetInboundBuffer(n int)
+	InboundBuffer() int
 	Read() (future async.Future[Inbound])
 	Write(b []byte) (future async.Future[int])
 	Close() (err error)

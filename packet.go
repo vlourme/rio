@@ -85,10 +85,15 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 			}
 			return
 		}
+		var received []byte
+		if n > 0 {
+			received = make([]byte, n)
+			_, _ = rb.Read(received)
+		}
 		addr := userdata.Addr
-		inbound := &packetInbound{
-			Buffer: rb,
-			addr:   addr,
+		inbound := transport.PacketInbound{
+			Bytes: received,
+			Addr:  addr,
 		}
 		promise.Succeed(inbound)
 		if closed.Load() {
@@ -101,14 +106,14 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	return
 }
 
-func (conn *packetConnection) readFromErrInterceptor(ctx context.Context, _ transport.PacketInbound, err error) (future async.Future[transport.PacketInbound]) {
+func (conn *packetConnection) readFromErrInterceptor(ctx context.Context, in transport.PacketInbound, err error) (future async.Future[transport.PacketInbound]) {
 	if !errors.Is(err, ErrReadFrom) {
 		err = errors.From(
 			ErrReadFrom,
 			errors.WithWrap(err),
 		)
 	}
-	future = async.Immediately[transport.PacketInbound](ctx, nil, err)
+	future = async.Immediately[transport.PacketInbound](ctx, in, err)
 	return
 }
 
@@ -254,14 +259,21 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 			}
 			return
 		}
+		var received []byte
+		if n > 0 {
+			received = make([]byte, n)
+			_, _ = rb.Read(received)
+		}
 		if oob != nil {
 			oob = oob[:userdata.OOBN]
 		}
-		inbound := &packetInbound{
-			Buffer: rb,
-			addr:   userdata.Addr,
-			oob:    oob,
-			flags:  userdata.MessageFlags,
+		flags := userdata.MessageFlags
+		addr := userdata.Addr
+		inbound := transport.PacketMsgInbound{
+			Bytes: received,
+			OOB:   oob,
+			Flags: flags,
+			Addr:  addr,
 		}
 		promise.Succeed(inbound)
 		if closed.Load() {
@@ -274,14 +286,14 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	return
 }
 
-func (conn *packetConnection) readMsgErrInterceptor(ctx context.Context, _ transport.PacketMsgInbound, err error) (future async.Future[transport.PacketMsgInbound]) {
+func (conn *packetConnection) readMsgErrInterceptor(ctx context.Context, in transport.PacketMsgInbound, err error) (future async.Future[transport.PacketMsgInbound]) {
 	if !errors.Is(err, ErrReadMsg) {
 		err = errors.From(
 			ErrReadMsg,
 			errors.WithWrap(err),
 		)
 	}
-	future = async.Immediately[transport.PacketMsgInbound](ctx, nil, err)
+	future = async.Immediately[transport.PacketMsgInbound](ctx, in, err)
 	return
 }
 
@@ -364,23 +376,4 @@ func (conn *packetConnection) writeMsgErrInterceptor(ctx context.Context, _ tran
 func (conn *packetConnection) Close() (err error) {
 	err = conn.connection.Close()
 	return
-}
-
-type packetInbound struct {
-	bytebuffers.Buffer
-	addr  net.Addr
-	oob   []byte
-	flags int
-}
-
-func (in *packetInbound) Addr() net.Addr {
-	return in.addr
-}
-
-func (in *packetInbound) OOB() []byte {
-	return in.oob
-}
-
-func (in *packetInbound) Flags() (n int) {
-	return in.flags
 }
