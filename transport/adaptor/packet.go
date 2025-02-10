@@ -11,15 +11,21 @@ import (
 func Packet(conn transport.PacketConnection) net.PacketConn {
 	return &packet{
 		conn: conn,
-		rch:  make(chan rwResult, 1),
-		wch:  make(chan rwResult, 1),
+		rch:  make(chan prwResult, 1),
+		wch:  make(chan prwResult, 1),
 	}
+}
+
+type prwResult struct {
+	n    int
+	addr net.Addr
+	err  error
 }
 
 type packet struct {
 	conn transport.PacketConnection
-	rch  chan rwResult
-	wch  chan rwResult
+	rch  chan prwResult
+	wch  chan prwResult
 }
 
 func (conn *packet) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
@@ -30,11 +36,11 @@ func (conn *packet) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	conn.conn.SetInboundBuffer(bLen)
 	conn.conn.ReadFrom().OnComplete(func(ctx context.Context, in transport.PacketInbound, err error) {
 		if err != nil {
-			conn.rch <- rwResult{n: 0, err: err}
+			conn.rch <- prwResult{n: 0, err: err}
 			return
 		}
 		rn := copy(b, in.Bytes)
-		conn.rch <- rwResult{n: rn, addr: in.Addr, err: nil}
+		conn.rch <- prwResult{n: rn, addr: in.Addr, err: nil}
 		return
 	})
 	r := <-conn.rch
@@ -51,7 +57,7 @@ func (conn *packet) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 		return
 	}
 	conn.conn.WriteTo(b, addr).OnComplete(func(ctx context.Context, written int, err error) {
-		conn.wch <- rwResult{n: written, err: err}
+		conn.wch <- prwResult{n: written, err: err}
 	})
 	r := <-conn.wch
 	n, err = r.n, r.err

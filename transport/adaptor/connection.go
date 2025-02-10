@@ -10,21 +10,20 @@ import (
 func Connection(conn transport.Connection) net.Conn {
 	return &connection{
 		conn: conn,
-		rch:  make(chan rwResult, 1),
-		wch:  make(chan rwResult, 1),
+		rch:  make(chan crwResult, 1),
+		wch:  make(chan crwResult, 1),
 	}
 }
 
-type rwResult struct {
-	n    int
-	addr net.Addr
-	err  error
+type crwResult struct {
+	n   int
+	err error
 }
 
 type connection struct {
 	conn transport.Connection
-	rch  chan rwResult
-	wch  chan rwResult
+	rch  chan crwResult
+	wch  chan crwResult
 }
 
 func (conn *connection) Read(b []byte) (n int, err error) {
@@ -33,11 +32,11 @@ func (conn *connection) Read(b []byte) (n int, err error) {
 	}
 	conn.conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
 		if err != nil {
-			conn.rch <- rwResult{n: 0, err: err}
+			conn.rch <- crwResult{n: 0, err: err}
 			return
 		}
 		rn, rErr := in.Read(b)
-		conn.rch <- rwResult{n: rn, err: rErr}
+		conn.rch <- crwResult{n: rn, err: rErr}
 		return
 	})
 	r := <-conn.rch
@@ -50,7 +49,7 @@ func (conn *connection) Write(b []byte) (n int, err error) {
 		return
 	}
 	conn.conn.Write(b).OnComplete(func(ctx context.Context, written int, err error) {
-		conn.wch <- rwResult{n: written, err: err}
+		conn.wch <- crwResult{n: written, err: err}
 	})
 	r := <-conn.wch
 	n, err = r.n, r.err
