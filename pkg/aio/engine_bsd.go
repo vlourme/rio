@@ -222,9 +222,15 @@ func (cylinder *KqueueCylinder) Loop() {
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
 				if eof {
-					completion(int(data), op, ErrClosed)
+					if data == 0 {
+						completion(int(data), op, ErrClosed)
+					} else if data > 0 {
+						completion(int(data), op, nil)
+					} else {
+						completion(0, op, syscall.Errno(-data))
+					}
 				} else if data < 0 {
-					completion(int(data), op, syscall.Errno(-data))
+					completion(0, op, syscall.Errno(-data))
 				} else {
 					completion(int(data), op, nil)
 				}
