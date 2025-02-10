@@ -105,6 +105,10 @@ func (conn *connection) SetInboundBuffer(size int) {
 	return
 }
 
+func (conn *connection) InboundBuffer() int {
+	return conn.rbs
+}
+
 func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 	ctx := conn.ctx
 	rb := conn.rb
