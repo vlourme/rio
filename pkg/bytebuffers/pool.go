@@ -45,8 +45,11 @@ func (p *BufferPool) Acquire() Buffer {
 }
 
 func (p *BufferPool) Release(b Buffer) {
+	reset := b.Reset()
 	if b.Cap() > maxSize {
-		_ = b.Close()
+		if reset {
+			_ = b.Close()
+		}
 		return
 	}
 
@@ -58,13 +61,13 @@ func (p *BufferPool) Release(b Buffer) {
 
 	size := int(atomic.LoadUint64(&p.maxSize))
 	if size == 0 || b.Cap() <= size {
-		if b.Reset() {
+		if reset {
 			p.pool.Put(b)
-		} else {
-			_ = b.Close()
 		}
 	} else {
-		_ = b.Close()
+		if reset {
+			_ = b.Close()
+		}
 	}
 }
 

@@ -156,6 +156,8 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 	}
 	promise.SetErrInterceptor(conn.readErrInterceptor)
 
+	closed := conn.closed
+
 	aio.Recv(conn.fd, b, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		rb.Allocated(n)
@@ -166,10 +168,16 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
+			if closed.Load() {
+				bytebuffers.Release(rb)
+			}
 			return
 		}
 		inbound := rb
 		promise.Succeed(inbound)
+		if closed.Load() {
+			bytebuffers.Release(rb)
+		}
 		return
 	})
 

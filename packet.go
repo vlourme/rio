@@ -83,6 +83,8 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	}
 	promise.SetErrInterceptor(conn.readFromErrInterceptor)
 
+	closed := conn.closed
+
 	aio.RecvFrom(conn.fd, b, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		rb.Allocated(n)
@@ -93,6 +95,9 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
+			if closed.Load() {
+				bytebuffers.Release(rb)
+			}
 			return
 		}
 		addr := userdata.Addr
@@ -101,6 +106,9 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 			addr:   addr,
 		}
 		promise.Succeed(inbound)
+		if closed.Load() {
+			bytebuffers.Release(rb)
+		}
 		return
 	})
 
@@ -254,6 +262,9 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	if conn.oobn > 0 {
 		oob = make([]byte, conn.oobn)
 	}
+
+	closed := conn.closed
+
 	aio.RecvMsg(conn.fd, b, oob, func(userdata aio.Userdata, err error) {
 		n := userdata.N
 		rb.Allocated(n)
@@ -264,9 +275,14 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
+			if closed.Load() {
+				bytebuffers.Release(rb)
+			}
 			return
 		}
-		oob = oob[:userdata.OOBN]
+		if oob != nil {
+			oob = oob[:userdata.OOBN]
+		}
 		inbound := &packetInbound{
 			Buffer: rb,
 			addr:   userdata.Addr,
@@ -274,6 +290,9 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 			flags:  userdata.MessageFlags,
 		}
 		promise.Succeed(inbound)
+		if closed.Load() {
+			bytebuffers.Release(rb)
+		}
 		return
 	})
 
