@@ -101,7 +101,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 func dialErrInterceptor(ctx context.Context, conn Connection, err error) (future async.Future[Connection]) {
 	if err != nil {
 		err = errors.New(
-			"connect failed",
+			"dial failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(err),
 		)
@@ -128,7 +128,7 @@ func (d *dialer) Handle(ctx context.Context) {
 	aio.Connect(network, address, connectOpts, func(userdata aio.Userdata, err error) {
 		if err != nil {
 			err = errors.New(
-				"connect failed",
+				"dial failed",
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)

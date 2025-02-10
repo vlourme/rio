@@ -14,12 +14,22 @@ const (
 )
 
 var (
-	ErrClosed           = errors.Define("use a closed connection")
-	ErrEmptyBytes       = errors.Define("empty bytes")
-	ErrNetworkUnmatched = errors.Define("network is not matched")
-	ErrNilAddr          = errors.Define("addr is nil")
-	ErrAllocate         = errors.Define("allocate bytes failed")
-	ErrAllocateWritten  = errors.Define("allocate written failed")
+	ErrEmptyBytes       = errors.Define("empty bytes", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrNetworkUnmatched = errors.Define("network is not matched", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrNilAddr          = errors.Define("addr is nil", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrAllocateBytes    = errors.Define("allocate bytes failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+)
+
+var (
+	ErrRead     = errors.Define("read failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrWrite    = errors.Define("write failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrReadFrom = errors.Define("read from failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrWriteTo  = errors.Define("write to failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrReadMsg  = errors.Define("read msg failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrWriteMsg = errors.Define("write msg failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrSendfile = errors.Define("sendfile failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrClose    = errors.Define("close failed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrClosed   = errors.Define("use a closed connection", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 )
 
 // IsClosed
@@ -46,12 +56,8 @@ func IsErrNetworkUnmatched(err error) bool {
 	return errors.Is(err, ErrNetworkUnmatched)
 }
 
-func IsErrAllocate(err error) bool {
-	return errors.Is(err, ErrAllocate)
-}
-
-func IsErrAllocateWrote(err error) bool {
-	return errors.Is(err, ErrAllocateWritten)
+func IsErrAllocateBytes(err error) bool {
+	return errors.Is(err, ErrAllocateBytes)
 }
 
 func IsDeadlineExceeded(err error) bool {

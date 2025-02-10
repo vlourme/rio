@@ -29,13 +29,6 @@ func newPacketConnection(ctx context.Context, fd aio.NetFd) (conn PacketConnecti
 	return
 }
 
-var (
-	ErrReadFrom = errors.Define("read from failed")
-	ErrWriteTo  = errors.Define("write to failed")
-	ErrReadMsg  = errors.Define("read msg failed")
-	ErrWriteMsg = errors.Define("write msg failed")
-)
-
 type packetConnection struct {
 	connection
 	oobn int
@@ -48,7 +41,6 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	if conn.disconnected() {
 		err := errors.From(
 			ErrReadFrom,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrClosed),
 		)
 		future = async.FailedImmediately[transport.PacketInbound](ctx, err)
@@ -58,8 +50,7 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 	if allocateErr != nil {
 		err := errors.From(
 			ErrReadFrom,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-			errors.WithWrap(ErrAllocate),
+			errors.WithWrap(ErrAllocateBytes),
 		)
 		future = async.FailedImmediately[transport.PacketInbound](ctx, err)
 		return
@@ -75,7 +66,6 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		rb.Allocated(0)
 		err := errors.From(
 			ErrReadFrom,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(promiseErr),
 		)
 		future = async.FailedImmediately[transport.PacketInbound](ctx, err)
@@ -91,7 +81,6 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 		if err != nil {
 			err = errors.From(
 				ErrReadFrom,
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
@@ -120,7 +109,6 @@ func (conn *packetConnection) readFromErrInterceptor(ctx context.Context, _ tran
 	if !errors.Is(err, ErrReadFrom) {
 		err = errors.From(
 			ErrReadFrom,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(err),
 		)
 	}
@@ -133,7 +121,6 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 	if len(b) == 0 {
 		err := errors.From(
 			ErrWriteTo,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrEmptyBytes),
 		)
 		future = async.FailedImmediately[int](ctx, err)
@@ -142,7 +129,6 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 	if addr == nil {
 		err := errors.From(
 			ErrWriteTo,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrNilAddr),
 		)
 		future = async.FailedImmediately[int](ctx, err)
@@ -151,7 +137,6 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 	if conn.disconnected() {
 		err := errors.From(
 			ErrWriteTo,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrClosed),
 		)
 		future = async.FailedImmediately[int](ctx, err)
@@ -167,7 +152,6 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 	if promiseErr != nil {
 		err := errors.From(
 			ErrWriteTo,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(promiseErr),
 		)
 		future = async.FailedImmediately[int](ctx, err)
@@ -179,7 +163,6 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 		if err != nil {
 			err = errors.From(
 				ErrWriteTo,
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
@@ -198,7 +181,6 @@ func (conn *packetConnection) writeToErrInterceptor(ctx context.Context, n int, 
 	if !errors.Is(err, ErrWriteTo) {
 		err = errors.From(
 			ErrWriteTo,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(err),
 		)
 	}
@@ -222,7 +204,6 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	if conn.disconnected() {
 		err := errors.From(
 			ErrReadMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrClosed),
 		)
 		future = async.FailedImmediately[transport.PacketMsgInbound](ctx, err)
@@ -233,8 +214,7 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 	if allocateErr != nil {
 		err := errors.From(
 			ErrReadMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-			errors.WithWrap(ErrAllocate),
+			errors.WithWrap(ErrAllocateBytes),
 		)
 		future = async.FailedImmediately[transport.PacketMsgInbound](ctx, err)
 		return
@@ -251,7 +231,6 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		rb.Allocated(0)
 		err := errors.From(
 			ErrReadMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(promiseErr),
 		)
 		future = async.FailedImmediately[transport.PacketMsgInbound](conn.ctx, err)
@@ -271,7 +250,6 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 		if err != nil {
 			err = errors.From(
 				ErrReadMsg,
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
@@ -304,7 +282,6 @@ func (conn *packetConnection) readMsgErrInterceptor(ctx context.Context, _ trans
 	if !errors.Is(err, ErrReadMsg) {
 		err = errors.From(
 			ErrReadMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(err),
 		)
 	}
@@ -316,7 +293,6 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 	if len(b) == 0 && len(oob) == 0 {
 		err := errors.From(
 			ErrWriteMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrEmptyBytes),
 		)
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
@@ -326,7 +302,6 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 	if addr == nil {
 		err := errors.From(
 			ErrWriteMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrNilAddr),
 		)
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
@@ -335,7 +310,6 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 	if conn.disconnected() {
 		err := errors.From(
 			ErrWriteMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrClosed),
 		)
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
@@ -352,7 +326,6 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 	if promiseErr != nil {
 		err := errors.From(
 			ErrWriteMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(promiseErr),
 		)
 		future = async.FailedImmediately[transport.PacketMsgOutbound](conn.ctx, err)
@@ -364,7 +337,6 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 		if err != nil {
 			err = errors.From(
 				ErrWriteMsg,
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)
 			promise.Fail(err)
@@ -386,7 +358,6 @@ func (conn *packetConnection) writeMsgErrInterceptor(ctx context.Context, _ tran
 	if !errors.Is(err, ErrWriteMsg) {
 		err = errors.From(
 			ErrWriteMsg,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(err),
 		)
 	}

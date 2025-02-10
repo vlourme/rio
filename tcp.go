@@ -21,10 +21,6 @@ type TCPConnection interface {
 	SetKeepAliveConfig(config aio.KeepAliveConfig) (err error)
 }
 
-var (
-	ErrSendfile = errors.Define("sendfile failed")
-)
-
 func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn TCPConnection) {
 	conn = &tcpConnection{
 		connection: connection{
@@ -75,7 +71,6 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if len(file) == 0 {
 		err := errors.From(
 			ErrSendfile,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(errors.Define("no file specified")),
 		)
 		future = async.FailedImmediately[int](conn.ctx, err)
@@ -84,7 +79,6 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if conn.disconnected() {
 		err := errors.From(
 			ErrSendfile,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(ErrClosed),
 		)
 		future = async.FailedImmediately[int](conn.ctx, err)
@@ -101,7 +95,6 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 	if promiseErr != nil {
 		err := errors.From(
 			ErrSendfile,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(promiseErr),
 		)
 		future = async.FailedImmediately[int](conn.ctx, err)
@@ -114,7 +107,6 @@ func (conn *tcpConnection) Sendfile(file string) (future async.Future[int]) {
 		if err != nil {
 			err = errors.From(
 				ErrSendfile,
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 				errors.WithWrap(err),
 			)
 		}
@@ -130,7 +122,6 @@ func (conn *connection) sendfileErrInterceptor(ctx context.Context, n int, err e
 	if !errors.Is(err, ErrSendfile) {
 		err = errors.From(
 			ErrSendfile,
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
 			errors.WithWrap(err),
 		)
 	}

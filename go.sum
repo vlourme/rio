@@ -1,7 +1,7 @@
-github.com/brickingsoft/errors v0.3.0 h1:cooMBTTuekrQNWArzhbwaAzR1sCXj864ubEFRp7xUbw=
-github.com/brickingsoft/errors v0.3.0/go.mod h1:+ZGtKnPnMv9/XAW7VzispebwortTnSn644MzdshvwnY=
-github.com/brickingsoft/rxp v1.5.11 h1:OHMZVH0Kr5RrDr3wHdnRs3wwCmYWgEVAnq3RHVcOojo=
-github.com/brickingsoft/rxp v1.5.11/go.mod h1:LwNfDJFntHHBhktaXVVWqTGKyGPS5YxosHoJTS9DSDM=
+github.com/brickingsoft/errors v0.4.0 h1:lOo4Rac5W22NvRPbY0wGfVeAQerOWZSghyJBmzP83Sg=
+github.com/brickingsoft/errors v0.4.0/go.mod h1:+ZGtKnPnMv9/XAW7VzispebwortTnSn644MzdshvwnY=
+github.com/brickingsoft/rxp v1.5.12 h1:oxPaoDdqjsosdTzpDjoCRkTyhlSgRqXSDJ9GJBBOpZQ=
+github.com/brickingsoft/rxp v1.5.12/go.mod h1:mAwyCgesx6RjKPkN2LXh2a9xUK7Ipyx1caR2kNxdaiM=
 golang.org/x/crypto v0.33.0 h1:IOBPskki6Lysi0lo9qQvbxiQ+FvsCC/YWOecCHAixus=
 golang.org/x/crypto v0.33.0/go.mod h1:bVdXmD7IV/4GdElGPozy6U7lWdRXA4qyRVGJV57uQ5M=
 golang.org/x/sys v0.30.0 h1:QjkSwP/36a20jFYWkSue1YwXzLmsV5Gfq7Eiy72C1uc=
