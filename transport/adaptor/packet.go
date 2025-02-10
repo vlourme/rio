@@ -1,6 +1,8 @@
 package adaptor
 
 import (
+	"context"
+	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/transport"
 	"net"
 	"time"
@@ -20,14 +22,40 @@ type packet struct {
 	wch  chan rwResult
 }
 
-func (conn *packet) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	//TODO implement me
-	panic("implement me")
+func (conn *packet) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+	bLen := len(b)
+	if bLen == 0 {
+		return
+	}
+	conn.conn.SetInboundBuffer(bLen)
+	conn.conn.ReadFrom().OnComplete(func(ctx context.Context, in transport.PacketInbound, err error) {
+		if err != nil {
+			conn.rch <- rwResult{n: 0, err: err}
+			return
+		}
+		rn := copy(b, in.Bytes)
+		conn.rch <- rwResult{n: rn, addr: in.Addr, err: nil}
+		return
+	})
+	r := <-conn.rch
+	n, addr, err = r.n, r.addr, r.err
+	return
 }
 
-func (conn *packet) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
+func (conn *packet) WriteTo(b []byte, addr net.Addr) (n int, err error) {
+	if bLen := len(b); bLen == 0 {
+		return
+	}
+	if addr == nil {
+		err = errors.New("addr is nil")
+		return
+	}
+	conn.conn.WriteTo(b, addr).OnComplete(func(ctx context.Context, written int, err error) {
+		conn.wch <- rwResult{n: written, err: err}
+	})
+	r := <-conn.wch
+	n, err = r.n, r.err
+	return
 }
 
 func (conn *packet) Close() error {

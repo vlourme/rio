@@ -1,6 +1,7 @@
 package adaptor
 
 import (
+	"context"
 	"github.com/brickingsoft/rio/transport"
 	"net"
 	"time"
@@ -27,13 +28,33 @@ type connection struct {
 }
 
 func (conn *connection) Read(b []byte) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
+	if bLen := len(b); bLen == 0 {
+		return
+	}
+	conn.conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
+		if err != nil {
+			conn.rch <- rwResult{n: 0, err: err}
+			return
+		}
+		rn, rErr := in.Read(b)
+		conn.rch <- rwResult{n: rn, err: rErr}
+		return
+	})
+	r := <-conn.rch
+	n, err = r.n, r.err
+	return
 }
 
 func (conn *connection) Write(b []byte) (n int, err error) {
-	//TODO implement me
-	panic("implement me")
+	if bLen := len(b); bLen == 0 {
+		return
+	}
+	conn.conn.Write(b).OnComplete(func(ctx context.Context, written int, err error) {
+		conn.wch <- rwResult{n: written, err: err}
+	})
+	r := <-conn.wch
+	n, err = r.n, r.err
+	return
 }
 
 func (conn *connection) Close() error {

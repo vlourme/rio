@@ -10,7 +10,7 @@ import (
 func Listener(ln transport.Listener) net.Listener {
 	return &listener{
 		ln:   ln,
-		ach:  make(chan acceptResult, 8),
+		ach:  make(chan acceptResult, 1),
 		once: sync.Once{},
 	}
 }
