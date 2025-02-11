@@ -4,6 +4,7 @@ package aio
 
 import (
 	"golang.org/x/sys/windows"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -20,6 +21,7 @@ type SendfileResult struct {
 
 type Operator struct {
 	overlapped syscall.Overlapped
+	received   atomic.Bool
 	fd         Fd
 	handle     int
 	n          uint32
@@ -40,6 +42,8 @@ func (op *Operator) reset() {
 	op.overlapped.HEvent = 0
 	op.overlapped.Internal = 0
 	op.overlapped.InternalHigh = 0
+	// received
+	op.received.Store(false)
 	// fd
 	op.fd = nil
 	op.handle = 0

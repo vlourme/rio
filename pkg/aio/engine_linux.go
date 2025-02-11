@@ -284,7 +284,7 @@ func (cylinder *IOURingCylinder) Loop() {
 
 			// get op from userdata
 			op := (*Operator)(unsafe.Pointer(uintptr(cqe.UserData)))
-
+			op.received.Store(true)
 			// handle stop
 			if op.fd == nil {
 				stopped = true

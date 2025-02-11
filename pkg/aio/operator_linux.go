@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -14,6 +15,7 @@ type SendfileResult struct {
 }
 
 type Operator struct {
+	received   atomic.Bool
 	cqeFlags   uint32
 	fd         Fd
 	handle     int
@@ -30,11 +32,10 @@ func (op *Operator) setFd(fd Fd) {
 }
 
 func (op *Operator) reset() {
+	op.received.Store(false)
 	op.cqeFlags = 0
-
 	op.fd = nil
 	op.handle = 0
-
 	op.n = 0
 	op.b = nil
 	op.msg.Name = nil
@@ -44,11 +45,9 @@ func (op *Operator) reset() {
 	op.msg.Control = nil
 	op.msg.Controllen = 0
 	op.msg.Flags = 0
-
 	op.sfr.file = -1
 	op.sfr.remain = 0
 	op.sfr.pipe = nil
-
 	op.callback = nil
 	op.completion = nil
 	return
