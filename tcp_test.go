@@ -283,7 +283,7 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 	ln.OnAccept(func(ctx context.Context, conn transport.Connection, err error) {
 		if err != nil {
 			if rio.IsShutdown(err) || async.IsCanceled(err) {
-				t.Log("srv accept closed")
+				t.Log("srv accept closed", err)
 			} else {
 				t.Error("srv accept:", err)
 			}
@@ -293,12 +293,11 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 
 		t.Log("srv accept:", conn.RemoteAddr(), err)
 
-		swg.Add(1)
 		conn.Read().OnComplete(func(ctx context.Context, in transport.Inbound, err error) {
 			defer swg.Done()
 			if err != nil {
 				if rio.IsDeadlineExceeded(err) {
-					t.Log("srv deadline exceeded", err)
+					t.Log("srv deadline exceeded")
 				} else {
 					t.Error("srv read:", err)
 				}
@@ -312,16 +311,18 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 		})
 	})
 
-	conn, dialErr := net.Dial("tcp", "127.0.0.1:9000")
-	if dialErr != nil {
-		t.Fatal(dialErr)
-		return
+	for i := 0; i < 2; i++ {
+		swg.Add(1)
+		conn, dialErr := net.Dial("tcp", "127.0.0.1:9000")
+		if dialErr != nil {
+			t.Fatal(dialErr)
+			return
+		}
+		time.Sleep(timeout*2 + 1*time.Second)
+		n, wErr := conn.Write([]byte("hello word"))
+		t.Log("conn write:", n, wErr)
+		_ = conn.Close()
 	}
-	defer conn.Close()
-
-	time.Sleep(timeout * 2)
-	n, wErr := conn.Write([]byte("hello word"))
-	t.Log("conn write:", n, wErr)
 
 	swg.Wait()
 	// close ln
