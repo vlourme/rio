@@ -59,7 +59,7 @@ func (ka rsaKeyAgreement) processClientKeyExchange(config *tls.Config, cert *tls
 		return nil, errors.New("tls: certificate private key does not implement crypto.Decrypter")
 	}
 	// Perform constant time RSA PKCS #1 v1.5 decryption
-	preMasterSecret, err := priv.Decrypt(asConfig(config).rand(), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
+	preMasterSecret, err := priv.Decrypt(configRand(config), ciphertext, &rsa.PKCS1v15DecryptOptions{SessionKeyLen: 48})
 	runtime.KeepAlive(config)
 
 	if err != nil {
@@ -82,7 +82,7 @@ func (ka rsaKeyAgreement) generateClientKeyExchange(config *tls.Config, clientHe
 	preMasterSecret := make([]byte, 48)
 	preMasterSecret[0] = byte(clientHello.vers >> 8)
 	preMasterSecret[1] = byte(clientHello.vers)
-	_, err := io.ReadFull(asConfig(config).rand(), preMasterSecret[2:])
+	_, err := io.ReadFull(configRand(config), preMasterSecret[2:])
 	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, nil, err
@@ -92,7 +92,7 @@ func (ka rsaKeyAgreement) generateClientKeyExchange(config *tls.Config, clientHe
 	if !ok {
 		return nil, nil, errors.New("tls: server certificate contains incorrect key type for selected ciphersuite")
 	}
-	encrypted, err := rsa.EncryptPKCS1v15(asConfig(config).rand(), rsaKey, preMasterSecret)
+	encrypted, err := rsa.EncryptPKCS1v15(configRand(config), rsaKey, preMasterSecret)
 	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, nil, err
@@ -171,7 +171,7 @@ type ecdheKeyAgreement struct {
 func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert *tls.Certificate, clientHello *clientHelloMsg, hello *serverHelloMsg) (*serverKeyExchangeMsg, error) {
 	var curveID tls.CurveID
 	for _, c := range clientHello.supportedCurves {
-		if asConfig(config).supportsCurve(ka.version, c) {
+		if configSupportsCurve(config, ka.version, c) {
 			curveID = c
 			break
 		}
@@ -184,7 +184,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert 
 		return nil, errors.New("tls: CurvePreferences includes unsupported curve")
 	}
 
-	key, err := generateECDHEKey(asConfig(config).rand(), curveID)
+	key, err := generateECDHEKey(configRand(config), curveID)
 	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, err
@@ -233,7 +233,7 @@ func (ka *ecdheKeyAgreement) generateServerKeyExchange(config *tls.Config, cert 
 	if sigType == signatureRSAPSS {
 		signOpts = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: sigHash}
 	}
-	sig, err := priv.Sign(asConfig(config).rand(), signed, signOpts)
+	sig, err := priv.Sign(configRand(config), signed, signOpts)
 	runtime.KeepAlive(config)
 	if err != nil {
 		return nil, errors.New("tls: failed to sign ECDHE parameters: " + err.Error())
@@ -301,7 +301,7 @@ func (ka *ecdheKeyAgreement) processServerKeyExchange(config *tls.Config, client
 		return errors.New("tls: server selected unsupported curve")
 	}
 
-	key, err := generateECDHEKey(asConfig(config).rand(), curveID)
+	key, err := generateECDHEKey(configRand(config), curveID)
 	runtime.KeepAlive(config)
 	if err != nil {
 		return err

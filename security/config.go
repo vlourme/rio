@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -16,9 +17,14 @@ import (
 	"unsafe"
 )
 
-func asConfig(c *tls.Config) *Config {
-	ptr := unsafe.Pointer(c)
-	return (*Config)(ptr)
+func FromConfig(c *tls.Config) *Config {
+	config := reflect.NewAt(reflect.TypeOf(Config{}), unsafe.Pointer(c)).Interface().(*Config)
+	return config
+}
+
+func ToConfig(c *Config) *tls.Config {
+	config := reflect.NewAt(reflect.TypeOf(tls.Config{}), unsafe.Pointer(c)).Interface().(*tls.Config)
+	return config
 }
 
 // A Config structure is used to configure a TLS client or server.
@@ -347,6 +353,10 @@ type ticketKey struct {
 	created time.Time
 }
 
+func (c *Config) SessionTicketKeys() []ticketKey {
+	return c.sessionTicketKeys
+}
+
 // ticketKeyFromBytes converts from the external representation of a session
 // ticket key to a ticketKey. Externally, session ticket keys are 32 random
 // bytes and this function expands that into sufficient name and key material.
@@ -544,6 +554,14 @@ func (c *Config) rand() io.Reader {
 	return r
 }
 
+func configRand(config *tls.Config) io.Reader {
+	reader := config.Rand
+	if reader == nil {
+		reader = rand.Reader
+	}
+	return reader
+}
+
 func (c *Config) time() time.Time {
 	t := c.Time
 	if t == nil {
@@ -552,7 +570,31 @@ func (c *Config) time() time.Time {
 	return t()
 }
 
-func (c *Config) cipherSuites() []uint16 {
+func configTime(c *tls.Config) time.Time {
+	t := c.Time
+	if t == nil {
+		t = time.Now
+	}
+	return t()
+}
+
+//func (c *Config) cipherSuites() []uint16 {
+//	if c.CipherSuites == nil {
+//		if needFIPS() {
+//			return defaultCipherSuitesFIPS
+//		}
+//		return defaultCipherSuites
+//	}
+//	if needFIPS() {
+//		cipherSuites := slices.Clone(c.CipherSuites)
+//		return slices.DeleteFunc(cipherSuites, func(id uint16) bool {
+//			return !slices.Contains(defaultCipherSuitesFIPS, id)
+//		})
+//	}
+//	return c.CipherSuites
+//}
+
+func configCipherSuites(c *tls.Config) []uint16 {
 	if c.CipherSuites == nil {
 		if needFIPS() {
 			return defaultCipherSuitesFIPS
@@ -560,15 +602,40 @@ func (c *Config) cipherSuites() []uint16 {
 		return defaultCipherSuites
 	}
 	if needFIPS() {
-		cipherSuites := slices.Clone(c.CipherSuites)
-		return slices.DeleteFunc(cipherSuites, func(id uint16) bool {
+		suites := slices.Clone(c.CipherSuites)
+		return slices.DeleteFunc(suites, func(id uint16) bool {
 			return !slices.Contains(defaultCipherSuitesFIPS, id)
 		})
 	}
 	return c.CipherSuites
 }
 
-func (c *Config) supportedVersions(isClient bool) []uint16 {
+//func (c *Config) supportedVersions(isClient bool) []uint16 {
+//	versions := make([]uint16, 0, len(supportedVersions))
+//	for _, v := range supportedVersions {
+//		if needFIPS() && !slices.Contains(defaultSupportedVersionsFIPS, v) {
+//			continue
+//		}
+//		if (c == nil || c.MinVersion == 0) && v < VersionTLS12 {
+//			if isClient {
+//				continue
+//			}
+//		}
+//		if isClient && c.EncryptedClientHelloConfigList != nil && v < VersionTLS13 {
+//			continue
+//		}
+//		if c != nil && c.MinVersion != 0 && v < c.MinVersion {
+//			continue
+//		}
+//		if c != nil && c.MaxVersion != 0 && v > c.MaxVersion {
+//			continue
+//		}
+//		versions = append(versions, v)
+//	}
+//	return versions
+//}
+
+func configSupportedVersions(c *tls.Config, isClient bool) []uint16 {
 	versions := make([]uint16, 0, len(supportedVersions))
 	for _, v := range supportedVersions {
 		if needFIPS() && !slices.Contains(defaultSupportedVersionsFIPS, v) {
@@ -579,7 +646,7 @@ func (c *Config) supportedVersions(isClient bool) []uint16 {
 				continue
 			}
 		}
-		if isClient && c.EncryptedClientHelloConfigList != nil && v < VersionTLS13 {
+		if isClient && c != nil && c.EncryptedClientHelloConfigList != nil && v < VersionTLS13 {
 			continue
 		}
 		if c != nil && c.MinVersion != 0 && v < c.MinVersion {
@@ -593,12 +660,20 @@ func (c *Config) supportedVersions(isClient bool) []uint16 {
 	return versions
 }
 
-func (c *Config) maxSupportedVersion(isClient bool) uint16 {
-	supportedVersions := c.supportedVersions(isClient)
-	if len(supportedVersions) == 0 {
+//func (c *Config) maxSupportedVersion(isClient bool) uint16 {
+//	supported := c.supportedVersions(isClient)
+//	if len(supported) == 0 {
+//		return 0
+//	}
+//	return supported[0]
+//}
+
+func configMaxSupportedVersion(c *tls.Config, isClient bool) uint16 {
+	supported := configSupportedVersions(c, isClient)
+	if len(supported) == 0 {
 		return 0
 	}
-	return supportedVersions[0]
+	return supported[0]
 }
 
 var supportedVersions = []uint16{
@@ -626,10 +701,32 @@ const (
 	x25519Kyber768Draft00 tls.CurveID = 0x6399
 )
 
-func (c *Config) curvePreferences(version uint16) []tls.CurveID {
+//func (c *Config) curvePreferences(version uint16) []tls.CurveID {
+//	var curvePreferences []tls.CurveID
+//	if c != nil && len(c.CurvePreferences) != 0 {
+//		curvePreferences = slices.Clone(c.CurvePreferences)
+//		if needFIPS() {
+//			return slices.DeleteFunc(curvePreferences, func(c tls.CurveID) bool {
+//				return !slices.Contains(defaultCurvePreferencesFIPS, c)
+//			})
+//		}
+//	} else if needFIPS() {
+//		curvePreferences = slices.Clone(defaultCurvePreferencesFIPS)
+//	} else {
+//		curvePreferences = defaultCurvePreferences
+//	}
+//	if version < VersionTLS13 {
+//		return slices.DeleteFunc(curvePreferences, func(c tls.CurveID) bool {
+//			return c == x25519Kyber768Draft00
+//		})
+//	}
+//	return curvePreferences
+//}
+
+func configCurvePreference(config *tls.Config, version uint16) []tls.CurveID {
 	var curvePreferences []tls.CurveID
-	if c != nil && len(c.CurvePreferences) != 0 {
-		curvePreferences = slices.Clone(c.CurvePreferences)
+	if config != nil && len(config.CurvePreferences) != 0 {
+		curvePreferences = slices.Clone(config.CurvePreferences)
 		if needFIPS() {
 			return slices.DeleteFunc(curvePreferences, func(c tls.CurveID) bool {
 				return !slices.Contains(defaultCurvePreferencesFIPS, c)
@@ -648,8 +745,17 @@ func (c *Config) curvePreferences(version uint16) []tls.CurveID {
 	return curvePreferences
 }
 
-func (c *Config) supportsCurve(version uint16, curve tls.CurveID) bool {
-	for _, cc := range c.curvePreferences(version) {
+//func (c *Config) supportsCurve(version uint16, curve tls.CurveID) bool {
+//	for _, cc := range c.curvePreferences(version) {
+//		if cc == curve {
+//			return true
+//		}
+//	}
+//	return false
+//}
+
+func configSupportsCurve(config *tls.Config, version uint16, curve tls.CurveID) bool {
+	for _, cc := range configCurvePreference(config, version) {
 		if cc == curve {
 			return true
 		}
@@ -659,10 +765,22 @@ func (c *Config) supportsCurve(version uint16, curve tls.CurveID) bool {
 
 // mutualVersion returns the protocol version to use given the advertised
 // versions of the peer. Priority is given to the peer preference order.
-func (c *Config) mutualVersion(isClient bool, peerVersions []uint16) (uint16, bool) {
-	supportedVersions := c.supportedVersions(isClient)
+//func (c *Config) mutualVersion(isClient bool, peerVersions []uint16) (uint16, bool) {
+//	supported := c.supportedVersions(isClient)
+//	for _, peerVersion := range peerVersions {
+//		for _, v := range supported {
+//			if v == peerVersion {
+//				return v, true
+//			}
+//		}
+//	}
+//	return 0, false
+//}
+
+func configMutualVersion(c *tls.Config, isClient bool, peerVersions []uint16) (uint16, bool) {
+	supported := configSupportedVersions(c, isClient)
 	for _, peerVersion := range peerVersions {
-		for _, v := range supportedVersions {
+		for _, v := range supported {
 			if v == peerVersion {
 				return v, true
 			}
@@ -677,7 +795,50 @@ var errNoCertificates = errors.New("tls: no certificates configured")
 
 // getCertificate returns the best certificate for the given ClientHelloInfo,
 // defaulting to the first element of c.Certificates.
-func (c *Config) getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+//func (c *Config) getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+//	if c.GetCertificate != nil &&
+//		(len(c.Certificates) == 0 || len(clientHello.ServerName) > 0) {
+//		cert, err := c.GetCertificate(clientHello)
+//		if cert != nil || err != nil {
+//			return cert, err
+//		}
+//	}
+//
+//	if len(c.Certificates) == 0 {
+//		return nil, errNoCertificates
+//	}
+//
+//	if len(c.Certificates) == 1 {
+//		// There's only one choice, so no point doing any work.
+//		return &c.Certificates[0], nil
+//	}
+//
+//	if c.NameToCertificate != nil {
+//		name := strings.ToLower(clientHello.ServerName)
+//		if cert, ok := c.NameToCertificate[name]; ok {
+//			return cert, nil
+//		}
+//		if len(name) > 0 {
+//			labels := strings.Split(name, ".")
+//			labels[0] = "*"
+//			wildcardName := strings.Join(labels, ".")
+//			if cert, ok := c.NameToCertificate[wildcardName]; ok {
+//				return cert, nil
+//			}
+//		}
+//	}
+//
+//	for _, cert := range c.Certificates {
+//		if err := clientHello.SupportsCertificate(&cert); err == nil {
+//			return &cert, nil
+//		}
+//	}
+//
+//	// If nothing matches, return the first certificate.
+//	return &c.Certificates[0], nil
+//}
+
+func configGetCertificate(c *tls.Config, clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	if c.GetCertificate != nil &&
 		(len(c.Certificates) == 0 || len(clientHello.ServerName) > 0) {
 		cert, err := c.GetCertificate(clientHello)
@@ -727,24 +888,24 @@ func (c *Config) getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certific
 // Deprecated: NameToCertificate only allows associating a single certificate
 // with a given name. Leave that field nil to let the library select the first
 // compatible chain from Certificates.
-func (c *Config) BuildNameToCertificate() {
-	c.NameToCertificate = make(map[string]*tls.Certificate)
-	for i := range c.Certificates {
-		cert := &c.Certificates[i]
-		x509Cert, err := leafOfCertificate(cert)
-		if err != nil {
-			continue
-		}
-		// If SANs are *not* present, some clients will consider the certificate
-		// valid for the name in the Common Name.
-		if x509Cert.Subject.CommonName != "" && len(x509Cert.DNSNames) == 0 {
-			c.NameToCertificate[x509Cert.Subject.CommonName] = cert
-		}
-		for _, san := range x509Cert.DNSNames {
-			c.NameToCertificate[san] = cert
-		}
-	}
-}
+//func (c *Config) BuildNameToCertificate() {
+//	c.NameToCertificate = make(map[string]*tls.Certificate)
+//	for i := range c.Certificates {
+//		cert := &c.Certificates[i]
+//		x509Cert, err := leafOfCertificate(cert)
+//		if err != nil {
+//			continue
+//		}
+//		// If SANs are *not* present, some clients will consider the certificate
+//		// valid for the name in the Common Name.
+//		if x509Cert.Subject.CommonName != "" && len(x509Cert.DNSNames) == 0 {
+//			c.NameToCertificate[x509Cert.Subject.CommonName] = cert
+//		}
+//		for _, san := range x509Cert.DNSNames {
+//			c.NameToCertificate[san] = cert
+//		}
+//	}
+//}
 
 const (
 	keyLogLabelTLS12           = "CLIENT_RANDOM"
@@ -754,7 +915,25 @@ const (
 	keyLogLabelServerTraffic   = "SERVER_TRAFFIC_SECRET_0"
 )
 
-func (c *Config) writeKeyLog(label string, clientRandom, secret []byte) error {
+//func (c *Config) writeKeyLog(label string, clientRandom, secret []byte) error {
+//	if c.KeyLogWriter == nil {
+//		return nil
+//	}
+//
+//	logLine := fmt.Appendf(nil, "%s %x %x\n", label, clientRandom, secret)
+//
+//	writerMutex.Lock()
+//	_, err := c.KeyLogWriter.Write(logLine)
+//	writerMutex.Unlock()
+//
+//	return err
+//}
+
+// writerMutex protects all KeyLogWriters globally. It is rarely enabled,
+// and is only for debugging, so a global mutex saves space.
+var writerMutex sync.Mutex
+
+func configWriteKeyLog(c *tls.Config, label string, clientRandom, secret []byte) error {
 	if c.KeyLogWriter == nil {
 		return nil
 	}
@@ -767,7 +946,3 @@ func (c *Config) writeKeyLog(label string, clientRandom, secret []byte) error {
 
 	return err
 }
-
-// writerMutex protects all KeyLogWriters globally. It is rarely enabled,
-// and is only for debugging, so a global mutex saves space.
-var writerMutex sync.Mutex
