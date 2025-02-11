@@ -198,7 +198,7 @@ func (cylinder *KqueueCylinder) Loop() {
 		}
 		for i := 0; i < n; i++ {
 			event := events[i]
-			fd, data, eof, op := cylinder.deconstructEvent(event)
+			fd, data, _, op := cylinder.deconstructEvent(event)
 			if fd == pipeReadFd {
 				rn, _ := syscall.Read(fd, pipeBuf)
 				if rn > 0 {
@@ -221,15 +221,7 @@ func (cylinder *KqueueCylinder) Loop() {
 
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
-				if eof {
-					if data == 0 {
-						completion(int(data), op, ErrClosed)
-					} else if data > 0 {
-						completion(int(data), op, nil)
-					} else {
-						completion(0, op, syscall.Errno(-data))
-					}
-				} else if data < 0 {
+				if data < 0 {
 					completion(0, op, syscall.Errno(-data))
 				} else {
 					completion(int(data), op, nil)
@@ -270,12 +262,12 @@ func (cylinder *KqueueCylinder) submit(entry *syscall.Kevent_t) (ok bool) {
 }
 
 func (cylinder *KqueueCylinder) prepareRead(fd int, op *Operator) (err error) {
-	err = cylinder.prepareRW(fd, syscall.EVFILT_READ, syscall.EV_ADD|syscall.EV_ONESHOT|syscall.EV_CLEAR, op)
+	err = cylinder.prepareRW(fd, syscall.EVFILT_READ, syscall.EV_ADD|syscall.EV_ONESHOT, op)
 	return
 }
 
 func (cylinder *KqueueCylinder) prepareWrite(fd int, op *Operator) (err error) {
-	err = cylinder.prepareRW(fd, syscall.EVFILT_WRITE, syscall.EV_ADD|syscall.EV_ONESHOT|syscall.EV_CLEAR, op)
+	err = cylinder.prepareRW(fd, syscall.EVFILT_WRITE, syscall.EV_ADD|syscall.EV_ONESHOT, op)
 	return
 }
 

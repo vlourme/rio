@@ -24,6 +24,17 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	}
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// cb
 	op.callback = cb
 	// buf
@@ -37,11 +48,12 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	case opSend:
 		// completion
 		op.completion = completeSend
-		// cylinder
-		cylinder := nextIOURingCylinder()
-		op.setCylinder(cylinder)
+		// prepare
+		cylinder := fd.Cylinder().(*IOURingCylinder)
 		err := cylinder.prepareRW(opSend, sock, bufAddr, bufLen, 0, 0, op.ptr())
 		if err != nil {
+			fd.RemoveWOP()
+			releaseOperator(op)
 			err = errors.New(
 				"send failed",
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -49,18 +61,18 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 				errors.WithWrap(os.NewSyscallError("io_uring_prep_send", err)),
 			)
 			cb(Userdata{}, err)
-			releaseOperator(op)
 		}
 		break
 	case opSendZC:
 		op.b = b
 		// completion
 		op.completion = completeSendZC
-		// cylinder
-		cylinder := nextIOURingCylinder()
-		op.setCylinder(cylinder)
+		// prepare
+		cylinder := fd.Cylinder().(*IOURingCylinder)
 		err := cylinder.prepareRW(opSendZC, sock, bufAddr, bufLen, 0, 0, op.ptr())
 		if err != nil {
+			fd.RemoveWOP()
+			releaseOperator(op)
 			err = errors.New(
 				"send failed",
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -68,10 +80,11 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 				errors.WithWrap(os.NewSyscallError("io_uring_prep_send_zc", err)),
 			)
 			cb(Userdata{}, err)
-			releaseOperator(op)
 		}
 		break
 	default:
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err := errors.New(
 			"send failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -79,7 +92,6 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(errors.Define("invalid opSendCode")),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		break
 	}
 	return
@@ -87,6 +99,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveWOP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -104,6 +118,9 @@ func completeSend(result int, op *Operator, err error) {
 
 func completeSendZC(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveWOP()
+
 	cqeFlags := op.cqeFlags
 	if err != nil {
 		releaseOperator(op)
@@ -161,6 +178,17 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	}
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// cb
 	op.callback = cb
 	// msg
@@ -189,11 +217,12 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	case opSendmsg:
 		// completion
 		op.completion = completeSendMsg
-		// cylinder
-		cylinder := nextIOURingCylinder()
-		op.setCylinder(cylinder)
+		// prepare
+		cylinder := fd.Cylinder().(*IOURingCylinder)
 		err := cylinder.prepareRW(opSendmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 		if err != nil {
+			fd.RemoveWOP()
+			releaseOperator(op)
 			err = errors.New(
 				"send message failed",
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -201,8 +230,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 				errors.WithWrap(os.NewSyscallError("io_uring_prep_sendmsg", err)),
 			)
 			cb(Userdata{}, err)
-
-			releaseOperator(op)
 		}
 		break
 	case opSendMsgZC:
@@ -210,11 +237,12 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		op.b = b
 		// completion
 		op.completion = completeSendMsgZC
-		// cylinder
-		cylinder := nextIOURingCylinder()
-		op.setCylinder(cylinder)
+		// prepare
+		cylinder := fd.Cylinder().(*IOURingCylinder)
 		err := cylinder.prepareRW(opSendMsgZC, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), 1, 0, 0, op.ptr())
 		if err != nil {
+			fd.RemoveWOP()
+			releaseOperator(op)
 			err = errors.New(
 				"send message failed",
 				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -222,10 +250,10 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 				errors.WithWrap(os.NewSyscallError("io_uring_prep_sendmsg_zc", err)),
 			)
 			cb(Userdata{}, err)
-			releaseOperator(op)
 		}
 		break
 	default:
+		fd.RemoveWOP()
 		releaseOperator(op)
 		err := errors.New(
 			"send message failed",
@@ -242,6 +270,8 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 func completeSendMsg(result int, op *Operator, err error) {
 	cb := op.callback
 	msg := op.msg
+	fd := op.fd
+	fd.RemoveWOP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -266,11 +296,11 @@ func completeSendMsg(result int, op *Operator, err error) {
 }
 
 func completeSendMsgZC(result int, op *Operator, err error) {
-	defer releaseOperator(op)
 	cb := op.callback
 	cqeFlags := op.cqeFlags
 	msg := op.msg
-
+	fd := op.fd
+	fd.RemoveWOP()
 	if err != nil {
 		releaseOperator(op)
 		if cb != nil {

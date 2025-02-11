@@ -148,7 +148,10 @@ func completeAccept(_ int, op *Operator, err error) {
 		return
 	}
 
-	conn := newNetFd(int(sock), ln.Network(), ln.Family(), ln.SocketType(), ln.Protocol(), ln.IPv6Only(), la, ra)
+	// cylinder
+	cylinder := nextIOCPCylinder()
+	//conn
+	conn := newNetFd(cylinder, int(sock), ln.Network(), ln.Family(), ln.SocketType(), ln.Protocol(), ln.IPv6Only(), la, ra)
 
 	// callback
 	cb(Userdata{Fd: conn}, nil)

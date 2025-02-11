@@ -107,9 +107,10 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		cb(Userdata{}, err)
 		return
 	}
-
+	// cylinder
+	cylinder := nextIOCPCylinder()
 	// net fd
-	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, laddr, raddr)
+	conn := newNetFd(cylinder, sock, network, family, sotype, proto, ipv6only, laddr, raddr)
 	cb(Userdata{Fd: conn}, nil)
 	return
 }
@@ -126,8 +127,10 @@ func connectEx(network string, family int, sotype int, proto int, ipv6only bool,
 		cb(Userdata{}, err)
 		return
 	}
+	// cylinder
+	cylinder := nextIOCPCylinder()
 	// conn
-	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, addr)
+	conn := newNetFd(cylinder, sock, network, family, sotype, proto, ipv6only, nil, addr)
 	// fast open
 	if fastOpen > 0 {
 		_ = SetFastOpen(conn, fastOpen)

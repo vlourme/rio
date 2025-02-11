@@ -14,6 +14,17 @@ import (
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -42,6 +53,9 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
+		fd.RemoveROP()
+		releaseOperator(op)
+
 		err = errors.New(
 			"receive failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -49,7 +63,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("wsa_recv", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -58,6 +71,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
 	fd := op.fd
+	fd.RemoveROP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -80,6 +94,17 @@ func completeRecv(result int, op *Operator, err error) {
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -113,6 +138,9 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
+		fd.RemoveROP()
+		releaseOperator(op)
+
 		err = errors.New(
 			"receive from failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -120,7 +148,6 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("wsa_recvfrom", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -128,6 +155,8 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveROP()
 	rsa := op.msg.Name
 	releaseOperator(op)
 	if err != nil {
@@ -158,6 +187,17 @@ func completeRecvFrom(result int, op *Operator, err error) {
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -209,6 +249,8 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		fd.RemoveROP()
+		releaseOperator(op)
 		err = errors.New(
 			"receive message failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -216,7 +258,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("wsa_recvmsg", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -224,6 +265,8 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 
 func completeRecvMsg(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveROP()
 	msg := op.msg
 	releaseOperator(op)
 	if err != nil {

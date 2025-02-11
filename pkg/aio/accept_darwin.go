@@ -13,10 +13,9 @@ func Accept(fd NetFd, cb OperationCallback) {
 	op.callback = cb
 	op.completion = completeAccept
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		releaseOperator(op)
 		err = errors.New(
 			"accept failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -24,7 +23,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 }
 
@@ -102,9 +100,10 @@ func completeAccept(result int, op *Operator, err error) {
 	la := SockaddrToAddr(fd.Network(), lsa)
 	// get remote addr
 	ra := SockaddrToAddr(fd.Network(), sa)
-
+	// cylinder
+	cylinder := nextKqueueCylinder()
 	// conn
-	conn := newNetFd(sock, fd.Network(), fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only(), la, ra)
+	conn := newNetFd(cylinder, sock, fd.Network(), fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only(), la, ra)
 	cb(Userdata{Fd: conn}, nil)
 	return
 }

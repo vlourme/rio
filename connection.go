@@ -177,6 +177,9 @@ func (conn *connection) Read() (future async.Future[transport.Inbound]) {
 }
 
 func (conn *connection) readErrInterceptor(ctx context.Context, _ transport.Inbound, err error) (future async.Future[transport.Inbound]) {
+	if async.IsDeadlineExceeded(err) {
+		aio.CancelRead(conn.fd)
+	}
 	if !errors.Is(err, ErrRead) {
 		err = errors.From(
 			ErrRead,
@@ -241,6 +244,9 @@ func (conn *connection) Write(b []byte) (future async.Future[int]) {
 }
 
 func (conn *connection) writeErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
+	if async.IsDeadlineExceeded(err) {
+		aio.CancelWrite(conn.fd)
+	}
 	if !errors.Is(err, ErrWrite) {
 		err = errors.From(
 			ErrWrite,

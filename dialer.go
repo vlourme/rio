@@ -100,7 +100,7 @@ func Dial(ctx context.Context, network string, address string, options ...Option
 }
 
 func dialErrInterceptor(ctx context.Context, conn transport.Connection, err error) (future async.Future[transport.Connection]) {
-	if err != nil {
+	if !errors.Is(err, ErrDial) {
 		err = errors.From(
 			ErrDial,
 			errors.WithWrap(err),

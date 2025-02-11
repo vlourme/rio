@@ -38,8 +38,10 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 		}
 	}
 
+	// cylinder
+	cylinder := nextKqueueCylinder()
 	// net fd
-	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, nil)
+	conn := newNetFd(cylinder, sock, network, family, sotype, proto, ipv6only, nil, nil)
 	// fast open
 	if fastOpen > 0 {
 		_ = SetFastOpen(conn, fastOpen)

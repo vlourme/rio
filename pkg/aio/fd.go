@@ -2,12 +2,21 @@ package aio
 
 import (
 	"net"
+	"sync/atomic"
 	"syscall"
+	"unsafe"
 )
 
 type Fd interface {
 	Fd() int
 	ZeroReadIsEOF() bool
+	Cylinder() Cylinder
+	ROP() *Operator
+	SetROP(op *Operator) bool
+	RemoveROP()
+	WOP() *Operator
+	SetWOP(op *Operator) bool
+	RemoveWOP()
 }
 
 type NetFd interface {
@@ -21,8 +30,9 @@ type NetFd interface {
 	RemoteAddr() net.Addr
 }
 
-func newNetFd(handle int, network string, family int, socketType int, protocol int, ipv6only bool, localAddr net.Addr, remoteAddr net.Addr) *netFd {
+func newNetFd(cylinder Cylinder, handle int, network string, family int, socketType int, protocol int, ipv6only bool, localAddr net.Addr, remoteAddr net.Addr) *netFd {
 	return &netFd{
+		cylinder:   cylinder,
 		handle:     handle,
 		network:    network,
 		family:     family,
@@ -35,6 +45,7 @@ func newNetFd(handle int, network string, family int, socketType int, protocol i
 }
 
 type netFd struct {
+	cylinder   Cylinder
 	handle     int
 	network    string
 	family     int
@@ -43,6 +54,8 @@ type netFd struct {
 	ipv6only   bool
 	localAddr  net.Addr
 	remoteAddr net.Addr
+	rop        atomic.Uintptr
+	wop        atomic.Uintptr
 }
 
 func (s *netFd) Fd() int {
@@ -79,4 +92,40 @@ func (s *netFd) LocalAddr() net.Addr {
 
 func (s *netFd) RemoteAddr() net.Addr {
 	return s.remoteAddr
+}
+
+func (s *netFd) Cylinder() Cylinder {
+	return s.cylinder
+}
+
+func (s *netFd) ROP() *Operator {
+	if ptr := s.rop.Load(); ptr > 0 {
+		return (*Operator)(unsafe.Pointer(ptr))
+	}
+	return nil
+}
+
+func (s *netFd) SetROP(op *Operator) bool {
+	ptr := uintptr(unsafe.Pointer(op))
+	return s.rop.CompareAndSwap(0, ptr)
+}
+
+func (s *netFd) RemoveROP() {
+	s.rop.Store(0)
+}
+
+func (s *netFd) WOP() *Operator {
+	if ptr := s.wop.Load(); ptr > 0 {
+		return (*Operator)(unsafe.Pointer(ptr))
+	}
+	return nil
+}
+
+func (s *netFd) SetWOP(op *Operator) bool {
+	ptr := uintptr(unsafe.Pointer(op))
+	return s.wop.CompareAndSwap(0, ptr)
+}
+
+func (s *netFd) RemoveWOP() {
+	s.wop.Store(0)
 }

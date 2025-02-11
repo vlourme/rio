@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/errors"
 	"syscall"
 	"time"
 	"unsafe"
@@ -10,7 +11,7 @@ import (
 
 func (cylinder *KqueueCylinder) prepareRW(fd int, filter int16, flags uint16, op *Operator) (err error) {
 	if cylinder.stopped.Load() {
-		err = ErrUnexpectedCompletion
+		err = errors.From(ErrUnexpectedCompletion)
 		return
 	}
 	var userdata int64 = 0
@@ -27,7 +28,7 @@ func (cylinder *KqueueCylinder) prepareRW(fd int, filter int16, flags uint16, op
 		time.Sleep(cylinder.eventsWaitTimeout)
 		ok = cylinder.submit(&entry)
 		if !ok {
-			err = ErrBusy
+			err = errors.From(ErrBusy)
 		}
 		return
 	}
@@ -56,6 +57,6 @@ func (cylinder *KqueueCylinder) createPipeEvent(b []byte) syscall.Kevent_t {
 	return syscall.Kevent_t{
 		Ident:  uint64(cylinder.pipe[0]),
 		Filter: syscall.EVFILT_READ,
-		Flags:  syscall.EV_ADD | syscall.EV_ONESHOT | syscall.EV_CLEAR,
+		Flags:  syscall.EV_ADD | syscall.EV_ONESHOT,
 	}
 }

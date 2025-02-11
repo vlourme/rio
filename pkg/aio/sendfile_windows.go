@@ -78,6 +78,18 @@ const maxChunkSizePerCall = int64(0x7fffffff - 1)
 
 func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written int, cb OperationCallback) {
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		_ = windows.Close(file)
+		releaseOperator(op)
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 
 	op.completion = completeSendfile
 	op.callback = cb
@@ -102,6 +114,8 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 
 	err := windows.TransmitFile(dst, file, op.n, 0, wsaOverlapped, nil, windows.TF_WRITE_BEHIND)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		_ = windows.Close(file)
 		err = errors.New(
 			"sendfile failed",
@@ -110,7 +124,6 @@ func sendfile(fd NetFd, file windows.Handle, curpos int64, remain int64, written
 			errors.WithWrap(os.NewSyscallError("transmit_file", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -120,6 +133,7 @@ func completeSendfile(result int, op *Operator, err error) {
 	cb := op.callback
 	sfr := op.sfr
 	fd := op.fd
+	fd.RemoveWOP()
 	releaseOperator(op)
 
 	src := sfr.file

@@ -42,7 +42,7 @@ func (op *Operator) reset() {
 	op.overlapped.InternalHigh = 0
 	// fd
 	op.fd = nil
-	op.handle = -1
+	op.handle = 0
 	// qty
 	op.n = 0
 	// msg

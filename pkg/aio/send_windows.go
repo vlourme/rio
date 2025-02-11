@@ -14,6 +14,17 @@ import (
 func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -41,6 +52,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"send failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -48,7 +61,6 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("wsa_send", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -56,6 +68,8 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 
 func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveWOP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -74,6 +88,17 @@ func completeSend(result int, op *Operator, err error) {
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -103,6 +128,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 		nil,
 	)
 	if err != nil && !errors.Is(syscall.ERROR_IO_PENDING, err) {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"send to failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -110,7 +137,6 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("wsa_sendto", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -118,6 +144,8 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 
 func completeSendTo(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveWOP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -149,6 +177,17 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	bLen := len(b)
 	if bLen > maxRW {
@@ -197,6 +236,8 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 		nil,
 	)
 	if err != nil && !errors.Is(windows.ERROR_IO_PENDING, err) {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"send message failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -204,7 +245,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 			errors.WithWrap(os.NewSyscallError("wsa_sendmsg", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -212,6 +252,8 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 func completeSendMsg(result int, op *Operator, err error) {
 	cb := op.callback
+	fd := op.fd
+	fd.RemoveWOP()
 	msg := op.msg
 	releaseOperator(op)
 	if err != nil {

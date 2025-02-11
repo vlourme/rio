@@ -78,6 +78,18 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		_ = syscall.Close(src)
+		releaseOperator(op)
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	op.callback = cb
 	op.completion = completeSendfile
 	op.sfr.file = src
@@ -86,10 +98,10 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	op.sfr.written = 0
 
 	// prepare write
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"sendfile failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -97,7 +109,6 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -106,12 +117,13 @@ const maxSendfileSize int = 4 << 20
 
 func completeSendfile(result int, op *Operator, err error) {
 	cb := op.callback
-	dst := op.fd.Fd()
+	fd := op.fd
+	dst := fd.Fd()
 	src := op.sfr.file
 	written := op.sfr.written
 	curpos := op.sfr.curpos
 	remain := op.sfr.remain
-
+	fd.RemoveWOP()
 	releaseOperator(op)
 
 	if err != nil {

@@ -5,9 +5,8 @@ import (
 )
 
 var (
-	ErrUnexpectedCompletion = errors.Define("unexpected completion error")
-	ErrBusy                 = errors.Define("busy")
-	ErrClosed               = errors.Define("use of closed network connection")
+	ErrUnexpectedCompletion = errors.Define("unexpected completion error", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
+	ErrBusy                 = errors.Define("busy", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 )
 
 func IsUnexpectedCompletionError(err error) bool {

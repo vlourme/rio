@@ -27,10 +27,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// completion
 	op.completion = completeAccept
 
-	// cylinder
-	cylinder := nextIOURingCylinder()
-	op.setCylinder(cylinder)
-
 	// addr
 	addrPtr := uintptr(unsafe.Pointer(new(syscall.RawSockaddrAny)))
 	addrLen := syscall.SizeofSockaddrAny
@@ -39,8 +35,10 @@ func Accept(fd NetFd, cb OperationCallback) {
 	// ln
 	sock := fd.Fd()
 	// prepare
+	cylinder := fd.Cylinder().(*IOURingCylinder)
 	err := cylinder.prepareRW(opAccept, sock, addrPtr, 0, addrLenPtr, 0, op.ptr())
 	if err != nil {
+		releaseOperator(op)
 		err = errors.New(
 			"accept failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -48,8 +46,6 @@ func Accept(fd NetFd, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("io_uring_prep_accept", err)),
 		)
 		cb(Userdata{}, err)
-		// release
-		releaseOperator(op)
 	}
 	return
 }
@@ -102,9 +98,10 @@ func completeAccept(result int, op *Operator, err error) {
 		return
 	}
 	ra := SockaddrToAddr(fd.Network(), rsa)
-
+	// cylinder
+	cylinder := nextIOURingCylinder()
 	// conn
-	conn := newNetFd(sock, fd.Network(), fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only(), la, ra)
+	conn := newNetFd(cylinder, sock, fd.Network(), fd.Family(), fd.SocketType(), fd.Protocol(), fd.IPv6Only(), la, ra)
 	// cb
 	cb(Userdata{Fd: conn}, nil)
 	return

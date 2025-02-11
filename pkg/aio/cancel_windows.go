@@ -2,11 +2,21 @@
 
 package aio
 
-import "syscall"
+import (
+	"syscall"
+)
 
-func Cancel(op *Operator) {
-	if op.fd != nil {
-		handle := syscall.Handle(op.fd.Fd())
+func CancelRead(fd Fd) {
+	if op := fd.ROP(); op != nil {
+		handle := syscall.Handle(fd.Fd())
+		overlapped := &op.overlapped
+		_ = syscall.CancelIoEx(handle, overlapped)
+	}
+}
+
+func CancelWrite(fd Fd) {
+	if op := fd.WOP(); op != nil {
+		handle := syscall.Handle(fd.Fd())
 		overlapped := &op.overlapped
 		_ = syscall.CancelIoEx(handle, overlapped)
 	}

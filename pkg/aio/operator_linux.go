@@ -14,7 +14,6 @@ type SendfileResult struct {
 }
 
 type Operator struct {
-	cylinder   *IOURingCylinder
 	cqeFlags   uint32
 	fd         Fd
 	handle     int
@@ -30,17 +29,11 @@ func (op *Operator) setFd(fd Fd) {
 	op.fd = fd
 }
 
-func (op *Operator) setCylinder(cylinder *IOURingCylinder) {
-	op.cylinder = cylinder
-}
-
 func (op *Operator) reset() {
-	op.cylinder = nil
-
 	op.cqeFlags = 0
 
 	op.fd = nil
-	op.handle = -1
+	op.handle = 0
 
 	op.n = 0
 	op.b = nil

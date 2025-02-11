@@ -1,8 +1,13 @@
 package aio
 
 import (
+	"github.com/brickingsoft/errors"
 	"net"
 	"sync"
+)
+
+var (
+	ErrRepeatOperation = errors.Define("the previous operation was not completed", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 )
 
 type Userdata struct {

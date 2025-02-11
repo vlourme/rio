@@ -14,7 +14,6 @@ type SendfileResult struct {
 }
 
 type Operator struct {
-	cylinder   *KqueueCylinder
 	fd         Fd
 	handle     int
 	b          []byte
@@ -31,14 +30,9 @@ func (op *Operator) setFd(fd Fd) {
 	op.fd = fd
 }
 
-func (op *Operator) setCylinder(cylinder *KqueueCylinder) {
-	op.cylinder = cylinder
-}
-
 func (op *Operator) reset() {
-	op.cylinder = nil
 	op.fd = nil
-	op.handle = -1
+	op.handle = 0
 	op.b = nil
 	op.n = 0
 	op.oob = nil

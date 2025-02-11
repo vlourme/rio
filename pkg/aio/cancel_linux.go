@@ -3,21 +3,39 @@
 package aio
 
 import (
-	"runtime"
+	"unsafe"
 )
 
-func Cancel(op *Operator) {
-	cylinder := op.cylinder
-	addr := uintptr(op.ptr())
-	for i := 0; i < 10; i++ {
-		err := cylinder.prepareRW(opAsyncCancel, -1, addr, 0, 0, 0, 0)
-		if err == nil {
+func CancelRead(fd Fd) {
+	if op := fd.ROP(); op != nil {
+		handle := fd.Fd()
+		addr := uintptr(unsafe.Pointer(op))
+		cylinder := fd.Cylinder().(*IOURingCylinder)
+		for i := 0; i < 10; i++ {
+			if err := cylinder.prepareRW(opAsyncCancel, handle, addr, 0, 0, 0, 0); err != nil {
+				if IsBusy(err) {
+					continue
+				}
+				break
+			}
 			break
 		}
-		if IsBusy(err) {
-			continue
-		}
-		break
 	}
-	runtime.KeepAlive(op)
+}
+
+func CancelWrite(fd Fd) {
+	if op := fd.WOP(); op != nil {
+		handle := fd.Fd()
+		addr := uintptr(unsafe.Pointer(op))
+		cylinder := fd.Cylinder().(*IOURingCylinder)
+		for i := 0; i < 10; i++ {
+			if err := cylinder.prepareRW(opAsyncCancel, handle, addr, 0, 0, 0, 0); err != nil {
+				if IsBusy(err) {
+					continue
+				}
+				break
+			}
+			break
+		}
+	}
 }

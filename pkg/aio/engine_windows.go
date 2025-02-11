@@ -113,6 +113,10 @@ type IOCPSettings struct {
 	ThreadCNT uint32
 }
 
+func nextIOCPCylinder() *IOCPCylinder {
+	return nextCylinder().(*IOCPCylinder)
+}
+
 func newIOCPCylinder(cphandle windows.Handle) (cylinder Cylinder) {
 	cylinder = &IOCPCylinder{
 		fd: cphandle,
@@ -145,7 +149,7 @@ func (cylinder *IOCPCylinder) Loop() {
 		// handle iocp errors
 		if getQueuedCompletionStatusErr != nil {
 			// handle timeout
-			getQueuedCompletionStatusErr = errors.Join(ErrUnexpectedCompletion, getQueuedCompletionStatusErr)
+			getQueuedCompletionStatusErr = errors.From(ErrUnexpectedCompletion, errors.WithWrap(getQueuedCompletionStatusErr))
 		}
 		// complete
 		if completion := op.completion; completion != nil {

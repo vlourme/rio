@@ -107,6 +107,9 @@ func (conn *packetConnection) ReadFrom() (future async.Future[transport.PacketIn
 }
 
 func (conn *packetConnection) readFromErrInterceptor(ctx context.Context, in transport.PacketInbound, err error) (future async.Future[transport.PacketInbound]) {
+	if async.IsDeadlineExceeded(err) {
+		aio.CancelRead(conn.fd)
+	}
 	if !errors.Is(err, ErrReadFrom) {
 		err = errors.From(
 			ErrReadFrom,
@@ -179,6 +182,9 @@ func (conn *packetConnection) WriteTo(b []byte, addr net.Addr) (future async.Fut
 }
 
 func (conn *packetConnection) writeToErrInterceptor(ctx context.Context, n int, err error) (future async.Future[int]) {
+	if async.IsDeadlineExceeded(err) {
+		aio.CancelWrite(conn.fd)
+	}
 	if !errors.Is(err, ErrWriteTo) {
 		err = errors.From(
 			ErrWriteTo,
@@ -287,6 +293,9 @@ func (conn *packetConnection) ReadMsg() (future async.Future[transport.PacketMsg
 }
 
 func (conn *packetConnection) readMsgErrInterceptor(ctx context.Context, in transport.PacketMsgInbound, err error) (future async.Future[transport.PacketMsgInbound]) {
+	if async.IsDeadlineExceeded(err) {
+		aio.CancelRead(conn.fd)
+	}
 	if !errors.Is(err, ErrReadMsg) {
 		err = errors.From(
 			ErrReadMsg,
@@ -363,6 +372,9 @@ func (conn *packetConnection) WriteMsg(b []byte, oob []byte, addr net.Addr) (fut
 }
 
 func (conn *packetConnection) writeMsgErrInterceptor(ctx context.Context, _ transport.PacketMsgOutbound, err error) (future async.Future[transport.PacketMsgOutbound]) {
+	if async.IsDeadlineExceeded(err) {
+		aio.CancelWrite(conn.fd)
+	}
 	if !errors.Is(err, ErrWriteMsg) {
 		err = errors.From(
 			ErrWriteMsg,

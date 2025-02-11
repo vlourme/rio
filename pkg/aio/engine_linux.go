@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"fmt"
 	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/unix"
 	"os"
@@ -357,17 +356,17 @@ func (cylinder *IOURingCylinder) getSQE() (sqe *SubmissionQueueEntry, err error)
 			break
 		}
 		if cylinder.stopped.Load() {
-			err = ErrUnexpectedCompletion
+			err = errors.From(ErrUnexpectedCompletion)
 			return
 		}
 		_, err = cylinder.ring.Submit()
 		if err != nil {
-			err = errors.Join(ErrUnexpectedCompletion, err)
+			err = errors.From(ErrUnexpectedCompletion, errors.WithWrap(err))
 			return
 		}
 	}
 	if sqe == nil {
-		err = ErrBusy
+		err = errors.From(ErrBusy)
 		return
 	}
 	return
@@ -612,7 +611,7 @@ func (ring *IOURing) setup(entries uint32, param *IOURingSetupParam) (err error)
 	}
 
 	if param.Flags&SetupNoMmap != 0 {
-		return errors.New("aio.IOURing: setup_no_mmap not supported")
+		return errors.New("setup_no_mmap not supported", errors.WithMeta(errMetaPkgKey, errMetaPkgVal))
 	}
 
 	if entries > maxEntries || entries == 0 {
@@ -1089,7 +1088,7 @@ func (ring *IOURing) RegisterRingFd() (uint, error) {
 			ring.intFlags |= intFlagRegRegRing
 		}
 	} else {
-		return ret, fmt.Errorf("unexpected return from ring.Register: %d", ret)
+		return ret, errors.New("unexpected return from ring.Register", errors.WithMeta(errMetaPkgKey, errMetaPkgVal), errors.WithMeta("ret", ret))
 	}
 
 	return ret, nil

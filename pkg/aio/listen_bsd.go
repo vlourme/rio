@@ -40,5 +40,6 @@ func setDeferAccept(_ int) error {
 }
 
 func newListener(sock int, network string, family int, sotype int, proto int, ipv6only bool, addr net.Addr) *netFd {
-	return newNetFd(sock, network, family, sotype, proto, ipv6only, addr, nil)
+	cylinder := nextKqueueCylinder()
+	return newNetFd(cylinder, sock, network, family, sotype, proto, ipv6only, addr, nil)
 }

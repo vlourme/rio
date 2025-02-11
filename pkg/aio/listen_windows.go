@@ -203,8 +203,10 @@ func newListenerFd(network string, family int, sotype int, proto int, ipv6only b
 		)
 		return
 	}
+	// cylinder
+	cylinder := nextIOCPCylinder()
 
 	// fd
-	v = newNetFd(sock, network, family, sotype, proto, ipv6only, addr, nil)
+	v = newNetFd(cylinder, sock, network, family, sotype, proto, ipv6only, addr, nil)
 	return
 }

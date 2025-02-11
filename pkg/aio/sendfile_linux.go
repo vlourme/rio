@@ -87,6 +87,20 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		_ = syscall.Close(src)
+		_ = syscall.Close(pipe[0])
+		_ = syscall.Close(pipe[1])
+		err := errors.New(
+			"sendfile failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendfile),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// callback
 	op.callback = cb
 	// completion
@@ -96,10 +110,12 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 	op.sfr.remain = uint32(remain)
 	op.sfr.pipe = pipe
 
-	// cylinder
-	cylinder := nextIOURingCylinder()
+	// prepare
+	cylinder := fd.Cylinder().(*IOURingCylinder)
 	entry, getErr := cylinder.getSQE()
 	if getErr != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
@@ -110,10 +126,9 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 			errors.WithWrap(getErr),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
+
 		return
 	}
-	op.setCylinder(cylinder)
 	// splice
 	prepareSplice(entry, src, -1, pipe[1], -1, op.sfr.remain, unix.SPLICE_F_NONBLOCK, op.ptr())
 }
@@ -121,12 +136,16 @@ func Sendfile(fd NetFd, filepath string, cb OperationCallback) {
 func completeSendfileToPipe(_ int, op *Operator, err error) {
 	cb := op.callback
 	fd := op.fd
+
 	// src
 	src := op.sfr.file
 	// pipe
 	pipe := op.sfr.pipe
 
 	if err != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
+
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
@@ -138,18 +157,19 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-
-		releaseOperator(op)
 		return
 	}
 	op.completion = completeSendfileFromPipe
 	dst := fd.Fd()
 	size := op.sfr.remain
 
-	// cylinder
-	cylinder := op.cylinder
+	// prepare
+	cylinder := fd.Cylinder().(*IOURingCylinder)
 	entry, getErr := cylinder.getSQE()
 	if getErr != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
+
 		_ = syscall.Close(src)
 		_ = syscall.Close(pipe[0])
 		_ = syscall.Close(pipe[1])
@@ -161,7 +181,6 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 			errors.WithWrap(getErr),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	// splice
@@ -172,6 +191,8 @@ func completeSendfileToPipe(_ int, op *Operator, err error) {
 func completeSendfileFromPipe(result int, op *Operator, err error) {
 	cb := op.callback
 	sfr := op.sfr
+	fd := op.fd
+	fd.RemoveWOP()
 	releaseOperator(op)
 	// src
 	_ = syscall.Close(sfr.file)

@@ -13,21 +13,32 @@ import (
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// cb
 	op.callback = cb
 	// completion
 	op.completion = completeRecv
-	// cylinder
-	cylinder := nextIOURingCylinder()
-	op.setCylinder(cylinder)
 
 	// msg
 	bufAddr := uintptr(unsafe.Pointer(&b[0]))
 	bufLen := uint32(len(b))
 
 	// prepare
+	cylinder := fd.Cylinder().(*IOURingCylinder)
 	err := cylinder.prepareRW(opRecv, fd.Fd(), bufAddr, bufLen, 0, 0, op.ptr())
 	if err != nil {
+		fd.RemoveROP()
+		releaseOperator(op)
 		err = errors.New(
 			"receive failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -35,7 +46,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("io_uring_prep_recv", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -44,6 +54,7 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
 	fd := op.fd
+	fd.RemoveROP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(
@@ -71,13 +82,21 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// cb
 	op.callback = cb
 	// completion
 	op.completion = completeRecvMsg
-	// cylinder
-	cylinder := nextIOURingCylinder()
-	op.setCylinder(cylinder)
 	// msg
 	op.msg.Name = (*byte)(unsafe.Pointer(new(syscall.RawSockaddrAny)))
 	op.msg.Namelen = syscall.SizeofSockaddrAny
@@ -107,8 +126,11 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	}
 
 	// prepare
+	cylinder := fd.Cylinder().(*IOURingCylinder)
 	err := cylinder.prepareRW(opRecvmsg, fd.Fd(), uintptr(unsafe.Pointer(&op.msg)), uint32(op.msg.Iovlen), 0, 0, op.ptr())
 	if err != nil {
+		fd.RemoveROP()
+		releaseOperator(op)
 		err = errors.New(
 			"receive message failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -116,7 +138,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 			errors.WithWrap(os.NewSyscallError("io_uring_prep_recvmsg", err)),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 		return
 	}
 	return
@@ -125,6 +146,8 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 func completeRecvMsg(result int, op *Operator, err error) {
 	cb := op.callback
 	msg := op.msg
+	fd := op.fd
+	fd.RemoveROP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(

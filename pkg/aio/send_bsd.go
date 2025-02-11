@@ -10,8 +10,24 @@ import (
 )
 
 func Send(fd NetFd, b []byte, cb OperationCallback) {
+	bLen := len(b)
+	if bLen == 0 {
+		cb(Userdata{}, nil)
+		return
+	}
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSend),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	op.b = b
 
@@ -20,10 +36,10 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 	// completion
 	op.completion = completeSend
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"send failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -31,7 +47,6 @@ func Send(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -40,7 +55,7 @@ func completeSend(result int, op *Operator, err error) {
 	cb := op.callback
 	fd := op.fd
 	b := op.b
-
+	fd.RemoveWOP()
 	releaseOperator(op)
 
 	if err != nil {
@@ -88,6 +103,17 @@ func completeSend(result int, op *Operator, err error) {
 func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send to failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendTo),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	op.b = b
 	op.sa = AddrToSockaddr(addr)
@@ -97,10 +123,10 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 	// completion
 	op.completion = completeSendTo
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"send to failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -108,7 +134,6 @@ func SendTo(fd NetFd, b []byte, addr net.Addr, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -118,7 +143,7 @@ func completeSendTo(result int, op *Operator, err error) {
 	fd := op.fd
 	b := op.b
 	sa := op.sa
-
+	fd.RemoveWOP()
 	releaseOperator(op)
 
 	if err != nil {
@@ -184,6 +209,18 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetWOP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"send message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpSendMsg),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
+
 	op.b = b
 	op.oob = oob
 	op.sa = AddrToSockaddr(addr)
@@ -193,10 +230,10 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 	// completion
 	op.completion = completeSendMsg
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareWrite(fd.Fd(), op); err != nil {
+		fd.RemoveWOP()
+		releaseOperator(op)
 		err = errors.New(
 			"send message failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -204,7 +241,6 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -212,11 +248,11 @@ func SendMsg(fd NetFd, b []byte, oob []byte, addr net.Addr, cb OperationCallback
 func completeSendMsg(result int, op *Operator, err error) {
 	cb := op.callback
 
-	fd := op.fd.Fd()
+	fd := op.fd
 	b := op.b
 	oob := op.oob
 	sa := op.sa
-
+	fd.RemoveWOP()
 	releaseOperator(op)
 
 	if err != nil {
@@ -240,10 +276,10 @@ func completeSendMsg(result int, op *Operator, err error) {
 		bLen = result
 	}
 
+	sock := fd.Fd()
 	flags := 0
-
 	for {
-		wErr := syscall.Sendmsg(fd, b, oob, sa, flags)
+		wErr := syscall.Sendmsg(sock, b, oob, sa, flags)
 		if wErr != nil {
 			if errors.Is(wErr, syscall.EINTR) || errors.Is(wErr, syscall.EAGAIN) {
 				continue

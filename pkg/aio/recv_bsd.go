@@ -12,16 +12,27 @@ import (
 func Recv(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecv),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	op.b = b
 
 	op.callback = cb
 	op.completion = completeRecv
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		fd.RemoveROP()
+		releaseOperator(op)
 		err = errors.New(
 			"receive failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -29,7 +40,6 @@ func Recv(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -38,14 +48,10 @@ func completeRecv(result int, op *Operator, err error) {
 	cb := op.callback
 	fd := op.fd
 	b := op.b
-
+	fd.RemoveROP()
 	releaseOperator(op)
 
 	if err != nil {
-		if errors.Is(err, ErrClosed) && result == 0 {
-			cb(Userdata{}, io.EOF)
-			return
-		}
 		err = errors.New(
 			"receive failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -93,16 +99,27 @@ func completeRecv(result int, op *Operator, err error) {
 func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive from failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvFrom),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	op.b = b
 
 	op.callback = cb
 	op.completion = completeRecvFrom
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		fd.RemoveROP()
+		releaseOperator(op)
 		err = errors.New(
 			"receive from failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -110,7 +127,6 @@ func RecvFrom(fd NetFd, b []byte, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -119,7 +135,7 @@ func completeRecvFrom(result int, op *Operator, err error) {
 	cb := op.callback
 	fd := op.fd.(NetFd)
 	b := op.b
-
+	fd.RemoveROP()
 	releaseOperator(op)
 
 	if err != nil {
@@ -169,6 +185,17 @@ func completeRecvFrom(result int, op *Operator, err error) {
 func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	// op
 	op := acquireOperator(fd)
+	if setOp := fd.SetROP(op); !setOp {
+		releaseOperator(op)
+		err := errors.New(
+			"receive message failed",
+			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+			errors.WithMeta(errMetaOpKey, errMetaOpRecvMsg),
+			errors.WithWrap(errors.From(ErrRepeatOperation)),
+		)
+		cb(Userdata{}, err)
+		return
+	}
 	// msg
 	op.b = b
 	op.oob = oob
@@ -176,10 +203,10 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 	op.callback = cb
 	op.completion = completeRecvMsg
 
-	cylinder := nextKqueueCylinder()
-	op.setCylinder(cylinder)
-
+	cylinder := fd.Cylinder().(*KqueueCylinder)
 	if err := cylinder.prepareRead(fd.Fd(), op); err != nil {
+		fd.RemoveROP()
+		releaseOperator(op)
 		err = errors.New(
 			"receive message failed",
 			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
@@ -187,7 +214,6 @@ func RecvMsg(fd NetFd, b []byte, oob []byte, cb OperationCallback) {
 			errors.WithWrap(err),
 		)
 		cb(Userdata{}, err)
-		releaseOperator(op)
 	}
 	return
 }
@@ -197,7 +223,7 @@ func completeRecvMsg(result int, op *Operator, err error) {
 	fd := op.fd.(NetFd)
 	b := op.b
 	oob := op.oob
-
+	fd.RemoveROP()
 	releaseOperator(op)
 	if err != nil {
 		err = errors.New(

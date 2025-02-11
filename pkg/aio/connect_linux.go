@@ -39,9 +39,10 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 			return
 		}
 	}
-
+	// cylinder
+	cylinder := nextIOURingCylinder()
 	// conn
-	conn := newNetFd(sock, network, family, sotype, proto, ipv6only, nil, nil)
+	conn := newNetFd(cylinder, sock, network, family, sotype, proto, ipv6only, nil, nil)
 	// fast open
 	if fastOpen > 0 {
 		_ = SetFastOpen(conn, fastOpen)
@@ -95,18 +96,15 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 	conn.remoteAddr = raddr
 	// op
 	op := acquireOperator(conn)
-
 	// cb
 	op.callback = cb
 	// completion
 	op.completion = completeConnect
-	// cylinder
-	cylinder := nextIOURingCylinder()
-	op.setCylinder(cylinder)
 
 	// prepare
 	err := cylinder.prepareRW(opConnect, sock, uintptr(unsafe.Pointer(rsa)), 0, uint64(rsaLen), 0, op.ptr())
 	if err != nil {
+		releaseOperator(op)
 		_ = syscall.Close(sock)
 		err = errors.New(
 			"connect failed",
@@ -115,8 +113,6 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 			errors.WithWrap(os.NewSyscallError("io_uring_prep_connect", err)),
 		)
 		cb(Userdata{}, err)
-		// release
-		releaseOperator(op)
 	}
 	return
 }
@@ -124,7 +120,6 @@ func connect(network string, family int, sotype int, proto int, ipv6only bool, r
 func completeConnect(_ int, op *Operator, err error) {
 	cb := op.callback
 	conn := op.fd.(*netFd)
-
 	releaseOperator(op)
 
 	sock := conn.Fd()
