@@ -38,7 +38,7 @@ func (buf *buffer) grow(n int) (err error) {
 		buf.w -= buf.r
 		buf.a = buf.w
 		buf.r = 0
-		if m := buf.w + n - buf.Cap(); m < 1 { // has place for n
+		if n = buf.w + n - buf.c; n < 1 { // has place for n
 			return
 		}
 	}
