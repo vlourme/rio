@@ -17,13 +17,12 @@ func (buf *buffer) grow(n int) (err error) {
 	}
 
 	if buf.b != nil {
-		n = n - buf.r
 		// left shift
 		copy(buf.b, buf.b[buf.r:buf.w])
 		buf.w -= buf.r
 		buf.a = buf.w
 		buf.r = 0
-		if n < 1 { // has place for n
+		if m := buf.w + n - buf.Cap(); m < 1 { // has place for n
 			return
 		}
 	}
