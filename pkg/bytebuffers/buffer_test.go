@@ -86,8 +86,6 @@ func TestBuffer_Write(t *testing.T) {
 	t.Log("w3", wn, buf.Len(), buf.Cap(), len(secondData)) // w3 4096 4096 8192 4096
 }
 
-// BenchmarkBuffer-20    	24150943	        46.86 ns/op	         0 failed	       0 B/op	       0 allocs/op
-// BenchmarkBuffer-20    	48372712	        25.24 ns/op	         0 failed	       0 B/op	       0 allocs/op
 // BenchmarkBuffer-20    	20256279	        58.55 ns/op	         0 failed	       0 B/op	       0 allocs/op
 func BenchmarkBuffer(b *testing.B) {
 	//failed := new(atomic.Int64)
