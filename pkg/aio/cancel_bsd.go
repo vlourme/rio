@@ -9,6 +9,10 @@ import (
 
 func CancelRead(fd Fd) {
 	if op := fd.ROP(); op != nil {
+		if received := op.received.Load(); received {
+			return
+		}
+		fd.RemoveROP()
 		if cb := op.callback; cb != nil {
 			handle := fd.Fd()
 			cylinder := fd.Cylinder().(*KqueueCylinder)
@@ -24,6 +28,10 @@ func CancelRead(fd Fd) {
 
 func CancelWrite(fd Fd) {
 	if op := fd.WOP(); op != nil {
+		if received := op.received.Load(); received {
+			return
+		}
+		fd.RemoveWOP()
 		if cb := op.callback; cb != nil {
 			handle := fd.Fd()
 			cylinder := fd.Cylinder().(*KqueueCylinder)

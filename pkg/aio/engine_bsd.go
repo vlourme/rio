@@ -218,7 +218,7 @@ func (cylinder *KqueueCylinder) Loop() {
 			if op == nil {
 				continue
 			}
-
+			op.received.Store(true)
 			cylinder.completing.Add(1)
 			if completion := op.completion; completion != nil {
 				if data < 0 {

@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"sync/atomic"
 	"syscall"
 )
 
@@ -14,6 +15,7 @@ type SendfileResult struct {
 }
 
 type Operator struct {
+	received   atomic.Bool
 	fd         Fd
 	handle     int
 	b          []byte
@@ -31,6 +33,7 @@ func (op *Operator) setFd(fd Fd) {
 }
 
 func (op *Operator) reset() {
+	op.received.Store(false)
 	op.fd = nil
 	op.handle = 0
 	op.b = nil
