@@ -185,7 +185,7 @@ func (queue *OperationQueue) Enqueue(op *Operation) (ok bool) {
 	ptr := unsafe.Pointer(op)
 	for {
 		if atomic.LoadInt64(&queue.entries) >= queue.capacity {
-			return
+			break
 		}
 		tail := (*OperationQueueNode)(atomic.LoadPointer(&queue.tail))
 		if tail.value != nil {
@@ -201,6 +201,7 @@ func (queue *OperationQueue) Enqueue(op *Operation) (ok bool) {
 			}
 		}
 	}
+	return
 }
 
 func (queue *OperationQueue) Dequeue() (op *Operation) {
@@ -211,6 +212,7 @@ func (queue *OperationQueue) Dequeue() (op *Operation) {
 		}
 		target := atomic.LoadPointer(&head.value)
 		if atomic.CompareAndSwapPointer(&queue.head, queue.head, head.next) {
+			atomic.StorePointer(&head.value, nil)
 			atomic.AddInt64(&queue.entries, -1)
 			op = (*Operation)(target)
 			break
@@ -244,6 +246,7 @@ func (queue *OperationQueue) PeekBatch(operations []*Operation) (n int64) {
 func (queue *OperationQueue) Advance(n int64) {
 	for i := int64(0); i < n; i++ {
 		head := (*OperationQueueNode)(atomic.LoadPointer(&queue.head))
+		atomic.StorePointer(&head.value, nil)
 		if atomic.CompareAndSwapPointer(&queue.head, queue.head, head.next) {
 			atomic.AddInt64(&queue.entries, -1)
 		}

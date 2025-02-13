@@ -20,9 +20,9 @@ type Buffer interface {
 	ReadBytes(delim byte) (line []byte, err error)
 	Index(delim byte) (i int)
 	Write(p []byte) (n int, err error)
-	Allocate(size int) (p []byte, err error)
-	Allocated(n int)
-	WritePending() bool
+	Allocate(size int) (p []byte, err error) // todo rename to borrow
+	Allocated(n int)                         // todo rename to return
+	WritePending() bool                      // todo rename it borrowing
 	Reset() bool
 	Close() (err error)
 }

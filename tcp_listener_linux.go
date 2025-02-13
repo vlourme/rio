@@ -57,10 +57,11 @@ func ListenTCP(network string, addr *net.TCPAddr, options ...Option) (*TCPListen
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	// start
+	// ctx
 	ctx, cancel := context.WithCancel(exec.Context())
+	// start iouring
 	r.Start(ctx)
-
+	// ln
 	ln := &TCPListener{
 		ctx:      ctx,
 		cancel:   cancel,
@@ -92,11 +93,13 @@ func (ln *TCPListener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 	fmt.Println(sock)
+	// todo
 	return nil, nil
 }
 
 func (ln *TCPListener) Close() error {
-	ln.cancel()
+	defer ln.cancel()
+	defer ln.ring.Stop()
 	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}

@@ -27,8 +27,9 @@ func New(size int) (*Ring, error) {
 }
 
 type Ring struct {
-	ring  *giouring.Ring
-	queue *OperationQueue
+	ring   *giouring.Ring
+	queue  *OperationQueue
+	stopCh chan struct{}
 }
 
 func (ring *Ring) Push(op *Operation) bool {
@@ -36,15 +37,20 @@ func (ring *Ring) Push(op *Operation) bool {
 }
 
 func (ring *Ring) Start(ctx context.Context) {
-	go func(ring *Ring) {
-		waitTimeout := syscall.NsecToTimespec((50 * time.Millisecond).Nanoseconds())
+	ring.stopCh = make(chan struct{}, 1)
+	go func(ctx context.Context, ring *Ring) {
+		waitTimeout := syscall.NsecToTimespec((50 * time.Millisecond).Nanoseconds()) // todo wait timeout
 		operations := make([]*Operation, ring.queue.capacity)
 		cqes := make([]*giouring.CompletionQueueEvent, ring.queue.capacity)
 		zeroPeeked := 0
+		cqReady := false
 		stopped := false
 		for {
 			select {
 			case <-ctx.Done():
+				stopped = true
+				break
+			case <-ring.stopCh:
 				stopped = true
 				break
 			default:
@@ -65,6 +71,7 @@ func (ring *Ring) Start(ctx context.Context) {
 					if op == nil {
 						break
 					}
+					operations[i] = nil
 					sqe := ring.ring.GetSQE()
 					if sqe == nil {
 						break
@@ -77,24 +84,33 @@ func (ring *Ring) Start(ctx context.Context) {
 				}
 				// submit
 				for {
-					if submitted, submitErr := ring.ring.SubmitAndWaitTimeout(1, &waitTimeout, nil); submitErr != nil {
+					_, submitErr := ring.ring.Submit()
+					if submitErr != nil {
 						if errors.Is(submitErr, syscall.EAGAIN) || errors.Is(submitErr, syscall.EINTR) || errors.Is(submitErr, syscall.ETIME) {
 							continue
 						}
-						for i := int64(0); i < prepared; i++ {
-							op := operations[i]
-							op.ch <- Result{Err: submitErr} // todo make err
-						}
-						ring.queue.Advance(prepared)
-						break
-					} else {
-						n := submitted.Res
-						ring.queue.Advance(int64(n))
 						break
 					}
+					ring.queue.Advance(prepared)
+					break
 				}
-
-				// complete queue
+				// wait cqe
+				for {
+					_, waitErr := ring.ring.WaitCQEs(1, &waitTimeout, nil)
+					if waitErr != nil {
+						if errors.Is(waitErr, syscall.EAGAIN) {
+							continue
+						}
+						cqReady = false
+						break
+					}
+					cqReady = true
+					break
+				}
+				if !cqReady {
+					continue
+				}
+				// peek cqe
 				completed := ring.ring.PeekBatchCQE(cqes)
 				if completed == 0 {
 					continue
@@ -118,5 +134,28 @@ func (ring *Ring) Start(ctx context.Context) {
 				break
 			}
 		}
-	}(ring)
+		// send failed for remains
+		if remains := ring.queue.Len(); remains > 0 {
+			peeked := ring.queue.PeekBatch(operations)
+			for i := int64(0); i < peeked; i++ {
+				op := operations[i]
+				operations[i] = nil
+				op.ch <- Result{
+					N:   0,
+					Err: errors.New("uncompleted via closed"),
+				}
+			}
+		}
+		// queue exit
+		ring.ring.QueueExit()
+	}(ctx, ring)
+}
+
+func (ring *Ring) Stop() {
+	if ring.stopCh != nil {
+		close(ring.stopCh)
+		return
+	}
+	ring.ring.QueueExit()
+	return
 }
