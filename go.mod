@@ -9,3 +9,7 @@ require (
 )
 
 require github.com/brickingsoft/errors v0.5.0
+
+require github.com/pawelgaczynski/giouring v0.0.0-20230826085535-69588b89acb9
+
+replace github.com/pawelgaczynski/giouring v0.0.0-20230826085535-69588b89acb9 => ../../pawelgaczynski/giouring

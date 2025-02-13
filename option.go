@@ -1,41 +1,36 @@
 package rio
 
 import (
-	"crypto/tls"
-	"github.com/brickingsoft/rio/security"
+	"github.com/brickingsoft/rxp"
+	"net"
 	"time"
 )
 
 type Options struct {
-	DefaultConnReadTimeout     time.Duration
-	DefaultConnWriteTimeout    time.Duration
-	DefaultConnReadBufferSize  int
-	DefaultConnWriteBufferSize int
-	DefaultInboundBufferSize   int
-	TLSConnectionBuilder       security.ConnectionBuilder
-	MultipathTCP               bool
-	FastOpen                   int
+	KeepAlive             time.Duration
+	KeepAliveConfig       net.KeepAliveConfig
+	MultipathTCP          bool
+	FastOpen              int
+	MulticastUDPInterface *net.Interface
+	Executors             rxp.Executors
 }
 
 type Option func(options *Options) (err error)
 
-// WithTLSConfig
-// 设置TLS
-func WithTLSConfig(config *tls.Config) Option {
-	return func(options *Options) (err error) {
-		options.TLSConnectionBuilder = security.NewConnectionBuilder(config)
-		return
+func WithKeepAlive(d time.Duration) Option {
+	return func(options *Options) error {
+		if d < 0 {
+			d = 0
+		}
+		options.KeepAlive = d
+		return nil
 	}
 }
 
-// WithTLSConnectionBuilder
-// 设置 security.ConnectionBuilder。
-func WithTLSConnectionBuilder(builder security.ConnectionBuilder) Option {
-	return func(options *Options) (err error) {
-		if builder != nil {
-			options.TLSConnectionBuilder = builder
-		}
-		return
+func WithKeepAliveConfig(c net.KeepAliveConfig) Option {
+	return func(options *Options) error {
+		options.KeepAliveConfig = c
+		return nil
 	}
 }
 
@@ -44,62 +39,6 @@ func WithTLSConnectionBuilder(builder security.ConnectionBuilder) Option {
 func WithMultipathTCP() Option {
 	return func(options *Options) (err error) {
 		options.MultipathTCP = true
-		return
-	}
-}
-
-// WithDefaultConnReadTimeout
-// 设置默认流链接读超时。
-func WithDefaultConnReadTimeout(d time.Duration) Option {
-	return func(options *Options) (err error) {
-		if d > 0 {
-			options.DefaultConnReadTimeout = d
-		}
-		return
-	}
-}
-
-// WithDefaultConnWriteTimeout
-// 设置默认流链接写超时。
-func WithDefaultConnWriteTimeout(d time.Duration) Option {
-	return func(options *Options) (err error) {
-		if d > 0 {
-			options.DefaultConnWriteTimeout = d
-		}
-		return
-	}
-}
-
-// WithDefaultConnReadBufferSize
-// 设置默认读缓冲区大小。
-func WithDefaultConnReadBufferSize(n int) Option {
-	return func(options *Options) (err error) {
-		if n > 0 {
-			options.DefaultConnReadBufferSize = n
-		}
-		return
-	}
-}
-
-// WithDefaultConnWriteBufferSize
-// 设置默认写缓冲区大小。
-func WithDefaultConnWriteBufferSize(n int) Option {
-	return func(options *Options) (err error) {
-		if n > 0 {
-			options.DefaultConnWriteBufferSize = n
-		}
-		return
-	}
-}
-
-// WithDefaultInboundBufferSize
-// 设置默认入站缓冲区大小。
-func WithDefaultInboundBufferSize(n int) Option {
-	return func(options *Options) (err error) {
-		if n < 1 {
-			return
-		}
-		options.DefaultInboundBufferSize = n
 		return
 	}
 }
@@ -115,6 +54,22 @@ func WithFastOpen(n int) Option {
 			n = 256
 		}
 		options.FastOpen = n
+		return
+	}
+}
+
+// WithMulticastUDPInterface
+// 设置组播UDP的网卡。
+func WithMulticastUDPInterface(iface *net.Interface) Option {
+	return func(options *Options) (err error) {
+		options.MulticastUDPInterface = iface
+		return
+	}
+}
+
+func WithExecutors(r rxp.Executors) Option {
+	return func(options *Options) (err error) {
+		options.Executors = r
 		return
 	}
 }
