@@ -63,28 +63,26 @@ func ListenTCP(network string, addr *net.TCPAddr, options ...Option) (*TCPListen
 	r.Start(ctx)
 	// ln
 	ln := &TCPListener{
-		ctx:      ctx,
-		cancel:   cancel,
-		fd:       fd,
-		acceptCh: make(chan ring.Result, 1),
-		exec:     exec,
-		ring:     r,
+		ctx:    ctx,
+		cancel: cancel,
+		fd:     fd,
+		exec:   exec,
+		ring:   r,
 	}
 	return ln, nil
 }
 
 type TCPListener struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	fd       *sys.Fd
-	acceptCh chan ring.Result
-	exec     rxp.Executors
-	ring     *ring.Ring
+	ctx    context.Context
+	cancel context.CancelFunc
+	fd     *sys.Fd
+	exec   rxp.Executors
+	ring   *ring.Ring
 }
 
 func (ln *TCPListener) Accept() (net.Conn, error) {
 	r := ln.ring
-	op := ring.PrepareAccept(ln.fd.Socket(), ln.acceptCh)
+	op := ring.PrepareAccept(ln.fd.Socket())
 	if pushed := r.Push(op); !pushed {
 		return nil, errors.New("busy") // todo make err
 	}

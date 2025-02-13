@@ -1,15 +1,50 @@
 package ring
 
 import (
+	"github.com/brickingsoft/errors"
 	"github.com/pawelgaczynski/giouring"
+	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 type Result struct {
 	N   int
 	Err error
+}
+
+var (
+	resultChs = sync.Pool{
+		New: func() interface{} {
+			return make(chan Result, 1)
+		},
+	}
+	timers = sync.Pool{
+		New: func() interface{} {
+			return time.NewTimer(0)
+		},
+	}
+)
+
+func AcquireRCH() chan Result {
+	return resultChs.Get().(chan Result)
+}
+
+func ReleaseRCH(ch chan Result) {
+	resultChs.Put(ch)
+}
+
+func AcquireTimer(d time.Duration) *time.Timer {
+	timer := timers.Get().(*time.Timer)
+	timer.Reset(d)
+	return timer
+}
+
+func ReleaseTimer(t *time.Timer) {
+	t.Stop()
+	resultChs.Put(t)
 }
 
 type OperationKind int
@@ -37,7 +72,8 @@ func PrepareNop(ch chan Result) *Operation {
 	}
 }
 
-func PrepareAccept(fd int, ch chan Result) *Operation {
+func PrepareAccept(fd int) *Operation {
+	ch := AcquireRCH()
 	addr := new(syscall.RawSockaddrAny)
 	addrLen := syscall.SizeofSockaddrAny
 	return &Operation{
@@ -52,16 +88,30 @@ func PrepareAccept(fd int, ch chan Result) *Operation {
 }
 
 type Operation struct {
-	kind OperationKind
-	fd   int
-	msg  syscall.Msghdr
-	ch   chan Result
+	kind  OperationKind
+	fd    int
+	msg   syscall.Msghdr
+	ch    chan Result
+	timer *time.Timer
+}
+
+func (op *Operation) SetTimeout(d time.Duration) {
+	timer := AcquireTimer(d)
+	op.timer = timer
 }
 
 func (op *Operation) Await() (int, error) {
-	// todo add timeout
-	r := <-op.ch
-	return r.N, r.Err
+	ch := op.ch
+	op.ch = nil
+	select {
+	case result := <-ch:
+		ReleaseRCH(ch)
+		return result.N, result.Err
+	case <-op.timer.C:
+		// todo add timeout
+		// todo handle cancel
+		return 0, errors.New("operation timeout")
+	}
 }
 
 func (op *Operation) AppendBytes(b []byte) {

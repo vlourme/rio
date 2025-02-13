@@ -1,5 +1,45 @@
 package rio
 
+import (
+	"context"
+	"github.com/brickingsoft/rio/pkg/ring"
+	"net"
+)
+
+var (
+	DefaultDialer = &Dialer{}
+)
+
+type Dialer struct {
+	ring *ring.Ring
+}
+
+func (d *Dialer) Dial(ctx context.Context, network string, address string, options Options) (net.Conn, error) {
+	// todo timeout and keep alive
+	return nil, nil
+}
+
+func Dial(network string, address string, options ...Option) (net.Conn, error) {
+	opts := Options{}
+	for _, option := range options {
+		if err := option(&opts); err != nil {
+			return nil, err
+		}
+	}
+	ctx := context.Background()
+	return DefaultDialer.Dial(ctx, network, address, opts)
+}
+
+func DialContext(ctx context.Context, network string, address string, options ...Option) (net.Conn, error) {
+	opts := Options{}
+	for _, option := range options {
+		if err := option(&opts); err != nil {
+			return nil, err
+		}
+	}
+	return DefaultDialer.Dial(ctx, network, address, opts)
+}
+
 //type DialOptions struct {
 //	Options
 //	LocalAddr   net.Addr
