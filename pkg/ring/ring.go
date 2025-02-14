@@ -67,6 +67,16 @@ func (ring *Ring) ReleaseOperation(op *Operation) {
 	}
 }
 
+func (ring *Ring) CancelOperation(op *Operation) {
+	op.kind = cancelOp
+	for {
+		if err := ring.Push(op); err != nil {
+			continue
+		}
+		break
+	}
+}
+
 func (ring *Ring) Push(op *Operation) error {
 	if ring.queue.Enqueue(op) {
 		return nil
@@ -192,10 +202,10 @@ func (ring *Ring) listenCQ(ctx context.Context) {
 					if cqe.UserData == 0 {
 						continue
 					}
-					if cqe.Flags&giouring.CQEFNotif != 0 {
-						// used by send_zc or sendmsg_ze, so continue
-						continue
-					}
+					//if cqe.Flags&giouring.CQEFNotif != 0 {
+					//	// used by send_zc or sendmsg_ze, so continue
+					//	continue
+					//}
 					// op
 					cop := (*Operation)(unsafe.Pointer(uintptr(cqe.UserData)))
 					if cop.done.CompareAndSwap(false, true) { // not done
@@ -218,7 +228,7 @@ func (ring *Ring) listenCQ(ctx context.Context) {
 						// 1. by timeout or ctx canceled, so should be hijacked
 						// 2. by send_zc or sendmsg_zc, so should be hijacked
 						if cop.hijacked.CompareAndSwap(true, false) {
-							cop.ch <- Result{}
+							ring.ReleaseOperation(cop)
 						}
 					}
 				}
@@ -292,6 +302,10 @@ func (ring *Ring) prepare(op *Operation) (sqe *giouring.SubmissionQueueEntry) {
 	case teeOp:
 		sp := op.splice
 		sqe.PrepareTee(sp.fdIn, sp.fdOut, sp.nbytes, sp.spliceFlags)
+		break
+	case cancelOp:
+		ptr := uint64(uintptr(unsafe.Pointer(op)))
+		sqe.PrepareCancel64(ptr, 0)
 		break
 	default:
 		sqe.PrepareNop()

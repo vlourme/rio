@@ -45,6 +45,9 @@ func (conn *connection) Read(b []byte) (n int, err error) {
 	n, err = op.Await(ctx)
 	r.ReleaseOperation(op)
 	if err != nil {
+		if ring.IsUncompleted(err) {
+			r.CancelOperation(op)
+		}
 		err = &net.OpError{Op: "read", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err} // todo make err
 		return
 	}
@@ -77,6 +80,9 @@ func (conn *connection) Write(b []byte) (n int, err error) {
 	n, err = op.Await(ctx)
 	r.ReleaseOperation(op)
 	if err != nil {
+		if ring.IsUncompleted(err) {
+			r.CancelOperation(op)
+		}
 		err = &net.OpError{Op: "write", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err} // todo make err
 		return
 	}

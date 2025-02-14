@@ -52,6 +52,7 @@ const (
 	sendMsgZcOp
 	spliceOp
 	teeOp
+	cancelOp
 )
 
 func (op *Operation) PrepareNop(fd int) (err error) {
@@ -186,6 +187,8 @@ func (op *Operation) Discard() {
 	op.done.Store(true)
 }
 
+// Await
+// when err is ErrUncompleted, should call Ring.CancelOperation.
 func (op *Operation) Await(ctx context.Context) (n int, err error) {
 	ch := op.ch
 	if timeout := op.timeout; timeout > 0 {
@@ -199,9 +202,8 @@ func (op *Operation) Await(ctx context.Context) (n int, err error) {
 		case <-timer.C:
 			if op.done.CompareAndSwap(false, true) {
 				op.hijacked.Store(true)
-				// todo cancel
 				// result has not been sent
-				err = errors.New("timeout") // todo handle timeout
+				err = errors.From(ErrUncompleted, errors.WithWrap(ErrTimeout))
 			} else {
 				// result has been sent, so continue to fetch result
 				r := <-ch
@@ -211,8 +213,7 @@ func (op *Operation) Await(ctx context.Context) (n int, err error) {
 		case <-ctx.Done():
 			if op.done.CompareAndSwap(false, true) {
 				op.hijacked.Store(true)
-				// todo cancel
-				err = ctx.Err() // todo handle timeout
+				err = errors.From(ErrUncompleted, errors.WithWrap(ctx.Err()))
 			} else {
 				r := <-ch
 				n, err = r.N, r.Err
@@ -228,8 +229,7 @@ func (op *Operation) Await(ctx context.Context) (n int, err error) {
 		case <-ctx.Done():
 			if op.done.CompareAndSwap(false, true) {
 				op.hijacked.Store(true)
-				// todo cancel
-				err = ctx.Err() // todo handle timeout
+				err = errors.From(ErrUncompleted, errors.WithWrap(ctx.Err()))
 			} else {
 				r := <-ch
 				n, err = r.N, r.Err
