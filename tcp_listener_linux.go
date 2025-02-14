@@ -4,6 +4,7 @@ package rio
 
 import (
 	"context"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/ring"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"github.com/brickingsoft/rxp"
@@ -93,20 +94,23 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	sock, waitErr := op.Await(ctx)
 	r.ReleaseOperation(op)
 	if waitErr != nil {
-		err = waitErr // todo make err
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: waitErr} // todo make err
 		return
 	}
 	cfd := sys.NewFd(ln.fd.Net(), sock, ln.fd.Family(), ln.fd.SocketType())
 	if err = cfd.LoadLocalAddr(); err != nil {
+		fmt.Println("load local addr:", sock, err)
 		_ = cfd.Close()
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
 	if err = cfd.LoadRemoteAddr(); err != nil {
+		fmt.Println("load remote addr:", sock, err)
 		_ = cfd.Close()
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
+	// todo setup keep alive
 	conn = newTcpConnection(ctx, ln.ring, ln.exec, cfd)
 	return
 }

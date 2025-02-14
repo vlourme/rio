@@ -208,6 +208,12 @@ func (ring *Ring) listenCQ(ctx context.Context) {
 					//}
 					// op
 					cop := (*Operation)(unsafe.Pointer(uintptr(cqe.UserData)))
+
+					//if cqe.Res == 0 {
+					//	if cop.kind == acceptOp {
+					//		fmt.Println("accept cqe zero:", cqe.Res, cqe.Flags, cqe.UserData)
+					//	}
+					//}
 					if cop.done.CompareAndSwap(false, true) { // not done
 						// sent result when op not done (when done means timeout or ctx canceled)
 						var res int

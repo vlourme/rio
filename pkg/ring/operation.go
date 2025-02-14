@@ -190,6 +190,7 @@ func (op *Operation) Discard() {
 // Await
 // when err is ErrUncompleted, should call Ring.CancelOperation.
 func (op *Operation) Await(ctx context.Context) (n int, err error) {
+	// todo 线性不安全。。。
 	ch := op.ch
 	if timeout := op.timeout; timeout > 0 {
 		timer := acquireTimer(op.timeout)
