@@ -4,8 +4,6 @@ package rio
 
 import (
 	"context"
-	"fmt"
-	"github.com/brickingsoft/errors"
 	"github.com/brickingsoft/rio/pkg/ring"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"github.com/brickingsoft/rxp"
@@ -80,19 +78,37 @@ type TCPListener struct {
 	ring   *ring.Ring
 }
 
-func (ln *TCPListener) Accept() (net.Conn, error) {
+func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	r := ln.ring
-	op := ring.PrepareAccept(ln.fd.Socket())
-	if pushed := r.Push(op); !pushed {
-		return nil, errors.New("busy") // todo make err
+	op := r.AcquireOperation()
+	fd := ln.fd.Socket()
+	op.PrepareAccept(fd)
+	if pushErr := r.Push(op); pushErr != nil {
+		op.Discard()
+		r.ReleaseOperation(op)
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: pushErr} // todo make err
+		return
 	}
-	sock, err := op.Await()
-	if err != nil {
-		return nil, err
+	ctx := ln.ctx
+	sock, waitErr := op.Await(ctx)
+	r.ReleaseOperation(op)
+	if waitErr != nil {
+		err = waitErr // todo make err
+		return
 	}
-	fmt.Println(sock)
-	// todo
-	return nil, nil
+	cfd := sys.NewFd(ln.fd.Net(), sock, ln.fd.Family(), ln.fd.SocketType())
+	if err = cfd.LoadLocalAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+	if err = cfd.LoadRemoteAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+	conn = newTcpConnection(ctx, ln.ring, ln.exec, cfd)
+	return
 }
 
 func (ln *TCPListener) Close() error {

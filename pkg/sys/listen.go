@@ -90,12 +90,12 @@ func (ln *Listener) listenTCP(options ListenOptions) (fd *Fd, err error) {
 		}
 	}
 	// fd
-	fd, err = NewFd(ln.family, syscall.SOCK_STREAM, proto)
-	if err != nil {
+	sock, sockErr := NewSocket(ln.family, syscall.SOCK_STREAM, proto)
+	if sockErr != nil {
+		err = sockErr
 		return
 	}
-	// set network
-	fd.SetNet(ln.network)
+	fd = NewFd(ln.network, sock, ln.family, syscall.SOCK_STREAM)
 	// ipv6
 	if ln.ipv6only {
 		if err = fd.SetIpv6only(true); err != nil {
@@ -153,13 +153,14 @@ func (ln *Listener) listenUnix(opts ListenOptions) (fd *Fd, err error) {
 		err = net.UnknownNetworkError(ln.network)
 		return
 	}
-	// fd
-	fd, err = NewFd(ln.family, sotype, 0)
-	if err != nil {
+	// sock
+	sock, sockErr := NewSocket(ln.family, sotype, 0)
+	if sockErr != nil {
+		err = sockErr
 		return
 	}
-	// set network
-	fd.SetNet(ln.network)
+	fd = NewFd(ln.network, sock, ln.family, sotype)
+	// fd
 	// bind
 	if err = fd.Bind(ln.addr); err != nil {
 		_ = fd.Close()

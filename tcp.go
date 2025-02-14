@@ -1,5 +1,102 @@
 package rio
 
+import (
+	"context"
+	"github.com/brickingsoft/rio/pkg/ring"
+	"github.com/brickingsoft/rio/pkg/sys"
+	"github.com/brickingsoft/rxp"
+	"io"
+	"net"
+	"sync/atomic"
+	"syscall"
+	"time"
+)
+
+func newTcpConnection(ctx context.Context, ring *ring.Ring, exec rxp.Executors, fd *sys.Fd) *tcpConnection {
+	cc, cancel := context.WithCancel(ctx)
+	return &tcpConnection{
+		connection{
+			ctx:          cc,
+			cancel:       cancel,
+			fd:           fd,
+			readTimeout:  atomic.Int64{},
+			writeTimeout: atomic.Int64{},
+			exec:         exec,
+			ring:         ring,
+		},
+	}
+}
+
+type tcpConnection struct {
+	connection
+}
+
+func (conn *tcpConnection) SyscallConn() (syscall.RawConn, error) {
+	return newRawConnection(conn.fd), nil
+}
+
+func (conn *tcpConnection) ReadFrom(r io.Reader) (int64, error) {
+	return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+}
+
+func (conn *tcpConnection) WriteTo(w io.Writer) (int64, error) {
+	return 0, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+}
+
+func (conn *tcpConnection) CloseRead() error {
+	if err := conn.fd.CloseRead(); err != nil {
+		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) CloseWrite() error {
+	if err := conn.fd.CloseWrite(); err != nil {
+		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetLinger(sec int) error {
+	if err := conn.fd.SetLinger(sec); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetNoDelay(noDelay bool) error {
+	if err := conn.fd.SetNoDelay(noDelay); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetKeepAlive(keepalive bool) error {
+	if err := conn.fd.SetKeepAlive(keepalive); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) error {
+	if err := conn.fd.SetKeepAlivePeriod(period); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetKeepAliveConfig(config net.KeepAliveConfig) error {
+	if err := conn.fd.SetKeepAliveConfig(config); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) MultipathTCP() (bool, error) {
+	ok := sys.IsUsingMultipathTCP(conn.fd)
+	return ok, nil
+}
+
 //
 //func newTCPConnection(ctx context.Context, fd aio.NetFd) (conn transport.TCPConnection) {
 //	conn = &tcpConnection{

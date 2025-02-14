@@ -1,8 +1,8 @@
 package ring
 
 import (
+	"context"
 	"github.com/brickingsoft/errors"
-	"github.com/pawelgaczynski/giouring"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -16,102 +16,240 @@ type Result struct {
 }
 
 var (
-	resultChs = sync.Pool{
-		New: func() interface{} {
-			return make(chan Result, 1)
-		},
-	}
 	timers = sync.Pool{
 		New: func() interface{} {
 			return time.NewTimer(0)
 		},
 	}
+	sendZCEnable    = false
+	sendMsgZCEnable = false
 )
 
-func AcquireRCH() chan Result {
-	return resultChs.Get().(chan Result)
-}
-
-func ReleaseRCH(ch chan Result) {
-	resultChs.Put(ch)
-}
-
-func AcquireTimer(d time.Duration) *time.Timer {
+func acquireTimer(d time.Duration) *time.Timer {
 	timer := timers.Get().(*time.Timer)
 	timer.Reset(d)
 	return timer
 }
 
-func ReleaseTimer(t *time.Timer) {
+func releaseTimer(t *time.Timer) {
 	t.Stop()
-	resultChs.Put(t)
+	timers.Put(t)
 }
 
 type OperationKind int
 
 const (
-	Nop OperationKind = iota
-	AcceptOp
-	CloseOp
-	ReceiveOp
-	SendOp
-	ReceiveFrom
-	SendTo
-	ReceiveMsg
-	SendMsg
-	SpliceOp
-	TeeOp
+	nop OperationKind = iota
+	acceptOp
+	closeOp
+	receiveOp
+	sendOp
+	sendZCOp
+	receiveFromOp
+	sendToOp
+	receiveMsgOp
+	sendMsgOp
+	sendMsgZcOp
+	spliceOp
+	teeOp
 )
 
-func PrepareNop(ch chan Result) *Operation {
-	return &Operation{
-		kind: Nop,
-		fd:   0,
-		msg:  syscall.Msghdr{},
-		ch:   ch,
-	}
+func (op *Operation) PrepareNop(fd int) (err error) {
+	op.kind = nop
+	op.fd = fd
+	return
 }
 
-func PrepareAccept(fd int) *Operation {
-	ch := AcquireRCH()
-	addr := new(syscall.RawSockaddrAny)
-	addrLen := syscall.SizeofSockaddrAny
-	return &Operation{
-		kind: AcceptOp,
-		fd:   fd,
-		msg: syscall.Msghdr{
-			Name:    (*byte)(unsafe.Pointer(addr)),
-			Namelen: uint32(addrLen),
-		},
-		ch: ch,
+func (op *Operation) PrepareAccept(fd int) {
+	op.kind = acceptOp
+	op.fd = fd
+	op.msg.Name = (*byte)(unsafe.Pointer(new(syscall.RawSockaddrAny)))
+	op.msg.Namelen = uint32(syscall.SizeofSockaddrAny)
+	return
+}
+
+func (op *Operation) PrepareReceive(fd int, b []byte) {
+	op.kind = receiveOp
+	op.fd = fd
+	op.SetBytes(b)
+	return
+}
+
+func (op *Operation) PrepareSend(fd int, b []byte) {
+	if sendZCEnable {
+		op.kind = sendZCOp
+		op.hijacked.Store(true)
+		op.hijackedBytes = b
+	} else {
+		op.kind = sendOp
 	}
+	op.fd = fd
+	op.SetBytes(b)
+	return
+}
+
+func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int) {
+	if sendMsgZCEnable {
+		op.kind = sendMsgZcOp
+		op.hijacked.Store(true)
+		op.hijackedBytes = b
+		op.hijackedOOB = oob
+		op.hijackedAddr = addr
+		op.hijackedAddrLen = addrLen
+	} else {
+		op.kind = sendMsgOp
+	}
+	op.fd = fd
+	op.msg.Name = (*byte)(unsafe.Pointer(addr))
+	op.msg.Namelen = uint32(addrLen)
+	op.SetBytes(b)
+	op.SetControl(oob)
+	/* todo handle of sotype != syscall.SOCK_DGRAM, 在外面处理
+	if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
+				var dummy byte
+				op.msg.Iov.Base = &dummy
+				op.msg.Iov.Len = uint64(1)
+				op.msg.Iovlen = 1
+			}
+	*/
+	return
+}
+
+type Splice struct {
+	fdIn        int
+	offIn       int64
+	fdOut       int
+	offOut      int64
+	nbytes      uint32
+	spliceFlags uint32
 }
 
 type Operation struct {
-	kind  OperationKind
-	fd    int
-	msg   syscall.Msghdr
-	ch    chan Result
-	timer *time.Timer
+	kind            OperationKind
+	fd              int
+	msg             syscall.Msghdr
+	splice          Splice
+	timeout         time.Duration
+	done            atomic.Bool
+	hijacked        atomic.Bool
+	hijackedBytes   []byte
+	hijackedOOB     []byte
+	hijackedAddr    *syscall.RawSockaddrAny
+	hijackedAddrLen int
+	ch              chan Result
+}
+
+func (op *Operation) reset() bool {
+	if op.hijacked.Load() {
+		return false
+	}
+	// kind
+	op.kind = nop
+	// fd
+	op.fd = 0
+	// msg
+	op.msg.Name = nil
+	op.msg.Namelen = 0
+	op.msg.Iov = nil
+	op.msg.Iovlen = 0
+	op.msg.Control = nil
+	op.msg.Controllen = 0
+	op.msg.Flags = 0
+	// splice
+	op.splice.fdIn = 0
+	op.splice.offIn = 0
+	op.splice.fdOut = 0
+	op.splice.offOut = 0
+	op.splice.nbytes = 0
+	op.splice.spliceFlags = 0
+	// timeout
+	op.timeout = 0
+	// done
+	op.done.Store(false)
+	// hijacked
+	op.hijackedBytes = nil
+	op.hijackedOOB = nil
+	op.hijackedAddr = nil
+	op.hijackedAddrLen = 0
+	return true
 }
 
 func (op *Operation) SetTimeout(d time.Duration) {
-	timer := AcquireTimer(d)
-	op.timer = timer
+	if d < 0 {
+		d = 0
+	}
+	op.timeout = d
 }
 
-func (op *Operation) Await() (int, error) {
+func (op *Operation) Discard() {
+	op.hijacked.Store(false)
+	op.done.Store(true)
+}
+
+func (op *Operation) Await(ctx context.Context) (n int, err error) {
 	ch := op.ch
-	op.ch = nil
-	select {
-	case result := <-ch:
-		ReleaseRCH(ch)
-		return result.N, result.Err
-	case <-op.timer.C:
-		// todo add timeout
-		// todo handle cancel
-		return 0, errors.New("operation timeout")
+	if timeout := op.timeout; timeout > 0 {
+		timer := acquireTimer(op.timeout)
+		timer.Reset(timeout)
+
+		select {
+		case r := <-ch:
+			n, err = r.N, r.Err
+			break
+		case <-timer.C:
+			if op.done.CompareAndSwap(false, true) {
+				op.hijacked.Store(true)
+				// todo cancel
+				// result has not been sent
+				err = errors.New("timeout") // todo handle timeout
+			} else {
+				// result has been sent, so continue to fetch result
+				r := <-ch
+				n, err = r.N, r.Err
+			}
+			break
+		case <-ctx.Done():
+			if op.done.CompareAndSwap(false, true) {
+				op.hijacked.Store(true)
+				// todo cancel
+				err = ctx.Err() // todo handle timeout
+			} else {
+				r := <-ch
+				n, err = r.N, r.Err
+			}
+			break
+		}
+		releaseTimer(timer)
+	} else {
+		select {
+		case r := <-ch:
+			n, err = r.N, r.Err
+			break
+		case <-ctx.Done():
+			if op.done.CompareAndSwap(false, true) {
+				op.hijacked.Store(true)
+				// todo cancel
+				err = ctx.Err() // todo handle timeout
+			} else {
+				r := <-ch
+				n, err = r.N, r.Err
+			}
+			break
+		}
 	}
+	return
+}
+
+func (op *Operation) SetBytes(b []byte) {
+	bLen := len(b)
+	if bLen == 0 {
+		return
+	}
+	op.msg.Iov = &syscall.Iovec{
+		Base: unsafe.SliceData(b),
+		Len:  uint64(bLen),
+	}
+	op.msg.Iovlen = 1
 }
 
 func (op *Operation) AppendBytes(b []byte) {
@@ -165,26 +303,6 @@ func (op *Operation) SetFlags(flags int) {
 
 func (op *Operation) Flags() int {
 	return int(op.msg.Flags)
-}
-
-func (op *Operation) prepare(sqe *giouring.SubmissionQueueEntry) {
-	switch op.kind {
-	case Nop:
-		sqe.PrepareNop()
-		sqe.SetData(unsafe.Pointer(&op.ch))
-		break
-	case AcceptOp:
-		addrPtr := uintptr(unsafe.Pointer(op.msg.Name))
-		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
-		sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
-		sqe.SetData(unsafe.Pointer(&op.ch))
-		break
-	default:
-		sqe.PrepareNop()
-		sqe.SetData(unsafe.Pointer(&op.ch))
-		break
-	}
-	return
 }
 
 func NewOperationQueue(n int) (queue *OperationQueue) {

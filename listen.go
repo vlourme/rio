@@ -1,12 +1,8 @@
 package rio
 
 import (
-	"github.com/brickingsoft/errors"
-	"github.com/brickingsoft/rio/pkg/aio"
-	"github.com/brickingsoft/rio/transport"
 	"net"
 	"time"
-	"unsafe"
 )
 
 type ListenOptions struct {
@@ -44,38 +40,38 @@ type ListenPacketOptions struct {
 
 // ListenPacket
 // 监听包
-func ListenPacket(network string, addr string, options ...Option) (conn transport.PacketConnection, err error) {
-	opts := ListenPacketOptions{}
-	for _, o := range options {
-		err = o((*Options)(unsafe.Pointer(&opts)))
-		if err != nil {
-			err = errors.New(
-				"listen packet failed",
-				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-				errors.WithWrap(err),
-			)
-			return
-		}
-	}
-
-	// inner
-	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
-		MultipathTCP:       false,
-		MulticastInterface: opts.MulticastUDPInterface,
-	})
-
-	if listenErr != nil {
-		err = errors.New(
-			"listen packet failed",
-			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
-			errors.WithWrap(listenErr),
-		)
-		return
-	}
-
-	// ctx
-	ctx := Background()
-	// conn
-	conn = newPacketConnection(ctx, fd)
-	return
-}
+//func ListenPacket(network string, addr string, options ...Option) (conn transport.PacketConnection, err error) {
+//	opts := ListenPacketOptions{}
+//	for _, o := range options {
+//		err = o((*Options)(unsafe.Pointer(&opts)))
+//		if err != nil {
+//			err = errors.New(
+//				"listen packet failed",
+//				errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+//				errors.WithWrap(err),
+//			)
+//			return
+//		}
+//	}
+//
+//	// inner
+//	fd, listenErr := aio.Listen(network, addr, aio.ListenerOptions{
+//		MultipathTCP:       false,
+//		MulticastInterface: opts.MulticastUDPInterface,
+//	})
+//
+//	if listenErr != nil {
+//		err = errors.New(
+//			"listen packet failed",
+//			errors.WithMeta(errMetaPkgKey, errMetaPkgVal),
+//			errors.WithWrap(listenErr),
+//		)
+//		return
+//	}
+//
+//	// ctx
+//	ctx := Background()
+//	// conn
+//	conn = newPacketConnection(ctx, fd)
+//	return
+//}
