@@ -164,7 +164,7 @@ AGAIN:
 
 func (ring *Ring) GetEvents() (uint, error) {
 	flags := EnterGetEvents
-	if ring.intFlags&intFlagRegRing != 0 {
+	if ring.kind&regRing != 0 {
 		flags |= EnterRegisteredRing
 	}
 	return ring.Enter(0, 0, flags, nil)
@@ -313,7 +313,7 @@ func (ring *Ring) getCQE(data *getData) (*CompletionQueueEvent, error) {
 			}
 			break
 		}
-		if ring.intFlags&intFlagRegRing != 0 {
+		if ring.kind&regRing != 0 {
 			flags |= EnterRegisteredRing
 		}
 		ret, localErr = ring.Enter2(data.submit, data.waitNr, flags, data.arg, data.sz)

@@ -102,7 +102,7 @@ func (ring *Ring) submit(submitted uint32, waitNr uint32, getEvents bool) (uint,
 		if cqNeedsEnter {
 			flags |= EnterGetEvents
 		}
-		if ring.intFlags&intFlagRegRing != 0 {
+		if ring.kind&regRing != 0 {
 			flags |= EnterRegisteredRing
 		}
 
@@ -124,7 +124,7 @@ func (ring *Ring) submitAndWait(waitNr uint32) (uint, error) {
 func (ring *Ring) sqRingWait() (uint, error) {
 	flags := EnterSQWait
 
-	if ring.intFlags&intFlagRegRegRing != 0 {
+	if ring.kind&doubleRegRing != 0 {
 		flags |= EnterRegisteredRing
 	}
 	return ring.Enter(0, 0, flags, nil)

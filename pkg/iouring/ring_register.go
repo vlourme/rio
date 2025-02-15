@@ -303,7 +303,7 @@ func (ring *Ring) RegisterRestrictions(res []Restriction) (uint, error) {
 
 func (ring *Ring) doRegisterErrno(opCode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, syscall.Errno) {
 	var fd int
-	if ring.intFlags&intFlagRegRing != 0 {
+	if ring.kind&regRing != 0 {
 		opCode |= RegisterUseRegisteredRing
 		fd = ring.enterRingFd
 	} else {
@@ -339,7 +339,7 @@ func (ring *Ring) RegisterIOWQMaxWorkers(val []uint) (uint, error) {
 const registerRingFdOffset = uint32(4294967295)
 
 func (ring *Ring) RegisterRingFd() (uint, error) {
-	if (ring.intFlags & intFlagRegRing) != 0 {
+	if (ring.kind & regRing) != 0 {
 		return 0, syscall.EEXIST
 	}
 	update := &RsrcUpdate{
@@ -352,10 +352,10 @@ func (ring *Ring) RegisterRingFd() (uint, error) {
 	}
 	if ret == 1 {
 		ring.enterRingFd = int(update.Offset)
-		ring.intFlags |= intFlagRegRing
+		ring.kind |= regRing
 
 		if ring.features&FeatRegRegRing != 0 {
-			ring.intFlags |= intFlagRegRegRing
+			ring.kind |= doubleRegRing
 		}
 	} else {
 		return ret, fmt.Errorf("unexpected return from ring.Register: %d", ret)
@@ -367,7 +367,7 @@ func (ring *Ring) UnregisterRingFd() (uint, error) {
 	update := &RsrcUpdate{
 		Offset: uint32(ring.enterRingFd),
 	}
-	if (ring.intFlags & intFlagRegRing) != 0 {
+	if (ring.kind & regRing) != 0 {
 		return 0, syscall.EINVAL
 	}
 	ret, err := ring.doRegister(UnregisterRingFDs, unsafe.Pointer(update), 1)
@@ -376,7 +376,7 @@ func (ring *Ring) UnregisterRingFd() (uint, error) {
 	}
 	if ret == 1 {
 		ring.enterRingFd = ring.ringFd
-		ring.intFlags &= ^(intFlagRegRing | intFlagRegRegRing)
+		ring.kind &= ^(regRing | doubleRegRing)
 	}
 	return ret, nil
 }

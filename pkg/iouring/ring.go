@@ -147,7 +147,7 @@ type Ring struct {
 	ringFd      int
 	features    uint32
 	enterRingFd int
-	intFlags    uint8
+	kind        uint8
 	pad         [3]uint8
 	pad2        uint32
 }
@@ -164,12 +164,12 @@ func (ring *Ring) Close() (err error) {
 		}
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), sqeSize*uintptr(*sq.ringEntries))
 		UnmapRings(sq, cq)
-	} else if ring.intFlags&intFlagAppMem == 0 {
+	} else if ring.kind&appMemRing == 0 {
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), uintptr(*sq.ringEntries)*unsafe.Sizeof(SubmissionQueueEntry{}))
 		UnmapRings(sq, cq)
 	}
 
-	if ring.intFlags&intFlagRegRing != 0 {
+	if ring.kind&regRing != 0 {
 		_, _ = ring.UnregisterRingFd()
 	}
 	if ring.ringFd != -1 {
@@ -190,7 +190,7 @@ func (ring *Ring) CloseFd() (uint, error) {
 	if ring.features&FeatRegRegRing == 0 {
 		return 0, syscall.EOPNOTSUPP
 	}
-	if (ring.intFlags & intFlagRegRing) == 0 {
+	if (ring.kind & regRing) == 0 {
 		return 0, syscall.EINVAL
 	}
 	if ring.ringFd == -1 {

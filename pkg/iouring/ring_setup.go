@@ -12,9 +12,9 @@ const (
 )
 
 const (
-	intFlagRegRing    uint8 = 1
-	intFlagRegRegRing uint8 = 2
-	intFlagAppMem     uint8 = 4
+	regRing       uint8 = 1
+	doubleRegRing uint8 = 2
+	appMemRing    uint8 = 4
 )
 
 type Params struct {
@@ -45,13 +45,13 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 			return err
 		}
 		if buf != nil {
-			ring.intFlags |= intFlagAppMem
+			ring.kind |= appMemRing
 		}
 	}
 
 	fdPtr, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(params)), 0)
 	if errno != 0 {
-		if params.flags&SetupNoMmap != 0 && ring.intFlags&intFlagAppMem == 0 {
+		if params.flags&SetupNoMmap != 0 && ring.kind&appMemRing == 0 {
 			_ = munmap(uintptr(unsafe.Pointer(ring.sqRing.sqes)), 1)
 			UnmapRings(ring.sqRing, ring.cqRing)
 		}
@@ -82,7 +82,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	ring.enterRingFd = fd
 	if params.flags&SetupRegisteredFdOnly != 0 {
 		ring.ringFd = -1
-		ring.intFlags |= intFlagRegRing | intFlagRegRegRing
+		ring.kind |= regRing | doubleRegRing
 	} else {
 		ring.ringFd = fd
 	}
