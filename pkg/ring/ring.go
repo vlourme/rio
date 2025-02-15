@@ -42,6 +42,11 @@ func New(size int) (*Ring, error) {
 				}
 			},
 		},
+		timers: sync.Pool{
+			New: func() interface{} {
+				return time.NewTimer(0)
+			},
+		},
 		stopCh: nil,
 		wg:     sync.WaitGroup{},
 	}, nil
@@ -52,6 +57,8 @@ type Ring struct {
 	queue       *OperationQueue
 	waitTimeout time.Duration
 	operations  sync.Pool
+	timers      sync.Pool
+	hijackedOps sync.Map
 	stopCh      chan struct{}
 	wg          sync.WaitGroup
 }
@@ -62,19 +69,19 @@ func (ring *Ring) AcquireOperation() *Operation {
 }
 
 func (ring *Ring) ReleaseOperation(op *Operation) {
-	if op.reset() {
-		ring.operations.Put(op)
-	}
+	op.reset()
+	ring.operations.Put(op)
 }
 
-func (ring *Ring) CancelOperation(op *Operation) {
-	op.kind = cancelOp
-	for {
-		if err := ring.Push(op); err != nil {
-			continue
-		}
-		break
-	}
+func (ring *Ring) acquireTimer(duration time.Duration) *time.Timer {
+	timer := ring.timers.Get().(*time.Timer)
+	timer.Reset(duration)
+	return timer
+}
+
+func (ring *Ring) releaseTimer(timer *time.Timer) {
+	timer.Stop()
+	ring.timers.Put(timer)
 }
 
 func (ring *Ring) Push(op *Operation) error {
@@ -115,6 +122,7 @@ func (ring *Ring) listenSQ(ctx context.Context) {
 						runtime.Gosched()
 					} else {
 						time.Sleep(500 * time.Nanosecond)
+						//time.Sleep(1 * time.Second)
 					}
 					break
 				}
@@ -125,11 +133,17 @@ func (ring *Ring) listenSQ(ctx context.Context) {
 						break
 					}
 					ready[i] = nil
-					sqe := ring.prepare(op)
-					runtime.KeepAlive(op)
-					if sqe == nil {
+					if ok, prepErr := ring.prepare(op); !ok {
+						if prepErr != nil {
+							op.ch <- Result{
+								Err: prepErr,
+							}
+							prepared++ // when prep err occur, means invalid op kind, then prepare nop whit out userdata, so prepared++
+							continue
+						}
 						break
 					}
+					runtime.KeepAlive(op)
 					prepared++
 				}
 				if prepared == 0 {
@@ -202,38 +216,28 @@ func (ring *Ring) listenCQ(ctx context.Context) {
 					if cqe.UserData == 0 {
 						continue
 					}
-					//if cqe.Flags&giouring.CQEFNotif != 0 {
-					//	// used by send_zc or sendmsg_ze, so continue
-					//	continue
-					//}
 					// op
 					cop := (*Operation)(unsafe.Pointer(uintptr(cqe.UserData)))
 
-					//if cqe.Res == 0 {
-					//	if cop.kind == acceptOp {
-					//		fmt.Println("accept cqe zero:", cqe.Res, cqe.Flags, cqe.UserData)
-					//	}
-					//}
 					if cop.done.CompareAndSwap(false, true) { // not done
 						// sent result when op not done (when done means timeout or ctx canceled)
 						var res int
 						var err error
 						if cqe.Res < 0 {
 							err = syscall.Errno(-cqe.Res)
-							// release hijacked when err occur
-							cop.hijacked.Store(false)
 						} else {
 							res = int(cqe.Res)
 						}
 						cop.ch <- Result{
-							N:   res,
-							Err: err,
+							N:     res,
+							Flags: cqe.Flags,
+							Err:   err,
 						}
 					} else { // done
-						// handle done but hijacked
 						// 1. by timeout or ctx canceled, so should be hijacked
 						// 2. by send_zc or sendmsg_zc, so should be hijacked
-						if cop.hijacked.CompareAndSwap(true, false) {
+						// release hijacked
+						if _, hijacked := ring.hijackedOps.LoadAndDelete(cop); hijacked {
 							ring.ReleaseOperation(cop)
 						}
 					}
@@ -255,69 +259,9 @@ func (ring *Ring) Stop() {
 		close(ring.stopCh)
 		ring.wg.Wait()
 		ring.ring.QueueExit()
+		ring.hijackedOps.Clear()
 		return
 	}
 	ring.ring.QueueExit()
-	return
-}
-
-func (ring *Ring) prepare(op *Operation) (sqe *giouring.SubmissionQueueEntry) {
-	sqe = ring.ring.GetSQE()
-	if sqe == nil {
-		return
-	}
-	switch op.kind {
-	case nop:
-		sqe.PrepareNop()
-		break
-	case acceptOp:
-		addrPtr := uintptr(unsafe.Pointer(op.msg.Name))
-		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
-		sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
-		break
-	case receiveOp:
-		b := uintptr(unsafe.Pointer(op.msg.Iov.Base))
-		bLen := uint32(op.msg.Iov.Len)
-		sqe.PrepareRecv(op.fd, b, bLen, 0)
-		break
-	case sendOp:
-		b := uintptr(unsafe.Pointer(op.msg.Iov.Base))
-		bLen := uint32(op.msg.Iov.Len)
-		sqe.PrepareSend(op.fd, b, bLen, 0)
-		break
-	case sendZCOp:
-		b := unsafe.Slice(op.msg.Iov.Base, op.msg.Iov.Len)
-		sqe.PrepareSendZC(op.fd, b, 0, 0)
-		break
-	case receiveFromOp, receiveMsgOp:
-		msg := op.msg
-		sqe.PrepareRecvMsg(op.fd, &msg, 0)
-		break
-	case sendToOp, sendMsgOp:
-		msg := op.msg
-		sqe.PrepareSendMsg(op.fd, &msg, 0)
-		break
-	case sendMsgZcOp:
-		msg := op.msg
-		sqe.PrepareSendmsgZC(op.fd, &msg, 0)
-		break
-	case spliceOp:
-		sp := op.splice
-		sqe.PrepareSplice(sp.fdIn, sp.offIn, sp.fdOut, sp.offOut, sp.nbytes, sp.spliceFlags)
-		break
-	case teeOp:
-		sp := op.splice
-		sqe.PrepareTee(sp.fdIn, sp.fdOut, sp.nbytes, sp.spliceFlags)
-		break
-	case cancelOp:
-		ptr := uint64(uintptr(unsafe.Pointer(op)))
-		sqe.PrepareCancel64(ptr, 0)
-		break
-	default:
-		sqe.PrepareNop()
-		break
-	}
-	sqe.SetData(unsafe.Pointer(op))
-	runtime.KeepAlive(sqe)
 	return
 }

@@ -81,31 +81,23 @@ type TCPListener struct {
 
 func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	r := ln.ring
-	op := r.AcquireOperation()
-	fd := ln.fd.Socket()
-	op.PrepareAccept(fd)
-	if pushErr := r.Push(op); pushErr != nil {
-		op.Discard()
-		r.ReleaseOperation(op)
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: pushErr} // todo make err
-		return
-	}
 	ctx := ln.ctx
-	sock, waitErr := op.Await(ctx)
-	r.ReleaseOperation(op)
-	if waitErr != nil {
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: waitErr} // todo make err
+	fd := ln.fd.Socket()
+	accepted, acceptErr := r.Accept(ctx, fd)
+	if acceptErr != nil {
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr} // todo make err
 		return
 	}
-	cfd := sys.NewFd(ln.fd.Net(), sock, ln.fd.Family(), ln.fd.SocketType())
+
+	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
 	if err = cfd.LoadLocalAddr(); err != nil {
-		fmt.Println("load local addr:", sock, err)
+		fmt.Println("load local addr:", accepted, err)
 		_ = cfd.Close()
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
 	if err = cfd.LoadRemoteAddr(); err != nil {
-		fmt.Println("load remote addr:", sock, err)
+		fmt.Println("load remote addr:", accepted, err)
 		_ = cfd.Close()
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return

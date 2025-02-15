@@ -28,27 +28,12 @@ func (conn *connection) Read(b []byte) (n int, err error) {
 		return
 	}
 	r := conn.ring
-	op := r.AcquireOperation()
-	fd := conn.fd.Socket()
-	op.PrepareReceive(fd, b)
-	if timeout := conn.readTimeout.Load(); timeout > 0 {
-		op.SetTimeout(time.Duration(timeout))
-	}
-	if pushErr := r.Push(op); pushErr != nil {
-		op.Discard()
-		r.ReleaseOperation(op)
-		err = &net.OpError{Op: "read", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: pushErr}
-		// todo make err
-		return
-	}
 	ctx := conn.ctx
-	n, err = op.Await(ctx)
-	r.ReleaseOperation(op)
+	fd := conn.fd.Socket()
+	n, err = r.Receive(ctx, fd, b)
 	if err != nil {
-		if ring.IsUncompleted(err) {
-			r.CancelOperation(op)
-		}
-		err = &net.OpError{Op: "read", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err} // todo make err
+		err = &net.OpError{Op: "read", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+		// todo make err
 		return
 	}
 	if n == 0 && conn.fd.ZeroReadIsEOF() {
@@ -63,27 +48,12 @@ func (conn *connection) Write(b []byte) (n int, err error) {
 		return
 	}
 	r := conn.ring
-	op := r.AcquireOperation()
-	fd := conn.fd.Socket()
-	op.PrepareSend(fd, b)
-	if timeout := conn.writeTimeout.Load(); timeout > 0 {
-		op.SetTimeout(time.Duration(timeout))
-	}
-	if pushErr := r.Push(op); pushErr != nil {
-		op.Discard()
-		r.ReleaseOperation(op)
-		err = &net.OpError{Op: "write", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: pushErr}
-		// todo make err
-		return
-	}
 	ctx := conn.ctx
-	n, err = op.Await(ctx)
-	r.ReleaseOperation(op)
+	fd := conn.fd.Socket()
+	n, err = r.Send(ctx, fd, b)
 	if err != nil {
-		if ring.IsUncompleted(err) {
-			r.CancelOperation(op)
-		}
-		err = &net.OpError{Op: "write", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err} // todo make err
+		err = &net.OpError{Op: "write", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+		// todo make err
 		return
 	}
 	return
