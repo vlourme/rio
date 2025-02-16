@@ -1,12 +1,20 @@
-package iouring
+package kernel
 
 import (
+	"bytes"
 	"fmt"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
-type KernelVersion struct {
+var (
+	version     *Version = nil
+	versionErr  error    = nil
+	versionOnce          = sync.Once{}
+)
+
+type Version struct {
 	Kernel int
 	Major  int
 	Minor  int
@@ -18,7 +26,7 @@ const (
 	secondNumberOfParts = 1
 )
 
-func parseKernelVersion(kernelVersionStr string) (*KernelVersion, error) {
+func parseKernelVersion(kernelVersionStr string) (*Version, error) {
 	var (
 		kernel, major, minor, parsed int
 		flavor, partial              string
@@ -34,7 +42,7 @@ func parseKernelVersion(kernelVersionStr string) (*KernelVersion, error) {
 		flavor = partial
 	}
 
-	return &KernelVersion{
+	return &Version{
 		Kernel: kernel,
 		Major:  major,
 		Minor:  minor,
@@ -42,17 +50,19 @@ func parseKernelVersion(kernelVersionStr string) (*KernelVersion, error) {
 	}, nil
 }
 
-func GetKernelVersion() (*KernelVersion, error) {
-	uts := &unix.Utsname{}
-
-	if err := unix.Uname(uts); err != nil {
-		return nil, err
-	}
-
-	return parseKernelVersion(unix.ByteSliceToString(uts.Release[:]))
+func GetKernelVersion() (*Version, error) {
+	versionOnce.Do(func() {
+		uts := &unix.Utsname{}
+		if err := unix.Uname(uts); err != nil {
+			versionErr = err
+			return
+		}
+		version, versionErr = parseKernelVersion(string(uts.Release[:bytes.IndexByte(uts.Release[:], 0)]))
+	})
+	return version, versionErr
 }
 
-func CompareKernelVersion(a, b KernelVersion) int {
+func CompareKernelVersion(a, b Version) int {
 	if a.Kernel > b.Kernel {
 		return 1
 	} else if a.Kernel < b.Kernel {
@@ -76,13 +86,13 @@ func CompareKernelVersion(a, b KernelVersion) int {
 
 func CheckKernelVersion(k, major, minor int) (bool, error) {
 	var (
-		v   *KernelVersion
+		v   *Version
 		err error
 	)
 	if v, err = GetKernelVersion(); err != nil {
 		return false, err
 	}
-	if CompareKernelVersion(*v, KernelVersion{Kernel: k, Major: major, Minor: minor}) < 0 {
+	if CompareKernelVersion(*v, Version{Kernel: k, Major: major, Minor: minor}) < 0 {
 		return false, nil
 	}
 

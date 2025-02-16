@@ -2,9 +2,8 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/ring"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
-	"github.com/brickingsoft/rxp"
 	"io"
 	"net"
 	"sync/atomic"
@@ -12,17 +11,16 @@ import (
 	"time"
 )
 
-func newTcpConnection(ctx context.Context, ring *ring.Ring, exec rxp.Executors, fd *sys.Fd) *tcpConnection {
+func newTcpConnection(ctx context.Context, vortex *aio.Vortex, fd *sys.Fd) *tcpConnection {
 	cc, cancel := context.WithCancel(ctx)
 	return &tcpConnection{
 		connection{
 			ctx:          cc,
 			cancel:       cancel,
 			fd:           fd,
+			vortex:       vortex,
 			readTimeout:  atomic.Int64{},
 			writeTimeout: atomic.Int64{},
-			exec:         exec,
-			ring:         ring,
 		},
 	}
 }

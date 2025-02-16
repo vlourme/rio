@@ -2,7 +2,7 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/ring"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
 )
 
@@ -11,7 +11,7 @@ var (
 )
 
 type Dialer struct {
-	ring *ring.Ring
+	vortexes *aio.Vortexes
 }
 
 func (d *Dialer) Dial(ctx context.Context, network string, address string, options Options) (net.Conn, error) {

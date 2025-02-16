@@ -1,75 +1,99 @@
-package ring
+package aio
 
 import (
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
-var (
-	sendZCEnable    = false
-	sendMsgZCEnable = false
-)
+type Result struct {
+	N     int
+	Flags uint32
+	Err   error
+}
 
-type OperationKind int
+type pipeRequest struct {
+	fdIn        int
+	offIn       int64
+	fdOut       int
+	offOut      int64
+	nbytes      uint32
+	spliceFlags uint32
+}
 
 const (
-	nop OperationKind = iota
-	acceptOp
-	closeOp
-	receiveOp
-	sendOp
-	sendZCOp
-	receiveFromOp
-	sendToOp
-	receiveMsgOp
-	sendMsgOp
-	sendMsgZcOp
-	spliceOp
-	teeOp
-	cancelOp
+	ReadyOperationStatus int64 = iota
+	ProcessingOperationStatus
+	CompletedOperationStatus
 )
 
+type Operation struct {
+	kind    uint8
+	status  atomic.Int64
+	fd      int
+	b       []byte
+	msg     syscall.Msghdr
+	pipe    pipeRequest
+	ptr     unsafe.Pointer
+	timeout time.Duration
+	ch      chan Result
+}
+
+func (op *Operation) WithTimeout(d time.Duration) *Operation {
+	if d < 1 {
+		return op
+	}
+	op.timeout = d
+	return op
+}
+
 func (op *Operation) PrepareNop() (err error) {
-	op.kind = nop
+	op.kind = iouring.OpNop
 	return
 }
 
-func (op *Operation) PrepareAccept(fd int) {
-	op.kind = acceptOp
+func (op *Operation) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
+	op.kind = iouring.OpAccept
 	op.fd = fd
-	op.msg.Name = (*byte)(unsafe.Pointer(new(syscall.RawSockaddrAny)))
-	op.msg.Namelen = uint32(syscall.SizeofSockaddrAny)
+	op.msg.Name = (*byte)(unsafe.Pointer(addr))
+	op.msg.Namelen = uint32(addrLen)
 	return
 }
 
 func (op *Operation) PrepareReceive(fd int, b []byte) {
-	op.kind = receiveOp
+	op.kind = iouring.OpRecv
 	op.fd = fd
 	op.b = b
 	return
 }
 
 func (op *Operation) PrepareSend(fd int, b []byte) {
-	if sendZCEnable {
-		op.kind = sendZCOp
-	} else {
-		op.kind = sendOp
-	}
+	op.kind = iouring.OpSend
 	op.fd = fd
 	op.b = b
 	return
 }
 
-func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int) {
-	if sendMsgZCEnable {
-		op.kind = sendMsgZcOp
-	} else {
-		op.kind = sendMsgOp
-	}
+func (op *Operation) PrepareSendZC(fd int, b []byte) {
+	op.kind = iouring.OpSendZC
 	op.fd = fd
-	op.SetMsg(b, oob, addr, addrLen, 0)
+	op.b = b
+	return
+}
+
+func (op *Operation) PrepareReceiveMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+	op.kind = iouring.OpRecvmsg
+	op.fd = fd
+	op.setMsg(b, oob, addr, addrLen, flags)
+	return
+}
+
+func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+	op.kind = iouring.OpSendmsg
+	op.fd = fd
+	op.setMsg(b, oob, addr, addrLen, flags)
 	/* todo handle of sotype != syscall.SOCK_DGRAM, 在外面处理
 	if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
 				var dummy byte
@@ -81,41 +105,50 @@ func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.
 	return
 }
 
-type Splice struct {
-	fdIn        int
-	offIn       int64
-	fdOut       int
-	offOut      int64
-	nbytes      uint32
-	spliceFlags uint32
-}
-
-type Operation struct {
-	kind    OperationKind
-	fd      int
-	b       []byte
-	msg     syscall.Msghdr
-	splice  Splice
-	timeout time.Duration
-	done    atomic.Bool
-	ch      chan Result
-}
-
-func (op *Operation) Fd() int {
-	return op.fd
-}
-
-func (op *Operation) SetFd(fd int) {
+func (op *Operation) PrepareSendMsgZC(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+	op.kind = iouring.OpSendMsgZC
 	op.fd = fd
+	op.b = b
+	op.setMsg(b, oob, addr, addrLen, flags)
+	/* todo handle of sotype != syscall.SOCK_DGRAM, 在外面处理
+	if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
+				var dummy byte
+				op.msg.Iov.Base = &dummy
+				op.msg.Iov.Len = uint64(1)
+				op.msg.Iovlen = 1
+			}
+	*/
+	return
 }
 
-func (op *Operation) Kind() OperationKind {
-	return op.kind
+func (op *Operation) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, flags uint32) {
+	op.kind = iouring.OpSplice
+	op.pipe.fdIn = fdIn
+	op.pipe.offIn = offIn
+	op.pipe.fdOut = fdOut
+	op.pipe.offOut = offOut
+	op.pipe.nbytes = nbytes
+	op.pipe.spliceFlags = flags
+}
+
+func (op *Operation) PrepareTee(fdIn int, fdOut int, nbytes uint32, flags uint32) {
+	op.kind = iouring.OpTee
+	op.pipe.fdIn = fdIn
+	op.pipe.fdOut = fdOut
+	op.pipe.nbytes = nbytes
+	op.pipe.spliceFlags = flags
+}
+
+func (op *Operation) PrepareCancel(target *Operation) {
+	op.kind = iouring.OpAsyncCancel
+	op.ptr = unsafe.Pointer(target)
 }
 
 func (op *Operation) reset() {
 	// kind
-	op.kind = nop
+	op.kind = iouring.OpLast
+	// status
+	op.status.Store(ReadyOperationStatus)
 	// fd
 	op.fd = 0
 	// b
@@ -128,29 +161,21 @@ func (op *Operation) reset() {
 	op.msg.Control = nil
 	op.msg.Controllen = 0
 	op.msg.Flags = 0
-	// splice
-	op.splice.fdIn = 0
-	op.splice.offIn = 0
-	op.splice.fdOut = 0
-	op.splice.offOut = 0
-	op.splice.nbytes = 0
-	op.splice.spliceFlags = 0
+	// pipe
+	op.pipe.fdIn = 0
+	op.pipe.offIn = 0
+	op.pipe.fdOut = 0
+	op.pipe.offOut = 0
+	op.pipe.nbytes = 0
+	op.pipe.spliceFlags = 0
 	// timeout
 	op.timeout = 0
-	// done
-	op.done.Store(false)
-	// hijacked
+	// ptr
+	op.ptr = nil
 	return
 }
 
-func (op *Operation) SetTimeout(d time.Duration) {
-	if d < 0 {
-		d = 0
-	}
-	op.timeout = d
-}
-
-func (op *Operation) SetMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) setMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
 	bLen := len(b)
 	oobLen := len(oob)
 	if bLen > 0 {
@@ -191,11 +216,10 @@ func (op *Operation) Flags() int {
 	return int(op.msg.Flags)
 }
 
-func NewOperationQueue(n int) (queue *OperationQueue) {
+func newOperationQueue(n int) (queue *OperationQueue) {
 	if n < 1 {
 		n = 16384
 	}
-	n = RoundupPow2(n)
 	queue = &OperationQueue{
 		head:     atomic.Pointer[OperationQueueNode]{},
 		tail:     atomic.Pointer[OperationQueueNode]{},
@@ -224,10 +248,8 @@ func NewOperationQueue(n int) (queue *OperationQueue) {
 }
 
 type OperationQueueNode struct {
-	//value unsafe.Pointer
 	value atomic.Pointer[Operation]
-	//next  unsafe.Pointer
-	next atomic.Pointer[OperationQueueNode]
+	next  atomic.Pointer[OperationQueueNode]
 }
 
 type OperationQueue struct {

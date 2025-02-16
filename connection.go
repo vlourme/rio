@@ -2,9 +2,8 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/ring"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
-	"github.com/brickingsoft/rxp"
 	"io"
 	"net"
 	"runtime"
@@ -17,23 +16,26 @@ type connection struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	fd           *sys.Fd
+	vortex       *aio.Vortex
 	readTimeout  atomic.Int64
 	writeTimeout atomic.Int64
-	exec         rxp.Executors
-	ring         *ring.Ring
+	useZC        bool
 }
 
 func (conn *connection) Read(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return
 	}
-	r := conn.ring
+
 	ctx := conn.ctx
 	fd := conn.fd.Socket()
-	n, err = r.Receive(ctx, fd, b)
+	vortex := conn.vortex
+
+	future := vortex.PrepareReceive(ctx, fd, b, time.Duration(conn.readTimeout.Load()))
+
+	n, err = future.Await(ctx)
 	if err != nil {
 		err = &net.OpError{Op: "read", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-		// todo make err
 		return
 	}
 	if n == 0 && conn.fd.ZeroReadIsEOF() {
@@ -47,13 +49,19 @@ func (conn *connection) Write(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return
 	}
-	r := conn.ring
 	ctx := conn.ctx
 	fd := conn.fd.Socket()
-	n, err = r.Send(ctx, fd, b)
+	vortex := conn.vortex
+
+	if conn.useZC {
+		future := vortex.PrepareSendZC(ctx, fd, b, time.Duration(conn.readTimeout.Load()))
+		n, err = future.Await(ctx)
+	} else {
+		future := vortex.PrepareSend(ctx, fd, b, time.Duration(conn.readTimeout.Load()))
+		n, err = future.Await(ctx)
+	}
 	if err != nil {
 		err = &net.OpError{Op: "write", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-		// todo make err
 		return
 	}
 	return

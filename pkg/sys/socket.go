@@ -2,6 +2,7 @@ package sys
 
 import (
 	"github.com/brickingsoft/errors"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"golang.org/x/sys/unix"
 	"os"
 	"syscall"
@@ -31,7 +32,14 @@ func NewSocket(family int, sotype int, protocol int) (sock int, err error) {
 			return
 		}
 	}
-	major, minor := KernelVersion()
+	var (
+		major = 0
+		minor = 0
+	)
+	version, _ := kernel.GetKernelVersion()
+	if version != nil {
+		major, minor = version.Major, version.Minor
+	}
 	if major >= 4 && minor >= 14 {
 		_ = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, 1)
 	}

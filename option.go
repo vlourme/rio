@@ -1,21 +1,30 @@
 package rio
 
 import (
-	"github.com/brickingsoft/rxp"
+	"context"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
 	"time"
 )
 
 type Options struct {
+	Ctx                   context.Context
+	VortexesOptions       []aio.Option
 	KeepAlive             time.Duration
 	KeepAliveConfig       net.KeepAliveConfig
 	MultipathTCP          bool
 	FastOpen              int
 	MulticastUDPInterface *net.Interface
-	Executors             rxp.Executors
 }
 
 type Option func(options *Options) (err error)
+
+func WithContext(ctx context.Context) Option {
+	return func(options *Options) (err error) {
+		options.Ctx = ctx
+		return
+	}
+}
 
 func WithKeepAlive(d time.Duration) Option {
 	return func(options *Options) error {
@@ -67,9 +76,9 @@ func WithMulticastUDPInterface(iface *net.Interface) Option {
 	}
 }
 
-func WithExecutors(r rxp.Executors) Option {
-	return func(options *Options) (err error) {
-		options.Executors = r
+func WithAIOOptions(options ...aio.Option) Option {
+	return func(opts *Options) (err error) {
+		opts.VortexesOptions = options
 		return
 	}
 }

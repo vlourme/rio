@@ -2,6 +2,7 @@ package sys
 
 import (
 	"errors"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"sync"
 	"syscall"
 )
@@ -41,7 +42,14 @@ func initMPTCPavailable() {
 	default:
 		mptcpAvailable = true
 	}
-	major, minor := KernelVersion()
+	var (
+		major = 0
+		minor = 0
+	)
+	version, _ := kernel.GetKernelVersion()
+	if version != nil {
+		major, minor = version.Major, version.Minor
+	}
 	hasSOLMPTCP = major > 5 || (major == 5 && minor >= 16)
 }
 

@@ -1357,7 +1357,12 @@ const (
 	// 其中，sq_ring 是使用下述结构 io_sqring_offsets 设置的提交队列环。
 	//
 	// 请注意，在使用 IORING_SETUP_SQPOLL 进行环形设置时，千万不要直接调用 io_uring_enter(2) 系统调用。这通常由 liburing 的 io_uring_submit(3) 函数负责。它会自动判断你是否在使用轮询模式，并在你的程序需要调用 io_uring_enter(2) 时进行处理，无需你费心。
-	// 在 Linux 内核 5.11 版本之前，要成功使用这一功能，应用程序必须使用 IORING_REGISTER_FILES 操作码通过 io_uring_register(2) 注册一组用于 IO 的文件。否则，提交的 IO 将出现 EBADF 错误。可以通过 IORING_FEAT_SQPOLL_NONFIXED 功能标志检测该功能是否存在。在 5.11 及更高版本中，使用此功能不再需要注册文件。如果用户具有 CAP_SYS_NICE 功能，5.11 还允许以非 root 身份使用此功能。在 5.13 中，这一要求也被放宽，在较新的内核中，SQPOLL 不需要特殊权限。某些比 5.13 版本更早的稳定内核也可能支持非特权 SQPOLL。
+	// 在 Linux 内核 5.11 版本之前，要成功使用这一功能，应用程序必须使用 IORING_REGISTER_FILES 操作码通过 io_uring_register(2) 注册一组用于 IO 的文件。
+	// 否则，提交的 IO 将出现 EBADF 错误。可以通过 IORING_FEAT_SQPOLL_NONFIXED 功能标志检测该功能是否存在。
+	// 在 5.11 及更高版本中，使用此功能不再需要注册文件。
+	// 如果用户具有 CAP_SYS_NICE 功能，5.11 还允许以非 root 身份使用此功能。
+	// 在 5.13 中，这一要求也被放宽，在较新的内核中，SQPOLL 不需要特殊权限。
+	// 某些比 5.13 版本更早的稳定内核也可能支持非特权 SQPOLL。
 	SetupSQPoll
 	// SetupSQAff
 	// 如果指定了这个标志，那么轮询线程将绑定到结构 io_uring_params 的 sq_thread_cpu 字段中设置的 cpu。该标志只有在指定 IORING_SETUP_SQPOLL 时才有意义。

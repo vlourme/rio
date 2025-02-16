@@ -2,6 +2,7 @@ package sys
 
 import (
 	"bufio"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"os"
 	"strings"
 	"sync"
@@ -91,7 +92,14 @@ func maxListenerBacklog() int {
 }
 
 func maxAckBacklog(n int) int {
-	major, minor := KernelVersion()
+	var (
+		major = 0
+		minor = 0
+	)
+	version, _ := kernel.GetKernelVersion()
+	if version != nil {
+		major, minor = version.Major, version.Minor
+	}
 	size := 16
 	if major > 4 || (major == 4 && minor >= 1) {
 		size = 32
