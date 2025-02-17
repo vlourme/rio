@@ -9,6 +9,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
 	"net"
+	"os"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -38,15 +39,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if addr == nil {
 		addr = &net.TCPAddr{}
 	}
-	sysLn, sysErr := sys.NewListener(network, addr.String())
-	if sysErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: sysErr}
-	}
-
-	fd, fdErr := sysLn.Listen(sys.ListenOptions{
-		MultipathTCP: lc.MultipathTCP,
-		FastOpen:     lc.FastOpen,
-	})
+	fd, fdErr := newTCPListener(network, addr, lc.FastOpen, lc.MultipathTCP)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -176,6 +169,74 @@ func (ln *TCPListener) checkUseSendZC() {
 			ln.useSendZC = false
 		}
 	}
+}
+
+func newTCPListener(network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool) (fd *sys.Fd, err error) {
+	resloved, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
+	if addrErr != nil {
+		err = addrErr
+		return
+	}
+	// proto
+	proto := syscall.IPPROTO_TCP
+	if multipathTCP {
+		if mp, ok := sys.TryGetMultipathTCPProto(); ok {
+			proto = mp
+		}
+	}
+	// fd
+	sock, sockErr := sys.NewSocket(family, syscall.SOCK_STREAM, proto)
+	if sockErr != nil {
+		err = sockErr
+		return
+	}
+	fd = sys.NewFd(network, sock, family, syscall.SOCK_STREAM)
+	// ipv6
+	if ipv6only {
+		if err = fd.SetIpv6only(true); err != nil {
+			_ = fd.Close()
+			return
+		}
+	}
+	// reuse addr
+	if err = fd.AllowReuseAddr(); err != nil {
+		_ = fd.Close()
+		return
+	}
+	// fast open
+	if err = fd.AllowFastOpen(fastOpen); err != nil {
+		_ = fd.Close()
+		return
+	}
+	// defer accept
+	if err = syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
+		_ = fd.Close()
+		err = os.NewSyscallError("setsockopt", err)
+		return
+	}
+	// bind
+	if err = fd.Bind(resloved); err != nil {
+		_ = fd.Close()
+		return
+	}
+	// listen
+	backlog := sys.MaxListenerBacklog()
+	if err = syscall.Listen(sock, backlog); err != nil {
+		_ = fd.Close()
+		err = os.NewSyscallError("listen", err)
+		return
+	}
+	// set socket addr
+	if sn, getSockNameErr := syscall.Getsockname(sock); getSockNameErr == nil {
+		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
+			fd.SetLocalAddr(sockname)
+		} else {
+			fd.SetLocalAddr(resloved)
+		}
+	} else {
+		fd.SetLocalAddr(resloved)
+	}
+	return
 }
 
 type TCPConn struct {

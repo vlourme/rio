@@ -19,7 +19,7 @@ var (
 	hasSOLMPTCP    bool
 )
 
-func tryGetMultipathTCPProto() (int, bool) {
+func TryGetMultipathTCPProto() (int, bool) {
 	if supportsMultipathTCP() {
 		return _IPPROTO_MPTCP, true
 	}

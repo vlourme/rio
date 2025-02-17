@@ -62,7 +62,7 @@ func dtoi(s string) (n int, i int, ok bool) {
 	return n, i, true
 }
 
-func maxListenerBacklog() int {
+func MaxListenerBacklog() int {
 	backlogOnce.Do(func() {
 		fd, err := os.Open("/proc/sys/net/core/somaxconn")
 		if err != nil {
