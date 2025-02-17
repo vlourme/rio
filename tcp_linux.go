@@ -14,89 +14,17 @@ import (
 	"time"
 )
 
-type tcpConnection struct {
-	connection
-}
-
-func (conn *tcpConnection) SyscallConn() (syscall.RawConn, error) {
-	return newRawConnection(conn.fd), nil
-}
-
-func (conn *tcpConnection) ReadFrom(r io.Reader) (int64, error) {
-	return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
-}
-
-func (conn *tcpConnection) WriteTo(w io.Writer) (int64, error) {
-	return 0, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
-}
-
-func (conn *tcpConnection) CloseRead() error {
-	if err := conn.fd.CloseRead(); err != nil {
-		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
+	config := ListenConfig{
+		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
 	}
-	return nil
+	ctx := context.Background()
+	return config.ListenTCP(ctx, network, addr)
 }
 
-func (conn *tcpConnection) CloseWrite() error {
-	if err := conn.fd.CloseWrite(); err != nil {
-		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-	}
-	return nil
-}
-
-func (conn *tcpConnection) SetLinger(sec int) error {
-	if err := conn.fd.SetLinger(sec); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-	}
-	return nil
-}
-
-func (conn *tcpConnection) SetNoDelay(noDelay bool) error {
-	if err := conn.fd.SetNoDelay(noDelay); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-	}
-	return nil
-}
-
-func (conn *tcpConnection) SetKeepAlive(keepalive bool) error {
-	if err := conn.fd.SetKeepAlive(keepalive); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-	}
-	return nil
-}
-
-func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) error {
-	if err := conn.fd.SetKeepAlivePeriod(period); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-	}
-	return nil
-}
-
-func (conn *tcpConnection) SetKeepAliveConfig(config net.KeepAliveConfig) error {
-	if err := conn.fd.SetKeepAliveConfig(config); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
-	}
-	return nil
-}
-
-func (conn *tcpConnection) MultipathTCP() (bool, error) {
-	ok := sys.IsUsingMultipathTCP(conn.fd)
-	return ok, nil
-}
-
-func ListenTCP(network string, addr *net.TCPAddr, options ...ListenOption) (*TCPListener, error) {
-	opts := ListenOptions{}
-	for _, o := range options {
-		if err := o(&opts); err != nil {
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-	}
+func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
 	// vortexes
-	vortexesOptions := opts.VortexesOptions
-	if vortexesOptions == nil {
-		vortexesOptions = make([]aio.Option, 0)
-	}
-	vortexes, vortexesErr := aio.New(vortexesOptions...)
+	vortexes, vortexesErr := aio.New(lc.VortexesOptions...)
 	if vortexesErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexesErr}
 	}
@@ -114,23 +42,17 @@ func ListenTCP(network string, addr *net.TCPAddr, options ...ListenOption) (*TCP
 	if sysErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: sysErr}
 	}
-	lnOpts := make([]sys.ListenOption, 0, 1)
-	if opts.MultipathTCP {
-		lnOpts = append(lnOpts, sys.UseMultipath())
-	}
-	if n := opts.FastOpen; n > 0 {
-		lnOpts = append(lnOpts, sys.UseFastOpen(n))
-	}
-	fd, fdErr := sysLn.Listen(lnOpts...)
+
+	fd, fdErr := sysLn.Listen(sys.ListenOptions{
+		MultipathTCP: lc.MultipathTCP,
+		FastOpen:     lc.FastOpen,
+	})
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// ctx
-	rootCtx := opts.Ctx
-	if rootCtx == nil {
-		rootCtx = context.Background()
-	}
-	ctx, cancel := context.WithCancel(rootCtx)
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
 	// vortexes start
 	vortexes.Start(ctx)
 	// ln
@@ -139,9 +61,9 @@ func ListenTCP(network string, addr *net.TCPAddr, options ...ListenOption) (*TCP
 		cancel:          cancel,
 		fd:              fd,
 		vortexes:        vortexes,
-		useSendZC:       opts.UseSendZC,
-		keepAlive:       opts.KeepAlive,
-		keepAliveConfig: opts.KeepAliveConfig,
+		useSendZC:       lc.UseSendZC,
+		keepAlive:       lc.KeepAlive,
+		keepAliveConfig: lc.KeepAliveConfig,
 	}
 	ln.checkUseSendZC()
 	return ln, nil
@@ -193,7 +115,7 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	// tcp conn
 	side := vortexes.Side()
 	cc, cancel := context.WithCancel(ctx)
-	tcpConn := &tcpConnection{
+	tcpConn := &TCPConn{
 		connection{
 			ctx:          cc,
 			cancel:       cancel,
@@ -254,4 +176,74 @@ func (ln *TCPListener) checkUseSendZC() {
 			ln.useSendZC = false
 		}
 	}
+}
+
+type TCPConn struct {
+	connection
+}
+
+func (conn *TCPConn) SyscallConn() (syscall.RawConn, error) {
+	return newRawConnection(conn.fd), nil
+}
+
+func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
+	return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+}
+
+func (conn *TCPConn) WriteTo(w io.Writer) (int64, error) {
+	return 0, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+}
+
+func (conn *TCPConn) CloseRead() error {
+	if err := conn.fd.CloseRead(); err != nil {
+		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) CloseWrite() error {
+	if err := conn.fd.CloseWrite(); err != nil {
+		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) SetLinger(sec int) error {
+	if err := conn.fd.SetLinger(sec); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) SetNoDelay(noDelay bool) error {
+	if err := conn.fd.SetNoDelay(noDelay); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) SetKeepAlive(keepalive bool) error {
+	if err := conn.fd.SetKeepAlive(keepalive); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) SetKeepAlivePeriod(period time.Duration) error {
+	if err := conn.fd.SetKeepAlivePeriod(period); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) SetKeepAliveConfig(config net.KeepAliveConfig) error {
+	if err := conn.fd.SetKeepAliveConfig(config); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *TCPConn) MultipathTCP() (bool, error) {
+	ok := sys.IsUsingMultipathTCP(conn.fd)
+	return ok, nil
 }

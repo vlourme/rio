@@ -12,24 +12,6 @@ type ListenOptions struct {
 	FastOpen     int
 }
 
-type ListenOption func(options *ListenOptions) (err error)
-
-func UseMultipath() ListenOption {
-	return func(options *ListenOptions) (err error) {
-		options.MultipathTCP = true
-		return nil
-	}
-}
-
-func UseFastOpen(n int) ListenOption {
-	return func(options *ListenOptions) (err error) {
-		if n > 1 {
-			options.FastOpen = n
-		}
-		return nil
-	}
-}
-
 func NewListener(network string, address string) (*Listener, error) {
 	addr, family, ipv6only, addrErr := ResolveAddr(network, address)
 	if addrErr != nil {
@@ -52,24 +34,18 @@ type Listener struct {
 	addr     net.Addr
 }
 
-func (ln *Listener) Listen(options ...ListenOption) (fd *Fd, err error) {
-	opts := ListenOptions{}
-	for _, opt := range options {
-		if err = opt(&opts); err != nil {
-			return
-		}
-	}
+func (ln *Listener) Listen(options ListenOptions) (fd *Fd, err error) {
 	switch ln.addr.(type) {
 	case *net.TCPAddr:
-		fd, err = ln.listenTCP(opts)
+		fd, err = ln.listenTCP(options)
 		break
 	case *net.UnixAddr:
-		fd, err = ln.listenUnix(opts)
+		fd, err = ln.listenUnix(options)
 		break
 	case *net.UDPAddr:
-		fd, err = ln.listenUdp(opts)
+		fd, err = ln.listenUdp(options)
 	case *net.IPAddr:
-		fd, err = ln.listenIp(opts)
+		fd, err = ln.listenIp(options)
 		break
 	default:
 		err = &net.AddrError{Err: "unexpected address type", Addr: ln.addr.String()}
@@ -137,7 +113,7 @@ func (ln *Listener) listenTCP(options ListenOptions) (fd *Fd, err error) {
 	return
 }
 
-func (ln *Listener) listenUnix(opts ListenOptions) (fd *Fd, err error) {
+func (ln *Listener) listenUnix(_ ListenOptions) (fd *Fd, err error) {
 	sotype := 0
 	switch ln.network {
 	case "unix":
