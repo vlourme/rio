@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"runtime"
 	"time"
 )
@@ -101,7 +102,27 @@ func WithWaitCQEBatches(batches []uint32) Option {
 	}
 }
 
+const (
+	minKernelVersionMajor = 5
+	minKernelVersionMinor = 1
+)
+
 func New(options ...Option) (v *Vortexes, err error) {
+	ver, verErr := kernel.GetKernelVersion()
+	if verErr != nil {
+		return nil, verErr
+	}
+	target := kernel.Version{
+		Kernel: ver.Kernel,
+		Major:  minKernelVersionMajor,
+		Minor:  minKernelVersionMinor,
+		Flavor: ver.Flavor,
+	}
+
+	if kernel.CompareKernelVersion(*ver, target) < 0 {
+		return nil, errors.New("kernel version too low")
+	}
+
 	opt := Options{}
 	for _, option := range options {
 		if err = option(&opt); err != nil {

@@ -13,6 +13,7 @@ type ListenOptions struct {
 	MultipathTCP    bool
 	FastOpen        int
 	Ctx             context.Context
+	UseSendZC       bool
 	VortexesOptions []aio.Option
 }
 
@@ -66,6 +67,17 @@ func WithFastOpen(n int) ListenOption {
 	}
 }
 
+// WithUseSendZC
+// 设置是否使用 SendZC 选项。
+func WithUseSendZC(use bool) ListenOption {
+	return func(options *ListenOptions) error {
+		options.UseSendZC = use
+		return nil
+	}
+}
+
+// WithAIOOptions
+// 设置 AIO 选项。
 func WithAIOOptions(options ...aio.Option) ListenOption {
 	return func(opts *ListenOptions) (err error) {
 		opts.VortexesOptions = options
@@ -74,11 +86,6 @@ func WithAIOOptions(options ...aio.Option) ListenOption {
 }
 
 // *********************************************************************************************************************
-
-type ListenPacketOptions struct {
-	Options
-	MulticastUDPInterface *net.Interface
-}
 
 // ListenPacket
 // 监听包

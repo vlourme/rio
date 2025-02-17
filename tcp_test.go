@@ -4,15 +4,7 @@ import (
 	"testing"
 )
 
-func TestListenTCP(t *testing.T) {
-
-}
-
 func TestTCP(t *testing.T) {
-
-}
-
-func TestTcpConnection_Sendfile(t *testing.T) {
 
 }
 

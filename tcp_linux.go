@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
 	"net"
@@ -134,11 +135,15 @@ func ListenTCP(network string, addr *net.TCPAddr, options ...ListenOption) (*TCP
 	vortexes.Start(ctx)
 	// ln
 	ln := &TCPListener{
-		ctx:      ctx,
-		cancel:   cancel,
-		fd:       fd,
-		vortexes: vortexes,
+		ctx:             ctx,
+		cancel:          cancel,
+		fd:              fd,
+		vortexes:        vortexes,
+		useSendZC:       opts.UseSendZC,
+		keepAlive:       opts.KeepAlive,
+		keepAliveConfig: opts.KeepAliveConfig,
 	}
+	ln.checkUseSendZC()
 	return ln, nil
 }
 
@@ -147,6 +152,7 @@ type TCPListener struct {
 	cancel          context.CancelFunc
 	fd              *sys.Fd
 	vortexes        *aio.Vortexes
+	useSendZC       bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
 }
@@ -192,6 +198,7 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 			ctx:          cc,
 			cancel:       cancel,
 			fd:           cfd,
+			useZC:        ln.useSendZC,
 			vortex:       side,
 			readTimeout:  atomic.Int64{},
 			writeTimeout: atomic.Int64{},
@@ -228,4 +235,23 @@ func (ln *TCPListener) Close() error {
 
 func (ln *TCPListener) Addr() net.Addr {
 	return ln.fd.LocalAddr()
+}
+
+func (ln *TCPListener) checkUseSendZC() {
+	if ln.useSendZC {
+		ver, verErr := kernel.GetKernelVersion()
+		if verErr != nil {
+			ln.useSendZC = false
+			return
+		}
+		target := kernel.Version{
+			Kernel: ver.Kernel,
+			Major:  6,
+			Minor:  0,
+			Flavor: ver.Flavor,
+		}
+		if kernel.CompareKernelVersion(*ver, target) < 0 {
+			ln.useSendZC = false
+		}
+	}
 }
