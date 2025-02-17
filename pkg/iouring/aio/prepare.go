@@ -10,25 +10,7 @@ import (
 )
 
 func (vortex *Vortex) PrepareOperation(ctx context.Context, op *Operation) Future {
-	stopped := false
-	for {
-		select {
-		case <-ctx.Done():
-			return Future{err: ctx.Err()}
-		default:
-			if pushed := vortex.queue.Enqueue(op); pushed {
-				stopped = true
-			}
-			break
-		}
-		if stopped {
-			break
-		}
-	}
-	return Future{
-		vortex: vortex,
-		op:     op,
-	}
+	return vortex.prepareOperation(ctx, op)
 }
 
 func (vortex *Vortex) PrepareAccept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) Future {
@@ -169,6 +151,7 @@ func (vortex *Vortex) prepareSQE(op *Operation) (bool, error) {
 	case iouring.OpAsyncCancel:
 		ptr := op.ptr
 		sqe.PrepareCancel(uintptr(ptr), 0)
+		vortex.hijackedOps.Delete(op)
 		break
 	default:
 		sqe.PrepareNop()

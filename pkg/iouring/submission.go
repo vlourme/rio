@@ -659,7 +659,7 @@ func (entry *SubmissionQueueEntry) setTargetFixedFile(fileIndex uint32) {
 const (
 	SQNeedWakeup uint32 = 1 << iota
 	SQCQOverflow
-	SQTaskrun
+	SQTaskRun
 )
 
 type SQRingOffsets struct {

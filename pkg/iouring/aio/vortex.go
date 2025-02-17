@@ -34,8 +34,9 @@ func newVortex(entries uint32, flags uint32, features uint32, waitCQETimeout tim
 	if ringErr != nil {
 		return nil, ringErr
 	}
+	sqEntries := ring.SQEntries()
 	// queue
-	queue := newOperationQueue(int(entries))
+	queue := newOperationQueue(int(sqEntries))
 	// vortex
 	v = &Vortex{
 		ring:           ring,
@@ -46,7 +47,9 @@ func newVortex(entries uint32, flags uint32, features uint32, waitCQETimeout tim
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
-					ch: make(chan Result, 1),
+					kind:     iouring.OpLast,
+					borrowed: true,
+					ch:       make(chan Result, 1),
 				}
 			},
 		},
@@ -77,15 +80,19 @@ type Vortex struct {
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 	if target.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) || target.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
-		op := Operation{} // do not make ch cause no userdata
+		op := &Operation{} // do not make ch cause no userdata
 		op.PrepareCancel(target)
 		pushed := false
 		for i := 0; i < 10; i++ {
-			if pushed = vortex.queue.Enqueue(&op); pushed {
+			if pushed = vortex.queue.Enqueue(op); pushed {
+				time.Sleep(ns500)
 				break
 			}
 		}
-		if !pushed { // hijacked
+		runtime.KeepAlive(op)
+		if pushed { // hijacked op
+			vortex.hijackedOps.Store(op, struct{}{})
+		} else { // hijacked target
 			vortex.hijackedOps.Store(target, struct{}{})
 		}
 		ok = true
@@ -112,8 +119,10 @@ func (vortex *Vortex) acquireOperation() *Operation {
 }
 
 func (vortex *Vortex) releaseOperation(op *Operation) {
-	op.reset()
-	vortex.operations.Put(op)
+	if op.borrowed {
+		op.reset()
+		vortex.operations.Put(op)
+	}
 }
 
 func (vortex *Vortex) acquireTimer(duration time.Duration) *time.Timer {
@@ -192,6 +201,7 @@ func (vortex *Vortex) start(ctx context.Context) {
 							_, submitErr := ring.Submit()
 							if submitErr != nil {
 								if errors.Is(submitErr, syscall.EAGAIN) || errors.Is(submitErr, syscall.EINTR) || errors.Is(submitErr, syscall.ETIME) {
+									time.Sleep(ns500)
 									continue
 								}
 								break

@@ -39,6 +39,8 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 		return syscall.EINVAL
 	}
 
+	entries = roundupPow2(entries)
+
 	if params.flags&SetupNoMmap != 0 {
 		_, err = allocHuge(entries, params, ring.sqRing, ring.cqRing, buf, bufSize)
 		if err != nil {
@@ -53,7 +55,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	if errno != 0 {
 		if params.flags&SetupNoMmap != 0 && ring.kind&appMemRing == 0 {
 			_ = munmap(uintptr(unsafe.Pointer(ring.sqRing.sqes)), 1)
-			UnmapRings(ring.sqRing, ring.cqRing)
+			unmapRings(ring.sqRing, ring.cqRing)
 		}
 
 		return errno
@@ -61,7 +63,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	fd = int(fdPtr)
 
 	if params.flags&SetupNoMmap == 0 {
-		err = MmapRing(fd, params, ring.sqRing, ring.cqRing)
+		err = mmapRing(fd, params, ring.sqRing, ring.cqRing)
 		if err != nil {
 			_ = syscall.Close(fd)
 			return err

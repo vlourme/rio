@@ -170,6 +170,10 @@ func (ring *Ring) GetEvents() (uint, error) {
 	return ring.Enter(0, 0, flags, nil)
 }
 
+func (ring *Ring) CQEntries() uint32 {
+	return *ring.cqRing.ringEntries
+}
+
 func (ring *Ring) CQReady() uint32 {
 	return atomic.LoadUint32(ring.cqRing.tail) - *ring.cqRing.head
 }
@@ -256,7 +260,7 @@ func peekCQE(ring *Ring, nrAvailable *uint32) (*CompletionQueueEvent, error) {
 }
 
 func (ring *Ring) cqRingNeedsFlush() bool {
-	return atomic.LoadUint32(ring.sqRing.flags)&(SQCQOverflow|SQTaskrun) != 0
+	return atomic.LoadUint32(ring.sqRing.flags)&(SQCQOverflow|SQTaskRun) != 0
 }
 
 func (ring *Ring) cqRingNeedsEnter() bool {

@@ -26,6 +26,10 @@ func (ring *Ring) GetSQE() *SubmissionQueueEntry {
 	return nil
 }
 
+func (ring *Ring) SQEntries() uint32 {
+	return *ring.sqRing.ringEntries
+}
+
 func (ring *Ring) SQReady() uint32 {
 	khead := *ring.sqRing.head
 	if ring.flags&SetupSQPoll != 0 {

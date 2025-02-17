@@ -38,7 +38,8 @@ const (
 	// 某些比 5.13 版本更早的稳定内核也可能支持非特权 SQPOLL。
 	SetupSQPoll
 	// SetupSQAff
-	// 如果指定了这个标志，那么轮询线程将绑定到结构 io_uring_params 的 sq_thread_cpu 字段中设置的 cpu。该标志只有在指定 IORING_SETUP_SQPOLL 时才有意义。
+	// 如果指定了这个标志，那么轮询线程将绑定到结构 io_uring_params 的 sq_thread_cpu 字段中设置的 cpu。
+	// 该标志只有在指定 IORING_SETUP_SQPOLL 时才有意义。
 	// 当 cgroup 设置 cpuset.cpus 发生变化时（通常是在容器环境中），绑定的 cpu 集也会发生变化。
 	SetupSQAff
 	// SetupCQSize
@@ -68,13 +69,13 @@ const (
 	// 这是为了确保完成任务及时运行。
 	// 对于很多用例来说，这样做有些矫枉过正，会导致性能下降，包括用于中断的处理器间中断、内核/用户转换、对任务用户空间活动的无谓中断，以及如果完成事件来得太快，批处理能力下降。
 	// 大多数应用程序不需要强制中断，因为事件会在任何内核/用户转换时得到处理。
-	// 【例外情况是，应用程序使用多个线程在同一环上运行，在这种情况下，等待完成的应用程序并不是提交完成的应用程序。】
-	// 【对于大多数其他使用情况，设置此标志将提高性能。自 5.19 版起可用。】
+	// 例外情况是，应用程序使用多个线程在同一环上运行，在这种情况下，等待完成的应用程序并不是提交完成的应用程序。
+	// 对于大多数其他使用情况，设置此标志将提高性能。自 5.19 版起可用。
 	SetupCoopTaskRun
 	// SetupTaskRunFlag
 	// 与 IORING_SETUP_COOP_TASKRUN 结合使用，它提供了一个标志 IORING_SQ_TASKRUN，
 	// 每当有应该处理的完成等待时，它就会在 SQ 环标志中被设置。即使在执行 io_uring_peek_cqe(3) 时，
-	// liburing 也会检查该标志，并进入内核处理它们，应用程序也可以这样做。
+	// uring 也会检查该标志，并进入内核处理它们，应用程序也可以这样做。
 	// 这使得 IORING_SETUP_TASKRUN_FLAG 可以安全使用，即使应用程序依赖于 CQ 环上的偷看式操作来查看是否有任何待收获。自 5.19 版起可用。
 	SetupTaskRunFlag
 	// SetupSQE128
@@ -153,7 +154,8 @@ const (
 	// 如果设置了这个标志，那么 io_uring 将保证同步和异步执行请求时，都使用调用 io_uring_enter(2) 对请求进行排队的任务的凭据。
 	// 如果未设置该标记，则会使用最初注册 io_uring 的任务的凭据发出请求。
 	// 如果只有一个任务在使用一个环，那么这个标志并不重要，因为凭据始终是相同的。
-	// 请注意，这是默认行为，任务仍然可以通过 io_uring_register(2) 以 IORING_REGISTER_PERSONALITY 注册不同的个性，并在 sqe 中指定要使用的个性。自内核 5.6 起可用。
+	// 请注意，这是默认行为，任务仍然可以通过 io_uring_register(2) 以 IORING_REGISTER_PERSONALITY 注册不同的个性，并在 sqe 中指定要使用的个性。
+	// 自内核 5.6 起可用。
 	FeatCurPersonality
 	// FeatFastPoll
 	// 如果设置了这个标志，那么 io_uring 将支持使用内部轮询机制来驱动数据/空间就绪。
@@ -166,7 +168,8 @@ const (
 	// 最值得注意的是 EPOLLEXCLUSIVE，它允许独占（唤醒单个等待者）行为。自内核 5.9 起可用。
 	FeatPoll32Bits
 	// FeatSQPollNonfixed
-	// 如果设置了该标志，IORING_SETUP_SQPOLL 功能就不再需要使用固定文件。任何普通文件描述符都可用于 IO 命令，无需注册。自内核 5.11 起可用。
+	// 如果设置了该标志，IORING_SETUP_SQPOLL 功能就不再需要使用固定文件。任何普通文件描述符都可用于 IO 命令，无需注册。
+	// 自内核 5.11 起可用。
 	FeatSQPollNonfixed
 	// FeatExtArg
 	// 如果设置了这个标志，io_uring_enter(2) 系统调用就支持传递一个扩展参数，而不仅仅是早期内核的 sigset_t。
@@ -221,60 +224,6 @@ const (
 	DefaultEntries = MaxEntries / 2
 )
 
-type Options struct {
-	Entries  uint32
-	Flags    uint32
-	Features uint32
-	Buffer   []byte
-	Params   *Params
-}
-
-type Option func(*Options) (err error)
-
-func WithEntries(entries int) Option {
-	return func(opts *Options) error {
-		if entries > MaxEntries {
-			return errors.New("entries too big")
-		}
-		if entries < 0 {
-			entries = DefaultEntries
-		}
-		opts.Entries = uint32(entries)
-		return nil
-	}
-}
-
-func WithFlags(flags uint32) Option {
-	return func(opts *Options) error {
-		opts.Flags = flags
-		return nil
-	}
-}
-
-func WithFeatures(features uint32) Option {
-	return func(opts *Options) error {
-		opts.Features = features
-		return nil
-	}
-}
-
-func WithMemoryBuffer(buffer []byte) Option {
-	return func(opts *Options) error {
-		if len(buffer) == 0 {
-			return errors.New("buffer is empty")
-		}
-		opts.Buffer = buffer
-		return nil
-	}
-}
-
-func WithParams(params *Params) Option {
-	return func(opts *Options) error {
-		opts.Params = params
-		return nil
-	}
-}
-
 func New(entries uint32, flags uint32, features uint32, memoryBuffer []byte) (ring *Ring, err error) {
 	if entries > MaxEntries {
 		err = errors.New("entries too big")
@@ -328,10 +277,10 @@ func (ring *Ring) Close() (err error) {
 			sqeSize += 64
 		}
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), sqeSize*uintptr(*sq.ringEntries))
-		UnmapRings(sq, cq)
+		unmapRings(sq, cq)
 	} else if ring.kind&appMemRing == 0 {
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), uintptr(*sq.ringEntries)*unsafe.Sizeof(SubmissionQueueEntry{}))
-		UnmapRings(sq, cq)
+		unmapRings(sq, cq)
 	}
 
 	if ring.kind&regRing != 0 {
@@ -351,19 +300,19 @@ func (ring *Ring) EnableRings() (uint, error) {
 	return ring.doRegister(RegisterEnableRings, unsafe.Pointer(nil), 0)
 }
 
-func (ring *Ring) CloseFd() (uint, error) {
+func (ring *Ring) CloseFd() error {
 	if ring.features&FeatRegRegRing == 0 {
-		return 0, syscall.EOPNOTSUPP
+		return syscall.EOPNOTSUPP
 	}
-	if (ring.kind & regRing) == 0 {
-		return 0, syscall.EINVAL
+	if ring.kind&regRing == 0 {
+		return syscall.EINVAL
 	}
 	if ring.ringFd == -1 {
-		return 0, syscall.EBADF
+		return syscall.EBADF
 	}
 	_ = syscall.Close(ring.ringFd)
 	ring.ringFd = -1
-	return 1, nil
+	return nil
 }
 
 func (ring *Ring) Probe() (*Probe, error) {

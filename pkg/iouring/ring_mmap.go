@@ -34,7 +34,7 @@ const (
 	offMmapMask  uint64 = 0xf8000000
 )
 
-func MmapRing(fd int, p *Params, sq *SubmissionQueue, cq *CompletionQueue) error {
+func mmapRing(fd int, p *Params, sq *SubmissionQueue, cq *CompletionQueue) error {
 	var size uintptr
 	var err error
 
@@ -53,48 +53,43 @@ func MmapRing(fd int, p *Params, sq *SubmissionQueue, cq *CompletionQueue) error
 		cq.ringSize = sq.ringSize
 	}
 
-	var ringPtr unsafe.Pointer
-	ringPtr, err = mmap(0, uintptr(sq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
+	sq.ringPtr, err = mmap(0, uintptr(sq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
 		syscall.MAP_SHARED|syscall.MAP_POPULATE, fd,
 		int64(offsqRing))
 	if err != nil {
 		return err
 	}
-	sq.ringPtr = unsafe.Pointer(ringPtr)
 
 	if p.features&FeatSingleMMap != 0 {
 		cq.ringPtr = sq.ringPtr
 	} else {
-		ringPtr, err = mmap(0, uintptr(cq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
+		cq.ringPtr, err = mmap(0, uintptr(cq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
 			syscall.MAP_SHARED|syscall.MAP_POPULATE, fd,
 			int64(offcqRing))
 		if err != nil {
 			cq.ringPtr = nil
-
-			goto err
+			unmapRings(sq, cq)
+			return err
 		}
-		cq.ringPtr = ringPtr
 	}
 
 	size = unsafe.Sizeof(SubmissionQueueEntry{})
 	if p.flags&SetupSQE128 != 0 {
 		size += 64
 	}
-	ringPtr, err = mmap(0, size*uintptr(p.sqEntries), syscall.PROT_READ|syscall.PROT_WRITE,
+	sqesPtr, sqesMmapErr := mmap(0, size*uintptr(p.sqEntries), syscall.PROT_READ|syscall.PROT_WRITE,
 		syscall.MAP_SHARED|syscall.MAP_POPULATE, fd, int64(offSQEs))
-	if err != nil {
-		goto err
+	if sqesMmapErr != nil {
+		err = sqesMmapErr
+		unmapRings(sq, cq)
+		return err
 	}
-	sq.sqes = (*SubmissionQueueEntry)(ringPtr)
+	sq.sqes = (*SubmissionQueueEntry)(sqesPtr)
 	setupRingPointers(p, sq, cq)
 	return nil
-
-err:
-	UnmapRings(sq, cq)
-	return err
 }
 
-func UnmapRings(sq *SubmissionQueue, cq *CompletionQueue) {
+func unmapRings(sq *SubmissionQueue, cq *CompletionQueue) {
 	if sq.ringSize > 0 {
 		_ = munmap(uintptr(sq.ringPtr), uintptr(sq.ringSize))
 	}

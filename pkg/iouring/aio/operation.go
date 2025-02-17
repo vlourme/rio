@@ -2,6 +2,7 @@ package aio
 
 import (
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -29,16 +30,24 @@ const (
 	CompletedOperationStatus
 )
 
+func NewOperation() *Operation {
+	return &Operation{
+		kind: iouring.OpLast,
+		ch:   make(chan Result, 1),
+	}
+}
+
 type Operation struct {
-	kind    uint8
-	status  atomic.Int64
-	fd      int
-	b       []byte
-	msg     syscall.Msghdr
-	pipe    pipeRequest
-	ptr     unsafe.Pointer
-	timeout time.Duration
-	ch      chan Result
+	kind     uint8
+	borrowed bool
+	status   atomic.Int64
+	fd       int
+	b        []byte
+	msg      syscall.Msghdr
+	pipe     pipeRequest
+	ptr      unsafe.Pointer
+	timeout  time.Duration
+	ch       chan Result
 }
 
 func (op *Operation) WithTimeout(d time.Duration) *Operation {
@@ -218,7 +227,7 @@ func (op *Operation) Flags() int {
 
 func newOperationQueue(n int) (queue *OperationQueue) {
 	if n < 1 {
-		n = 16384
+		n = iouring.DefaultEntries
 	}
 	queue = &OperationQueue{
 		head:     atomic.Pointer[OperationQueueNode]{},
@@ -273,6 +282,7 @@ func (queue *OperationQueue) Enqueue(op *Operation) (ok bool) {
 			break
 		}
 	}
+	runtime.KeepAlive(op)
 	return
 }
 
