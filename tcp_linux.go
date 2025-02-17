@@ -6,9 +6,82 @@ import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
+	"io"
 	"net"
+	"sync/atomic"
 	"syscall"
+	"time"
 )
+
+type tcpConnection struct {
+	connection
+}
+
+func (conn *tcpConnection) SyscallConn() (syscall.RawConn, error) {
+	return newRawConnection(conn.fd), nil
+}
+
+func (conn *tcpConnection) ReadFrom(r io.Reader) (int64, error) {
+	return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+}
+
+func (conn *tcpConnection) WriteTo(w io.Writer) (int64, error) {
+	return 0, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+}
+
+func (conn *tcpConnection) CloseRead() error {
+	if err := conn.fd.CloseRead(); err != nil {
+		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) CloseWrite() error {
+	if err := conn.fd.CloseWrite(); err != nil {
+		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetLinger(sec int) error {
+	if err := conn.fd.SetLinger(sec); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetNoDelay(noDelay bool) error {
+	if err := conn.fd.SetNoDelay(noDelay); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetKeepAlive(keepalive bool) error {
+	if err := conn.fd.SetKeepAlive(keepalive); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetKeepAlivePeriod(period time.Duration) error {
+	if err := conn.fd.SetKeepAlivePeriod(period); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) SetKeepAliveConfig(config net.KeepAliveConfig) error {
+	if err := conn.fd.SetKeepAliveConfig(config); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *tcpConnection) MultipathTCP() (bool, error) {
+	ok := sys.IsUsingMultipathTCP(conn.fd)
+	return ok, nil
+}
 
 func ListenTCP(network string, addr *net.TCPAddr, options ...Option) (*TCPListener, error) {
 	opts := Options{}
@@ -70,10 +143,12 @@ func ListenTCP(network string, addr *net.TCPAddr, options ...Option) (*TCPListen
 }
 
 type TCPListener struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	fd       *sys.Fd
-	vortexes *aio.Vortexes
+	ctx             context.Context
+	cancel          context.CancelFunc
+	fd              *sys.Fd
+	vortexes        *aio.Vortexes
+	keepAlive       time.Duration
+	keepAliveConfig net.KeepAliveConfig
 }
 
 func (ln *TCPListener) Accept() (conn net.Conn, err error) {
@@ -109,10 +184,34 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
 
-	// todo setup keep alive
-	// conn
+	// tcp conn
 	side := vortexes.Side()
-	conn = newTcpConnection(ctx, side, cfd)
+	cc, cancel := context.WithCancel(ctx)
+	tcpConn := &tcpConnection{
+		connection{
+			ctx:          cc,
+			cancel:       cancel,
+			fd:           cfd,
+			vortex:       side,
+			readTimeout:  atomic.Int64{},
+			writeTimeout: atomic.Int64{},
+		},
+	}
+	// no delay
+	_ = tcpConn.SetNoDelay(true)
+	// keepalive
+	keepAliveConfig := ln.keepAliveConfig
+	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
+		keepAliveConfig = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   ln.keepAlive,
+		}
+	}
+	if keepAliveConfig.Enable {
+		_ = tcpConn.SetKeepAliveConfig(keepAliveConfig)
+	}
+	// conn
+	conn = tcpConn
 	return
 }
 
