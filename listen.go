@@ -1,35 +1,77 @@
 package rio
 
 import (
+	"context"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
 	"time"
 )
 
 type ListenOptions struct {
-	// KeepAlive specifies the keep-alive period for network
-	// connections accepted by this listener.
-	//
-	// KeepAlive is ignored if KeepAliveConfig.Enable is true.
-	//
-	// If zero, keep-alive are enabled if supported by the protocol
-	// and operating system. Network protocols or operating systems
-	// that do not support keep-alive ignore this field.
-	// If negative, keep-alive are disabled.
-	KeepAlive time.Duration
-
-	// KeepAliveConfig specifies the keep-alive probe configuration
-	// for an active network connection, when supported by the
-	// protocol and operating system.
-	//
-	// If KeepAliveConfig.Enable is true, keep-alive probes are enabled.
-	// If KeepAliveConfig.Enable is false and KeepAlive is negative,
-	// keep-alive probes are disabled.
+	KeepAlive       time.Duration
 	KeepAliveConfig net.KeepAliveConfig
 	MultipathTCP    bool
 	FastOpen        int
+	Ctx             context.Context
+	VortexesOptions []aio.Option
 }
 
 type ListenOption func(options *ListenOptions) (err error)
+
+func WithContext(ctx context.Context) ListenOption {
+	return func(options *ListenOptions) (err error) {
+		options.Ctx = ctx
+		return
+	}
+}
+
+func WithKeepAlive(d time.Duration) ListenOption {
+	return func(options *ListenOptions) error {
+		if d < 0 {
+			d = 0
+		}
+		options.KeepAlive = d
+		return nil
+	}
+}
+
+func WithKeepAliveConfig(c net.KeepAliveConfig) ListenOption {
+	return func(options *ListenOptions) error {
+		options.KeepAliveConfig = c
+		return nil
+	}
+}
+
+// WithMultipathTCP
+// 设置多路TCP
+func WithMultipathTCP() ListenOption {
+	return func(options *ListenOptions) (err error) {
+		options.MultipathTCP = true
+		return
+	}
+}
+
+// WithFastOpen
+// 设置 FastOpen。
+func WithFastOpen(n int) ListenOption {
+	return func(options *ListenOptions) (err error) {
+		if n < 1 {
+			return
+		}
+		if n > 999 {
+			n = 256
+		}
+		options.FastOpen = n
+		return
+	}
+}
+
+func WithAIOOptions(options ...aio.Option) ListenOption {
+	return func(opts *ListenOptions) (err error) {
+		opts.VortexesOptions = options
+		return
+	}
+}
 
 // *********************************************************************************************************************
 

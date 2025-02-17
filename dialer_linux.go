@@ -1,9 +1,12 @@
+//go:build linux
+
 package rio
 
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
+	"time"
 )
 
 var (
@@ -11,33 +14,53 @@ var (
 )
 
 type Dialer struct {
-	vortexes *aio.Vortexes
+	timeout         time.Duration
+	keepAlive       time.Duration
+	keepAliveConfig net.KeepAliveConfig
+	vortexes        *aio.Vortexes
 }
 
-func (d *Dialer) Dial(ctx context.Context, network string, address string, options Options) (net.Conn, error) {
+func (d *Dialer) SetMultipathTCP(use bool) {
+
+}
+
+func (d *Dialer) Dial(network string, address string) (net.Conn, error) {
 	// todo timeout and keep alive
 	return nil, nil
 }
 
-func Dial(network string, address string, options ...Option) (net.Conn, error) {
-	opts := Options{}
-	for _, option := range options {
-		if err := option(&opts); err != nil {
-			return nil, err
-		}
-	}
-	ctx := context.Background()
-	return DefaultDialer.Dial(ctx, network, address, opts)
+func (d *Dialer) DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	// todo timeout and keep alive
+
+	return nil, nil
 }
 
-func DialContext(ctx context.Context, network string, address string, options ...Option) (net.Conn, error) {
-	opts := Options{}
-	for _, option := range options {
-		if err := option(&opts); err != nil {
-			return nil, err
-		}
-	}
-	return DefaultDialer.Dial(ctx, network, address, opts)
+func (d *Dialer) DialTCP(ctx context.Context, network string, address string) (net.Conn, error) {
+	// todo timeout and keep alive
+	return nil, nil
+}
+
+func (d *Dialer) DialUDP(ctx context.Context, network string, address string) (net.Conn, error) {
+	// todo timeout and keep alive
+	return nil, nil
+}
+
+func (d *Dialer) DialUnix(ctx context.Context, network string, address string) (net.Conn, error) {
+	// todo timeout and keep alive
+	return nil, nil
+}
+
+func (d *Dialer) DialIP(ctx context.Context, network string, address string) (net.Conn, error) {
+	// todo timeout and keep alive
+	return nil, nil
+}
+
+func Dial(network string, address string) (net.Conn, error) {
+	return DefaultDialer.Dial(network, address)
+}
+
+func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	return DefaultDialer.DialContext(ctx, network, address)
 }
 
 //type DialOptions struct {

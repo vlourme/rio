@@ -83,8 +83,8 @@ func (conn *tcpConnection) MultipathTCP() (bool, error) {
 	return ok, nil
 }
 
-func ListenTCP(network string, addr *net.TCPAddr, options ...Option) (*TCPListener, error) {
-	opts := Options{}
+func ListenTCP(network string, addr *net.TCPAddr, options ...ListenOption) (*TCPListener, error) {
+	opts := ListenOptions{}
 	for _, o := range options {
 		if err := o(&opts); err != nil {
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
