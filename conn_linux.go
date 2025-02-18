@@ -71,7 +71,11 @@ func (conn *connection) Write(b []byte) (n int, err error) {
 }
 
 func (conn *connection) Close() error {
+	defer func() {
+		_ = UnpinVortexes()
+	}()
 	defer conn.cancel()
+
 	if err := conn.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
 	}

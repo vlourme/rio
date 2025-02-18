@@ -36,6 +36,11 @@ func (lc *ListenConfig) ListenMulticastUDP(ctx context.Context, network string, 
 }
 
 func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.Interface, addr *net.UDPAddr) (*UDPConn, error) {
+	// vortex
+	vortex, vortexErr := getCenterVortex()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	}
 	// fd
 	switch network {
 	case "udp", "udp4", "udp6":
@@ -48,27 +53,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	fd, fdErr := newUDPListenerFd(network, ifi, addr)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
-	}
-	// vortex
-	vortexesOptions := aio.Options{}
-	for _, option := range lc.VortexesOptions {
-		err := option(&vortexesOptions)
-		if err != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-	}
-	vortexOptions := aio.VortexOptions{
-		Entries:        vortexesOptions.CenterEntries,
-		Flags:          vortexesOptions.Flags,
-		Features:       vortexesOptions.Features,
-		WaitCQETimeout: vortexesOptions.WaitCQETimeout,
-		WaitCQEBatches: vortexesOptions.WaitCQEBatches,
-	}
-	vortex, vortexErr := aio.NewVortex(vortexOptions)
-	if vortexErr != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 	}
 	// ctx
 	var cancel context.CancelFunc

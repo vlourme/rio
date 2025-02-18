@@ -5,13 +5,10 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
 	"reflect"
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -23,35 +20,22 @@ func Dial(network string, address string) (net.Conn, error) {
 }
 
 func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	return DefaultDialer().Dial(ctx, network, address)
+	return DefaultDialer.Dial(ctx, network, address)
 }
 
 var (
-	defaultDialer     = &Dialer{}
-	defaultDialerOnce = sync.Once{}
+	DefaultDialer = Dialer{
+		Timeout:         15 * time.Second,
+		Deadline:        time.Time{},
+		KeepAlive:       0,
+		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
+		MultipathTCP:    false,
+		FastOpen:        256,
+		UseSendZC:       defaultUseSendZC.Load(),
+		Control:         nil,
+		ControlContext:  nil,
+	}
 )
-
-func DefaultDialer() *Dialer {
-	defaultDialerOnce.Do(func() {
-		vortexes, vortexesErr := aio.New(aio.WithEntries(iouring.DefaultEntries))
-		if vortexesErr != nil {
-			panic(vortexesErr)
-		}
-		vortexes.Start(context.Background())
-
-		defaultDialer = &Dialer{}
-		defaultDialer.Timeout = 15 * time.Second
-		defaultDialer.KeepAliveConfig.Enable = true
-		defaultDialer.UseSendZC = defaultUseSendZC.Load()
-		defaultDialer.SetFastOpen(256)
-		defaultDialer.SetVortexes(vortexes)
-
-		runtime.SetFinalizer(defaultDialer, func(d *Dialer) {
-			_ = d.vortexes.Close()
-		})
-	})
-	return defaultDialer
-}
 
 type Dialer struct {
 	Timeout         time.Duration
@@ -63,7 +47,6 @@ type Dialer struct {
 	UseSendZC       bool
 	Control         func(network, address string, c syscall.RawConn) error
 	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
-	vortexes        *aio.Vortexes
 }
 
 func (d *Dialer) SetFastOpen(n int) {
@@ -78,11 +61,6 @@ func (d *Dialer) SetFastOpen(n int) {
 
 func (d *Dialer) SetMultipathTCP(use bool) {
 	d.MultipathTCP = use
-}
-
-func (d *Dialer) SetVortexes(v *aio.Vortexes) {
-	d.vortexes = v
-	return
 }
 
 func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {
@@ -133,10 +111,16 @@ func (d *Dialer) Dial(ctx context.Context, network string, address string) (conn
 
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	ctx := context.Background()
-	return DefaultDialer().DialTCP(ctx, network, laddr, raddr)
+	return DefaultDialer.DialTCP(ctx, network, laddr, raddr)
 }
 
 func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
+	// vortex
+	vortex, vortexErr := getCenterVortex()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	}
+
 	// fd
 	switch network {
 	case "tcp", "tcp4", "tcp6":
@@ -182,7 +166,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
-	vortex := d.vortexes.Center()
 	future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), timeout)
 	_, err := future.Await(ctx)
 	if err != nil {
@@ -204,11 +187,15 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		fd.SetRemoteAddr(raddr)
 	}
 
+	side, sideErr := getSideVortex()
+	if sideErr != nil {
+		_ = fd.Close()
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: sideErr}
+	}
+
 	// conn
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
-
-	side := d.vortexes.Center()
 
 	useSendZC := d.UseSendZC
 	if useSendZC {
@@ -243,7 +230,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*UDPConn, error) {
 	ctx := context.Background()
-	return DefaultDialer().DialUDP(ctx, network, laddr, raddr)
+	return DefaultDialer.DialUDP(ctx, network, laddr, raddr)
 }
 
 func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.UDPAddr) (*UDPConn, error) {
@@ -252,7 +239,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 
 func DialUnix(network string, laddr, raddr *net.UnixAddr) (*UnixConn, error) {
 	ctx := context.Background()
-	return DefaultDialer().DialUnix(ctx, network, laddr, raddr)
+	return DefaultDialer.DialUnix(ctx, network, laddr, raddr)
 }
 
 func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net.UnixAddr) (*UnixConn, error) {
@@ -261,7 +248,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 
 func DialIP(network string, laddr, raddr *net.IPAddr) (*IPConn, error) {
 	ctx := context.Background()
-	return DefaultDialer().DialIP(ctx, network, laddr, raddr)
+	return DefaultDialer.DialIP(ctx, network, laddr, raddr)
 }
 
 func (d *Dialer) DialIP(ctx context.Context, network string, laddr, raddr *net.IPAddr) (*IPConn, error) {

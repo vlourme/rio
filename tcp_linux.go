@@ -25,6 +25,11 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 }
 
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
+	// vortex
+	vortex, vortexErr := getCenterVortex()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	}
 	// fd
 	switch network {
 	case "tcp", "tcp4", "tcp6":
@@ -44,17 +49,11 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	// vortexes
-	vortexes, vortexesErr := aio.New(lc.VortexesOptions...)
-	if vortexesErr != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexesErr}
-	}
+
 	// ctx
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
-	// vortexes start
-	vortexes.Start(ctx)
+
 	// sendzc
 	useSendZC := lc.UseSendZC
 	if useSendZC {
@@ -65,7 +64,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		ctx:             ctx,
 		cancel:          cancel,
 		fd:              fd,
-		vortexes:        vortexes,
+		vortex:          vortex,
 		useSendZC:       useSendZC,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
@@ -77,7 +76,7 @@ type TCPListener struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	fd              *sys.Fd
-	vortexes        *aio.Vortexes
+	vortex          *aio.Vortex
 	useSendZC       bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
@@ -86,11 +85,10 @@ type TCPListener struct {
 func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	ctx := ln.ctx
 	fd := ln.fd.Socket()
-	vortexes := ln.vortexes
-	center := vortexes.Center()
+	vortex := ln.vortex
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	future := center.PrepareAccept(ctx, fd, addr, addrLen)
+	future := vortex.PrepareAccept(ctx, fd, addr, addrLen)
 	accepted, acceptErr := future.Await(ctx)
 	if acceptErr != nil {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
@@ -115,9 +113,14 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	}
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
-
+	// side
+	side, sideErr := getSideVortex()
+	if sideErr != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: sideErr}
+		return
+	}
 	// tcp conn
-	side := vortexes.Side()
 	cc, cancel := context.WithCancel(ctx)
 	tcpConn := &TCPConn{
 		connection{
@@ -149,10 +152,11 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 }
 
 func (ln *TCPListener) Close() error {
+	defer func() {
+		_ = UnpinVortexes()
+	}()
 	defer ln.cancel()
-	defer func(vortexes *aio.Vortexes) {
-		_ = vortexes.Close()
-	}(ln.vortexes)
+
 	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
@@ -267,6 +271,16 @@ func (conn *TCPConn) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
+	//net.TCPConn{}.ReadFrom()
+	//
+	//if n, err, handled := spliceFrom(c.fd, r); handled {
+	//	return n, err
+	//}
+	//if n, err, handled := sendFile(c.fd, r); handled {
+	//	return n, err
+	//}
+	//return genericReadFrom(c, r)
+
 	return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
 }
 

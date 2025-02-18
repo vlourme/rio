@@ -4,7 +4,6 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
 	"syscall"
@@ -25,11 +24,6 @@ type ListenConfig struct {
 	UseSendZC       bool
 	MultipathTCP    bool
 	FastOpen        int
-	VortexesOptions []aio.Option
-}
-
-func (lc *ListenConfig) SetAIOOptions(opts ...aio.Option) {
-	lc.VortexesOptions = opts
 }
 
 func (lc *ListenConfig) SetFastOpen(n int) {

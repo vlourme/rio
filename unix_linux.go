@@ -135,5 +135,5 @@ func (ln *UnixListener) file() (*os.File, error) {
 }
 
 type UnixConn struct {
-	net.UnixConn
+	connection
 }
