@@ -2,6 +2,7 @@ package aio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 )
 
@@ -41,6 +42,9 @@ func (f *Future) Await(ctx context.Context) (n int, err error) {
 		case <-ctx.Done():
 			if vortex.Cancel(op) {
 				err = ctx.Err()
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = Timeout
+				}
 				break
 			}
 			// op has been completed, so continue to fetch result
@@ -59,6 +63,9 @@ func (f *Future) Await(ctx context.Context) (n int, err error) {
 		case <-ctx.Done():
 			if vortex.Cancel(op) {
 				err = ctx.Err()
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = Timeout
+				}
 				break
 			}
 			// op has been completed, so continue to fetch result

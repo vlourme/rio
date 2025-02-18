@@ -152,6 +152,8 @@ func newRawConnection(fd *sys.Fd) syscall.RawConn {
 	return &rawConnection{fd: fd}
 }
 
+type ctrlCtxFn func(ctx context.Context, network string, address string, raw syscall.RawConn) error
+
 type rawConnection struct {
 	fd *sys.Fd
 }

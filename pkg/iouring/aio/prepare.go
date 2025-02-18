@@ -13,9 +13,9 @@ func (vortex *Vortex) PrepareOperation(ctx context.Context, op *Operation) Futur
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) Future {
+func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, timeout time.Duration) Future {
 	op := vortex.acquireOperation()
-	op.PrepareConnect(fd, addr, addrLen)
+	op.WithTimeout(timeout).PrepareConnect(fd, addr, addrLen)
 	return vortex.prepareOperation(ctx, op)
 }
 

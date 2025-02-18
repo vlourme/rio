@@ -61,6 +61,8 @@ type Dialer struct {
 	MultipathTCP    bool
 	FastOpen        int
 	UseSendZC       bool
+	Control         func(network, address string, c syscall.RawConn) error
+	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
 	vortexes        *aio.Vortexes
 }
 
@@ -144,13 +146,27 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if raddr == nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: errors.New("missing address")}
 	}
+
+	timeout := time.Until(d.deadline(ctx, time.Now()))
+	if timeout < 1 {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.Timeout}
+	}
+
+	var control ctrlCtxFn = d.ControlContext
+	if control == nil && d.Control != nil {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return d.Control(network, address, raw)
+		}
+	}
+
 	proto := syscall.IPPROTO_TCP
 	if d.MultipathTCP {
 		if mp, ok := sys.TryGetMultipathTCPProto(); ok {
 			proto = mp
 		}
 	}
-	fd, fdErr := newDialerFd(network, laddr, raddr, syscall.SOCK_STREAM, proto, d.FastOpen)
+
+	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.FastOpen, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -167,32 +183,27 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
 	vortex := d.vortexes.Center()
-	future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen))
+	future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), timeout)
 	_, err := future.Await(ctx)
 	if err != nil {
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 	}
+
 	// local addr
 	if laddr != nil {
 		fd.SetLocalAddr(laddr)
 	} else {
-		sa, saErr = sys.RawSockaddrAnyToSockaddr(rsa)
-		if saErr != nil {
-			_ = fd.LoadLocalAddr()
-		} else {
-			la := sys.SockaddrToAddr(network, sa)
-			if la != nil {
-				fd.SetLocalAddr(la)
-			} else {
-				_ = fd.LoadLocalAddr()
-			}
+		if laddrErr := fd.LoadLocalAddr(); laddrErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: laddrErr}
 		}
 	}
 	// remote addr
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
+
 	// conn
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
@@ -257,7 +268,7 @@ func (d *Dialer) DialIP(ctx context.Context, network string, laddr, raddr *net.I
 	return nil, nil
 }
 
-func newDialerFd(network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen int) (fd *sys.Fd, err error) {
+func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen int, control ctrlCtxFn) (fd *sys.Fd, err error) {
 	if raddr == nil && laddr == nil {
 		err = errors.New("missing address")
 		return
@@ -300,6 +311,15 @@ func newDialerFd(network string, laddr net.Addr, raddr net.Addr, sotype int, pro
 		_ = fd.Close()
 		return
 	}
+	// control
+	if control != nil {
+		raw := newRawConnection(fd)
+		if err = control(ctx, network, addr.String(), raw); err != nil {
+			_ = fd.Close()
+			return
+		}
+	}
+
 	// bind
 	if !reflect.ValueOf(laddr).IsNil() {
 		if err = fd.Bind(resolveAddr); err != nil {

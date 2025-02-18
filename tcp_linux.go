@@ -34,7 +34,13 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if addr == nil {
 		addr = &net.TCPAddr{}
 	}
-	fd, fdErr := newTCPListenerFd(network, addr, lc.FastOpen, lc.MultipathTCP)
+	var control ctrlCtxFn = nil
+	if lc.Control != nil {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return lc.Control(network, address, raw)
+		}
+	}
+	fd, fdErr := newTCPListenerFd(ctx, network, addr, lc.FastOpen, lc.MultipathTCP, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -176,7 +182,7 @@ func (ln *TCPListener) checkUseSendZC() {
 	}
 }
 
-func newTCPListenerFd(network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool) (fd *sys.Fd, err error) {
+func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
 	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
 	if addrErr != nil {
 		err = addrErr
@@ -218,6 +224,14 @@ func newTCPListenerFd(network string, addr *net.TCPAddr, fastOpen int, multipath
 		_ = fd.Close()
 		err = os.NewSyscallError("setsockopt", err)
 		return
+	}
+	// control
+	if control != nil {
+		raw := newRawConnection(fd)
+		if err = control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
+			_ = fd.Close()
+			return
+		}
 	}
 	// bind
 	if err = fd.Bind(resolveAddr); err != nil {

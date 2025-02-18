@@ -264,7 +264,7 @@ func (fd *Fd) Dup() (int, string, error) {
 	return DupCloseOnExec(fd.sock)
 }
 
-func (fd *Fd) ctrlNetwork() string {
+func (fd *Fd) CtrlNetwork() string {
 	switch fd.net {
 	case "unix", "unixgram", "unixpacket":
 		return fd.net
