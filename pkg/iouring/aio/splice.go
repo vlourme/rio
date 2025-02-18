@@ -9,6 +9,11 @@ import (
 	"unsafe"
 )
 
+func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64) (n int, err error) {
+
+	return
+}
+
 const (
 	MaxSpliceSize = 1 << 20
 )
@@ -108,7 +113,7 @@ func (pipe *SplicePipe) Splice(ctx context.Context, vortex *Vortex, src int, dst
 		if chunk > remain {
 			chunk = remain
 		}
-
+		// todo move into vortex.Splice
 		// drain
 		drained := 0
 		var drainedErr error
