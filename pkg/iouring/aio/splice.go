@@ -3,20 +3,48 @@ package aio
 import (
 	"context"
 	"errors"
+	"golang.org/x/sys/unix"
 	"runtime"
 	"sync"
 	"syscall"
 	"unsafe"
 )
 
-func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64) (n int64, err error) {
-
-	return
-}
-
 const (
 	MaxSpliceSize = 1 << 20
 )
+
+func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64) (n int64, err error) {
+	pipe, pipeErr := AcquireSplicePipe()
+	if pipeErr != nil {
+		return 0, pipeErr
+	}
+	defer ReleaseSplicePipe(pipe)
+
+	for err == nil && remain > 0 {
+		chunk := int64(MaxSpliceSize)
+		if chunk > remain {
+			chunk = remain
+		}
+		// drain
+		drainFuture := vortex.PrepareSplice(ctx, src, -1, pipe.wfd, -1, uint32(chunk), unix.SPLICE_F_NONBLOCK)
+		drained, drainedErr := drainFuture.Await(ctx)
+		if drainedErr != nil || drained == 0 {
+			break
+		}
+		pipe.DrainN(drained)
+		// pump
+		pumpFuture := vortex.PrepareSplice(ctx, pipe.rfd, -1, dst, -1, uint32(drained), unix.SPLICE_F_NONBLOCK)
+		pumped, pumpedErr := pumpFuture.Await(ctx)
+		if pumped > 0 {
+			n += int64(pumped)
+			remain -= int64(pumped)
+			pipe.PumpN(pumped)
+		}
+		err = pumpedErr
+	}
+	return
+}
 
 var (
 	splicePipePool = sync.Pool{New: func() interface{} {

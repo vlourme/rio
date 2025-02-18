@@ -4,6 +4,7 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/kernel"
 	"github.com/brickingsoft/rio/pkg/sys"
@@ -262,6 +263,37 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 	return
 }
 
+type noReadFrom struct{}
+
+func (noReadFrom) ReadFrom(io.Reader) (int64, error) {
+	panic("can't happen")
+}
+
+type tcpConnWithoutReadFrom struct {
+	noReadFrom
+	*TCPConn
+}
+
+func genericReadFrom(c *TCPConn, r io.Reader) (n int64, err error) {
+	return io.Copy(tcpConnWithoutReadFrom{TCPConn: c}, r)
+}
+
+type noWriteTo struct{}
+
+func (noWriteTo) WriteTo(io.Writer) (int64, error) {
+	panic("can't happen")
+}
+
+type tcpConnWithoutWriteTo struct {
+	noWriteTo
+	*TCPConn
+}
+
+func genericWriteTo(c *TCPConn, w io.Writer) (n int64, err error) {
+	// Use wrapper to hide existing w.WriteTo from io.Copy.
+	return io.Copy(w, tcpConnWithoutWriteTo{TCPConn: c})
+}
+
 type TCPConn struct {
 	connection
 }
@@ -271,17 +303,64 @@ func (conn *TCPConn) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
-	//net.TCPConn{}.ReadFrom()
-	//
-	//if n, err, handled := spliceFrom(c.fd, r); handled {
-	//	return n, err
-	//}
-	//if n, err, handled := sendFile(c.fd, r); handled {
-	//	return n, err
-	//}
-	//return genericReadFrom(c, r)
+	var remain int64 = 1<<63 - 1 // by default, copy until EOF
+	lr, ok := r.(*io.LimitedReader)
+	if ok {
+		remain, r = lr.N, lr.R
+		if remain <= 0 {
+			return 0, nil
+		}
+	}
 
-	return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+	useSplice := false
+	var srcFd int
+	switch v := r.(type) {
+	case *TCPConn:
+		srcFd = v.fd.Socket()
+		useSplice = true
+		break
+	case tcpConnWithoutWriteTo:
+		srcFd = v.fd.Socket()
+		useSplice = true
+		break
+	case *UnixConn:
+		if v.fd.Net() != "unix" {
+			useSplice = false
+			break
+		}
+		srcFd = v.fd.Socket()
+		useSplice = true
+		break
+	case *os.File:
+		srcFd = int(v.Fd())
+		useSplice = true
+		break
+	default:
+		break
+	}
+
+	if useSplice {
+		if srcFd < 1 {
+			return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: errors.New("no file descriptor found in reader")}
+		}
+		ctx := conn.ctx
+		fd := conn.fd.Socket()
+		vortex := conn.vortex
+		written, spliceErr := vortex.Splice(ctx, fd, srcFd, remain)
+		if lr != nil {
+			lr.N -= written
+		}
+		if spliceErr != nil {
+			return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: spliceErr}
+		}
+		return written, nil
+	}
+
+	written, readFromErr := genericReadFrom(conn, r)
+	if readFromErr != nil && readFromErr != io.EOF {
+		return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: readFromErr}
+	}
+	return written, nil
 }
 
 func (conn *TCPConn) WriteTo(w io.Writer) (int64, error) {
