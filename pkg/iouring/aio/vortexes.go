@@ -102,27 +102,7 @@ func WithWaitCQEBatches(batches []uint32) Option {
 	}
 }
 
-const (
-	minKernelVersionMajor = 5
-	minKernelVersionMinor = 1
-)
-
 func New(options ...Option) (v *Vortexes, err error) {
-	ver, verErr := kernel.GetKernelVersion()
-	if verErr != nil {
-		return nil, verErr
-	}
-	target := kernel.Version{
-		Kernel: ver.Kernel,
-		Major:  minKernelVersionMajor,
-		Minor:  minKernelVersionMinor,
-		Flavor: ver.Flavor,
-	}
-
-	if kernel.CompareKernelVersion(*ver, target) < 0 {
-		return nil, errors.New("kernel version too low")
-	}
-
 	opt := Options{}
 	for _, option := range options {
 		if err = option(&opt); err != nil {
@@ -145,6 +125,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 	if lb == nil {
 		lb = &RoundRobinLoadBalancer{}
 	}
+
 	flags := opt.Flags
 	features := opt.Features
 	if flags == 0 && features == 0 {
@@ -159,15 +140,32 @@ func New(options ...Option) (v *Vortexes, err error) {
 		waitCQEBatches = []uint32{1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
 	}
 
-	center, centerErr := newVortex(centerEntries, flags, features, waitCQETimeout, waitCQEBatches)
+	// center
+	centerOptions := VortexOptions{
+		Entries:        centerEntries,
+		Flags:          flags,
+		Features:       features,
+		WaitCQETimeout: waitCQETimeout,
+		WaitCQEBatches: waitCQEBatches,
+	}
+	center, centerErr := NewVortex(centerOptions)
 	if centerErr != nil {
 		err = centerErr
 		return
 	}
+
+	// sides
 	sides := make([]*Vortex, len(sidesEntries))
 	for i := 0; i < len(sides); i++ {
 		sideEntries := sidesEntries[i]
-		side, sideErr := newVortex(sideEntries, flags, features, waitCQETimeout, waitCQEBatches)
+		sideOptions := VortexOptions{
+			Entries:        sideEntries,
+			Flags:          flags,
+			Features:       features,
+			WaitCQETimeout: waitCQETimeout,
+			WaitCQEBatches: waitCQEBatches,
+		}
+		side, sideErr := NewVortex(sideOptions)
 		if sideErr != nil {
 			_ = center.Close()
 			err = sideErr
@@ -191,9 +189,9 @@ type Vortexes struct {
 }
 
 func (vs *Vortexes) Start(ctx context.Context) {
-	vs.center.start(ctx)
+	vs.center.Start(ctx)
 	for _, side := range vs.sides {
-		side.start(ctx)
+		side.Start(ctx)
 	}
 }
 
@@ -224,4 +222,38 @@ func (vs *Vortexes) Close() (err error) {
 		}
 	}
 	return
+}
+
+func CheckSendZCEnable() bool {
+	ver, verErr := kernel.GetKernelVersion()
+	if verErr != nil {
+		return false
+	}
+	target := kernel.Version{
+		Kernel: ver.Kernel,
+		Major:  6,
+		Minor:  0,
+		Flavor: ver.Flavor,
+	}
+	if kernel.CompareKernelVersion(*ver, target) < 0 {
+		return false
+	}
+	return true
+}
+
+func CheckSendMsdZCEnable() bool {
+	ver, verErr := kernel.GetKernelVersion()
+	if verErr != nil {
+		return false
+	}
+	target := kernel.Version{
+		Kernel: ver.Kernel,
+		Major:  6,
+		Minor:  1,
+		Flavor: ver.Flavor,
+	}
+	if kernel.CompareKernelVersion(*ver, target) < 0 {
+		return false
+	}
+	return true
 }

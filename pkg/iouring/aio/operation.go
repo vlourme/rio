@@ -63,6 +63,14 @@ func (op *Operation) PrepareNop() (err error) {
 	return
 }
 
+func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
+	op.kind = iouring.OpConnect
+	op.fd = fd
+	op.msg.Name = (*byte)(unsafe.Pointer(addr))
+	op.msg.Namelen = uint32(addrLen)
+	return
+}
+
 func (op *Operation) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
 	op.kind = iouring.OpAccept
 	op.fd = fd

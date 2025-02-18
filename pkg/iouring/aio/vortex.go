@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"runtime"
 	"sync"
 	"syscall"
@@ -28,9 +29,53 @@ func IsUnsupported(err error) bool {
 	return errors.Is(err, UnsupportedOp)
 }
 
-func newVortex(entries uint32, flags uint32, features uint32, waitCQETimeout time.Duration, waitCQEBatches []uint32) (v *Vortex, err error) {
+type VortexOptions struct {
+	Entries        uint32
+	Flags          uint32
+	Features       uint32
+	WaitCQETimeout time.Duration
+	WaitCQEBatches []uint32
+}
+
+func (options *VortexOptions) prepare() {
+	if options.Entries == 0 {
+		options.Entries = iouring.DefaultEntries
+	}
+	if options.Flags == 0 && options.Features == 0 {
+		options.Flags, options.Features = DefaultIOURingFlagsAndFeatures()
+	}
+	if options.WaitCQETimeout < 1 {
+		options.WaitCQETimeout = 50 * time.Millisecond
+	}
+	if len(options.WaitCQEBatches) == 0 {
+		options.WaitCQEBatches = []uint32{1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
+	}
+}
+
+const (
+	minKernelVersionMajor = 5
+	minKernelVersionMinor = 1
+)
+
+func NewVortex(options VortexOptions) (v *Vortex, err error) {
+	ver, verErr := kernel.GetKernelVersion()
+	if verErr != nil {
+		return nil, verErr
+	}
+	target := kernel.Version{
+		Kernel: ver.Kernel,
+		Major:  minKernelVersionMajor,
+		Minor:  minKernelVersionMinor,
+		Flavor: ver.Flavor,
+	}
+
+	if kernel.CompareKernelVersion(*ver, target) < 0 {
+		return nil, errors.New("kernel version too low")
+	}
+
+	options.prepare()
 	// iouring
-	ring, ringErr := iouring.New(entries, flags, features, nil)
+	ring, ringErr := iouring.New(options.Entries, options.Flags, options.Features, nil)
 	if ringErr != nil {
 		return nil, ringErr
 	}
@@ -41,9 +86,9 @@ func newVortex(entries uint32, flags uint32, features uint32, waitCQETimeout tim
 	v = &Vortex{
 		ring:           ring,
 		queue:          queue,
-		lockOSThread:   flags&iouring.SetupSingleIssuer != 0,
-		waitCQETimeout: waitCQETimeout,
-		waitCQEBatches: waitCQEBatches,
+		lockOSThread:   options.Flags&iouring.SetupSingleIssuer != 0,
+		waitCQETimeout: options.WaitCQETimeout,
+		waitCQEBatches: options.WaitCQEBatches,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
@@ -136,7 +181,7 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	vortex.timers.Put(timer)
 }
 
-func (vortex *Vortex) start(ctx context.Context) {
+func (vortex *Vortex) Start(ctx context.Context) {
 	vortex.stopCh = make(chan struct{}, 1)
 	vortex.wg.Add(1)
 	go func(ctx context.Context, vortex *Vortex) {

@@ -171,12 +171,12 @@ func (entry *SubmissionQueueEntry) PrepareNop() {
 
 // [Net] ***************************************************************************************************************
 
-func (entry *SubmissionQueueEntry) PrepareAccept(fd int, addr uintptr, addrLen uint64, flags uint32) {
-	entry.prepareRW(OpAccept, fd, addr, 0, addrLen)
+func (entry *SubmissionQueueEntry) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32) {
+	entry.prepareRW(OpAccept, fd, uintptr(unsafe.Pointer(addr)), 0, addrLen)
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr uintptr, addrLen uint64, flags uint32, fileIndex uint32) {
+func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32, fileIndex uint32) {
 	entry.PrepareAccept(fd, addr, addrLen, flags)
 	if fileIndex == FileIndexAlloc {
 		fileIndex--
@@ -184,17 +184,17 @@ func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr uintptr, add
 	entry.setTargetFixedFile(fileIndex)
 }
 
-func (entry *SubmissionQueueEntry) PrepareMultishotAccept(fd int, addr uintptr, addrLen uint64, flags int) {
+func (entry *SubmissionQueueEntry) PrepareMultishotAccept(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
 	entry.PrepareAccept(fd, addr, addrLen, uint32(flags))
 	entry.IoPrio |= AcceptMultishot
 }
 
-func (entry *SubmissionQueueEntry) PrepareMultishotAcceptDirect(fd int, addr uintptr, addrLen uint64, flags int) {
+func (entry *SubmissionQueueEntry) PrepareMultishotAcceptDirect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
 	entry.PrepareMultishotAccept(fd, addr, addrLen, flags)
 	entry.setTargetFixedFile(FileIndexAlloc - 1)
 }
 
-func (entry *SubmissionQueueEntry) PrepareConnect(fd int, addr *syscall.Sockaddr, addrLen uint64) {
+func (entry *SubmissionQueueEntry) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64) {
 	entry.prepareRW(OpConnect, fd, uintptr(unsafe.Pointer(addr)), 0, addrLen)
 }
 

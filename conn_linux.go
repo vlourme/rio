@@ -8,6 +8,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
 	"net"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -124,6 +125,27 @@ func (conn *connection) SetWriteDeadline(t time.Time) error {
 	}
 	conn.writeTimeout.Store(int64(timeout))
 	return nil
+}
+
+func (conn *connection) File() (f *os.File, err error) {
+	f, err = conn.file()
+	if err != nil {
+		err = &net.OpError{Op: "file", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return
+}
+
+func (conn *connection) file() (*os.File, error) {
+	ns, call, err := conn.fd.Dup()
+	if err != nil {
+		if call != "" {
+			err = os.NewSyscallError(call, err)
+		}
+		return nil, err
+	}
+	// todo check ok
+	f := os.NewFile(uintptr(ns), conn.fd.Name())
+	return f, nil
 }
 
 func newRawConnection(fd *sys.Fd) syscall.RawConn {

@@ -1,7 +1,6 @@
 package sys
 
 import (
-	"github.com/brickingsoft/errors"
 	"golang.org/x/sys/unix"
 	"net"
 	"os"
@@ -139,10 +138,10 @@ func (fd *Fd) AllowReuseAddr() error {
 func (fd *Fd) Bind(addr net.Addr) error {
 	sa, saErr := AddrToSockaddr(addr)
 	if saErr != nil {
-		return errors.New("bind failed", errors.WithWrap(saErr))
+		return saErr
 	}
 	if err := syscall.Bind(fd.sock, sa); err != nil {
-		return errors.New("bind failed", errors.WithWrap(os.NewSyscallError("bind", err)))
+		return os.NewSyscallError("bind", err)
 	}
 	return nil
 }
@@ -330,4 +329,47 @@ func Fcntl(fd int, cmd int, arg int) (int, error) {
 func fcntl(fd, cmd, arg int32) (ret int32, errno int32) {
 	r, _, err := syscall.Syscall6(syscall.SYS_FCNTL, uintptr(fd), uintptr(cmd), uintptr(arg), 0, 0, 0)
 	return int32(r), int32(err)
+}
+
+func (fd *Fd) SetIPv4MulticastInterface(ifi *net.Interface) error {
+	ip, err := interfaceToIPv4Addr(ifi)
+	if err != nil {
+		return err
+	}
+	var a [4]byte
+	copy(a[:], ip.To4())
+	return syscall.SetsockoptInet4Addr(fd.sock, syscall.IPPROTO_IP, syscall.IP_MULTICAST_IF, a)
+}
+
+func (fd *Fd) SetIPv4MulticastLoopback(ok bool) error {
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.sock, syscall.IPPROTO_IP, syscall.IP_MULTICAST_LOOP, boolint(ok)))
+}
+
+func (fd *Fd) JoinIPv4Group(ifi *net.Interface, ip net.IP) error {
+	mreq := &syscall.IPMreq{Multiaddr: [4]byte{ip[0], ip[1], ip[2], ip[3]}}
+	if err := setIPv4MreqToInterface(mreq, ifi); err != nil {
+		return err
+	}
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptIPMreq(fd.sock, syscall.IPPROTO_IP, syscall.IP_ADD_MEMBERSHIP, mreq))
+}
+
+func (fd *Fd) SetIPv6MulticastInterface(ifi *net.Interface) error {
+	var v int
+	if ifi != nil {
+		v = ifi.Index
+	}
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.sock, syscall.IPPROTO_IPV6, syscall.IPV6_MULTICAST_IF, v))
+}
+
+func (fd *Fd) SetIPv6MulticastLoopback(ok bool) error {
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.sock, syscall.IPPROTO_IPV6, syscall.IPV6_MULTICAST_LOOP, boolint(ok)))
+}
+
+func (fd *Fd) JoinIPv6Group(ifi *net.Interface, ip net.IP) error {
+	mreq := &syscall.IPv6Mreq{}
+	copy(mreq.Multiaddr[:], ip)
+	if ifi != nil {
+		mreq.Interface = uint32(ifi.Index)
+	}
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptIPv6Mreq(fd.sock, syscall.IPPROTO_IPV6, syscall.IPV6_JOIN_GROUP, mreq))
 }

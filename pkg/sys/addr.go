@@ -1,7 +1,8 @@
 package sys
 
 import (
-	"github.com/brickingsoft/errors"
+	"bytes"
+	"errors"
 	"net"
 	"strings"
 	"syscall"
@@ -11,7 +12,7 @@ import (
 func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv6only bool, err error) {
 	address = strings.TrimSpace(address)
 	if address == "" {
-		err = errors.New("resolve address failed", errors.WithWrap(errors.New("address is invalid")))
+		err = errors.New("address is invalid")
 		return
 	}
 	proto := network
@@ -23,7 +24,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 	case "tcp", "tcp4", "tcp6":
 		a, resolveErr := net.ResolveTCPAddr(network, address)
 		if resolveErr != nil {
-			err = errors.New("resolve address failed", errors.WithWrap(resolveErr))
+			err = resolveErr
 			return
 		}
 		if !ipv6only && a.AddrPort().Addr().Is4In6() {
@@ -41,7 +42,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 			a.IP = net.IPv4zero.To4()
 			break
 		default:
-			err = errors.New("resolve address failed", errors.WithWrap(errors.New("ip is invalid")))
+			err = errors.New("ip is invalid")
 			return
 		}
 		addr = a
@@ -49,7 +50,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 	case "udp", "udp4", "udp6":
 		a, resolveErr := net.ResolveUDPAddr(network, address)
 		if resolveErr != nil {
-			err = errors.New("resolve address failed", errors.WithWrap(resolveErr))
+			err = resolveErr
 			return
 		}
 		if !ipv6only && a.AddrPort().Addr().Is4In6() {
@@ -67,7 +68,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 			a.IP = net.IPv4zero.To4()
 			break
 		default:
-			err = errors.New("resolve address failed", errors.WithWrap(errors.New("ip is invalid")))
+			err = errors.New("ip is invalid")
 			return
 		}
 		addr = a
@@ -75,7 +76,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 	case "ip", "ip4", "ip6":
 		a, resolveErr := net.ResolveIPAddr(network, address)
 		if resolveErr != nil {
-			err = errors.New("resolve address failed", errors.WithWrap(resolveErr))
+			err = resolveErr
 			return
 		}
 		ipLen := len(a.IP)
@@ -96,7 +97,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 			a.IP = net.IPv4zero.To4()
 			break
 		default:
-			err = errors.New("resolve address failed", errors.WithWrap(errors.New("ip is invalid")))
+			err = errors.New("ip is invalid")
 			return
 		}
 		addr = a
@@ -105,12 +106,11 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 		family = syscall.AF_UNIX
 		addr, err = net.ResolveUnixAddr(network, address)
 		if err != nil {
-			err = errors.New("resolve address failed", errors.WithWrap(err))
 			return
 		}
 		break
 	default:
-		err = errors.New("resolve address failed", errors.WithWrap(errors.New("network is invalid")))
+		err = errors.New("network is invalid")
 		return
 	}
 	return
@@ -154,7 +154,7 @@ func AddrToSockaddr(a net.Addr) (sa syscall.Sockaddr, err error) {
 			sa = sa6
 			return
 		default:
-			err = errors.New("map addr to socket addr failed", errors.WithWrap(errors.New("ip is invalid")))
+			err = errors.New("ip is invalid")
 			return
 		}
 	case *net.UDPAddr:
@@ -184,7 +184,7 @@ func AddrToSockaddr(a net.Addr) (sa syscall.Sockaddr, err error) {
 			sa = sa6
 			return
 		default:
-			err = errors.New("map addr to socket addr failed", errors.WithWrap(errors.New("ip is invalid")))
+			err = errors.New("ip is invalid")
 			return
 		}
 	case *net.IPAddr:
@@ -215,7 +215,7 @@ func AddrToSockaddr(a net.Addr) (sa syscall.Sockaddr, err error) {
 			sa = sa6
 			return
 		default:
-			err = errors.New("map addr to socket addr failed", errors.WithWrap(errors.New("ip is invalid")))
+			err = errors.New("ip is invalid")
 			return
 		}
 	case *net.UnixAddr:
@@ -224,7 +224,7 @@ func AddrToSockaddr(a net.Addr) (sa syscall.Sockaddr, err error) {
 		}
 		return
 	default:
-		err = errors.New("map addr to socket addr failed", errors.WithWrap(errors.New("ip is invalid")))
+		err = errors.New("type of addr is invalid")
 		return
 	}
 }
@@ -353,4 +353,166 @@ func RawSockaddrAnyToSockaddr(rsa *syscall.RawSockaddrAny) (syscall.Sockaddr, er
 		return sa, nil
 	}
 	return nil, syscall.EAFNOSUPPORT
+}
+
+func SockaddrInet4ToRawSockaddrAny(sa *syscall.SockaddrInet4) (name *syscall.RawSockaddrAny, nameLen int32) {
+	name = &syscall.RawSockaddrAny{}
+	raw := (*syscall.RawSockaddrInet4)(unsafe.Pointer(name))
+	raw.Family = syscall.AF_INET
+	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
+	p[0] = byte(sa.Port >> 8)
+	p[1] = byte(sa.Port)
+	raw.Addr = sa.Addr
+	nameLen = int32(unsafe.Sizeof(*raw))
+	return
+}
+
+func SockaddrInet6ToRawSockaddrAny(sa *syscall.SockaddrInet6) (name *syscall.RawSockaddrAny, nameLen int32) {
+	name = &syscall.RawSockaddrAny{}
+	raw := (*syscall.RawSockaddrInet6)(unsafe.Pointer(name))
+	raw.Family = syscall.AF_INET6
+	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
+	p[0] = byte(sa.Port >> 8)
+	p[1] = byte(sa.Port)
+	raw.Scope_id = sa.ZoneId
+	raw.Addr = sa.Addr
+	nameLen = int32(unsafe.Sizeof(*raw))
+	return
+}
+
+func SockaddrUnixToRawSockaddrAny(sa *syscall.SockaddrUnix) (name *syscall.RawSockaddrAny, nameLen int32) {
+	name = &syscall.RawSockaddrAny{}
+	raw := (*syscall.RawSockaddrUnix)(unsafe.Pointer(name))
+	raw.Family = syscall.AF_UNIX
+	path := make([]byte, len(sa.Name))
+	copy(path, sa.Name)
+	n := 0
+	for n < len(path) && path[n] != 0 {
+		n++
+	}
+	pp := []int8(unsafe.Slice((*int8)(unsafe.Pointer(&path[0])), n))
+	copy(raw.Path[:], pp)
+	nameLen = int32(unsafe.Sizeof(*raw))
+	return
+}
+
+func SockaddrToRawSockaddrAny(sa syscall.Sockaddr) (name *syscall.RawSockaddrAny, nameLen int32, err error) {
+	switch s := sa.(type) {
+	case *syscall.SockaddrInet4:
+		name, nameLen = SockaddrInet4ToRawSockaddrAny(s)
+		return
+	case *syscall.SockaddrInet6:
+		name, nameLen = SockaddrInet6ToRawSockaddrAny(s)
+		return
+	case *syscall.SockaddrUnix:
+		name, nameLen = SockaddrUnixToRawSockaddrAny(s)
+		return
+	default:
+		err = errors.New("invalid address type")
+		return
+	}
+}
+
+func interfaceToIPv4Addr(ifi *net.Interface) (net.IP, error) {
+	if ifi == nil {
+		return net.IPv4zero, nil
+	}
+	ifat, err := ifi.Addrs()
+	if err != nil {
+		return nil, err
+	}
+	for _, ifa := range ifat {
+		switch v := ifa.(type) {
+		case *net.IPAddr:
+			if v.IP.To4() != nil {
+				return v.IP, nil
+			}
+		case *net.IPNet:
+			if v.IP.To4() != nil {
+				return v.IP, nil
+			}
+		}
+	}
+	return nil, errors.New("no such network interface")
+}
+
+func setIPv4MreqToInterface(mreq *syscall.IPMreq, ifi *net.Interface) error {
+	if ifi == nil {
+		return nil
+	}
+	ifat, err := ifi.Addrs()
+	if err != nil {
+		return err
+	}
+	for _, ifa := range ifat {
+		switch v := ifa.(type) {
+		case *net.IPAddr:
+			if a := v.IP.To4(); a != nil {
+				copy(mreq.Interface[:], a)
+				goto done
+			}
+		case *net.IPNet:
+			if a := v.IP.To4(); a != nil {
+				copy(mreq.Interface[:], a)
+				goto done
+			}
+		}
+	}
+done:
+	if bytes.Equal(mreq.Multiaddr[:], net.IPv4zero.To4()) {
+		return errors.New("no such multicast network interface")
+	}
+	return nil
+}
+
+func IsWildcard(addr net.Addr) bool {
+	if addr == nil {
+		return true
+	}
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		if a.IP == nil {
+			return true
+		}
+		return a.IP.IsUnspecified()
+	case *net.UDPAddr:
+		if a.IP == nil {
+			return true
+		}
+		return a.IP.IsUnspecified()
+	case *net.IPAddr:
+		if a.IP == nil {
+			return true
+		}
+		return a.IP.IsUnspecified()
+	case *net.UnixAddr:
+		return a.Name == ""
+	default:
+		return false
+	}
+}
+
+func LoopbackIP(network string) net.IP {
+	if network != "" && network[len(network)-1] == '6' {
+		return net.IPv6loopback
+	}
+	return net.IP{127, 0, 0, 1}
+}
+
+func ToLocal(network string, addr net.Addr) net.Addr {
+	if addr == nil {
+		return nil
+	}
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		return &net.TCPAddr{IP: LoopbackIP(network), Port: a.Port, Zone: a.Zone}
+	case *net.UDPAddr:
+		return &net.UDPAddr{IP: LoopbackIP(network), Port: a.Port, Zone: a.Zone}
+	case *net.UnixAddr:
+		return a
+	case *net.IPAddr:
+		return &net.IPAddr{IP: LoopbackIP(network), Zone: a.Zone}
+	default:
+		return nil
+	}
 }

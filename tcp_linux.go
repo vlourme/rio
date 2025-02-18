@@ -18,18 +18,13 @@ import (
 func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 	config := ListenConfig{
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
+		UseSendZC:       defaultUseSendZC.Load(),
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
 }
 
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
-	// vortexes
-	vortexes, vortexesErr := aio.New(lc.VortexesOptions...)
-	if vortexesErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexesErr}
-	}
-
 	// fd
 	switch network {
 	case "tcp", "tcp4", "tcp6":
@@ -39,26 +34,36 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if addr == nil {
 		addr = &net.TCPAddr{}
 	}
-	fd, fdErr := newTCPListener(network, addr, lc.FastOpen, lc.MultipathTCP)
+	fd, fdErr := newTCPListenerFd(network, addr, lc.FastOpen, lc.MultipathTCP)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
+	}
+	// vortexes
+	vortexes, vortexesErr := aio.New(lc.VortexesOptions...)
+	if vortexesErr != nil {
+		_ = fd.Close()
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexesErr}
 	}
 	// ctx
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	// vortexes start
 	vortexes.Start(ctx)
+	// sendzc
+	useSendZC := lc.UseSendZC
+	if useSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+	}
 	// ln
 	ln := &TCPListener{
 		ctx:             ctx,
 		cancel:          cancel,
 		fd:              fd,
 		vortexes:        vortexes,
-		useSendZC:       lc.UseSendZC,
+		useSendZC:       useSendZC,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 	}
-	ln.checkUseSendZC()
 	return ln, nil
 }
 
@@ -171,8 +176,8 @@ func (ln *TCPListener) checkUseSendZC() {
 	}
 }
 
-func newTCPListener(network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool) (fd *sys.Fd, err error) {
-	resloved, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
+func newTCPListenerFd(network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool) (fd *sys.Fd, err error) {
+	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
 	if addrErr != nil {
 		err = addrErr
 		return
@@ -215,7 +220,7 @@ func newTCPListener(network string, addr *net.TCPAddr, fastOpen int, multipathTC
 		return
 	}
 	// bind
-	if err = fd.Bind(resloved); err != nil {
+	if err = fd.Bind(resolveAddr); err != nil {
 		_ = fd.Close()
 		return
 	}
@@ -231,10 +236,10 @@ func newTCPListener(network string, addr *net.TCPAddr, fastOpen int, multipathTC
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
-			fd.SetLocalAddr(resloved)
+			fd.SetLocalAddr(resolveAddr)
 		}
 	} else {
-		fd.SetLocalAddr(resloved)
+		fd.SetLocalAddr(resolveAddr)
 	}
 	return
 }

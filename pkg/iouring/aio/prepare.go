@@ -13,6 +13,12 @@ func (vortex *Vortex) PrepareOperation(ctx context.Context, op *Operation) Futur
 	return vortex.prepareOperation(ctx, op)
 }
 
+func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) Future {
+	op := vortex.acquireOperation()
+	op.PrepareConnect(fd, addr, addrLen)
+	return vortex.prepareOperation(ctx, op)
+}
+
 func (vortex *Vortex) PrepareAccept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) Future {
 	op := vortex.acquireOperation()
 	op.PrepareAccept(fd, addr, addrLen)
@@ -101,8 +107,14 @@ func (vortex *Vortex) prepareSQE(op *Operation) (bool, error) {
 		sqe.PrepareNop()
 		sqe.SetData(unsafe.Pointer(op))
 		break
+	case iouring.OpConnect:
+		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
+		addrLenPtr := uint64(op.msg.Namelen)
+		sqe.PrepareConnect(op.fd, addrPtr, addrLenPtr)
+		sqe.SetData(unsafe.Pointer(op))
+		break
 	case iouring.OpAccept:
-		addrPtr := uintptr(unsafe.Pointer(op.msg.Name))
+		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
 		sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
 		sqe.SetData(unsafe.Pointer(op))
