@@ -9,7 +9,7 @@ import (
 	"unsafe"
 )
 
-func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64) (n int, err error) {
+func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64) (n int64, err error) {
 
 	return
 }
