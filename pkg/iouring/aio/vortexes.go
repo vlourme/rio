@@ -10,12 +10,12 @@ import (
 )
 
 type Options struct {
-	CenterEntries     uint32
-	SideEntries       []uint32
-	SidesLoadBalancer LoadBalancer
+	Entries           uint32
+	Sides             uint32
 	Flags             uint32
 	Features          uint32
 	WaitCQETimeout    time.Duration
+	SidesLoadBalancer LoadBalancer
 	WaitCQEBatches    []uint32
 }
 
@@ -26,31 +26,20 @@ func WithEntries(entries int) Option {
 		if entries > iouring.MaxEntries {
 			return errors.New("entries too big")
 		}
-		if entries < 0 {
+		if entries < 1 {
 			entries = iouring.DefaultEntries
 		}
-		opts.CenterEntries = uint32(entries)
+		opts.Entries = uint32(entries)
 		return nil
 	}
 }
 
-func WithSidesEntries(entries []int) Option {
+func WithSides(sides int) Option {
 	return func(opts *Options) error {
-		sidesLen := len(entries)
-		if sidesLen == 0 {
-			return errors.New("sides must be greater than zero")
+		if sides < 1 {
+			sides = runtime.NumCPU()
 		}
-		opts.SideEntries = make([]uint32, sidesLen)
-		for i := 0; i < sidesLen; i++ {
-			n := entries[i]
-			if n > iouring.MaxEntries {
-				return errors.New("one side entries too big")
-			}
-			if n < 0 {
-				n = iouring.DefaultEntries
-			}
-			opts.SideEntries[i] = uint32(n)
-		}
+		opts.Sides = uint32(sides)
 		return nil
 	}
 }
@@ -109,17 +98,13 @@ func New(options ...Option) (v *Vortexes, err error) {
 			return
 		}
 	}
-	centerEntries := opt.CenterEntries
-	if centerEntries == 0 {
-		centerEntries = 8
+	entries := opt.Entries
+	if entries == 0 {
+		entries = iouring.DefaultEntries
 	}
-	sidesEntries := opt.SideEntries
-	if len(sidesEntries) == 0 {
-		cpuNum := runtime.NumCPU()
-		sidesEntries = make([]uint32, cpuNum)
-		for i := 0; i < cpuNum; i++ {
-			sidesEntries[i] = iouring.DefaultEntries
-		}
+	sidesNum := opt.Sides
+	if sidesNum < 1 {
+		sidesNum = uint32(runtime.NumCPU())
 	}
 	lb := opt.SidesLoadBalancer
 	if lb == nil {
@@ -142,7 +127,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 
 	// center
 	centerOptions := VortexOptions{
-		Entries:        centerEntries,
+		Entries:        entries,
 		Flags:          flags,
 		Features:       features,
 		WaitCQETimeout: waitCQETimeout,
@@ -155,11 +140,10 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 
 	// sides
-	sides := make([]*Vortex, len(sidesEntries))
+	sides := make([]*Vortex, sidesNum)
 	for i := 0; i < len(sides); i++ {
-		sideEntries := sidesEntries[i]
 		sideOptions := VortexOptions{
-			Entries:        sideEntries,
+			Entries:        entries,
 			Flags:          flags,
 			Features:       features,
 			WaitCQETimeout: waitCQETimeout,
