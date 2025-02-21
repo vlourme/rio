@@ -3,6 +3,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
+	"github.com/brickingsoft/rio/pkg/process"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,10 @@ var (
 	defaultUseSendZC       = atomic.Bool{}
 	defaultVortexesOptions []aio.Option
 )
+
+func UseProcessPriority(level process.PriorityLevel) {
+	_ = process.SetCurrentProcessPriority(level)
+}
 
 func UseZeroCopy(use bool) {
 	defaultUseSendZC.Store(use)
