@@ -195,7 +195,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 	vortex.stopCh = make(chan struct{}, 1)
 	vortex.wg.Add(1)
 	go func(ctx context.Context, vortex *Vortex) {
-		// unlock os thread
+		// lock os thread
 		if vortex.lockOSThread {
 			runtime.LockOSThread()
 		}
