@@ -296,6 +296,9 @@ func (queue *OperationQueue) Enqueue(op *Operation) (ok bool) {
 
 func (queue *OperationQueue) Dequeue() (op *Operation) {
 	for {
+		if queue.entries.Load() < 1 {
+			return
+		}
 		head := queue.head.Load()
 		target := head.value.Load()
 		if target == nil {
