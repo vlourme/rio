@@ -131,6 +131,20 @@ func (conn *connection) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+func (conn *connection) SetReadBuffer(bytes int) error {
+	if err := conn.fd.SetReadBuffer(bytes); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
+func (conn *connection) SetWriteBuffer(bytes int) error {
+	if err := conn.fd.SetWriteBuffer(bytes); err != nil {
+		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	}
+	return nil
+}
+
 func (conn *connection) File() (f *os.File, err error) {
 	f, err = conn.file()
 	if err != nil {
@@ -147,7 +161,6 @@ func (conn *connection) file() (*os.File, error) {
 		}
 		return nil, err
 	}
-	// todo check ok
 	f := os.NewFile(uintptr(ns), conn.fd.Name())
 	return f, nil
 }
