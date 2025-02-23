@@ -302,6 +302,8 @@ func (conn *TCPConn) SyscallConn() (syscall.RawConn, error) {
 	return newRawConnection(conn.fd), nil
 }
 
+// ReadFrom
+// 当时文件时，切记在未读完的情况下（或者任何情况下），读之后都要进行 seek 来标记下一次读的位置。
 func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	var remain int64 = 1<<63 - 1 // by default, copy until EOF
 	lr, ok := r.(*io.LimitedReader)
