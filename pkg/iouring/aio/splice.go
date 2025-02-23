@@ -87,7 +87,7 @@ func NewSplicePipe() *SplicePipe {
 	// Set the pipe buffer size to maxSpliceSize to optimize that.
 	// Ignore errors here, as a smaller buffer size will work,
 	// although it will require more system calls.
-	Fcntl(fds[0], syscall.F_SETPIPE_SZ, MaxSpliceSize)
+	_, _ = fcntl(fds[0], syscall.F_SETPIPE_SZ, MaxSpliceSize)
 
 	return &SplicePipe{splicePipeFields: splicePipeFields{rfd: fds[0], wfd: fds[1]}}
 }
@@ -130,37 +130,6 @@ func (pipe *SplicePipe) Close() (err error) {
 		} else {
 			err = errors.Join(err, werr)
 		}
-	}
-	return
-}
-
-func (pipe *SplicePipe) Splice(ctx context.Context, vortex *Vortex, src int, dst int, remain int64) (n int, err error) {
-	written := int64(0)
-	for err == nil && remain > 0 {
-		chunk := int64(MaxSpliceSize)
-		if chunk > remain {
-			chunk = remain
-		}
-		// todo move into vortex.Splice
-		// drain
-		drained := 0
-		var drainedErr error
-
-		if drainedErr != nil || drained == 0 {
-			break
-		}
-		pipe.DrainN(drained)
-		// pump
-
-		pumped := 0
-
-		var pumpedErr error
-		if pumped > 0 {
-			written += int64(n)
-			remain -= int64(n)
-			pipe.PumpN(pumped)
-		}
-		err = pumpedErr
 	}
 	return
 }
