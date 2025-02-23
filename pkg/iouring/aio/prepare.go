@@ -84,7 +84,7 @@ func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Futur
 			vortex.releaseOperation(op)
 			return Future{err: ctx.Err()}
 		default:
-			if pushed := vortex.queue.Enqueue(op); pushed {
+			if pushed := vortex.ops.Submit(op); pushed {
 				return Future{
 					vortex:   vortex,
 					op:       op,

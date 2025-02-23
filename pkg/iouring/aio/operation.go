@@ -233,59 +233,59 @@ func (op *Operation) Flags() int {
 	return int(op.msg.Flags)
 }
 
-func newOperationQueue(n int) (queue *OperationQueue) {
+func newOperationRing(n int) (ring *OperationRing) {
 	if n < 1 {
 		n = iouring.DefaultEntries
 	}
-	queue = &OperationQueue{
-		head:     atomic.Pointer[OperationQueueNode]{},
-		tail:     atomic.Pointer[OperationQueueNode]{},
+	ring = &OperationRing{
+		head:     atomic.Pointer[OperationRingNode]{},
+		tail:     atomic.Pointer[OperationRingNode]{},
 		entries:  atomic.Int64{},
 		capacity: int64(n),
 	}
-	head := &OperationQueueNode{
+	head := &OperationRingNode{
 		value: atomic.Pointer[Operation]{},
-		next:  atomic.Pointer[OperationQueueNode]{},
+		next:  atomic.Pointer[OperationRingNode]{},
 	}
-	queue.head.Store(head)
-	queue.tail.Store(head)
+	ring.head.Store(head)
+	ring.tail.Store(head)
 
 	for i := 1; i < n; i++ {
-		next := &OperationQueueNode{}
-		tail := queue.tail.Load()
+		next := &OperationRingNode{}
+		tail := ring.tail.Load()
 		tail.next.Store(next)
-		queue.tail.CompareAndSwap(tail, next)
+		ring.tail.Store(next)
 	}
 
-	tail := queue.tail.Load()
+	tail := ring.tail.Load()
 	tail.next.Store(head)
 
-	queue.tail.Store(head)
+	ring.tail.Store(head)
 	return
 }
 
-type OperationQueueNode struct {
+type OperationRingNode struct {
 	value atomic.Pointer[Operation]
-	next  atomic.Pointer[OperationQueueNode]
+	next  atomic.Pointer[OperationRingNode]
 }
 
-type OperationQueue struct {
-	head     atomic.Pointer[OperationQueueNode]
-	tail     atomic.Pointer[OperationQueueNode]
+type OperationRing struct {
+	head     atomic.Pointer[OperationRingNode]
+	tail     atomic.Pointer[OperationRingNode]
 	entries  atomic.Int64
 	capacity int64
 }
 
-func (queue *OperationQueue) Enqueue(op *Operation) (ok bool) {
+func (ring *OperationRing) Submit(op *Operation) (ok bool) {
 	for {
-		if queue.entries.Load() >= queue.capacity {
+		if ring.entries.Load() >= ring.capacity {
 			break
 		}
-		tail := queue.tail.Load()
+		tail := ring.tail.Load()
 		if tail.value.CompareAndSwap(nil, op) {
 			next := tail.next.Load()
-			queue.tail.Store(next)
-			queue.entries.Add(1)
+			ring.tail.Store(next)
+			ring.entries.Add(1)
 			ok = true
 			break
 		}
@@ -294,36 +294,15 @@ func (queue *OperationQueue) Enqueue(op *Operation) (ok bool) {
 	return
 }
 
-func (queue *OperationQueue) Dequeue() (op *Operation) {
-	for {
-		if queue.entries.Load() < 1 {
-			return
-		}
-		head := queue.head.Load()
-		target := head.value.Load()
-		if target == nil {
-			break
-		}
-		next := head.next.Load()
-		if queue.head.CompareAndSwap(head, next) {
-			head.value.Store(nil)
-			queue.entries.Add(-1)
-			op = target
-			break
-		}
-	}
-	return
-}
-
-func (queue *OperationQueue) PeekBatch(operations []*Operation) (n int64) {
+func (ring *OperationRing) PeekBatch(operations []*Operation) (n int64) {
 	size := int64(len(operations))
 	if size == 0 {
 		return
 	}
-	if entriesLen := queue.entries.Load(); entriesLen < size {
+	if entriesLen := ring.entries.Load(); entriesLen < size {
 		size = entriesLen
 	}
-	node := queue.head.Load()
+	node := ring.head.Load()
 	for i := int64(0); i < size; i++ {
 		op := node.value.Load()
 		if op == nil {
@@ -336,21 +315,21 @@ func (queue *OperationQueue) PeekBatch(operations []*Operation) (n int64) {
 	return
 }
 
-func (queue *OperationQueue) Advance(n int64) {
-	node := queue.head.Load()
+func (ring *OperationRing) Advance(n int64) {
+	head := ring.head.Load()
 	for i := int64(0); i < n; i++ {
-		node.value.Store(nil)
-		node = node.next.Load()
-		queue.entries.Add(-1)
+		head.value.Store(nil)
+		head = head.next.Load()
+		ring.entries.Add(-1)
 	}
-	queue.head.Store(node)
+	ring.head.Store(head)
 	return
 }
 
-func (queue *OperationQueue) Len() int64 {
-	return queue.entries.Load()
+func (ring *OperationRing) Len() int64 {
+	return ring.entries.Load()
 }
 
-func (queue *OperationQueue) Cap() int64 {
-	return queue.capacity
+func (ring *OperationRing) Cap() int64 {
+	return ring.capacity
 }

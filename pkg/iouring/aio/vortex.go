@@ -90,12 +90,12 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 		return nil, ringErr
 	}
 	sqEntries := ring.SQEntries()
-	// queue
-	queue := newOperationQueue(int(sqEntries))
+	// ops
+	queue := newOperationRing(int(sqEntries))
 	// vortex
 	v = &Vortex{
 		ring:           ring,
-		queue:          queue,
+		ops:            queue,
 		lockOSThread:   options.Flags&iouring.SetupSingleIssuer != 0,
 		waitCQETimeout: options.WaitCQETimeout,
 		waitCQEBatches: options.WaitCQEBatches,
@@ -122,7 +122,7 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 
 type Vortex struct {
 	ring           *iouring.Ring
-	queue          *OperationQueue
+	ops            *OperationRing
 	lockOSThread   bool
 	waitCQETimeout time.Duration
 	waitCQEBatches []uint32
@@ -139,7 +139,7 @@ func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 		op.PrepareCancel(target)
 		pushed := false
 		for i := 0; i < 10; i++ {
-			if pushed = vortex.queue.Enqueue(op); pushed {
+			if pushed = vortex.ops.Submit(op); pushed {
 				time.Sleep(ns500)
 				break
 			}
@@ -203,7 +203,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 
 		stopCh := vortex.stopCh
 
-		queue := vortex.queue
+		queue := vortex.ops
 		operations := make([]*Operation, queue.capacity)
 
 		waitCQENr := uint32(1)
