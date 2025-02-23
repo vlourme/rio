@@ -91,11 +91,11 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 	}
 	sqEntries := ring.SQEntries()
 	// ops
-	queue := newOperationRing(int(sqEntries))
+	ops := newOperationRing(int(sqEntries))
 	// vortex
 	v = &Vortex{
 		ring:           ring,
-		ops:            queue,
+		ops:            ops,
 		lockOSThread:   options.Flags&iouring.SetupSingleIssuer != 0,
 		waitCQETimeout: options.WaitCQETimeout,
 		waitCQEBatches: options.WaitCQEBatches,
@@ -203,15 +203,15 @@ func (vortex *Vortex) Start(ctx context.Context) {
 
 		stopCh := vortex.stopCh
 
-		queue := vortex.ops
-		operations := make([]*Operation, queue.capacity)
+		ops := vortex.ops
+		operations := make([]*Operation, ops.capacity)
 
 		waitCQENr := uint32(1)
 		waitCQEBatchedIndex := uint32(0)
 		waitCQEBatches := vortex.waitCQEBatches
 		waitCQEBatchesLen := uint32(len(waitCQEBatches))
 		waitCQETimeout := syscall.NsecToTimespec(vortex.waitCQETimeout.Nanoseconds())
-		cq := make([]*iouring.CompletionQueueEvent, queue.capacity)
+		cq := make([]*iouring.CompletionQueueEvent, ops.capacity)
 
 		stopped := false
 		for {
@@ -224,7 +224,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 				break
 			default:
 				// peek and submit
-				if peeked := queue.PeekBatch(operations); peeked > 0 {
+				if peeked := ops.PeekBatch(operations); peeked > 0 {
 					prepared := int64(0)
 					for i := int64(0); i < peeked; i++ {
 						op := operations[i]
@@ -261,7 +261,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 								}
 								break
 							}
-							queue.Advance(prepared)
+							ops.Advance(prepared)
 							break
 						}
 					}
@@ -332,8 +332,8 @@ func (vortex *Vortex) Start(ctx context.Context) {
 			}
 		}
 		// evict remain
-		if remains := queue.Len(); remains > 0 {
-			peeked := queue.PeekBatch(operations)
+		if remains := ops.Len(); remains > 0 {
+			peeked := ops.PeekBatch(operations)
 			for i := int64(0); i < peeked; i++ {
 				op := operations[i]
 				operations[i] = nil
