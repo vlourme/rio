@@ -83,7 +83,6 @@ func TestTCP(t *testing.T) {
 
 func TestTCPConn_ReadFrom(t *testing.T) {
 	// file
-	//n := 1 << 20
 	n := 1024 * 100
 	rb := make([]byte, n)
 	bLen, bErr := rand.Read(rb)
@@ -137,7 +136,7 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 		defer srv.Close()
 
 		buf := bytes.NewBuffer(nil)
-		srb := make([]byte, 1024)
+		srb := make([]byte, 1024*10)
 		for {
 			rn, rErr := srv.Read(srb)
 			if rErr != nil {
@@ -166,7 +165,6 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 	for {
 		crn, crErr := cli.ReadFrom(tmp)
 		rfn += crn
-		tmp.Seek(rfn, io.SeekStart) // TODO: NOTED!!!! SEEK AFTER READ FROM
 		if crErr != nil {
 			if errors.Is(crErr, io.ErrShortWrite) {
 				continue
@@ -178,6 +176,10 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 			return
 		}
 		if crn == 0 {
+			t.Log("cli read from zero", rfn, rfn == int64(len(b)))
+			break
+		}
+		if rfn == int64(len(b)) {
 			t.Log("cli read from fin", rfn, rfn == int64(len(b)))
 			break
 		}

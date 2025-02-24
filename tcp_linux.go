@@ -302,8 +302,6 @@ func (conn *TCPConn) SyscallConn() (syscall.RawConn, error) {
 	return newRawConnection(conn.fd), nil
 }
 
-// ReadFrom
-// 当时文件时，切记在未读完的情况下（或者任何情况下），读之后都要进行 seek 来标记下一次读的位置。
 func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	var remain int64 = 1<<63 - 1 // by default, copy until EOF
 	lr, ok := r.(*io.LimitedReader)
@@ -315,6 +313,7 @@ func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	}
 
 	useSplice := false
+	useSendfile := false
 	var srcFd int
 	switch v := r.(type) {
 	case *TCPConn:
@@ -334,13 +333,12 @@ func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		useSplice = true
 		break
 	case *os.File:
-		srcFd = int(v.Fd())
-		useSplice = true
+		useSendfile = true
 		break
 	default:
 		break
 	}
-
+	// splice
 	if useSplice {
 		if srcFd < 1 {
 			return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: errors.New("no file descriptor found in reader")}
@@ -357,7 +355,21 @@ func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		}
 		return written, nil
 	}
-
+	// sendfile
+	if useSendfile {
+		ctx := conn.ctx
+		fd := conn.fd.Socket()
+		vortex := conn.vortex
+		written, sendfileErr := vortex.Sendfile(ctx, fd, r, conn.useZC)
+		if lr != nil {
+			lr.N -= written
+		}
+		if sendfileErr != nil {
+			return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: sendfileErr}
+		}
+		return written, nil
+	}
+	// copy
 	written, readFromErr := genericReadFrom(conn, r)
 	if readFromErr != nil && readFromErr != io.EOF {
 		return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: readFromErr}
