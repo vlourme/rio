@@ -157,11 +157,29 @@ func (fd *Fd) CloseWrite() error {
 	return syscall.Shutdown(fd.sock, syscall.SHUT_WR)
 }
 
+func (fd *Fd) ReadBuffer() (n int, err error) {
+	n, err = syscall.GetsockoptInt(fd.sock, syscall.SOL_SOCKET, syscall.SO_RCVBUF)
+	if err != nil {
+		err = os.NewSyscallError("getsockopt", err)
+		return
+	}
+	return
+}
+
 func (fd *Fd) SetReadBuffer(bytes int) error {
 	if err := syscall.SetsockoptInt(fd.sock, syscall.SOL_SOCKET, syscall.SO_RCVBUF, bytes); err != nil {
 		return os.NewSyscallError("setsockopt", err)
 	}
 	return nil
+}
+
+func (fd *Fd) WriteBuffer() (n int, err error) {
+	n, err = syscall.GetsockoptInt(fd.sock, syscall.SOL_SOCKET, syscall.SO_SNDBUF)
+	if err != nil {
+		err = os.NewSyscallError("getsockopt", err)
+		return
+	}
+	return
 }
 
 func (fd *Fd) SetWriteBuffer(bytes int) error {

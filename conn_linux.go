@@ -22,6 +22,8 @@ type conn struct {
 	vortex       *aio.Vortex
 	readTimeout  atomic.Int64
 	writeTimeout atomic.Int64
+	readBuffer   atomic.Int64
+	writeBuffer  atomic.Int64
 	useZC        bool
 }
 
@@ -156,6 +158,21 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+func (c *conn) ReadBuffer() (int, error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if n := c.readBuffer.Load(); n != 0 {
+		return int(n), nil
+	}
+	n, err := c.fd.ReadBuffer()
+	if err != nil {
+		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+	}
+	c.readBuffer.Store(int64(n))
+	return n, nil
+}
+
 func (c *conn) SetReadBuffer(bytes int) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -163,7 +180,23 @@ func (c *conn) SetReadBuffer(bytes int) error {
 	if err := c.fd.SetReadBuffer(bytes); err != nil {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
+	c.readBuffer.Store(int64(bytes))
 	return nil
+}
+
+func (c *conn) WriteBuffer() (int, error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if n := c.writeBuffer.Load(); n != 0 {
+		return int(n), nil
+	}
+	n, err := c.fd.WriteBuffer()
+	if err != nil {
+		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+	}
+	c.writeBuffer.Store(int64(n))
+	return n, nil
 }
 
 func (c *conn) SetWriteBuffer(bytes int) error {
@@ -173,6 +206,7 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	if err := c.fd.SetWriteBuffer(bytes); err != nil {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
+	c.writeBuffer.Store(int64(bytes))
 	return nil
 }
 
