@@ -111,14 +111,6 @@ func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.
 	op.kind = iouring.OpSendmsg
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)
-	/* todo handle of sotype != syscall.SOCK_DGRAM, 在外面处理
-	if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
-				var dummy byte
-				op.msg.Iov.Base = &dummy
-				op.msg.Iov.Len = uint64(1)
-				op.msg.Iovlen = 1
-			}
-	*/
 	return
 }
 
@@ -127,14 +119,6 @@ func (op *Operation) PrepareSendMsgZC(fd int, b []byte, oob []byte, addr *syscal
 	op.fd = fd
 	op.b = b
 	op.setMsg(b, oob, addr, addrLen, flags)
-	/* todo handle of sotype != syscall.SOCK_DGRAM, 在外面处理
-	if bLen == 0 && fd.SocketType() != syscall.SOCK_DGRAM {
-				var dummy byte
-				op.msg.Iov.Base = &dummy
-				op.msg.Iov.Len = uint64(1)
-				op.msg.Iovlen = 1
-			}
-	*/
 	return
 }
 
