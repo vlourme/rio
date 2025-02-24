@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net"
+	"net/netip"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -515,4 +516,43 @@ func ToLocal(network string, addr net.Addr) net.Addr {
 	default:
 		return nil
 	}
+}
+
+func AddrPortToSockaddr(ap netip.AddrPort) (sa syscall.Sockaddr, err error) {
+	addr := ap.Addr()
+	if addr.Is4() {
+		return addrPortToSockaddrInet4(ap)
+	}
+	return addrPortToSockaddrInet6(ap)
+}
+
+func addrPortToSockaddrInet4(ap netip.AddrPort) (*syscall.SockaddrInet4, error) {
+	addr := ap.Addr()
+	if !addr.Is4() {
+		return &syscall.SockaddrInet4{}, &net.AddrError{Err: "non-IPv4 address", Addr: addr.String()}
+	}
+	sa := &syscall.SockaddrInet4{
+		Addr: addr.As4(),
+		Port: int(ap.Port()),
+	}
+	return sa, nil
+}
+
+func addrPortToSockaddrInet6(ap netip.AddrPort) (*syscall.SockaddrInet6, error) {
+	addr := ap.Addr()
+	if !addr.IsValid() {
+		return &syscall.SockaddrInet6{}, &net.AddrError{Err: "non-IPv6 address", Addr: addr.String()}
+	}
+
+	zoneId := uint32(0)
+	if ifi, ifiErr := net.InterfaceByName(addr.Zone()); ifiErr == nil {
+		zoneId = uint32(ifi.Index)
+	}
+
+	sa := &syscall.SockaddrInet6{
+		Addr:   addr.As16(),
+		Port:   int(ap.Port()),
+		ZoneId: zoneId,
+	}
+	return sa, nil
 }
