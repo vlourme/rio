@@ -81,10 +81,27 @@ type TCPListener struct {
 	useSendZC       bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
+	deadline        time.Time
 }
 
-func (ln *TCPListener) Accept() (conn net.Conn, err error) {
+func (ln *TCPListener) Accept() (net.Conn, error) {
+	return ln.AcceptTCP()
+}
+
+func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
+	if !ln.ok() {
+		return nil, syscall.EINVAL
+	}
 	ctx := ln.ctx
+	var cancel context.CancelFunc = func() {}
+	if deadline := ln.deadline; !deadline.IsZero() {
+		if deadline.Before(time.Now()) {
+			return nil, aio.Timeout
+		}
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+	}
+	defer cancel()
+
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
 	addr := &syscall.RawSockaddrAny{}
@@ -123,8 +140,8 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 	}
 	// tcp conn
 	cc, cancel := context.WithCancel(ctx)
-	tcpConn := &TCPConn{
-		connection{
+	tc = &TCPConn{
+		conn{
 			ctx:          cc,
 			cancel:       cancel,
 			fd:           cfd,
@@ -135,7 +152,7 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 		},
 	}
 	// no delay
-	_ = tcpConn.SetNoDelay(true)
+	_ = tc.SetNoDelay(true)
 	// keepalive
 	keepAliveConfig := ln.keepAliveConfig
 	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
@@ -145,14 +162,15 @@ func (ln *TCPListener) Accept() (conn net.Conn, err error) {
 		}
 	}
 	if keepAliveConfig.Enable {
-		_ = tcpConn.SetKeepAliveConfig(keepAliveConfig)
+		_ = tc.SetKeepAliveConfig(keepAliveConfig)
 	}
-	// conn
-	conn = tcpConn
 	return
 }
 
 func (ln *TCPListener) Close() error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
 	defer func() {
 		_ = UnpinVortexes()
 	}()
@@ -165,8 +183,51 @@ func (ln *TCPListener) Close() error {
 }
 
 func (ln *TCPListener) Addr() net.Addr {
+	if !ln.ok() {
+		return nil
+	}
 	return ln.fd.LocalAddr()
 }
+
+func (ln *TCPListener) SyscallConn() (syscall.RawConn, error) {
+	if !ln.ok() {
+		return nil, syscall.EINVAL
+	}
+	return newRawConn(ln.fd), nil
+}
+
+func (ln *TCPListener) File() (f *os.File, err error) {
+	if !ln.ok() {
+		return nil, syscall.EINVAL
+	}
+	f, err = ln.file()
+	if err != nil {
+		return nil, &net.OpError{Op: "file", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+	}
+	return
+}
+
+func (ln *TCPListener) file() (*os.File, error) {
+	ns, call, err := ln.fd.Dup()
+	if err != nil {
+		if call != "" {
+			err = os.NewSyscallError(call, err)
+		}
+		return nil, err
+	}
+	f := os.NewFile(uintptr(ns), ln.fd.Name())
+	return f, nil
+}
+
+func (ln *TCPListener) SetDeadline(t time.Time) error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	ln.deadline = t
+	return nil
+}
+
+func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
 
 func (ln *TCPListener) checkUseSendZC() {
 	if ln.useSendZC {
@@ -232,7 +293,7 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 	}
 	// control
 	if control != nil {
-		raw := newRawConnection(fd)
+		raw := newRawConn(fd)
 		if err = control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return
@@ -295,14 +356,23 @@ func genericWriteTo(c *TCPConn, w io.Writer) (n int64, err error) {
 }
 
 type TCPConn struct {
-	connection
+	conn
 }
 
-func (conn *TCPConn) SyscallConn() (syscall.RawConn, error) {
-	return newRawConnection(conn.fd), nil
+func (c *TCPConn) SyscallConn() (syscall.RawConn, error) {
+	if !c.ok() {
+		return nil, syscall.EINVAL
+	}
+	return newRawConn(c.fd), nil
 }
 
-func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
+func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if r == nil {
+		return 0, syscall.EFAULT
+	}
 	var remain int64 = 1<<63 - 1 // by default, copy until EOF
 	lr, ok := r.(*io.LimitedReader)
 	if ok {
@@ -341,113 +411,143 @@ func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	// splice
 	if useSplice {
 		if srcFd < 1 {
-			return 0, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: errors.New("no file descriptor found in reader")}
+			return 0, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("no file descriptor found in reader")}
 		}
-		ctx := conn.ctx
-		fd := conn.fd.Socket()
-		vortex := conn.vortex
+		ctx := c.ctx
+		fd := c.fd.Socket()
+		vortex := c.vortex
 		written, spliceErr := vortex.Splice(ctx, fd, srcFd, remain)
 		if lr != nil {
 			lr.N -= written
 		}
 		if spliceErr != nil {
-			return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: spliceErr}
+			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil
 	}
 	// sendfile
 	if useSendfile {
-		ctx := conn.ctx
-		fd := conn.fd.Socket()
-		vortex := conn.vortex
-		written, sendfileErr := vortex.Sendfile(ctx, fd, r, conn.useZC)
+		ctx := c.ctx
+		fd := c.fd.Socket()
+		vortex := c.vortex
+		written, sendfileErr := vortex.Sendfile(ctx, fd, r, c.useZC)
 		if lr != nil {
 			lr.N -= written
 		}
 		if sendfileErr != nil {
-			return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: sendfileErr}
+			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: sendfileErr}
 		}
 		return written, nil
 	}
 	// copy
-	written, readFromErr := genericReadFrom(conn, r)
+	written, readFromErr := genericReadFrom(c, r)
 	if readFromErr != nil && readFromErr != io.EOF {
-		return written, &net.OpError{Op: "readfrom", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: readFromErr}
+		return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: readFromErr}
 	}
 	return written, nil
 }
 
-func (conn *TCPConn) WriteTo(w io.Writer) (int64, error) {
+func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if w == nil {
+		return 0, syscall.EFAULT
+	}
 	uc, ok := w.(*UnixConn)
 	if ok && uc.fd.Net() == "unix" {
-		ctx := conn.ctx
-		fd := conn.fd.Socket()
-		vortex := conn.vortex
+		ctx := c.ctx
+		fd := c.fd.Socket()
+		vortex := c.vortex
 		written, spliceErr := vortex.Splice(ctx, uc.fd.Socket(), fd, 1<<63-1)
 		if spliceErr != nil {
-			return written, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: spliceErr}
+			return written, &net.OpError{Op: "writeto", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil
 	}
 
 	// copy
-	written, writeToErr := genericWriteTo(conn, w)
+	written, writeToErr := genericWriteTo(c, w)
 	if writeToErr != nil && writeToErr != io.EOF {
-		writeToErr = &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: writeToErr}
+		writeToErr = &net.OpError{Op: "writeto", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: writeToErr}
 	}
 	return written, writeToErr
 }
 
-func (conn *TCPConn) CloseRead() error {
-	if err := conn.fd.CloseRead(); err != nil {
-		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) CloseRead() error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.CloseRead(); err != nil {
+		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) CloseWrite() error {
-	if err := conn.fd.CloseWrite(); err != nil {
-		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) CloseWrite() error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.CloseWrite(); err != nil {
+		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) SetLinger(sec int) error {
-	if err := conn.fd.SetLinger(sec); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) SetLinger(sec int) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetLinger(sec); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) SetNoDelay(noDelay bool) error {
-	if err := conn.fd.SetNoDelay(noDelay); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) SetNoDelay(noDelay bool) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetNoDelay(noDelay); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) SetKeepAlive(keepalive bool) error {
-	if err := conn.fd.SetKeepAlive(keepalive); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) SetKeepAlive(keepalive bool) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetKeepAlive(keepalive); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) SetKeepAlivePeriod(period time.Duration) error {
-	if err := conn.fd.SetKeepAlivePeriod(period); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) SetKeepAlivePeriod(period time.Duration) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetKeepAlivePeriod(period); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) SetKeepAliveConfig(config net.KeepAliveConfig) error {
-	if err := conn.fd.SetKeepAliveConfig(config); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *TCPConn) SetKeepAliveConfig(config net.KeepAliveConfig) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetKeepAliveConfig(config); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *TCPConn) MultipathTCP() (bool, error) {
-	ok := sys.IsUsingMultipathTCP(conn.fd)
+func (c *TCPConn) MultipathTCP() (bool, error) {
+	if !c.ok() {
+		return false, syscall.EINVAL
+	}
+	ok := sys.IsUsingMultipathTCP(c.fd)
 	return ok, nil
 }
