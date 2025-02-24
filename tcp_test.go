@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"sync"
-	"syscall"
 	"testing"
 )
 
@@ -160,30 +159,12 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 	defer cli0.Close()
 
 	cli := cli0.(io.ReaderFrom)
-
-	rfn := int64(0)
-	for {
-		crn, crErr := cli.ReadFrom(tmp)
-		rfn += crn
-		if crErr != nil {
-			if errors.Is(crErr, io.ErrShortWrite) {
-				continue
-			}
-			if errors.Is(crErr, syscall.EAGAIN) {
-				continue
-			}
-			t.Error(crErr)
-			return
-		}
-		if crn == 0 {
-			t.Log("cli read from zero", rfn, rfn == int64(len(b)))
-			break
-		}
-		if rfn == int64(len(b)) {
-			t.Log("cli read from fin", rfn, rfn == int64(len(b)))
-			break
-		}
+	crn, crErr := cli.ReadFrom(tmp)
+	if crErr != nil {
+		t.Error("cli read from", crErr)
+		return
 	}
+	t.Log("cli read from", crn, crn == int64(len(b)))
 
 }
 
