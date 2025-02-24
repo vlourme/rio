@@ -366,6 +366,20 @@ func (c *TCPConn) SyscallConn() (syscall.RawConn, error) {
 	return newRawConn(c.fd), nil
 }
 
+const (
+	ReadFromFileUseMMapPolicy = int32(iota)
+	ReadFromFileUseMixPolicy
+)
+
+var readFromFilePolicy atomic.Int32
+
+func UseReadFromFilePolicy(policy int32) {
+	if policy < 0 || policy > 1 {
+		policy = ReadFromFileUseMMapPolicy
+	}
+	readFromFilePolicy.Store(policy)
+}
+
 func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -382,34 +396,51 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		}
 	}
 
-	useSplice := false
-	useSendfile := false
+	sendMode := 0 // 0: copy, 1: splice, 2: mmap
 	var srcFd int
 	switch v := r.(type) {
 	case *TCPConn:
 		srcFd = v.fd.Socket()
-		useSplice = true
+		sendMode = 1
 		break
 	case tcpConnWithoutWriteTo:
 		srcFd = v.fd.Socket()
-		useSplice = true
+		sendMode = 1
 		break
 	case *UnixConn:
 		if v.fd.Net() != "unix" {
-			useSplice = false
 			break
 		}
 		srcFd = v.fd.Socket()
-		useSplice = true
+		sendMode = 1
 		break
 	case *os.File:
-		useSendfile = true
+		policy := readFromFilePolicy.Load()
+		if policy == ReadFromFileUseMixPolicy {
+			if remain == 1<<63-1 {
+				info, infoErr := v.Stat()
+				if infoErr != nil {
+					return 0, infoErr
+				}
+				remain = info.Size()
+			}
+			wb, _ := c.WriteBuffer()
+			if remain <= int64(wb) {
+				srcFd = int(v.Fd())
+				sendMode = 1
+			} else {
+				sendMode = 2
+			}
+		} else {
+			sendMode = 2
+		}
 		break
 	default:
 		break
 	}
-	// splice
-	if useSplice {
+
+	switch sendMode {
+	case 1: // splice
 		if srcFd < 1 {
 			return 0, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("no file descriptor found in reader")}
 		}
@@ -424,9 +455,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil
-	}
-	// sendfile
-	if useSendfile {
+	case 2: // sendfile(mmap+send)
 		ctx := c.ctx
 		fd := c.fd.Socket()
 		vortex := c.vortex
@@ -438,13 +467,13 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: sendfileErr}
 		}
 		return written, nil
+	default: // copy
+		written, readFromErr := genericReadFrom(c, r)
+		if readFromErr != nil && readFromErr != io.EOF {
+			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: readFromErr}
+		}
+		return written, nil
 	}
-	// copy
-	written, readFromErr := genericReadFrom(c, r)
-	if readFromErr != nil && readFromErr != io.EOF {
-		return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: readFromErr}
-	}
-	return written, nil
 }
 
 func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
