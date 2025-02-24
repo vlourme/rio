@@ -378,7 +378,24 @@ func (conn *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 }
 
 func (conn *TCPConn) WriteTo(w io.Writer) (int64, error) {
-	return 0, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: nil}
+	uc, ok := w.(*UnixConn)
+	if ok && uc.fd.Net() == "unix" {
+		ctx := conn.ctx
+		fd := conn.fd.Socket()
+		vortex := conn.vortex
+		written, spliceErr := vortex.Splice(ctx, uc.fd.Socket(), fd, 1<<63-1)
+		if spliceErr != nil {
+			return written, &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: spliceErr}
+		}
+		return written, nil
+	}
+
+	// copy
+	written, writeToErr := genericWriteTo(conn, w)
+	if writeToErr != nil && writeToErr != io.EOF {
+		writeToErr = &net.OpError{Op: "writeto", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: writeToErr}
+	}
+	return written, writeToErr
 }
 
 func (conn *TCPConn) CloseRead() error {
