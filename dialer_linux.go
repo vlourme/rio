@@ -83,7 +83,7 @@ func minNonzeroTime(a, b time.Time) time.Time {
 	return b
 }
 
-func (d *Dialer) Dial(ctx context.Context, network string, address string) (conn net.Conn, err error) {
+func (d *Dialer) Dial(ctx context.Context, network string, address string) (c net.Conn, err error) {
 	addr, _, _, addrErr := sys.ResolveAddr(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: addrErr}
@@ -91,16 +91,16 @@ func (d *Dialer) Dial(ctx context.Context, network string, address string) (conn
 	}
 	switch a := addr.(type) {
 	case *net.TCPAddr:
-		conn, err = d.DialTCP(ctx, network, nil, a)
+		c, err = d.DialTCP(ctx, network, nil, a)
 		break
 	case *net.UDPAddr:
-		conn, err = d.DialUDP(ctx, network, nil, a)
+		c, err = d.DialUDP(ctx, network, nil, a)
 		break
 	case *net.UnixAddr:
-		conn, err = d.DialUnix(ctx, network, nil, a)
+		c, err = d.DialUnix(ctx, network, nil, a)
 		break
 	case *net.IPAddr:
-		conn, err = d.DialIP(ctx, network, nil, a)
+		c, err = d.DialIP(ctx, network, nil, a)
 		break
 	default:
 		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: addr, Err: &net.AddrError{Err: "unexpected address type", Addr: address}}
@@ -203,7 +203,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	conn := &TCPConn{
-		connection{
+		conn{
 			ctx:          ctx,
 			cancel:       cancel,
 			fd:           fd,
@@ -300,7 +300,7 @@ func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.
 	}
 	// control
 	if control != nil {
-		raw := newRawConnection(fd)
+		raw := newRawConn(fd)
 		if err = control(ctx, network, addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return

@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-type connection struct {
+type conn struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	fd           *sys.Fd
@@ -25,181 +25,217 @@ type connection struct {
 	useZC        bool
 }
 
-func (conn *connection) Read(b []byte) (n int, err error) {
-	if len(b) == 0 {
-		return
+func (c *conn) Read(b []byte) (n int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
 	}
 
-	ctx := conn.ctx
-	fd := conn.fd.Socket()
-	vortex := conn.vortex
+	if len(b) == 0 {
+		return 0, syscall.EFAULT
+	}
 
-	future := vortex.PrepareReceive(ctx, fd, b, time.Duration(conn.readTimeout.Load()))
+	ctx := c.ctx
+	fd := c.fd.Socket()
+	vortex := c.vortex
+
+	future := vortex.PrepareReceive(ctx, fd, b, time.Duration(c.readTimeout.Load()))
 
 	n, err = future.Await(ctx)
 	if err != nil {
-		err = &net.OpError{Op: "read", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
-	if n == 0 && conn.fd.ZeroReadIsEOF() {
+	if n == 0 && c.fd.ZeroReadIsEOF() {
 		err = io.EOF
 		return
 	}
 	return
 }
 
-func (conn *connection) Write(b []byte) (n int, err error) {
-	if len(b) == 0 {
-		return
+func (c *conn) Write(b []byte) (n int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
 	}
-	ctx := conn.ctx
-	fd := conn.fd.Socket()
-	vortex := conn.vortex
+	if len(b) == 0 {
+		return 0, syscall.EFAULT
+	}
+	ctx := c.ctx
+	fd := c.fd.Socket()
+	vortex := c.vortex
 
-	if conn.useZC {
-		future := vortex.PrepareSendZC(ctx, fd, b, time.Duration(conn.readTimeout.Load()))
+	if c.useZC {
+		future := vortex.PrepareSendZC(ctx, fd, b, time.Duration(c.readTimeout.Load()))
 		n, err = future.Await(ctx)
 	} else {
-		future := vortex.PrepareSend(ctx, fd, b, time.Duration(conn.readTimeout.Load()))
+		future := vortex.PrepareSend(ctx, fd, b, time.Duration(c.readTimeout.Load()))
 		n, err = future.Await(ctx)
 	}
 	if err != nil {
-		err = &net.OpError{Op: "write", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
 	return
 }
 
-func (conn *connection) Close() error {
+func (c *conn) Close() error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
 	defer func() {
 		_ = UnpinVortexes()
 	}()
-	defer conn.cancel()
+	defer c.cancel()
 
-	if err := conn.fd.Close(); err != nil {
-		return &net.OpError{Op: "close", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+	if err := c.fd.Close(); err != nil {
+		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *connection) LocalAddr() net.Addr {
-	return conn.fd.LocalAddr()
+func (c *conn) LocalAddr() net.Addr {
+	if !c.ok() {
+		return nil
+	}
+	return c.fd.LocalAddr()
 }
 
-func (conn *connection) RemoteAddr() net.Addr {
-	return conn.fd.RemoteAddr()
+func (c *conn) RemoteAddr() net.Addr {
+	if !c.ok() {
+		return nil
+	}
+	return c.fd.RemoteAddr()
 }
 
-func (conn *connection) SetDeadline(t time.Time) error {
+func (c *conn) SetDeadline(t time.Time) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
 	if t.IsZero() {
-		conn.readTimeout.Store(0)
-		conn.writeTimeout.Store(0)
+		c.readTimeout.Store(0)
+		c.writeTimeout.Store(0)
 		return nil
 	}
 	timeout := time.Until(t)
 	if timeout < 0 {
 		timeout = 0
 	}
-	conn.readTimeout.Store(int64(timeout))
-	conn.writeTimeout.Store(int64(timeout))
+	c.readTimeout.Store(int64(timeout))
+	c.writeTimeout.Store(int64(timeout))
 	return nil
 }
 
-func (conn *connection) SetReadDeadline(t time.Time) error {
+func (c *conn) SetReadDeadline(t time.Time) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
 	if t.IsZero() {
-		conn.readTimeout.Store(0)
+		c.readTimeout.Store(0)
 		return nil
 	}
 	timeout := time.Until(t)
 	if timeout < 0 {
 		timeout = 0
 	}
-	conn.readTimeout.Store(int64(timeout))
+	c.readTimeout.Store(int64(timeout))
 	return nil
 }
 
-func (conn *connection) SetWriteDeadline(t time.Time) error {
+func (c *conn) SetWriteDeadline(t time.Time) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
 	if t.IsZero() {
-		conn.writeTimeout.Store(0)
+		c.writeTimeout.Store(0)
 		return nil
 	}
 	timeout := time.Until(t)
 	if timeout < 0 {
 		timeout = 0
 	}
-	conn.writeTimeout.Store(int64(timeout))
+	c.writeTimeout.Store(int64(timeout))
 	return nil
 }
 
-func (conn *connection) SetReadBuffer(bytes int) error {
-	if err := conn.fd.SetReadBuffer(bytes); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *conn) SetReadBuffer(bytes int) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetReadBuffer(bytes); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *connection) SetWriteBuffer(bytes int) error {
-	if err := conn.fd.SetWriteBuffer(bytes); err != nil {
-		return &net.OpError{Op: "set", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+func (c *conn) SetWriteBuffer(bytes int) error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err := c.fd.SetWriteBuffer(bytes); err != nil {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
 }
 
-func (conn *connection) File() (f *os.File, err error) {
-	f, err = conn.file()
+func (c *conn) File() (f *os.File, err error) {
+	if !c.ok() {
+		return nil, syscall.EINVAL
+	}
+	f, err = c.file()
 	if err != nil {
-		err = &net.OpError{Op: "file", Net: conn.fd.Net(), Source: conn.fd.LocalAddr(), Addr: conn.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "file", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return
 }
 
-func (conn *connection) file() (*os.File, error) {
-	ns, call, err := conn.fd.Dup()
+func (c *conn) file() (*os.File, error) {
+	ns, call, err := c.fd.Dup()
 	if err != nil {
 		if call != "" {
 			err = os.NewSyscallError(call, err)
 		}
 		return nil, err
 	}
-	f := os.NewFile(uintptr(ns), conn.fd.Name())
+	f := os.NewFile(uintptr(ns), c.fd.Name())
 	return f, nil
 }
 
-func newRawConnection(fd *sys.Fd) syscall.RawConn {
-	return &rawConnection{fd: fd}
+func (c *conn) ok() bool { return c != nil && c.fd != nil }
+
+func newRawConn(fd *sys.Fd) syscall.RawConn {
+	return &rawConn{fd: fd}
 }
 
 type ctrlCtxFn func(ctx context.Context, network string, address string, raw syscall.RawConn) error
 
-type rawConnection struct {
+type rawConn struct {
 	fd *sys.Fd
 }
 
-func (conn *rawConnection) Control(f func(fd uintptr)) error {
-	fd := conn.fd.Socket()
+func (c *rawConn) Control(f func(fd uintptr)) error {
+	fd := c.fd.Socket()
 	f(uintptr(fd))
-	runtime.KeepAlive(conn.fd)
+	runtime.KeepAlive(c.fd)
 	return nil
 }
 
-func (conn *rawConnection) Read(f func(fd uintptr) (done bool)) (err error) {
-	fd := conn.fd.Socket()
+func (c *rawConn) Read(f func(fd uintptr) (done bool)) (err error) {
+	fd := c.fd.Socket()
 	for {
 		if f(uintptr(fd)) {
 			break
 		}
 	}
-	runtime.KeepAlive(conn.fd)
+	runtime.KeepAlive(c.fd)
 	return
 }
 
-func (conn *rawConnection) Write(f func(fd uintptr) (done bool)) (err error) {
-	fd := conn.fd.Socket()
+func (c *rawConn) Write(f func(fd uintptr) (done bool)) (err error) {
+	fd := c.fd.Socket()
 	for {
 		if f(uintptr(fd)) {
 			break
 		}
 	}
-	runtime.KeepAlive(conn.fd)
+	runtime.KeepAlive(c.fd)
 	return
 }
