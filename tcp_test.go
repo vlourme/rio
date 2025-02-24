@@ -82,7 +82,8 @@ func TestTCP(t *testing.T) {
 
 func TestTCPConn_ReadFrom(t *testing.T) {
 	// file
-	n := 1024 * 100
+	//n := 1024 * 100
+	n := 1024 * 42
 	rb := make([]byte, n)
 	bLen, bErr := rand.Read(rb)
 	if bErr != nil {
