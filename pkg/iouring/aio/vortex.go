@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
+	"os"
 	"runtime"
 	"sync"
 	"syscall"
@@ -297,7 +298,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 								flags = cqe.Flags
 							)
 							if cqe.Res < 0 {
-								err = syscall.Errno(-cqe.Res)
+								err = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
 							} else {
 								res = int(cqe.Res)
 							}
