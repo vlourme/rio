@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"syscall"
 )
 
 type Future struct {
@@ -14,6 +15,39 @@ type Future struct {
 }
 
 func (f *Future) Await(ctx context.Context) (n int, err error) {
+	hijacked := false
+	n, hijacked, err = f.await(ctx)
+	if f.acquired {
+		vortex := f.vortex
+		op := f.op
+		if hijacked {
+			vortex.hijackedOps.Store(op, struct{}{})
+		} else {
+			vortex.releaseOperation(op)
+		}
+	}
+	return
+}
+
+func (f *Future) AwaitMsg(ctx context.Context) (n int, msg syscall.Msghdr, err error) {
+	op := f.op
+	hijacked := false
+	n, hijacked, err = f.await(ctx)
+	if err == nil {
+		msg = op.msg
+	}
+	if f.acquired {
+		vortex := f.vortex
+		if hijacked {
+			vortex.hijackedOps.Store(op, struct{}{})
+		} else {
+			vortex.releaseOperation(op)
+		}
+	}
+	return
+}
+
+func (f *Future) await(ctx context.Context) (n int, hijacked bool, err error) {
 	if f.err != nil {
 		err = f.err
 		return
@@ -21,7 +55,6 @@ func (f *Future) Await(ctx context.Context) (n int, err error) {
 	vortex := f.vortex
 	op := f.op
 	ch := op.ch
-	hijacked := false
 	if timeout := op.timeout; timeout > 0 {
 		timer := vortex.acquireTimer(timeout)
 		select {
@@ -73,13 +106,6 @@ func (f *Future) Await(ctx context.Context) (n int, err error) {
 			n, err = r.N, r.Err
 			hijacked = r.Flags&iouring.CQEFMore != 0
 			break
-		}
-	}
-	if f.acquired {
-		if hijacked {
-			vortex.hijackedOps.Store(op, struct{}{})
-		} else {
-			vortex.releaseOperation(op)
 		}
 	}
 	return
