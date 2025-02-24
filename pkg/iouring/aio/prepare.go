@@ -2,6 +2,7 @@ package aio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"runtime"
 	"syscall"
@@ -78,21 +79,56 @@ const (
 )
 
 func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Future {
-	for {
-		select {
-		case <-ctx.Done():
-			vortex.releaseOperation(op)
-			return Future{err: ctx.Err()}
-		default:
-			if pushed := vortex.ops.Submit(op); pushed {
-				return Future{
-					vortex:   vortex,
-					op:       op,
-					acquired: true,
+	if timeout := op.timeout; timeout > 0 {
+		timer := vortex.acquireTimer(op.timeout)
+		for {
+			select {
+			case <-ctx.Done():
+				vortex.releaseOperation(op)
+				vortex.releaseTimer(timer)
+				err := ctx.Err()
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = Timeout
 				}
+				return Future{err: ctx.Err()}
+			case <-timer.C:
+				vortex.releaseOperation(op)
+				vortex.releaseTimer(timer)
+				return Future{err: Timeout}
+			default:
+				if pushed := vortex.ops.Submit(op); pushed {
+					vortex.releaseTimer(timer)
+					return Future{
+						vortex:   vortex,
+						op:       op,
+						acquired: true,
+					}
+				}
+				time.Sleep(ns500)
+				break
 			}
-			time.Sleep(ns500)
-			break
+		}
+	} else {
+		for {
+			select {
+			case <-ctx.Done():
+				vortex.releaseOperation(op)
+				err := ctx.Err()
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = Timeout
+				}
+				return Future{err: err}
+			default:
+				if pushed := vortex.ops.Submit(op); pushed {
+					return Future{
+						vortex:   vortex,
+						op:       op,
+						acquired: true,
+					}
+				}
+				time.Sleep(ns500)
+				break
+			}
 		}
 	}
 }
