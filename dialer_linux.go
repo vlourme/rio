@@ -202,7 +202,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		useSendZC = aio.CheckSendZCEnable()
 	}
 
-	conn := &TCPConn{
+	c := &TCPConn{
 		conn{
 			ctx:          ctx,
 			cancel:       cancel,
@@ -213,7 +213,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			useZC:        useSendZC,
 		},
 	}
-	_ = conn.SetNoDelay(true)
+	_ = c.SetNoDelay(true)
 	// keepalive
 	keepAliveConfig := d.KeepAliveConfig
 	if !keepAliveConfig.Enable && d.KeepAlive >= 0 {
@@ -223,9 +223,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	if keepAliveConfig.Enable {
-		_ = conn.SetKeepAliveConfig(keepAliveConfig)
+		_ = c.SetKeepAliveConfig(keepAliveConfig)
 	}
-	return conn, nil
+	return c, nil
 }
 
 func DialUDP(network string, laddr, raddr *net.UDPAddr) (*UDPConn, error) {
