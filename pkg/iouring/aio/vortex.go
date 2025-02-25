@@ -134,6 +134,29 @@ type Vortex struct {
 	wg             sync.WaitGroup
 }
 
+func (vortex *Vortex) acquireOperation() *Operation {
+	op := vortex.operations.Get().(*Operation)
+	return op
+}
+
+func (vortex *Vortex) releaseOperation(op *Operation) {
+	if op.borrowed {
+		op.reset()
+		vortex.operations.Put(op)
+	}
+}
+
+func (vortex *Vortex) acquireTimer(duration time.Duration) *time.Timer {
+	timer := vortex.timers.Get().(*time.Timer)
+	timer.Reset(duration)
+	return timer
+}
+
+func (vortex *Vortex) releaseTimer(timer *time.Timer) {
+	timer.Stop()
+	vortex.timers.Put(timer)
+}
+
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 	if target.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) || target.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
 		op := &Operation{} // do not make ch cause no userdata
@@ -169,39 +192,16 @@ func (vortex *Vortex) Close() (err error) {
 	return
 }
 
-func (vortex *Vortex) acquireOperation() *Operation {
-	op := vortex.operations.Get().(*Operation)
-	return op
-}
-
-func (vortex *Vortex) releaseOperation(op *Operation) {
-	if op.borrowed {
-		op.reset()
-		vortex.operations.Put(op)
-	}
-}
-
-func (vortex *Vortex) acquireTimer(duration time.Duration) *time.Timer {
-	timer := vortex.timers.Get().(*time.Timer)
-	timer.Reset(duration)
-	return timer
-}
-
-func (vortex *Vortex) releaseTimer(timer *time.Timer) {
-	timer.Stop()
-	vortex.timers.Put(timer)
-}
-
 func (vortex *Vortex) Start(ctx context.Context) {
-	vortex.stopCh = make(chan struct{}, 1)
+	vortex.stopCh = make(chan struct{})
 	vortex.wg.Add(1)
 	go func(ctx context.Context, vortex *Vortex) {
 		// lock os thread
 		if vortex.lockOSThread {
 			runtime.LockOSThread()
 		}
-		ring := vortex.ring
 
+		ring := vortex.ring
 		stopCh := vortex.stopCh
 
 		ops := vortex.ops
@@ -346,11 +346,12 @@ func (vortex *Vortex) Start(ctx context.Context) {
 				}
 			}
 		}
-		// done
-		vortex.wg.Done()
+
 		// unlock os thread
 		if vortex.lockOSThread {
 			runtime.UnlockOSThread()
 		}
+		// done
+		vortex.wg.Done()
 	}(ctx, vortex)
 }
