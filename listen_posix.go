@@ -6,6 +6,6 @@ import "net"
 
 // Listen
 // 监听流
-func Listen(network string, addr string, options ...Option) (ln net.Listener, err error) {
+func Listen(network string, addr string) (ln net.Listener, err error) {
 	return
 }
