@@ -234,15 +234,17 @@ func (vortex *Vortex) Start(ctx context.Context) {
 						}
 						operations[i] = nil
 						if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
-							if ok, prepErr := vortex.prepareSQE(op); !ok {
+							if prepErr := vortex.prepareSQE(op); prepErr != nil {
 								if prepErr != nil { // when prep err occur, means invalid op kind,
 									op.ch <- Result{
 										Err: prepErr,
 									}
+									if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
+										break
+									}
 									prepared++ // prepareSQE nop whit out userdata, so prepared++
 									continue
 								}
-								break
 							}
 							runtime.KeepAlive(op)
 							prepared++
