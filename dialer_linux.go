@@ -234,7 +234,99 @@ func DialUDP(network string, laddr, raddr *net.UDPAddr) (*UDPConn, error) {
 }
 
 func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.UDPAddr) (*UDPConn, error) {
-	return nil, nil
+	// vortex
+	vortex, vortexErr := getCenterVortex()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	}
+
+	// fd
+	switch network {
+	case "udp", "udp4", "udp6":
+	default:
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: net.UnknownNetworkError(network)}
+	}
+
+	now := time.Now()
+	deadline := d.deadline(ctx, time.Now())
+	if deadline.Before(now) {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.Timeout}
+	}
+
+	var control ctrlCtxFn = d.ControlContext
+	if control == nil && d.Control != nil {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return d.Control(network, address, raw)
+		}
+	}
+	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, syscall.SOCK_DGRAM, 0, 0, control)
+	if fdErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
+	}
+
+	if raddr != nil { // connect
+		sa, saErr := sys.AddrToSockaddr(raddr)
+		if saErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
+		}
+		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
+		if rsaErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
+		}
+		future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+		_, err := future.Await(ctx)
+		if err != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
+		}
+	}
+
+	// local addr
+	if laddr != nil {
+		fd.SetLocalAddr(laddr)
+	} else {
+		if laddrErr := fd.LoadLocalAddr(); laddrErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: laddrErr}
+		}
+	}
+	// remote addr
+	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
+		fd.SetRemoteAddr(raddr)
+	}
+
+	side, sideErr := getSideVortex()
+	if sideErr != nil {
+		_ = fd.Close()
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: sideErr}
+	}
+
+	// conn
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+
+	useSendZC := d.UseSendZC
+	useSendMsgZC := false
+	if useSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+		useSendMsgZC = aio.CheckSendMsdZCEnable()
+	}
+
+	c := &UDPConn{
+		conn{
+			ctx:           ctx,
+			cancel:        cancel,
+			fd:            fd,
+			vortex:        side,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useZC:         useSendZC,
+		},
+		useSendMsgZC,
+	}
+	return c, nil
 }
 
 func DialUnix(network string, laddr, raddr *net.UnixAddr) (*UnixConn, error) {
