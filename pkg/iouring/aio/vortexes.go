@@ -104,7 +104,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 	sidesNum := opt.Sides
 	if sidesNum < 1 {
-		sidesNum = uint32(runtime.NumCPU())
+		sidesNum = uint32(runtime.NumCPU()) - 1
 	}
 	lb := opt.SidesLoadBalancer
 	if lb == nil {
@@ -140,22 +140,25 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 
 	// sides
-	sides := make([]*Vortex, sidesNum)
-	for i := 0; i < len(sides); i++ {
-		sideOptions := VortexOptions{
-			Entries:        entries,
-			Flags:          flags,
-			Features:       features,
-			WaitCQETimeout: waitCQETimeout,
-			WaitCQEBatches: waitCQEBatches,
+	var sides []*Vortex
+	if sidesNum > 0 {
+		sides = make([]*Vortex, sidesNum)
+		for i := 0; i < len(sides); i++ {
+			sideOptions := VortexOptions{
+				Entries:        entries,
+				Flags:          flags,
+				Features:       features,
+				WaitCQETimeout: waitCQETimeout,
+				WaitCQEBatches: waitCQEBatches,
+			}
+			side, sideErr := NewVortex(sideOptions)
+			if sideErr != nil {
+				_ = center.Close()
+				err = sideErr
+				return
+			}
+			sides[i] = side
 		}
-		side, sideErr := NewVortex(sideOptions)
-		if sideErr != nil {
-			_ = center.Close()
-			err = sideErr
-			return
-		}
-		sides[i] = side
 	}
 
 	v = &Vortexes{
@@ -185,6 +188,9 @@ func (vs *Vortexes) Center() *Vortex {
 
 func (vs *Vortexes) Side() *Vortex {
 	n := vs.sidesLoadBalancer.Next(vs.sides)
+	if n < 0 {
+		return vs.center
+	}
 	return vs.sides[n]
 }
 
