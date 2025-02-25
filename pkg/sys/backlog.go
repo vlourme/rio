@@ -1,3 +1,5 @@
+//go:build linux
+
 package sys
 
 import (
@@ -96,7 +98,7 @@ func maxAckBacklog(n int) int {
 		major = 0
 		minor = 0
 	)
-	version, _ := kernel.GetKernelVersion()
+	version, _ := kernel.Get()
 	if version != nil {
 		major, minor = version.Major, version.Minor
 	}

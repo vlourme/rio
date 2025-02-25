@@ -1,3 +1,5 @@
+//go:build linux
+
 package sys
 
 import (
@@ -36,7 +38,7 @@ func NewSocket(family int, sotype int, protocol int) (sock int, err error) {
 		major = 0
 		minor = 0
 	)
-	version, _ := kernel.GetKernelVersion()
+	version, _ := kernel.Get()
 	if version != nil {
 		major, minor = version.Major, version.Minor
 	}
