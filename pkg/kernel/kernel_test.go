@@ -1,12 +1,12 @@
 package kernel_test
 
 import (
-	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"testing"
 )
 
-func TestGetKernelVersion(t *testing.T) {
-	v, err := iouring.GetKernelVersion()
+func TestGet(t *testing.T) {
+	v, err := kernel.Get()
 	if err != nil {
 		t.Fatal(err)
 	}
