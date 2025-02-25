@@ -193,8 +193,10 @@ func (op *Operation) setMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, 
 	bLen := len(b)
 	oobLen := len(oob)
 	if bLen > 0 {
-		op.msg.Iov.Base = &b[0]
-		op.msg.Iov.SetLen(bLen)
+		op.msg.Iov = &syscall.Iovec{
+			Base: &b[0],
+			Len:  uint64(bLen),
+		}
 		op.msg.Iovlen = 1
 	}
 	if oobLen > 0 {
