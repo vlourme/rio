@@ -1,6 +1,7 @@
 package aio
 
 import (
+	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"runtime"
 	"sync/atomic"
@@ -46,16 +47,28 @@ type Operation struct {
 	msg      syscall.Msghdr
 	pipe     pipeRequest
 	ptr      unsafe.Pointer
-	timeout  time.Duration
+	deadline time.Time
 	ch       chan Result
 }
 
-func (op *Operation) WithTimeout(d time.Duration) *Operation {
-	if d < 1 {
-		return op
-	}
-	op.timeout = d
+func (op *Operation) WithDeadline(deadline time.Time) *Operation {
+	op.deadline = deadline
 	return op
+}
+
+func (op *Operation) Timeout(ctx context.Context) (timeout time.Duration) {
+	if deadline, ok := ctx.Deadline(); ok {
+		if op.deadline.IsZero() {
+			op.deadline = deadline
+		} else if deadline.Before(op.deadline) {
+			op.deadline = deadline
+		}
+	}
+	if op.deadline.IsZero() {
+		return 0
+	}
+	timeout = time.Until(op.deadline)
+	return
 }
 
 func (op *Operation) PrepareNop() (err error) {
@@ -169,8 +182,8 @@ func (op *Operation) reset() {
 	op.pipe.offOut = 0
 	op.pipe.nbytes = 0
 	op.pipe.spliceFlags = 0
-	// timeout
-	op.timeout = 0
+	// deadline
+	op.deadline = time.Time{}
 	// ptr
 	op.ptr = nil
 	return

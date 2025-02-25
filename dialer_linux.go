@@ -9,7 +9,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
 	"reflect"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -131,8 +130,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: errors.New("missing address")}
 	}
 
-	timeout := time.Until(d.deadline(ctx, time.Now()))
-	if timeout < 1 {
+	now := time.Now()
+	deadline := d.deadline(ctx, time.Now())
+	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.Timeout}
 	}
 
@@ -166,7 +166,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
-	future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), timeout)
+	future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
 	_, err := future.Await(ctx)
 	if err != nil {
 		_ = fd.Close()
@@ -204,13 +204,13 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 
 	c := &TCPConn{
 		conn{
-			ctx:          ctx,
-			cancel:       cancel,
-			fd:           fd,
-			vortex:       side,
-			readTimeout:  atomic.Int64{},
-			writeTimeout: atomic.Int64{},
-			useZC:        useSendZC,
+			ctx:           ctx,
+			cancel:        cancel,
+			fd:            fd,
+			vortex:        side,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useZC:         useSendZC,
 		},
 	}
 	_ = c.SetNoDelay(true)

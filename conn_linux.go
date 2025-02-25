@@ -4,6 +4,7 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
@@ -16,15 +17,15 @@ import (
 )
 
 type conn struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	fd           *sys.Fd
-	vortex       *aio.Vortex
-	readTimeout  atomic.Int64
-	writeTimeout atomic.Int64
-	readBuffer   atomic.Int64
-	writeBuffer  atomic.Int64
-	useZC        bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	fd            *sys.Fd
+	vortex        *aio.Vortex
+	readDeadline  time.Time
+	writeDeadline time.Time
+	readBuffer    atomic.Int64
+	writeBuffer   atomic.Int64
+	useZC         bool
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
@@ -33,17 +34,25 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 0 {
-		return 0, syscall.EFAULT
+		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EFAULT}
 	}
 
 	ctx := c.ctx
 	fd := c.fd.Socket()
 	vortex := c.vortex
+	deadline := c.readDeadline
 
-	future := vortex.PrepareReceive(ctx, fd, b, time.Duration(c.readTimeout.Load()))
-
+RETRY:
+	future := vortex.PrepareReceive(ctx, fd, b, deadline)
 	n, err = future.Await(ctx)
 	if err != nil {
+		if errors.Is(err, syscall.EBUSY) {
+			if !deadline.IsZero() && deadline.Before(time.Now()) {
+				err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
+				return
+			}
+			goto RETRY
+		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -59,20 +68,30 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, syscall.EINVAL
 	}
 	if len(b) == 0 {
-		return 0, syscall.EFAULT
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EFAULT}
 	}
 	ctx := c.ctx
 	fd := c.fd.Socket()
 	vortex := c.vortex
+	deadline := c.writeDeadline
 
+RETRY:
 	if c.useZC {
-		future := vortex.PrepareSendZC(ctx, fd, b, time.Duration(c.readTimeout.Load()))
+		future := vortex.PrepareSendZC(ctx, fd, b, deadline)
 		n, err = future.Await(ctx)
 	} else {
-		future := vortex.PrepareSend(ctx, fd, b, time.Duration(c.readTimeout.Load()))
+		future := vortex.PrepareSend(ctx, fd, b, deadline)
 		n, err = future.Await(ctx)
 	}
+
 	if err != nil {
+		if errors.Is(err, syscall.EBUSY) {
+			if !deadline.IsZero() && deadline.Before(time.Now()) {
+				err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
+				return
+			}
+			goto RETRY
+		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -112,17 +131,12 @@ func (c *conn) SetDeadline(t time.Time) error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	if t.IsZero() {
-		c.readTimeout.Store(0)
-		c.writeTimeout.Store(0)
-		return nil
+	if err := c.SetReadDeadline(t); err != nil {
+		return err
 	}
-	timeout := time.Until(t)
-	if timeout < 0 {
-		timeout = 0
+	if err := c.SetWriteDeadline(t); err != nil {
+		return err
 	}
-	c.readTimeout.Store(int64(timeout))
-	c.writeTimeout.Store(int64(timeout))
 	return nil
 }
 
@@ -131,14 +145,13 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 		return syscall.EINVAL
 	}
 	if t.IsZero() {
-		c.readTimeout.Store(0)
+		c.readDeadline = t
 		return nil
 	}
-	timeout := time.Until(t)
-	if timeout < 0 {
-		timeout = 0
+	if t.Before(time.Now()) {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
 	}
-	c.readTimeout.Store(int64(timeout))
+	c.readDeadline = t
 	return nil
 }
 
@@ -147,14 +160,13 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 		return syscall.EINVAL
 	}
 	if t.IsZero() {
-		c.writeTimeout.Store(0)
+		c.writeDeadline = t
 		return nil
 	}
-	timeout := time.Until(t)
-	if timeout < 0 {
-		timeout = 0
+	if t.Before(time.Now()) {
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
 	}
-	c.writeTimeout.Store(int64(timeout))
+	c.writeDeadline = t
 	return nil
 }
 

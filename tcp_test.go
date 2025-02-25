@@ -2,6 +2,7 @@ package rio_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestTCP(t *testing.T) {
@@ -170,5 +172,49 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 }
 
 func TestConnection_SetReadTimeout(t *testing.T) {
+	ln, lnErr := rio.Listen("tcp", ":9000")
+	if lnErr != nil {
+		t.Error(lnErr)
+		return
+	}
+	wg := new(sync.WaitGroup)
+	defer wg.Wait()
+
+	defer func() {
+		err := ln.Close()
+		if err != nil {
+			t.Error(err)
+		}
+		return
+	}()
+
+	wg.Add(1)
+	go func(ln net.Listener, wg *sync.WaitGroup) {
+		defer wg.Done()
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				t.Error("accept", err)
+				return
+			}
+			_ = conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
+			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
+			b := make([]byte, 1024)
+			rn, rErr := conn.Read(b)
+			t.Log("srv read", rn, string(b[:rn]), rErr, errors.Is(rErr, context.DeadlineExceeded))
+			_ = conn.Close()
+			return
+		}
+	}(ln, wg)
+
+	conn, connErr := rio.Dial("tcp", "127.0.0.1:9000")
+	if connErr != nil {
+		t.Error(connErr)
+		return
+	}
+	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
+	defer conn.Close()
+
+	time.Sleep(3 * time.Second)
 
 }

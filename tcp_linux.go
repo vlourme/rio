@@ -142,13 +142,13 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
 		conn{
-			ctx:          cc,
-			cancel:       cancel,
-			fd:           cfd,
-			useZC:        ln.useSendZC,
-			vortex:       side,
-			readTimeout:  atomic.Int64{},
-			writeTimeout: atomic.Int64{},
+			ctx:           cc,
+			cancel:        cancel,
+			fd:            cfd,
+			useZC:         ln.useSendZC,
+			vortex:        side,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
 		},
 	}
 	// no delay
