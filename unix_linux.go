@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 )
 
 func ListenUnix(network string, addr *net.UnixAddr) (*UnixListener, error) {
@@ -83,18 +84,31 @@ func newUnixListener(network string, addr *net.UnixAddr) (fd *sys.Fd, err error)
 }
 
 type UnixListener struct {
-	fd         *sys.Fd
-	path       string // todo default fd.laddr.String(), unlink: true
-	unlink     bool
-	unlinkOnce sync.Once
+	ctx             context.Context
+	cancel          context.CancelFunc
+	fd              *sys.Fd
+	path            string // todo default fd.laddr.String(), unlink: true
+	unlink          bool
+	unlinkOnce      sync.Once
+	useSendZC       bool
+	keepAlive       time.Duration
+	keepAliveConfig net.KeepAliveConfig
+	deadline        time.Time
 }
 
 func (ln *UnixListener) Accept() (net.Conn, error) {
+	return ln.AcceptUnix()
+}
+
+func (ln *UnixListener) AcceptUnix() (*UnixConn, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 func (ln *UnixListener) Close() error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
 	ln.unlinkOnce.Do(func() {
 		if ln.path[0] != '@' && ln.unlink {
 			_ = syscall.Unlink(ln.path)
@@ -105,8 +119,18 @@ func (ln *UnixListener) Close() error {
 }
 
 func (ln *UnixListener) Addr() net.Addr {
-	//TODO implement me
-	panic("implement me")
+	if !ln.ok() {
+		return nil
+	}
+	return ln.fd.LocalAddr()
+}
+
+func (ln *UnixListener) SetDeadline(t time.Time) error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	ln.deadline = t
+	return nil
 }
 
 func (ln *UnixListener) SetUnlinkOnClose(unlink bool) {
@@ -114,12 +138,17 @@ func (ln *UnixListener) SetUnlinkOnClose(unlink bool) {
 }
 
 func (ln *UnixListener) File() (f *os.File, err error) {
+	if !ln.ok() {
+		return nil, syscall.EINVAL
+	}
 	f, err = ln.file()
 	if err != nil {
 		err = &net.OpError{Op: "file", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return
 }
+
+func (ln *UnixListener) ok() bool { return ln != nil && ln.fd != nil }
 
 func (ln *UnixListener) file() (*os.File, error) {
 	ns, call, err := ln.fd.Dup()
@@ -129,11 +158,19 @@ func (ln *UnixListener) file() (*os.File, error) {
 		}
 		return nil, err
 	}
-	// todo check ok
 	f := os.NewFile(uintptr(ns), ln.fd.Name())
 	return f, nil
 }
 
+func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
+	if !ln.ok() {
+		return nil, syscall.EINVAL
+	}
+	return newRawConn(ln.fd), nil
+}
+
 type UnixConn struct {
 	conn
+	useMsgZC bool
+	// todo handle send msg and recv msg flags
 }
