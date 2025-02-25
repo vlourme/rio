@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"os"
 	"runtime"
 	"syscall"
 	"time"
@@ -14,9 +15,9 @@ func (vortex *Vortex) PrepareOperation(ctx context.Context, op *Operation) Futur
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareConnect(fd, addr, addrLen)
+	op.WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
 	return vortex.prepareOperation(ctx, op)
 }
 
@@ -26,39 +27,39 @@ func (vortex *Vortex) PrepareAccept(ctx context.Context, fd int, addr *syscall.R
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareReceive(ctx context.Context, fd int, b []byte, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareReceive(ctx context.Context, fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareReceive(fd, b)
+	op.WithDeadline(deadline).PrepareReceive(fd, b)
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareSend(ctx context.Context, fd int, b []byte, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareSend(ctx context.Context, fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareSend(fd, b)
+	op.WithDeadline(deadline).PrepareSend(fd, b)
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareSendZC(ctx context.Context, fd int, b []byte, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareSendZC(ctx context.Context, fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareSendZC(fd, b)
+	op.WithDeadline(deadline).PrepareSendZC(fd, b)
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareReceiveMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareReceiveMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareReceiveMsg(fd, b, oob, addr, addrLen, flags)
+	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, addr, addrLen, flags)
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareSendMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareSendMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareSendMsg(fd, b, oob, addr, addrLen, flags)
+	op.WithDeadline(deadline).PrepareSendMsg(fd, b, oob, addr, addrLen, flags)
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareSendMsgZC(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, timeout time.Duration) Future {
+func (vortex *Vortex) PrepareSendMsgZC(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.WithTimeout(timeout).PrepareSendMsgZC(fd, b, oob, addr, addrLen, flags)
+	op.WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, flags)
 	return vortex.prepareOperation(ctx, op)
 }
 
@@ -79,8 +80,8 @@ const (
 )
 
 func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Future {
-	if timeout := op.timeout; timeout > 0 {
-		timer := vortex.acquireTimer(op.timeout)
+	if timeout := op.Timeout(ctx); timeout > 0 {
+		timer := vortex.acquireTimer(timeout)
 		for {
 			select {
 			case <-ctx.Done():
@@ -108,6 +109,8 @@ func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Futur
 				break
 			}
 		}
+	} else if timeout < 0 {
+		return Future{err: Timeout}
 	} else {
 		for {
 			select {
@@ -133,10 +136,10 @@ func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Futur
 	}
 }
 
-func (vortex *Vortex) prepareSQE(op *Operation) (bool, error) {
+func (vortex *Vortex) prepareSQE(op *Operation) error {
 	sqe := vortex.ring.GetSQE()
 	if sqe == nil {
-		return false, nil
+		return os.NewSyscallError("ring_getsqe", syscall.EBUSY)
 	}
 	switch op.kind {
 	case iouring.OpNop:
@@ -203,8 +206,8 @@ func (vortex *Vortex) prepareSQE(op *Operation) (bool, error) {
 		break
 	default:
 		sqe.PrepareNop()
-		return false, UnsupportedOp
+		return UnsupportedOp
 	}
 	runtime.KeepAlive(sqe)
-	return true, nil
+	return nil
 }
