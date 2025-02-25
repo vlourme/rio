@@ -21,9 +21,9 @@ func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.
 	return vortex.prepareOperation(ctx, op)
 }
 
-func (vortex *Vortex) PrepareAccept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) Future {
+func (vortex *Vortex) PrepareAccept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
 	op := vortex.acquireOperation()
-	op.PrepareAccept(fd, addr, addrLen)
+	op.WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
 	return vortex.prepareOperation(ctx, op)
 }
 
