@@ -177,33 +177,27 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecvmsg:
-		msg := op.msg
-		sqe.PrepareRecvMsg(op.fd, &msg, 0)
+		sqe.PrepareRecvMsg(op.fd, &op.msg, 0)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendmsg:
-		msg := op.msg
-		sqe.PrepareSendMsg(op.fd, &msg, 0)
+		sqe.PrepareSendMsg(op.fd, &op.msg, 0)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendMsgZC:
-		msg := op.msg
-		sqe.PrepareSendmsgZC(op.fd, &msg, 0)
+		sqe.PrepareSendmsgZC(op.fd, &op.msg, 0)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSplice:
-		sp := op.pipe
-		sqe.PrepareSplice(sp.fdIn, sp.offIn, sp.fdOut, sp.offOut, sp.nbytes, sp.spliceFlags)
+		sqe.PrepareSplice(op.pipe.fdIn, op.pipe.offIn, op.pipe.fdOut, op.pipe.offOut, op.pipe.nbytes, op.pipe.spliceFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpTee:
-		sp := op.pipe
-		sqe.PrepareTee(sp.fdIn, sp.fdOut, sp.nbytes, sp.spliceFlags)
+		sqe.PrepareTee(op.pipe.fdIn, op.pipe.fdOut, op.pipe.nbytes, op.pipe.spliceFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpAsyncCancel:
-		ptr := op.ptr
-		sqe.PrepareCancel(uintptr(ptr), 0)
+		sqe.PrepareCancel(uintptr(op.ptr), 0)
 		vortex.hijackedOps.Delete(op)
 		break
 	default:
