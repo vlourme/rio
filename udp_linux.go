@@ -58,12 +58,12 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	// ctx
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
-	// vortex start
-	vortex.Start(ctx)
 	// sendzc
 	useSendZC := lc.UseSendZC
+	useSendMsgZC := lc.UseSendZC
 	if useSendZC {
 		useSendZC = aio.CheckSendMsdZCEnable()
+		useSendMsgZC = aio.CheckSendMsdZCEnable()
 	}
 	// conn
 	c := &UDPConn{
@@ -76,12 +76,13 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			writeDeadline: time.Time{},
 			useZC:         useSendZC,
 		},
+		useSendMsgZC,
 	}
 	return c, nil
 }
 
 func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd *sys.Fd, err error) {
-	_, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
+	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
 	if addrErr != nil {
 		err = addrErr
 		return
@@ -170,11 +171,23 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 		err = os.NewSyscallError("bind", bindErr)
 		return
 	}
+
+	// set socket addr
+	if sn, getSockNameErr := syscall.Getsockname(sock); getSockNameErr == nil {
+		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
+			fd.SetLocalAddr(sockname)
+		} else {
+			fd.SetLocalAddr(resolveAddr)
+		}
+	} else {
+		fd.SetLocalAddr(resolveAddr)
+	}
 	return
 }
 
 type UDPConn struct {
 	conn
+	useMsgZC bool
 }
 
 func (c *UDPConn) SyscallConn() (syscall.RawConn, error) {
@@ -356,7 +369,7 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	deadline := c.writeDeadline
 
 RETRY:
-	if c.useZC {
+	if c.useMsgZC {
 		future := vortex.PrepareSendMsgZC(ctx, fd, b, nil, rsa, int(rsaLen), 0, deadline)
 		n, err = future.Await(ctx)
 	} else {
@@ -433,7 +446,7 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 	deadline := c.writeDeadline
 
 RETRY:
-	if c.useZC {
+	if c.useMsgZC {
 		future := vortex.PrepareSendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), 0, deadline)
 		wn, msg, wErr := future.AwaitMsg(ctx)
 		if wErr == nil {
