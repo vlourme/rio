@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
-	"github.com/brickingsoft/rio/pkg/kernel"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
 	"net"
@@ -92,21 +91,14 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
 	}
-	ctx := ln.ctx
-	var cancel context.CancelFunc = func() {}
-	if deadline := ln.deadline; !deadline.IsZero() {
-		if deadline.Before(time.Now()) {
-			return nil, aio.Timeout
-		}
-		ctx, cancel = context.WithDeadline(ctx, deadline)
-	}
-	defer cancel()
 
+	ctx := ln.ctx
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
+	deadline := ln.deadline
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	future := vortex.PrepareAccept(ctx, fd, addr, addrLen)
+	future := vortex.PrepareAccept(ctx, fd, addr, addrLen, deadline)
 	accepted, acceptErr := future.Await(ctx)
 	if acceptErr != nil {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
@@ -228,25 +220,6 @@ func (ln *TCPListener) SetDeadline(t time.Time) error {
 }
 
 func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
-
-func (ln *TCPListener) checkUseSendZC() {
-	if ln.useSendZC {
-		ver, verErr := kernel.Get()
-		if verErr != nil {
-			ln.useSendZC = false
-			return
-		}
-		target := kernel.Version{
-			Kernel: ver.Kernel,
-			Major:  6,
-			Minor:  0,
-			Flavor: ver.Flavor,
-		}
-		if kernel.Compare(*ver, target) < 0 {
-			ln.useSendZC = false
-		}
-	}
-}
 
 func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
 	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
