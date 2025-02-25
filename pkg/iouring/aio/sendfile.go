@@ -3,10 +3,10 @@ package aio
 import (
 	"context"
 	"errors"
-	"golang.org/x/sys/unix"
 	"io"
 	"os"
 	"syscall"
+	"time"
 )
 
 const (
@@ -47,22 +47,19 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useZC 
 		return vortex.sendfileChunk(ctx, dst, srcFd, remain, useZC)
 	}
 	// mmap
-	b, mmapErr := unix.Mmap(srcFd, 0, int(remain), unix.PROT_READ, unix.MAP_SHARED)
+	b, mmapErr := mmap(srcFd, 0, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
 	if mmapErr != nil {
 		err = os.NewSyscallError("mmap", mmapErr)
 		return
 	}
 	defer func(b []byte) {
-		_ = unix.Munmap(b)
+		_ = munmap(b)
 	}(b)
 	// madvise
-	if advErr := unix.Madvise(b, unix.MADV_SEQUENTIAL); advErr != nil {
+	if advErr := madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL); advErr != nil {
 		err = os.NewSyscallError("madvise", mmapErr)
 		return
 	}
-	defer func(b []byte) {
-		_ = unix.Madvise(b, unix.MADV_FREE)
-	}(b)
 
 	chunk, chunkErr := syscall.GetsockoptInt(dst, syscall.SOL_SOCKET, syscall.SO_SNDBUF)
 	if chunkErr != nil {
@@ -78,10 +75,10 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useZC 
 			wErr error
 		)
 		if useZC {
-			future := vortex.PrepareSendZC(ctx, dst, b[written:written+int64(chunk)], 0)
+			future := vortex.PrepareSendZC(ctx, dst, b[written:written+int64(chunk)], time.Time{})
 			n, wErr = future.Await(ctx)
 		} else {
-			future := vortex.PrepareSend(ctx, dst, b[written:written+int64(chunk)], 0)
+			future := vortex.PrepareSend(ctx, dst, b[written:written+int64(chunk)], time.Time{})
 			n, wErr = future.Await(ctx)
 		}
 		if n > 0 {
@@ -99,31 +96,27 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useZC 
 }
 
 func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remain int64, useZC bool) (written int64, err error) {
-	adv := false
 	chunk := int64(pagesize)
 	for err == nil && remain > 0 {
 		if chunk > remain {
 			chunk = remain
 		}
-
-		b, mmapErr := unix.Mmap(src, written, int(chunk), unix.PROT_READ, unix.MAP_SHARED)
+		b, mmapErr := mmap(src, written, int(chunk), syscall.PROT_READ, syscall.MAP_SHARED)
 		if mmapErr != nil {
 			err = os.NewSyscallError("mmap", mmapErr)
 			break
 		}
-		if advErr := unix.Madvise(b, unix.MADV_SEQUENTIAL); advErr == nil {
-			adv = true
-		}
+		_ = madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL)
 
 		var (
 			n    int
 			wErr error
 		)
 		if useZC {
-			future := vortex.PrepareSendZC(ctx, dst, b, 0)
+			future := vortex.PrepareSendZC(ctx, dst, b, time.Time{})
 			n, wErr = future.Await(ctx)
 		} else {
-			future := vortex.PrepareSend(ctx, dst, b, 0)
+			future := vortex.PrepareSend(ctx, dst, b, time.Time{})
 			n, wErr = future.Await(ctx)
 		}
 		if n > 0 {
@@ -132,10 +125,7 @@ func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remai
 		}
 		err = wErr
 
-		if adv {
-			_ = unix.Madvise(b, unix.MADV_FREE)
-		}
-		if munmapErr := unix.Munmap(b); munmapErr != nil {
+		if munmapErr := munmap(b); munmapErr != nil {
 			err = os.NewSyscallError("munmap", munmapErr)
 			break
 		}
