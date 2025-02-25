@@ -231,7 +231,7 @@ func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
 
 func (ln *TCPListener) checkUseSendZC() {
 	if ln.useSendZC {
-		ver, verErr := kernel.GetKernelVersion()
+		ver, verErr := kernel.Get()
 		if verErr != nil {
 			ln.useSendZC = false
 			return
@@ -242,7 +242,7 @@ func (ln *TCPListener) checkUseSendZC() {
 			Minor:  0,
 			Flavor: ver.Flavor,
 		}
-		if kernel.CompareKernelVersion(*ver, target) < 0 {
+		if kernel.Compare(*ver, target) < 0 {
 			ln.useSendZC = false
 		}
 	}

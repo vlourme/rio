@@ -69,7 +69,7 @@ const (
 )
 
 func NewVortex(options VortexOptions) (v *Vortex, err error) {
-	ver, verErr := kernel.GetKernelVersion()
+	ver, verErr := kernel.Get()
 	if verErr != nil {
 		return nil, verErr
 	}
@@ -80,7 +80,7 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 		Flavor: ver.Flavor,
 	}
 
-	if kernel.CompareKernelVersion(*ver, target) < 0 {
+	if kernel.Compare(*ver, target) < 0 {
 		return nil, errors.New("kernel version too low")
 	}
 

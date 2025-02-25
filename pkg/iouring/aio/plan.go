@@ -14,7 +14,7 @@ var (
 
 func DefaultIOURingFlagsAndFeatures() (uint32, uint32) {
 	defaultPlanOnce.Do(func() {
-		version, versionErr := kernel.GetKernelVersion()
+		version, versionErr := kernel.Get()
 		if versionErr != nil {
 			return
 		}
@@ -62,7 +62,7 @@ var (
 
 func PerformIOURingFlagsAndFeatures() (uint32, uint32) {
 	performPlanOnce.Do(func() {
-		version, versionErr := kernel.GetKernelVersion()
+		version, versionErr := kernel.Get()
 		if versionErr != nil {
 			return
 		}

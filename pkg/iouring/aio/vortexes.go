@@ -215,7 +215,7 @@ func (vs *Vortexes) Close() (err error) {
 }
 
 func CheckSendZCEnable() bool {
-	ver, verErr := kernel.GetKernelVersion()
+	ver, verErr := kernel.Get()
 	if verErr != nil {
 		return false
 	}
@@ -225,14 +225,14 @@ func CheckSendZCEnable() bool {
 		Minor:  0,
 		Flavor: ver.Flavor,
 	}
-	if kernel.CompareKernelVersion(*ver, target) < 0 {
+	if kernel.Compare(*ver, target) < 0 {
 		return false
 	}
 	return true
 }
 
 func CheckSendMsdZCEnable() bool {
-	ver, verErr := kernel.GetKernelVersion()
+	ver, verErr := kernel.Get()
 	if verErr != nil {
 		return false
 	}
@@ -242,7 +242,7 @@ func CheckSendMsdZCEnable() bool {
 		Minor:  1,
 		Flavor: ver.Flavor,
 	}
-	if kernel.CompareKernelVersion(*ver, target) < 0 {
+	if kernel.Compare(*ver, target) < 0 {
 		return false
 	}
 	return true
