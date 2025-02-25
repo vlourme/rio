@@ -56,7 +56,9 @@ func (f *Future) await(ctx context.Context) (n int, hijacked bool, err error) {
 	op := f.op
 	ch := op.ch
 
-	if timeout := op.Timeout(ctx); timeout > 0 { // await with timeout
+	timeout := op.Timeout(ctx)
+	switch {
+	case timeout > 0: // await with timeout
 		timer := vortex.acquireTimer(timeout)
 		select {
 		case r := <-ch:
@@ -88,7 +90,8 @@ func (f *Future) await(ctx context.Context) (n int, hijacked bool, err error) {
 			break
 		}
 		vortex.releaseTimer(timer)
-	} else if timeout < 0 { // timeout then try cancel
+		break
+	case timeout < 0: // timeout then try cancel
 		if vortex.Cancel(op) {
 			err = Timeout
 		} else {
@@ -97,7 +100,8 @@ func (f *Future) await(ctx context.Context) (n int, hijacked bool, err error) {
 			n, err = r.N, r.Err
 			hijacked = r.Flags&iouring.CQEFMore != 0
 		}
-	} else { // await without timeout
+		break
+	default: // await without timeout
 		select {
 		case r := <-ch:
 			n, err = r.N, r.Err
@@ -117,6 +121,7 @@ func (f *Future) await(ctx context.Context) (n int, hijacked bool, err error) {
 			hijacked = r.Flags&iouring.CQEFMore != 0
 			break
 		}
+		break
 	}
 	return
 }

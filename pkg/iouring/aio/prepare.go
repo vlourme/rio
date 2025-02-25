@@ -80,7 +80,9 @@ const (
 )
 
 func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Future {
-	if timeout := op.Timeout(ctx); timeout > 0 {
+	timeout := op.Timeout(ctx)
+	switch {
+	case timeout > 0:
 		timer := vortex.acquireTimer(timeout)
 		for {
 			select {
@@ -109,9 +111,9 @@ func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Futur
 				break
 			}
 		}
-	} else if timeout < 0 {
+	case timeout < 0:
 		return Future{err: Timeout}
-	} else {
+	default:
 		for {
 			select {
 			case <-ctx.Done():
