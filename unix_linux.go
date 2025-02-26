@@ -514,7 +514,7 @@ RETRY:
 	return
 }
 
-func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
+func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int, oobn int, err error) {
 	if !c.ok() {
 		return 0, 0, syscall.EINVAL
 	}
@@ -524,14 +524,10 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr net.Addr) (n int, oob
 	if addr == nil {
 		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	uAddr, isUnixAddr := addr.(*net.UnixAddr)
-	if !isUnixAddr {
+	if addr.Net != c.fd.Net() {
 		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	if uAddr.Net != c.fd.Net() {
-		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-	sa := &syscall.SockaddrUnix{Name: uAddr.Name}
+	sa := &syscall.SockaddrUnix{Name: addr.Name}
 	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
 	if rsaErr != nil {
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
