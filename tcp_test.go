@@ -16,8 +16,6 @@ import (
 )
 
 func TestTCP(t *testing.T) {
-	rio.UseZeroCopy(true)
-
 	ln, lnErr := rio.Listen("tcp", ":9000")
 	if lnErr != nil {
 		t.Error(lnErr)

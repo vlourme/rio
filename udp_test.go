@@ -8,9 +8,6 @@ import (
 )
 
 func TestUDP(t *testing.T) {
-	rio.UseZeroCopy(true)
-	rio.UseSides(1)
-
 	srv, srvErr := rio.ListenPacket("udp", ":9000")
 	if srvErr != nil {
 		t.Error(srvErr)

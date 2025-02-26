@@ -60,6 +60,40 @@ func UseWaitTransmissionBuilder(builder aio.TransmissionBuilder) {
 	)
 }
 
+// PinVortexes
+// 钉住 aio.Vortexes 。
+// 一般用于程序启动时。
+// 这用手动管理 aio.Vortexes 的生命周期，一般用于只有 Dial 的使用。
+// 注意：必须 UnpinVortexes 来关闭 aio.Vortexes 。
+func PinVortexes() (err error) {
+	rvLocker.Lock()
+	defer rvLocker.Unlock()
+	if rv == nil {
+		if err = createReferencedVortexes(); err != nil {
+			return
+		}
+	}
+	rv.pin()
+	return
+}
+
+// UnpinVortexes
+// 不钉住 aio.Vortexes 。
+func UnpinVortexes() (err error) {
+	rvLocker.Lock()
+	defer rvLocker.Unlock()
+	if rv == nil {
+		return
+	}
+	rv.unpin()
+	ok := false
+	ok, err = rv.tryClose()
+	if ok {
+		rv = nil
+	}
+	return
+}
+
 var (
 	rvLocker                     = new(sync.Mutex)
 	rv       *referencedVortexes = nil
@@ -99,40 +133,6 @@ func getSideVortex() (*aio.Vortex, error) {
 		}
 	}
 	return rv.side(), nil
-}
-
-// PinVortexes
-// 钉住 aio.Vortexes 。
-// 一般用于程序启动时。
-// 这用手动管理 aio.Vortexes 的生命周期，一般用于只有 Dial 的使用。
-// 注意：必须 UnpinVortexes 来关闭 aio.Vortexes 。
-func PinVortexes() (err error) {
-	rvLocker.Lock()
-	defer rvLocker.Unlock()
-	if rv == nil {
-		if err = createReferencedVortexes(); err != nil {
-			return
-		}
-	}
-	rv.pin()
-	return
-}
-
-// UnpinVortexes
-// 不钉住 aio.Vortexes 。
-func UnpinVortexes() (err error) {
-	rvLocker.Lock()
-	defer rvLocker.Unlock()
-	if rv == nil {
-		return
-	}
-	rv.unpin()
-	ok := false
-	ok, err = rv.tryClose()
-	if ok {
-		rv = nil
-	}
-	return
 }
 
 type referencedVortexes struct {
