@@ -21,17 +21,16 @@ func (lc *ListenConfig) ListenPacket(ctx context.Context, network, address strin
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
 		return
 	}
+
 	switch a := addr.(type) {
 	case *net.UDPAddr:
 		c, err = lc.ListenUDP(ctx, network, a)
 		break
 	case *net.IPAddr:
-		// todo
-		//conn, err = lc.ListenIP(ctx, network, a)
+		c, err = lc.ListenIP(ctx, network, a)
 		break
 	case *net.UnixAddr:
-		// todo
-		//conn, err = lc.ListenUnixgram(ctx, network, a)
+		c, err = lc.ListenUnixgram(ctx, network, a)
 		break
 	default:
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: &net.AddrError{Err: "unexpected address type", Addr: address}}
