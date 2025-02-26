@@ -41,11 +41,10 @@ func IsUnsupported(err error) bool {
 }
 
 type VortexOptions struct {
-	Entries        uint32
-	Flags          uint32
-	Features       uint32
-	WaitCQETimeout time.Duration
-	WaitCQEBatches []uint32
+	Entries          uint32
+	Flags            uint32
+	Features         uint32
+	WaitTransmission Transmission
 }
 
 func (options *VortexOptions) prepare() {
@@ -55,11 +54,8 @@ func (options *VortexOptions) prepare() {
 	if options.Flags == 0 && options.Features == 0 {
 		options.Flags, options.Features = DefaultIOURingFlagsAndFeatures()
 	}
-	if options.WaitCQETimeout < 1 {
-		options.WaitCQETimeout = 50 * time.Millisecond
-	}
-	if len(options.WaitCQEBatches) == 0 {
-		options.WaitCQEBatches = []uint32{1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
+	if options.WaitTransmission == nil {
+		options.WaitTransmission = NewCurveTransmission(defaultCurve)
 	}
 }
 
@@ -95,11 +91,10 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 	ops := newOperationRing(int(sqEntries))
 	// vortex
 	v = &Vortex{
-		ring:           ring,
-		ops:            ops,
-		lockOSThread:   options.Flags&iouring.SetupSingleIssuer != 0,
-		waitCQETimeout: options.WaitCQETimeout,
-		waitCQEBatches: options.WaitCQEBatches,
+		ring:             ring,
+		ops:              ops,
+		lockOSThread:     options.Flags&iouring.SetupSingleIssuer != 0 && runtime.NumCPU() > 1,
+		waitTransmission: options.WaitTransmission,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
@@ -122,16 +117,15 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 }
 
 type Vortex struct {
-	ring           *iouring.Ring
-	ops            *OperationRing
-	lockOSThread   bool
-	waitCQETimeout time.Duration
-	waitCQEBatches []uint32
-	operations     sync.Pool
-	timers         sync.Pool
-	hijackedOps    sync.Map
-	stopCh         chan struct{}
-	wg             sync.WaitGroup
+	ring             *iouring.Ring
+	ops              *OperationRing
+	lockOSThread     bool
+	waitTransmission Transmission
+	operations       sync.Pool
+	timers           sync.Pool
+	hijackedOps      sync.Map
+	stopCh           chan struct{}
+	wg               sync.WaitGroup
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -192,6 +186,11 @@ func (vortex *Vortex) Close() (err error) {
 	return
 }
 
+const (
+	defaultWaitCQENr   = uint32(1)
+	defaultWaitTimeout = 50 * time.Millisecond
+)
+
 func (vortex *Vortex) Start(ctx context.Context) {
 	vortex.stopCh = make(chan struct{})
 	vortex.wg.Add(1)
@@ -207,11 +206,16 @@ func (vortex *Vortex) Start(ctx context.Context) {
 		ops := vortex.ops
 		operations := make([]*Operation, ops.capacity)
 
-		waitCQENr := uint32(1)
-		waitCQEBatchedIndex := uint32(0)
-		waitCQEBatches := vortex.waitCQEBatches
-		waitCQEBatchesLen := uint32(len(waitCQEBatches))
-		waitCQETimeout := syscall.NsecToTimespec(vortex.waitCQETimeout.Nanoseconds())
+		waitTransmission := vortex.waitTransmission
+		waitCQENr, waitCQETimeout := waitTransmission.Next()
+		if waitCQENr < 1 {
+			waitCQENr = defaultWaitCQENr
+		}
+		if waitCQETimeout < 1 {
+			waitCQETimeout = defaultWaitTimeout
+		}
+		waitCQETimeoutSYS := syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
+
 		cq := make([]*iouring.CompletionQueueEvent, ops.capacity)
 
 		stopped := false
@@ -270,13 +274,17 @@ func (vortex *Vortex) Start(ctx context.Context) {
 					}
 				}
 				// wait
-				if _, waitErr := ring.WaitCQEs(waitCQENr, &waitCQETimeout, nil); waitErr != nil {
+				if _, waitErr := ring.WaitCQEs(waitCQENr, &waitCQETimeoutSYS, nil); waitErr != nil {
 					if errors.Is(waitErr, syscall.EAGAIN) || errors.Is(waitErr, syscall.EINTR) || errors.Is(waitErr, syscall.ETIME) {
-						// decr waitCQENr
-						if waitCQEBatchedIndex != 0 {
-							waitCQEBatchedIndex--
-							waitCQENr = waitCQEBatches[waitCQEBatchedIndex]
+						// decr waitCQENr and waitTimeout
+						waitCQENr, waitCQETimeout = waitTransmission.Prev()
+						if waitCQENr < 1 {
+							waitCQENr = defaultWaitCQENr
 						}
+						if waitCQETimeout < 1 {
+							waitCQETimeout = defaultWaitTimeout
+						}
+						waitCQETimeoutSYS = syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
 					}
 					continue
 				}
@@ -320,14 +328,15 @@ func (vortex *Vortex) Start(ctx context.Context) {
 					}
 					// CQAdvance
 					ring.CQAdvance(completed)
-					// incr waitCQENr
-					for index := uint32(1); index < waitCQEBatchesLen; index++ {
-						if waitCQEBatches[index] > completed {
-							break
-						}
-						waitCQEBatchedIndex = index
+					// incr waitCQENr and waitTimeout
+					waitCQENr, waitCQETimeout = waitTransmission.Next()
+					if waitCQENr < 1 {
+						waitCQENr = defaultWaitCQENr
 					}
-					waitCQENr = waitCQEBatches[waitCQEBatchedIndex]
+					if waitCQETimeout < 1 {
+						waitCQETimeout = defaultWaitTimeout
+					}
+					waitCQETimeoutSYS = syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
 				}
 			}
 			if stopped {

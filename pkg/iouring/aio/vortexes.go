@@ -6,17 +6,15 @@ import (
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
 	"runtime"
-	"time"
 )
 
 type Options struct {
-	Entries           uint32
-	Sides             uint32
-	Flags             uint32
-	Features          uint32
-	WaitCQETimeout    time.Duration
-	SidesLoadBalancer LoadBalancer
-	WaitCQEBatches    []uint32
+	Entries                 uint32
+	Sides                   uint32
+	Flags                   uint32
+	Features                uint32
+	SidesLoadBalancer       LoadBalancer
+	WaitTransmissionBuilder TransmissionBuilder
 }
 
 type Option func(*Options) (err error)
@@ -65,28 +63,9 @@ func WithFeatures(features uint32) Option {
 	}
 }
 
-func WithWaitCQETimeout(timeout time.Duration) Option {
+func WithWaitTransmissionBuilder(builder TransmissionBuilder) Option {
 	return func(opts *Options) error {
-		if timeout < 1 {
-			return errors.New("wait cqe timeout too small")
-		}
-		opts.WaitCQETimeout = timeout
-		return nil
-	}
-}
-
-func WithWaitCQEBatches(batches []uint32) Option {
-	return func(opts *Options) error {
-		batchesLen := len(batches)
-		if batchesLen == 0 {
-			return errors.New("wait cqe batches is empty")
-		}
-		for i := 0; i < batchesLen; i++ {
-			if batches[i] < 1 {
-				return errors.New("one if wait cqe batches is zero")
-			}
-		}
-		opts.WaitCQEBatches = batches
+		opts.WaitTransmissionBuilder = builder
 		return nil
 	}
 }
@@ -116,22 +95,22 @@ func New(options ...Option) (v *Vortexes, err error) {
 	if flags == 0 && features == 0 {
 		flags, features = DefaultIOURingFlagsAndFeatures()
 	}
-	waitCQETimeout := opt.WaitCQETimeout
-	if waitCQETimeout < 1 {
-		waitCQETimeout = 50 * time.Millisecond
-	}
-	waitCQEBatches := opt.WaitCQEBatches
-	if len(waitCQEBatches) == 0 {
-		waitCQEBatches = []uint32{1, 2, 4, 8, 16, 32, 64, 96, 128, 256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096, 5120, 6144, 7168, 8192, 10240}
+	waitTransmissionBuilder := opt.WaitTransmissionBuilder
+	if waitTransmissionBuilder == nil {
+		waitTransmissionBuilder = NewCurveTransmissionBuilder(defaultCurve)
 	}
 
 	// center
+	centerWaitTransmission, centerWaitTransmissionErr := waitTransmissionBuilder.Build()
+	if centerWaitTransmissionErr != nil {
+		err = centerWaitTransmissionErr
+		return
+	}
 	centerOptions := VortexOptions{
-		Entries:        entries,
-		Flags:          flags,
-		Features:       features,
-		WaitCQETimeout: waitCQETimeout,
-		WaitCQEBatches: waitCQEBatches,
+		Entries:          entries,
+		Flags:            flags,
+		Features:         features,
+		WaitTransmission: centerWaitTransmission,
 	}
 	center, centerErr := NewVortex(centerOptions)
 	if centerErr != nil {
@@ -144,12 +123,16 @@ func New(options ...Option) (v *Vortexes, err error) {
 	if sidesNum > 0 {
 		sides = make([]*Vortex, sidesNum)
 		for i := 0; i < len(sides); i++ {
+			sideWaitTransmission, sideWaitTransmissionErr := waitTransmissionBuilder.Build()
+			if sideWaitTransmissionErr != nil {
+				err = sideWaitTransmissionErr
+				return
+			}
 			sideOptions := VortexOptions{
-				Entries:        entries,
-				Flags:          flags,
-				Features:       features,
-				WaitCQETimeout: waitCQETimeout,
-				WaitCQEBatches: waitCQEBatches,
+				Entries:          entries,
+				Flags:            flags,
+				Features:         features,
+				WaitTransmission: sideWaitTransmission,
 			}
 			side, sideErr := NewVortex(sideOptions)
 			if sideErr != nil {

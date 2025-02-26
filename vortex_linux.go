@@ -8,7 +8,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/process"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 var (
@@ -54,17 +53,10 @@ func UseSidesLoadBalancer(lb aio.LoadBalancer) {
 	)
 }
 
-func UseWaitCQETimeout(timeout time.Duration) {
+func UseWaitTransmissionBuilder(builder aio.TransmissionBuilder) {
 	defaultVortexesOptions = append(
 		defaultVortexesOptions,
-		aio.WithWaitCQETimeout(timeout),
-	)
-}
-
-func UseWaitCQEBatches(batches []uint32) {
-	defaultVortexesOptions = append(
-		defaultVortexesOptions,
-		aio.WithWaitCQEBatches(batches),
+		aio.WithWaitTransmissionBuilder(builder),
 	)
 }
 
