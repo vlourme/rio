@@ -22,6 +22,22 @@ func DialContext(ctx context.Context, network string, address string) (net.Conn,
 	return DefaultDialer.Dial(ctx, network, address)
 }
 
+func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
+	ctx := context.Background()
+	dialer := Dialer{
+		Timeout:         timeout,
+		Deadline:        time.Time{},
+		KeepAlive:       0,
+		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
+		MultipathTCP:    false,
+		FastOpen:        256,
+		UseSendZC:       defaultUseSendZC.Load(),
+		Control:         nil,
+		ControlContext:  nil,
+	}
+	return dialer.Dial(ctx, network, address)
+}
+
 var (
 	DefaultDialer = Dialer{
 		Timeout:         15 * time.Second,
