@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"reflect"
 	"syscall"
 	"time"
 )
@@ -190,19 +191,12 @@ type UDPConn struct {
 	useMsgZC bool
 }
 
-func (c *UDPConn) SyscallConn() (syscall.RawConn, error) {
-	if !c.ok() {
-		return nil, syscall.EINVAL
-	}
-	return newRawConn(c.fd), nil
-}
-
 func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	if !c.ok() {
 		return 0, nil, syscall.EINVAL
 	}
 	if len(b) == 0 {
-		return 0, nil, syscall.EFAULT
+		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
 	ctx := c.ctx
@@ -265,7 +259,7 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 	bLen := len(b)
 	oobLen := len(oob)
 	if bLen == 0 && oobLen == 0 {
-		return 0, 0, 0, nil, syscall.EFAULT
+		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
 	ctx := c.ctx
@@ -330,8 +324,8 @@ func (c *UDPConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (n int, err 
 	if !c.ok() {
 		return 0, syscall.EINVAL
 	}
-	if len(b) == 0 {
-		return 0, syscall.EFAULT
+	if len(b) == 0 || !addr.IsValid() {
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	sa, saErr := sys.AddrPortToSockaddr(addr)
 	if saErr != nil {
@@ -345,10 +339,14 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
 	}
-	if len(b) == 0 {
-		return 0, syscall.EFAULT
+	if len(b) == 0 || reflect.ValueOf(addr).IsNil() {
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	sa, saErr := sys.AddrToSockaddr(addr)
+	uAddr, addrOk := addr.(*net.UDPAddr)
+	if !addrOk {
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+	}
+	sa, saErr := sys.AddrToSockaddr(uAddr)
 	if saErr != nil {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
 	}
@@ -397,10 +395,10 @@ func (c *UDPConn) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr) (n, oobn int, er
 		return 0, 0, syscall.EINVAL
 	}
 	if len(b) == 0 && len(oob) == 0 {
-		return 0, 0, syscall.EFAULT
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	if addr == nil {
-		return 0, 0, syscall.EINVAL
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
@@ -415,10 +413,10 @@ func (c *UDPConn) WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPort) (n, oo
 		return 0, 0, syscall.EINVAL
 	}
 	if len(b) == 0 && len(oob) == 0 {
-		return 0, 0, syscall.EFAULT
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	if !addr.IsValid() {
-		return 0, 0, syscall.EINVAL
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	sa, saErr := sys.AddrPortToSockaddr(addr)
 	if saErr != nil {

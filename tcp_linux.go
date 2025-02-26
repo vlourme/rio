@@ -25,12 +25,7 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 }
 
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
-	// vortex
-	vortex, vortexErr := getCenterVortex()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
-	}
-	// fd
+	// network
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 	default:
@@ -39,6 +34,12 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if addr == nil {
 		addr = &net.TCPAddr{}
 	}
+	// vortex
+	vortex, vortexErr := getCenterVortex()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	}
+	// fd
 	var control ctrlCtxFn = nil
 	if lc.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
@@ -96,11 +97,20 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
 	deadline := ln.deadline
+
+RETRY:
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
 	future := vortex.PrepareAccept(ctx, fd, addr, addrLen, deadline)
 	accepted, acceptErr := future.Await(ctx)
 	if acceptErr != nil {
+		if errors.Is(acceptErr, syscall.EBUSY) {
+			if !deadline.IsZero() && deadline.Before(time.Now()) {
+				err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: aio.Timeout}
+				return
+			}
+			goto RETRY
+		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
@@ -332,13 +342,6 @@ type TCPConn struct {
 	conn
 }
 
-func (c *TCPConn) SyscallConn() (syscall.RawConn, error) {
-	if !c.ok() {
-		return nil, syscall.EINVAL
-	}
-	return newRawConn(c.fd), nil
-}
-
 const (
 	ReadFromFileUseMMapPolicy = int32(iota)
 	ReadFromFileUseMixPolicy
@@ -358,7 +361,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		return 0, syscall.EINVAL
 	}
 	if r == nil {
-		return 0, syscall.EFAULT
+		return 0, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	var remain int64 = 1<<63 - 1 // by default, copy until EOF
 	lr, ok := r.(*io.LimitedReader)
@@ -454,7 +457,7 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 		return 0, syscall.EINVAL
 	}
 	if w == nil {
-		return 0, syscall.EFAULT
+		return 0, &net.OpError{Op: "writeto", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	uc, ok := w.(*UnixConn)
 	if ok && uc.fd.Net() == "unix" {

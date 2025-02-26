@@ -34,7 +34,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 0 {
-		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EFAULT}
+		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
 	ctx := c.ctx
@@ -68,7 +68,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, syscall.EINVAL
 	}
 	if len(b) == 0 {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EFAULT}
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	ctx := c.ctx
 	fd := c.fd.Socket()
@@ -243,6 +243,13 @@ func (c *conn) file() (*os.File, error) {
 	}
 	f := os.NewFile(uintptr(ns), c.fd.Name())
 	return f, nil
+}
+
+func (c *conn) SyscallConn() (syscall.RawConn, error) {
+	if !c.ok() {
+		return nil, syscall.EINVAL
+	}
+	return newRawConn(c.fd), nil
 }
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
