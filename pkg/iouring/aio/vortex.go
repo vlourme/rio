@@ -93,7 +93,7 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 	v = &Vortex{
 		ring:             ring,
 		ops:              ops,
-		lockOSThread:     options.Flags&iouring.SetupSingleIssuer != 0 && runtime.NumCPU() > 1,
+		lockOSThread:     options.Flags&iouring.SetupSingleIssuer != 0 || runtime.NumCPU() > 1,
 		waitTransmission: options.WaitTransmission,
 		operations: sync.Pool{
 			New: func() interface{} {
