@@ -3,7 +3,7 @@
 package sys
 
 import (
-	"github.com/brickingsoft/errors"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/kernel"
 	"golang.org/x/sys/unix"
 	"os"
