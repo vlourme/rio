@@ -8,13 +8,25 @@ import (
 	"time"
 )
 
+var (
+	DefaultDialer = Dialer{}
+)
+
+type Dialer struct {
+	net.Dialer
+}
+
+func (d *Dialer) SetFastOpen(_ int) {
+	return
+}
+
 func Dial(network string, address string) (net.Conn, error) {
 	ctx := context.Background()
 	return DialContext(ctx, network, address)
 }
 
 func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	return net.Dial(network, address)
+	return DefaultDialer.DialContext(ctx, network, address)
 }
 
 func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {

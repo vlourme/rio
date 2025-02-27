@@ -13,31 +13,6 @@ import (
 	"time"
 )
 
-func Dial(network string, address string) (net.Conn, error) {
-	ctx := context.Background()
-	return DialContext(ctx, network, address)
-}
-
-func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	return DefaultDialer.Dial(ctx, network, address)
-}
-
-func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
-	ctx := context.Background()
-	dialer := Dialer{
-		Timeout:         timeout,
-		Deadline:        time.Time{},
-		KeepAlive:       0,
-		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		MultipathTCP:    false,
-		FastOpen:        256,
-		UseSendZC:       defaultUseSendZC.Load(),
-		Control:         nil,
-		ControlContext:  nil,
-	}
-	return dialer.Dial(ctx, network, address)
-}
-
 var (
 	DefaultDialer = Dialer{
 		Timeout:         15 * time.Second,
@@ -51,6 +26,22 @@ var (
 		ControlContext:  nil,
 	}
 )
+
+func Dial(network string, address string) (net.Conn, error) {
+	ctx := context.Background()
+	return DialContext(ctx, network, address)
+}
+
+func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
+	return DefaultDialer.DialContext(ctx, network, address)
+}
+
+func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
+	ctx := context.Background()
+	dialer := DefaultDialer
+	dialer.Timeout = timeout
+	return dialer.DialContext(ctx, network, address)
+}
 
 type Dialer struct {
 	Timeout         time.Duration
@@ -98,7 +89,7 @@ func minNonzeroTime(a, b time.Time) time.Time {
 	return b
 }
 
-func (d *Dialer) Dial(ctx context.Context, network string, address string) (c net.Conn, err error) {
+func (d *Dialer) DialContext(ctx context.Context, network, address string) (c net.Conn, err error) {
 	addr, _, _, addrErr := sys.ResolveAddr(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: addrErr}
@@ -122,6 +113,11 @@ func (d *Dialer) Dial(ctx context.Context, network string, address string) (c ne
 		break
 	}
 	return
+}
+
+func (d *Dialer) Dial(network string, address string) (c net.Conn, err error) {
+	ctx := context.Background()
+	return d.DialContext(ctx, network, address)
 }
 
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
