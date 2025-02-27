@@ -1,8 +1,20 @@
 # RIO
 
-基于`IOURING`的网络库，且遵循标准库模式。支持协议：`TCP`、`UDP`、`UNIX`（`IP`为代理标准库）。
+基于`IOURING`的网络库，且遵循标准库模式，且非`CGO`方式。
+
+支持协议：`TCP`、`UDP`、`UNIX`、`UNIXGRAM`（`IP`为代理标准库）。
 
 Linux 内核版本需要`>= 5.4`，推荐版本为`>= 6.1`。
+
+注意：相比其它 `IOURING` 库，它更适合企业生产。
+它遵循标准库模式，所以项目无需进行大改，几乎没有侵入，支持 `TLS`。
+可能其它 `IOURING` 库性能会更高一些，
+因为它们往往不是面向`Conn`，而是面向`Data`。当补上`Conn`，这势必需要带锁的竞争容器。
+`Conn`这往往是必须的，因为解析流里的数据这步正常都会有。
+二是缺少异步转同步的这一层，这意味着需要在有`goroutine`的情况下进行异步编程。
+而`goroutine`的价值之一是将面向异步编程变为面向同步编程。
+面向异步编程在`GO`中是稀有的。
+所以综合之后，`RIO`会更快，因为它使用指针传递（线性安全）来代替锁来实现面向`Conn`编程。
 
 ## 使用
 
@@ -53,6 +65,18 @@ pinErr := rio.PinVortexes()
 unpinErr := rio.UnpinVortexes()
 ```
 
+HTTP场景：
+
+Server 使用`Listener`代替法。
+
+Client 使用`RoundTripper`代替法。
+```go
+// http server
+http.Serve(ln, handler)
+// fasthttp server
+fasthttp.Serve(ln, handler)
+```
+
 ## 调配 IOURING 参数
 `IOURING`有不少参数可以设置，具体见 [setup](https://manpages.debian.org/unstable/liburing-dev/io_uring_enter.2.en.html)。
 
@@ -65,7 +89,6 @@ package foo
 
 import (
 	"github.com/brickingsoft/rio"
-	"github.com/brickingsoft/rio/pkg/iouring/aio"
 )
 
 func Setup() {
@@ -87,13 +110,33 @@ func Setup() {
 	// aio.RandomLoadBalancer{}
 	// aio.LeastLoadBalancer{}
 	rio.UseSidesLoadBalancer(lb)
-	// 设置等待变速器构建器。
-	// 
+	// 设置完成事件等待变速器构建器。
+	// 默认为曲线变速器构建器，支持自定义曲线。
 	rio.UseWaitTransmissionBuilder(builder)
-	//
+	// 设置从文件读取的策略。
+	// 默认是 mmap，可使用 splice+mmap 的混合策略。
+	// 因 iouring 不支持 sendfile，则使用 mmap 的方式。
+	// 因 splice 对大文件不友好，对小文件支持可以，所以增加混合策略。
+	// 混合策略为当文件尺寸小于输出尺寸时，使用 splice，大于后使用 mmap。
+	// 注意！！！ 混合策略不是安全的。
 	rio.UseReadFromFilePolicy(rio.ReadFromFileUseMMapPolicy)
 }
 
 ```
 
+```go
+//go:build !linux
 
+package foo
+
+func Setup() {}
+
+```
+
+```go
+
+func main() {
+	Setup() // 在 pin 之前。
+}
+
+```
