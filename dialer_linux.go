@@ -467,8 +467,12 @@ func DialIP(network string, laddr, raddr *net.IPAddr) (*IPConn, error) {
 	return DefaultDialer.DialIP(ctx, network, laddr, raddr)
 }
 
-func (d *Dialer) DialIP(ctx context.Context, network string, laddr, raddr *net.IPAddr) (*IPConn, error) {
-	return nil, nil
+func (d *Dialer) DialIP(_ context.Context, network string, laddr, raddr *net.IPAddr) (*IPConn, error) {
+	c, err := net.DialIP(network, laddr, raddr)
+	if err != nil {
+		return nil, err
+	}
+	return &IPConn{c}, nil
 }
 
 func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen int, control ctrlCtxFn) (fd *sys.Fd, err error) {
