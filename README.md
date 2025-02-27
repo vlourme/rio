@@ -27,14 +27,29 @@ go get -u github.com/brickingsoft/rio
 
 // 将 net.Listen() 替换成 rio.Listen() 
 ln, lnErr := rio.Listen("tcp", ":9000")
+// 将 net.Dial() 替换成 rio.Dial() 
+conn, dialErr := rio.Dial("tcp", "127.0.0.1:9000")
 
 ```
 
 TLS场景：
 ```go
-ln, lnErr := rio.Listen("tcp", ":9000")
-// check err
-ln, lnErr := tls.NewListener(ln, config)
+// server("github.com/brickingsoft/rio/tls")
+ln, _ = tls.Listen("tcp", "127.0.0.1:9000", tls.ConfigFrom(config))
+// server(use wrap)
+ln, _ := rio.Listen("tcp", ":9000")
+ln, _ := tls.NewListener(ln, config)
+
+// client("github.com/brickingsoft/rio/tls")
+conn, _ = tls.Dial("tcp", "127.0.0.1:9000", tls.ConfigFrom(config))
+
+// client(use wrap)
+rawConn, dialErr := rio.Dial("tcp", "127.0.0.1:9000")
+conn := tls.Client(rawConn, config)
+if err := conn.HandshakeContext(ctx); err != nil {
+	rawConn.Close()
+	return nil, err
+}
 ```
 
 转换场景：
