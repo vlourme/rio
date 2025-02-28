@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -17,8 +18,13 @@ import (
 
 func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 	config := ListenConfig{
+		Control:         nil,
+		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
 		UseSendZC:       defaultUseSendZC.Load(),
+		MultipathTCP:    true,
+		FastOpen:        true,
+		QuickAck:        true,
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
@@ -46,7 +52,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			return lc.Control(network, address, raw)
 		}
 	}
-	fd, fdErr := newTCPListenerFd(ctx, network, addr, lc.FastOpen, lc.MultipathTCP, control)
+	fd, fdErr := newTCPListenerFd(ctx, network, addr, lc.FastOpen, lc.QuickAck, lc.MultipathTCP, lc.ReusePort, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -231,7 +237,7 @@ func (ln *TCPListener) SetDeadline(t time.Time) error {
 
 func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
 
-func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fastOpen int, multipathTCP bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
+func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fastOpen bool, quickAck bool, multipathTCP bool, reusePort bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
 	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
 	if addrErr != nil {
 		err = addrErr
@@ -251,6 +257,7 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 		return
 	}
 	fd = sys.NewFd(network, sock, family, syscall.SOCK_STREAM)
+
 	// ipv6
 	if ipv6only {
 		if err = fd.SetIpv6only(true); err != nil {
@@ -263,10 +270,32 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 		_ = fd.Close()
 		return
 	}
+	// reuse port
+	if reusePort {
+		if err = fd.AllowReusePort(addr.Port); err != nil {
+			_ = fd.Close()
+			return
+		}
+		// cbpf (dep reuse port)
+		filter := sys.NewFilter(uint32(runtime.NumCPU()))
+		if err = filter.ApplyTo(fd.Socket()); err != nil {
+			_ = fd.Close()
+			return
+		}
+	}
 	// fast open
-	if err = fd.AllowFastOpen(fastOpen); err != nil {
-		_ = fd.Close()
-		return
+	if fastOpen {
+		if err = fd.AllowFastOpen(fastOpen); err != nil {
+			_ = fd.Close()
+			return
+		}
+	}
+	// quick ack
+	if quickAck {
+		if err = fd.AllowQuickAck(quickAck); err != nil {
+			_ = fd.Close()
+			return
+		}
 	}
 	// defer accept
 	if err = syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
