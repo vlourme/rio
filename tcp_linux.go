@@ -25,6 +25,7 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 		MultipathTCP:    true,
 		FastOpen:        true,
 		QuickAck:        true,
+		ReusePort:       true,
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
@@ -117,9 +118,6 @@ RETRY:
 			}
 			goto RETRY
 		}
-		if aio.IsUncompleted(acceptErr) {
-			_ = ln.Close()
-		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
@@ -160,6 +158,7 @@ RETRY:
 			vortex:        side,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			accepted:      true,
 		},
 	}
 	// no delay
@@ -460,9 +459,6 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			lr.N -= written
 		}
 		if spliceErr != nil {
-			if aio.IsUncompleted(spliceErr) {
-				_ = c.Close()
-			}
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil
@@ -475,9 +471,6 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			lr.N -= written
 		}
 		if sendfileErr != nil {
-			if aio.IsUncompleted(sendfileErr) {
-				_ = c.Close()
-			}
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: sendfileErr}
 		}
 		return written, nil
@@ -504,9 +497,6 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 		vortex := c.vortex
 		written, spliceErr := vortex.Splice(ctx, uc.fd.Socket(), fd, 1<<63-1)
 		if spliceErr != nil {
-			if aio.IsUncompleted(spliceErr) {
-				_ = c.Close()
-			}
 			return written, &net.OpError{Op: "writeto", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil

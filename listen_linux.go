@@ -15,7 +15,7 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		Control:         nil,
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{},
-		UseSendZC:       false,
+		UseSendZC:       defaultUseSendZC.Load(),
 		MultipathTCP:    true,
 		FastOpen:        true,
 		QuickAck:        true,
