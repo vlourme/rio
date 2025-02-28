@@ -29,6 +29,10 @@ type conn struct {
 	accepted      bool
 }
 
+func (c *conn) Context() context.Context {
+	return c.ctx
+}
+
 func (c *conn) Read(b []byte) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
