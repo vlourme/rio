@@ -231,6 +231,9 @@ RETRY:
 			}
 			goto RETRY
 		}
+		if aio.IsUncompleted(acceptErr) {
+			_ = ln.Close()
+		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
@@ -384,6 +387,9 @@ RETRY:
 			}
 			goto RETRY
 		}
+		if aio.IsUncompleted(err) {
+			_ = c.Close()
+		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -432,6 +438,9 @@ RETRY:
 				return
 			}
 			goto RETRY
+		}
+		if aio.IsUncompleted(err) {
+			_ = c.Close()
 		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rErr}
 		return
@@ -507,6 +516,9 @@ RETRY:
 			}
 			goto RETRY
 		}
+		if aio.IsUncompleted(err) {
+			_ = c.Close()
+		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -568,6 +580,9 @@ RETRY:
 				return
 			}
 			goto RETRY
+		}
+		if aio.IsUncompleted(err) {
+			_ = c.Close()
 		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return

@@ -6,6 +6,7 @@ import (
 	"golang.org/x/sys/unix"
 	"net"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -18,6 +19,7 @@ func NewFd(network string, sock int, family int, sotype int) (fd *Fd) {
 		net:    network,
 		laddr:  nil,
 		raddr:  nil,
+		closed: atomic.Bool{},
 	}
 	return
 }
@@ -29,6 +31,7 @@ type Fd struct {
 	net    string
 	laddr  net.Addr
 	raddr  net.Addr
+	closed atomic.Bool
 }
 
 func (fd *Fd) Name() string {
@@ -153,7 +156,12 @@ func (fd *Fd) Bind(addr net.Addr) error {
 }
 
 func (fd *Fd) Close() error {
-	return syscall.Close(fd.sock)
+	if fd.closed.CompareAndSwap(false, true) {
+		if err := syscall.Close(fd.sock); err != nil {
+			return os.NewSyscallError("close", err)
+		}
+	}
+	return nil
 }
 
 func (fd *Fd) CloseRead() error {
