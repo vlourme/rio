@@ -26,11 +26,41 @@ func Dial(network string, address string) (net.Conn, error) {
 }
 
 func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	return DefaultDialer.DialContext(ctx, network, address)
+	c, err := DefaultDialer.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	switch v := c.(type) {
+	case *net.TCPConn:
+		return &TCPConn{v}, nil
+	case *net.UnixConn:
+		return &UnixConn{v}, nil
+	case *net.UDPConn:
+		return &UDPConn{v}, nil
+	case *net.IPConn:
+		return &IPConn{v}, nil
+	default:
+		return c, nil
+	}
 }
 
 func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
-	return net.DialTimeout(network, address, timeout)
+	c, err := net.DialTimeout(network, address, timeout)
+	if err != nil {
+		return nil, err
+	}
+	switch v := c.(type) {
+	case *net.TCPConn:
+		return &TCPConn{v}, nil
+	case *net.UnixConn:
+		return &UnixConn{v}, nil
+	case *net.UDPConn:
+		return &UDPConn{v}, nil
+	case *net.IPConn:
+		return &IPConn{v}, nil
+	default:
+		return c, nil
+	}
 }
 
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {

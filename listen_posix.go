@@ -5,5 +5,16 @@ package rio
 import "net"
 
 func Listen(network string, addr string) (net.Listener, error) {
-	return net.Listen(network, addr)
+	ln, lnErr := net.Listen(network, addr)
+	if lnErr != nil {
+		return nil, lnErr
+	}
+	switch v := ln.(type) {
+	case *net.TCPListener:
+		return &TCPListener{v}, nil
+	case *net.UnixListener:
+		return &UnixListener{v}, nil
+	default:
+		return ln, nil
+	}
 }
