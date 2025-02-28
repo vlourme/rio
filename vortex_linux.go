@@ -66,12 +66,11 @@ func UseWaitTransmissionBuilder(builder aio.TransmissionBuilder) {
 // 这用手动管理 aio.Vortexes 的生命周期，一般用于只有 Dial 的使用。
 // 注意：必须 UnpinVortexes 来关闭 aio.Vortexes 。
 func PinVortexes() (err error) {
-	rvLocker.Lock()
-	defer rvLocker.Unlock()
-	if rv == nil {
-		if err = createReferencedVortexes(); err != nil {
-			return
-		}
+	rvOnce.Do(func() {
+		err = createReferencedVortexes()
+	})
+	if err != nil {
+		return
 	}
 	rv.pin()
 	return
@@ -80,23 +79,19 @@ func PinVortexes() (err error) {
 // UnpinVortexes
 // 不钉住 aio.Vortexes 。
 func UnpinVortexes() (err error) {
-	rvLocker.Lock()
-	defer rvLocker.Unlock()
-	if rv == nil {
+	rvOnce.Do(func() {
+		err = createReferencedVortexes()
+	})
+	if err != nil {
 		return
 	}
 	rv.unpin()
-	ok := false
-	ok, err = rv.tryClose()
-	if ok {
-		rv = nil
-	}
 	return
 }
 
 var (
-	rvLocker                     = new(sync.Mutex)
-	rv       *referencedVortexes = nil
+	rvOnce                     = new(sync.Once)
+	rv     *referencedVortexes = nil
 )
 
 func createReferencedVortexes() (err error) {
@@ -109,40 +104,24 @@ func createReferencedVortexes() (err error) {
 		ref:      atomic.Int64{},
 		vortexes: vortexes,
 	}
-	rv.start()
 	return
 }
 
 func getCenterVortex() (*aio.Vortex, error) {
-	rvLocker.Lock()
-	defer rvLocker.Unlock()
-	if rv == nil {
-		if err := createReferencedVortexes(); err != nil {
-			return nil, err
-		}
+	err := PinVortexes()
+	if err != nil {
+		return nil, err
 	}
 	return rv.center(), nil
 }
 
 func getSideVortex() (*aio.Vortex, error) {
-	rvLocker.Lock()
-	defer rvLocker.Unlock()
-	if rv == nil {
-		if err := createReferencedVortexes(); err != nil {
-			return nil, err
-		}
-	}
 	return rv.side(), nil
 }
 
 type referencedVortexes struct {
 	ref      atomic.Int64
 	vortexes *aio.Vortexes
-}
-
-func (v *referencedVortexes) start() {
-	ctx := context.Background()
-	v.vortexes.Start(ctx)
 }
 
 func (v *referencedVortexes) center() *aio.Vortex {
@@ -155,16 +134,14 @@ func (v *referencedVortexes) side() *aio.Vortex {
 }
 
 func (v *referencedVortexes) pin() {
-	v.ref.Add(1)
+	if n := v.ref.Add(1); n == 1 {
+		ctx := context.Background()
+		v.vortexes.Start(ctx)
+	}
 }
 
 func (v *referencedVortexes) unpin() {
-	v.ref.Add(-1)
-}
-
-func (v *referencedVortexes) tryClose() (bool, error) {
-	if v.ref.Load() == 0 {
-		return true, v.vortexes.Close()
+	if n := v.ref.Add(-1); n < 1 {
+		_ = v.vortexes.Close()
 	}
-	return false, nil
 }
