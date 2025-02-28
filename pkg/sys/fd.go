@@ -108,12 +108,9 @@ func (fd *Fd) SetIpv6only(ipv6only bool) error {
 	return nil
 }
 
-func (fd *Fd) AllowFastOpen(n int) error {
-	if n < 1 {
-		return nil
-	}
+func (fd *Fd) AllowFastOpen(enabled bool) error {
 	if fd.sotype == syscall.SOCK_STREAM {
-		if err := unix.SetsockoptInt(fd.sock, unix.IPPROTO_TCP, unix.TCP_FASTOPEN, n); err != nil {
+		if err := unix.SetsockoptInt(fd.sock, unix.IPPROTO_TCP, unix.TCP_FASTOPEN, boolint(enabled)); err != nil {
 			return os.NewSyscallError("setsockopt", err)
 		}
 	}
@@ -134,6 +131,14 @@ func (fd *Fd) AllowReuseAddr() error {
 		return os.NewSyscallError("setsockopt", err)
 	}
 	return nil
+}
+
+func (fd *Fd) AllowReusePort(reusePort int) error {
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.sock, syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort))
+}
+
+func (fd *Fd) AllowQuickAck(enabled bool) error {
+	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.sock, syscall.IPPROTO_TCP, syscall.TCP_QUICKACK, boolint(enabled)))
 }
 
 func (fd *Fd) Bind(addr net.Addr) error {
