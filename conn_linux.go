@@ -26,6 +26,7 @@ type conn struct {
 	readBuffer    atomic.Int64
 	writeBuffer   atomic.Int64
 	useZC         bool
+	accepted      bool
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
@@ -52,9 +53,6 @@ RETRY:
 				return
 			}
 			goto RETRY
-		}
-		if aio.IsUncompleted(err) {
-			_ = c.Close()
 		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
@@ -95,9 +93,6 @@ RETRY:
 			}
 			goto RETRY
 		}
-		if aio.IsUncompleted(err) {
-			_ = c.Close()
-		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -108,9 +103,11 @@ func (c *conn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	defer func() {
-		_ = UnpinVortexes()
-	}()
+	defer func(c *conn) {
+		if !c.accepted {
+			_ = UnpinVortexes()
+		}
+	}(c)
 	defer c.cancel()
 
 	if err := c.fd.Close(); err != nil {
