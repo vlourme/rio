@@ -19,8 +19,9 @@ var (
 		Deadline:        time.Time{},
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		MultipathTCP:    false,
-		FastOpen:        256,
+		MultipathTCP:    true,
+		FastOpen:        true,
+		QuickAck:        true,
 		UseSendZC:       defaultUseSendZC.Load(),
 		Control:         nil,
 		ControlContext:  nil,
@@ -49,20 +50,19 @@ type Dialer struct {
 	KeepAlive       time.Duration
 	KeepAliveConfig net.KeepAliveConfig
 	MultipathTCP    bool
-	FastOpen        int
+	FastOpen        bool
+	QuickAck        bool
 	UseSendZC       bool
 	Control         func(network, address string, c syscall.RawConn) error
 	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
 }
 
-func (d *Dialer) SetFastOpen(n int) {
-	if n < 1 {
-		return
-	}
-	if n > 999 {
-		n = 256
-	}
-	d.FastOpen = n
+func (d *Dialer) SetFastOpen(use bool) {
+	d.FastOpen = use
+}
+
+func (d *Dialer) SetQuickAck(use bool) {
+	d.QuickAck = use
 }
 
 func (d *Dialer) SetMultipathTCP(use bool) {
@@ -270,7 +270,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			return d.Control(network, address, raw)
 		}
 	}
-	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, syscall.SOCK_DGRAM, 0, 0, control)
+	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, syscall.SOCK_DGRAM, 0, false, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -386,7 +386,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			return d.Control(network, address, raw)
 		}
 	}
-	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, sotype, 0, 0, control)
+	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, sotype, 0, false, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -471,7 +471,7 @@ func (d *Dialer) DialIP(_ context.Context, network string, laddr, raddr *net.IPA
 	return &IPConn{c}, nil
 }
 
-func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen int, control ctrlCtxFn) (fd *sys.Fd, err error) {
+func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
 	if reflect.ValueOf(laddr).IsNil() && reflect.ValueOf(raddr).IsNil() {
 		err = errors.New("missing address")
 		return
@@ -510,9 +510,11 @@ func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.
 		return
 	}
 	// fast open
-	if err = fd.AllowFastOpen(fastOpen); err != nil {
-		_ = fd.Close()
-		return
+	if fastOpen {
+		if err = fd.AllowFastOpen(fastOpen); err != nil {
+			_ = fd.Close()
+			return
+		}
 	}
 	// control
 	if control != nil {
@@ -526,7 +528,6 @@ func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.
 			return
 		}
 	}
-
 	// bind
 	if !reflect.ValueOf(laddr).IsNil() {
 		if err = fd.Bind(laddr); err != nil {
