@@ -168,9 +168,7 @@ func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-	defer func() {
-		_ = UnpinVortexes()
-	}()
+	defer Unpin()
 
 	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
