@@ -8,10 +8,9 @@ Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 
 ## 性能
 
-详见 [benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
+基于默认参数的测试，详见 [Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
 
-<img src="https://github.com/brickingsoft/rio_examples/blob/main/out/echo.png" width="336" height="144" border="0" alt="echo benchmark"><img src="benchmarks/out/http.png" width="336" height="144" border="0" alt="http benchmark">
-
+<img src="benchmark/echo.png" width="336" height="144" border="0" alt="echo benchmark"><img src="benchmark/http.png" width="336" height="144" border="0" alt="http benchmark">
 
 
 ## 使用
