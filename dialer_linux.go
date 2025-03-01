@@ -19,10 +19,10 @@ var (
 		Deadline:        time.Time{},
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		MultipathTCP:    true,
-		FastOpen:        true,
-		QuickAck:        true,
-		UseSendZC:       defaultUseSendZC.Load(),
+		MultipathTCP:    false,
+		FastOpen:        false,
+		QuickAck:        false,
+		UseSendZC:       false,
 		Control:         nil,
 		ControlContext:  nil,
 	}
@@ -178,7 +178,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
-	future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+	future := vortex.PrepareConnect(fd.Socket(), rsa, int(rsaLen), deadline)
 	_, err := future.Await(ctx)
 	if err != nil {
 		_ = fd.Close()
@@ -199,16 +199,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		fd.SetRemoteAddr(raddr)
 	}
 
-	side, sideErr := getSideVortex()
-	if sideErr != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: sideErr}
-	}
+	side := getSideVortex()
 
 	// conn
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	useSendZC := d.UseSendZC
 	if useSendZC {
 		useSendZC = aio.CheckSendZCEnable()
@@ -217,7 +210,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	c := &TCPConn{
 		conn{
 			ctx:           ctx,
-			cancel:        cancel,
 			fd:            fd,
 			vortex:        side,
 			readDeadline:  time.Time{},
@@ -287,7 +279,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+		future := vortex.PrepareConnect(fd.Socket(), rsa, int(rsaLen), deadline)
 		_, err := future.Await(ctx)
 		if err != nil {
 			_ = fd.Close()
@@ -310,16 +302,9 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// side vortex
-	side, sideErr := getSideVortex()
-	if sideErr != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: sideErr}
-	}
+	side := getSideVortex()
 
 	// conn
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	useSendZC := d.UseSendZC
 	useSendMsgZC := false
 	if useSendZC {
@@ -330,7 +315,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	c := &UDPConn{
 		conn{
 			ctx:           ctx,
-			cancel:        cancel,
 			fd:            fd,
 			vortex:        side,
 			readDeadline:  time.Time{},
@@ -404,7 +388,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		future := vortex.PrepareConnect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+		future := vortex.PrepareConnect(fd.Socket(), rsa, int(rsaLen), deadline)
 		_, err := future.Await(ctx)
 		if err != nil {
 			_ = fd.Close()
@@ -427,16 +411,9 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	}
 
 	// side vortex
-	side, sideErr := getSideVortex()
-	if sideErr != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: sideErr}
-	}
+	side := getSideVortex()
 
 	// conn
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	useSendZC := d.UseSendZC
 	useSendMsgZC := false
 	if useSendZC {
@@ -447,7 +424,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	c := &UnixConn{
 		conn{
 			ctx:           ctx,
-			cancel:        cancel,
 			fd:            fd,
 			vortex:        side,
 			readDeadline:  time.Time{},

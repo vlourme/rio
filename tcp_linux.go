@@ -21,11 +21,11 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 		Control:         nil,
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		UseSendZC:       defaultUseSendZC.Load(),
-		MultipathTCP:    true,
-		FastOpen:        true,
-		QuickAck:        true,
-		ReusePort:       true,
+		UseSendZC:       false,
+		MultipathTCP:    false,
+		FastOpen:        false,
+		QuickAck:        false,
+		ReusePort:       false,
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
@@ -58,10 +58,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// ctx
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	// sendzc
 	useSendZC := lc.UseSendZC
 	if useSendZC {
@@ -70,7 +66,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// ln
 	ln := &TCPListener{
 		ctx:             ctx,
-		cancel:          cancel,
 		fd:              fd,
 		vortex:          vortex,
 		useSendZC:       useSendZC,
@@ -82,7 +77,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 
 type TCPListener struct {
 	ctx             context.Context
-	cancel          context.CancelFunc
 	fd              *sys.Fd
 	vortex          *aio.Vortex
 	useSendZC       bool
@@ -108,7 +102,7 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 RETRY:
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	future := vortex.PrepareAccept(ctx, fd, addr, addrLen, deadline)
+	future := vortex.PrepareAccept(fd, addr, addrLen, deadline)
 	accepted, acceptErr := future.Await(ctx)
 	if acceptErr != nil {
 		if errors.Is(acceptErr, syscall.EBUSY) {
@@ -141,18 +135,11 @@ RETRY:
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
 	// side
-	side, sideErr := getSideVortex()
-	if sideErr != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: sideErr}
-		return
-	}
+	side := getSideVortex()
 	// tcp conn
-	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
 		conn{
-			ctx:           cc,
-			cancel:        cancel,
+			ctx:           ctx,
 			fd:            cfd,
 			useZC:         ln.useSendZC,
 			vortex:        side,
@@ -184,7 +171,6 @@ func (ln *TCPListener) Close() error {
 	defer func() {
 		_ = UnpinVortexes()
 	}()
-	defer ln.cancel()
 
 	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}

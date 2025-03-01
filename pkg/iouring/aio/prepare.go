@@ -1,8 +1,6 @@
 package aio
 
 import (
-	"context"
-	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"os"
 	"runtime"
@@ -11,130 +9,75 @@ import (
 	"unsafe"
 )
 
-func (vortex *Vortex) PrepareOperation(ctx context.Context, op *Operation) Future {
-	return vortex.prepareOperation(ctx, op)
+func (vortex *Vortex) PrepareOperation(op *Operation) Future {
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareConnect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
+func (vortex *Vortex) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareAccept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
+func (vortex *Vortex) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareReceive(ctx context.Context, fd int, b []byte, deadline time.Time) Future {
+func (vortex *Vortex) PrepareReceive(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceive(fd, b)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareSend(ctx context.Context, fd int, b []byte, deadline time.Time) Future {
+func (vortex *Vortex) PrepareSend(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSend(fd, b)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareSendZC(ctx context.Context, fd int, b []byte, deadline time.Time) Future {
+func (vortex *Vortex) PrepareSendZC(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendZC(fd, b)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareReceiveMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
+func (vortex *Vortex) PrepareReceiveMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, addr, addrLen, flags)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareSendMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
+func (vortex *Vortex) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendMsg(fd, b, oob, addr, addrLen, flags)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareSendMsgZC(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
+func (vortex *Vortex) PrepareSendMsgZC(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, flags)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareSplice(ctx context.Context, fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, flags uint32) Future {
+func (vortex *Vortex) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, flags uint32) Future {
 	op := vortex.acquireOperation()
 	op.PrepareSplice(fdIn, offIn, fdOut, offOut, nbytes, flags)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-func (vortex *Vortex) PrepareTee(ctx context.Context, fdIn int, fdOut int, nbytes uint32, flags uint32) Future {
+func (vortex *Vortex) PrepareTee(fdIn int, fdOut int, nbytes uint32, flags uint32) Future {
 	op := vortex.acquireOperation()
 	op.PrepareTee(fdIn, fdOut, nbytes, flags)
-	return vortex.prepareOperation(ctx, op)
+	return vortex.prepareOperation(op)
 }
 
-const (
-	ns500 = 500 * time.Nanosecond
-)
-
-func (vortex *Vortex) prepareOperation(ctx context.Context, op *Operation) Future {
-	timeout := op.Timeout(ctx)
-	switch {
-	case timeout > 0:
-		timer := vortex.acquireTimer(timeout)
-		for {
-			select {
-			case <-ctx.Done():
-				vortex.releaseOperation(op)
-				vortex.releaseTimer(timer)
-				err := ctx.Err()
-				if errors.Is(err, context.DeadlineExceeded) {
-					err = Timeout
-				}
-				return Future{err: ctx.Err()}
-			case <-timer.C:
-				vortex.releaseOperation(op)
-				vortex.releaseTimer(timer)
-				return Future{err: Timeout}
-			default:
-				if pushed := vortex.ops.Submit(op); pushed {
-					vortex.releaseTimer(timer)
-					return Future{
-						vortex:   vortex,
-						op:       op,
-						acquired: true,
-					}
-				}
-				time.Sleep(ns500)
-				break
-			}
-		}
-	case timeout < 0:
-		return Future{err: Timeout}
-	default:
-		for {
-			select {
-			case <-ctx.Done():
-				vortex.releaseOperation(op)
-				err := ctx.Err()
-				if errors.Is(err, context.DeadlineExceeded) {
-					err = Timeout
-				}
-				return Future{err: err}
-			default:
-				if pushed := vortex.ops.Submit(op); pushed {
-					return Future{
-						vortex:   vortex,
-						op:       op,
-						acquired: true,
-					}
-				}
-				time.Sleep(ns500)
-				break
-			}
-		}
+func (vortex *Vortex) prepareOperation(op *Operation) Future {
+	vortex.ops.Enqueue(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
 	}
 }
 
@@ -198,7 +141,6 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 		break
 	case iouring.OpAsyncCancel:
 		sqe.PrepareCancel(uintptr(op.ptr), 0)
-		vortex.hijackedOps.Delete(op)
 		break
 	default:
 		sqe.PrepareNop()

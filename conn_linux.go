@@ -18,7 +18,6 @@ import (
 
 type conn struct {
 	ctx           context.Context
-	cancel        context.CancelFunc
 	fd            *sys.Fd
 	vortex        *aio.Vortex
 	readDeadline  time.Time
@@ -48,7 +47,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	deadline := c.readDeadline
 
 RETRY:
-	future := vortex.PrepareReceive(ctx, fd, b, deadline)
+	future := vortex.PrepareReceive(fd, b, deadline)
 	n, err = future.Await(ctx)
 	if err != nil {
 		if errors.Is(err, syscall.EBUSY) {
@@ -82,10 +81,10 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 RETRY:
 	if c.useZC {
-		future := vortex.PrepareSendZC(ctx, fd, b, deadline)
+		future := vortex.PrepareSendZC(fd, b, deadline)
 		n, err = future.Await(ctx)
 	} else {
-		future := vortex.PrepareSend(ctx, fd, b, deadline)
+		future := vortex.PrepareSend(fd, b, deadline)
 		n, err = future.Await(ctx)
 	}
 
@@ -112,7 +111,6 @@ func (c *conn) Close() error {
 			_ = UnpinVortexes()
 		}
 	}(c)
-	defer c.cancel()
 
 	if err := c.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}

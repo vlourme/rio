@@ -3,7 +3,6 @@ package aio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -11,9 +10,8 @@ import (
 )
 
 type Result struct {
-	N     int
-	Flags uint32
-	Err   error
+	N   int
+	Err error
 }
 
 type pipeRequest struct {
@@ -33,8 +31,8 @@ const (
 
 func NewOperation() *Operation {
 	return &Operation{
-		kind: iouring.OpLast,
-		ch:   make(chan Result, 1),
+		kind:   iouring.OpLast,
+		result: NewQueue[Result](),
 	}
 }
 
@@ -48,7 +46,7 @@ type Operation struct {
 	pipe     pipeRequest
 	ptr      unsafe.Pointer
 	deadline time.Time
-	ch       chan Result
+	result   *Queue[Result]
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -186,6 +184,12 @@ func (op *Operation) reset() {
 	op.deadline = time.Time{}
 	// ptr
 	op.ptr = nil
+	// result
+	for {
+		if r := op.result.Dequeue(); r == nil {
+			break
+		}
+	}
 	return
 }
 
@@ -232,103 +236,13 @@ func (op *Operation) Flags() int {
 	return int(op.msg.Flags)
 }
 
-func newOperationRing(n int) (ring *OperationRing) {
-	if n < 1 {
-		n = iouring.DefaultEntries
-	}
-	ring = &OperationRing{
-		head:     atomic.Pointer[OperationRingNode]{},
-		tail:     atomic.Pointer[OperationRingNode]{},
-		entries:  atomic.Int64{},
-		capacity: int64(n),
-	}
-	head := &OperationRingNode{
-		value: atomic.Pointer[Operation]{},
-		next:  atomic.Pointer[OperationRingNode]{},
-	}
-	ring.head.Store(head)
-	ring.tail.Store(head)
-
-	for i := 1; i < n; i++ {
-		next := &OperationRingNode{}
-		tail := ring.tail.Load()
-		tail.next.Store(next)
-		ring.tail.Store(next)
-	}
-
-	tail := ring.tail.Load()
-	tail.next.Store(head)
-
-	ring.tail.Store(head)
-	return
+func (op *Operation) setResult(n int, err error) {
+	op.result.Enqueue(&Result{
+		N:   n,
+		Err: err,
+	})
 }
 
-type OperationRingNode struct {
-	value atomic.Pointer[Operation]
-	next  atomic.Pointer[OperationRingNode]
-}
-
-type OperationRing struct {
-	head     atomic.Pointer[OperationRingNode]
-	tail     atomic.Pointer[OperationRingNode]
-	entries  atomic.Int64
-	capacity int64
-}
-
-func (ring *OperationRing) Submit(op *Operation) (ok bool) {
-	for {
-		if ring.entries.Load() >= ring.capacity {
-			break
-		}
-		tail := ring.tail.Load()
-		if tail.value.CompareAndSwap(nil, op) {
-			next := tail.next.Load()
-			ring.tail.Store(next)
-			ring.entries.Add(1)
-			ok = true
-			break
-		}
-	}
-	runtime.KeepAlive(op)
-	return
-}
-
-func (ring *OperationRing) PeekBatch(operations []*Operation) (n int64) {
-	size := int64(len(operations))
-	if size == 0 {
-		return
-	}
-	if entriesLen := ring.entries.Load(); entriesLen < size {
-		size = entriesLen
-	}
-	node := ring.head.Load()
-	for i := int64(0); i < size; i++ {
-		op := node.value.Load()
-		if op == nil {
-			break
-		}
-		node = node.next.Load()
-		operations[i] = op
-		n++
-	}
-	return
-}
-
-func (ring *OperationRing) Advance(n int64) {
-	head := ring.head.Load()
-	for i := int64(0); i < n; i++ {
-		head.value.Store(nil)
-		head = head.next.Load()
-		ring.entries.Add(-1)
-	}
-	ring.head.Store(head)
-	return
-}
-
-func (ring *OperationRing) Len() int64 {
-	return ring.entries.Load()
-}
-
-func (ring *OperationRing) Cap() int64 {
-	return ring.capacity
+func (op *Operation) getResult() *Result {
+	return op.result.Dequeue()
 }

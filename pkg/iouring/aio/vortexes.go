@@ -14,6 +14,7 @@ type Options struct {
 	Flags                   uint32
 	Features                uint32
 	SidesLoadBalancer       LoadBalancer
+	PrepareBatchSize        uint32
 	WaitTransmissionBuilder TransmissionBuilder
 }
 
@@ -32,10 +33,17 @@ func WithEntries(entries int) Option {
 	}
 }
 
+func WithPrepareBatchSize(size uint32) Option {
+	return func(opts *Options) error {
+		opts.PrepareBatchSize = size
+		return nil
+	}
+}
+
 func WithSides(sides int) Option {
 	return func(opts *Options) error {
 		if sides < 1 {
-			sides = runtime.NumCPU()
+			sides = 0
 		}
 		opts.Sides = uint32(sides)
 		return nil
@@ -83,7 +91,11 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 	sidesNum := opt.Sides
 	if sidesNum < 1 {
-		sidesNum = uint32(runtime.NumCPU()) - 1
+		cpus := uint32(runtime.NumCPU())
+		sidesNum = cpus / 2
+		if sidesNum < 1 {
+			sidesNum = 1
+		}
 	}
 	lb := opt.SidesLoadBalancer
 	if lb == nil {
@@ -95,6 +107,9 @@ func New(options ...Option) (v *Vortexes, err error) {
 	if flags == 0 && features == 0 {
 		flags, features = DefaultIOURingFlagsAndFeatures()
 	}
+
+	prepareBatchSize := opt.PrepareBatchSize
+
 	waitTransmissionBuilder := opt.WaitTransmissionBuilder
 	if waitTransmissionBuilder == nil {
 		waitTransmissionBuilder = NewCurveTransmissionBuilder(defaultCurve)
@@ -110,6 +125,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 		Entries:          entries,
 		Flags:            flags,
 		Features:         features,
+		PrepareBatchSize: prepareBatchSize,
 		WaitTransmission: centerWaitTransmission,
 	}
 	center, centerErr := NewVortex(centerOptions)

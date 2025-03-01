@@ -11,16 +11,11 @@ import (
 )
 
 var (
-	defaultUseSendZC       = atomic.Bool{}
 	defaultVortexesOptions []aio.Option
 )
 
 func UseProcessPriority(level process.PriorityLevel) {
 	_ = process.SetCurrentProcessPriority(level)
-}
-
-func UseZeroCopy(use bool) {
-	defaultUseSendZC.Store(use)
 }
 
 func UsePreformMode() {
@@ -36,6 +31,13 @@ func UseEntries(entries int) {
 	defaultVortexesOptions = append(
 		defaultVortexesOptions,
 		aio.WithEntries(entries),
+	)
+}
+
+func UsePrepareBatchSize(size uint32) {
+	defaultVortexesOptions = append(
+		defaultVortexesOptions,
+		aio.WithPrepareBatchSize(size),
 	)
 }
 
@@ -115,8 +117,8 @@ func getCenterVortex() (*aio.Vortex, error) {
 	return rv.center(), nil
 }
 
-func getSideVortex() (*aio.Vortex, error) {
-	return rv.side(), nil
+func getSideVortex() *aio.Vortex {
+	return rv.side()
 }
 
 type referencedVortexes struct {

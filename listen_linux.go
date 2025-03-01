@@ -15,11 +15,11 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		Control:         nil,
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{},
-		UseSendZC:       defaultUseSendZC.Load(),
-		MultipathTCP:    true,
-		FastOpen:        true,
-		QuickAck:        true,
-		ReusePort:       true,
+		UseSendZC:       false,
+		MultipathTCP:    false,
+		FastOpen:        false,
+		QuickAck:        false,
+		ReusePort:       false,
 	}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
@@ -35,6 +35,11 @@ type ListenConfig struct {
 	FastOpen        bool
 	QuickAck        bool
 	ReusePort       bool
+}
+
+func (lc *ListenConfig) SetSendZC(use bool) {
+	lc.UseSendZC = use
+	return
 }
 
 func (lc *ListenConfig) SetFastOpen(use bool) {

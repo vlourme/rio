@@ -17,7 +17,7 @@ import (
 
 func ListenUDP(network string, addr *net.UDPAddr) (*UDPConn, error) {
 	config := ListenConfig{
-		UseSendZC: defaultUseSendZC.Load(),
+		UseSendZC: false,
 	}
 	ctx := context.Background()
 	return config.ListenUDP(ctx, network, addr)
@@ -56,9 +56,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	// ctx
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
 	// sendzc
 	useSendZC := lc.UseSendZC
 	useSendMsgZC := lc.UseSendZC
@@ -70,7 +67,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	c := &UDPConn{
 		conn{
 			ctx:           ctx,
-			cancel:        cancel,
 			fd:            fd,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
@@ -210,7 +206,7 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	deadline := c.readDeadline
 
 RETRY:
-	future := vortex.PrepareReceiveMsg(ctx, fd, b, nil, rsa, rsaLen, 0, deadline)
+	future := vortex.PrepareReceiveMsg(fd, b, nil, rsa, rsaLen, 0, deadline)
 	n, err = future.Await(ctx)
 	if err != nil {
 		if errors.Is(err, syscall.EBUSY) {
@@ -273,7 +269,7 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 	deadline := c.readDeadline
 
 RETRY:
-	future := vortex.PrepareReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline)
+	future := vortex.PrepareReceiveMsg(fd, b, oob, rsa, rsaLen, 0, deadline)
 	rn, msg, rErr := future.AwaitMsg(ctx)
 	if rErr != nil {
 		if errors.Is(err, syscall.EBUSY) {
@@ -369,10 +365,10 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 
 RETRY:
 	if c.useMsgZC {
-		future := vortex.PrepareSendMsgZC(ctx, fd, b, nil, rsa, int(rsaLen), 0, deadline)
+		future := vortex.PrepareSendMsgZC(fd, b, nil, rsa, int(rsaLen), 0, deadline)
 		n, err = future.Await(ctx)
 	} else {
-		future := vortex.PrepareSendMsg(ctx, fd, b, nil, rsa, int(rsaLen), 0, deadline)
+		future := vortex.PrepareSendMsg(fd, b, nil, rsa, int(rsaLen), 0, deadline)
 		n, err = future.Await(ctx)
 	}
 
@@ -446,14 +442,14 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 
 RETRY:
 	if c.useMsgZC {
-		future := vortex.PrepareSendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), 0, deadline)
+		future := vortex.PrepareSendMsgZC(fd, b, oob, rsa, int(rsaLen), 0, deadline)
 		wn, msg, wErr := future.AwaitMsg(ctx)
 		if wErr == nil {
 			oobn = int(msg.Controllen)
 		}
 		n, err = wn, wErr
 	} else {
-		future := vortex.PrepareSendMsg(ctx, fd, b, oob, rsa, int(rsaLen), 0, deadline)
+		future := vortex.PrepareSendMsg(fd, b, oob, rsa, int(rsaLen), 0, deadline)
 		wn, msg, wErr := future.AwaitMsg(ctx)
 		if wErr == nil {
 			oobn = int(msg.Controllen)
