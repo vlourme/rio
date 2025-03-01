@@ -108,7 +108,7 @@ func (c *conn) Close() error {
 	}
 	defer func(c *conn) {
 		if !c.accepted {
-			_ = UnpinVortexes()
+			Unpin()
 		}
 	}(c)
 

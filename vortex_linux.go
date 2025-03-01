@@ -6,8 +6,8 @@ import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/process"
-	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -76,58 +76,65 @@ func UseWaitTransmissionBuilder(builder aio.TransmissionBuilder) {
 	)
 }
 
-// PinVortexes
+// Pin
 // 钉住 aio.Vortexes 。
 // 一般用于程序启动时。
 // 这用手动管理 aio.Vortexes 的生命周期，一般用于只有 Dial 的使用。
-// 注意：必须 UnpinVortexes 来关闭 aio.Vortexes 。
-func PinVortexes() (err error) {
-	rvOnce.Do(func() {
-		err = createReferencedVortexes()
-	})
-	if err != nil {
-		return
+// 注意：必须 Unpin 来关闭 aio.Vortexes 。
+func Pin() {
+	if rv == nil {
+		if err := createReferencedVortexes(); err != nil {
+			panic(err)
+			return
+		}
 	}
 	rv.pin()
 	return
 }
 
-// UnpinVortexes
+// Unpin
 // 不钉住 aio.Vortexes 。
-func UnpinVortexes() (err error) {
-	rvOnce.Do(func() {
-		err = createReferencedVortexes()
-	})
-	if err != nil {
-		return
+func Unpin() {
+	if rv != nil {
+		rv.unpin()
 	}
-	rv.unpin()
 	return
 }
 
 var (
-	rvOnce                     = new(sync.Once)
-	rv     *referencedVortexes = nil
+	rvp                     = atomic.Bool{}
+	rv  *referencedVortexes = nil
 )
 
 func createReferencedVortexes() (err error) {
-	vortexes, vortexesErr := aio.New(defaultVortexesOptions...)
-	if vortexesErr != nil {
-		err = vortexesErr
-		return
-	}
-	rv = &referencedVortexes{
-		ref:      atomic.Int64{},
-		vortexes: vortexes,
+	for {
+		if rvp.CompareAndSwap(false, true) {
+			vortexes, vortexesErr := aio.New(defaultVortexesOptions...)
+			if vortexesErr != nil {
+				err = vortexesErr
+				return
+			}
+			rv = &referencedVortexes{
+				ref:      atomic.Int64{},
+				vortexes: vortexes,
+			}
+			return
+		}
+		if rv != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	return
 }
 
 func getCenterVortex() (*aio.Vortex, error) {
-	err := PinVortexes()
-	if err != nil {
-		return nil, err
+	if rv == nil {
+		if err := createReferencedVortexes(); err != nil {
+			return nil, err
+		}
 	}
+	rv.pin()
 	return rv.center(), nil
 }
 

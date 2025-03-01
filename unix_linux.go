@@ -49,10 +49,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// ctx
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithCancel(ctx)
-
 	// sendzc
 	useSendZC := lc.UseSendZC
 	if useSendZC {
@@ -62,7 +58,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	// ln
 	ln := &UnixListener{
 		ctx:        ctx,
-		cancel:     cancel,
 		fd:         fd,
 		path:       fd.LocalAddr().String(),
 		unlink:     true,
@@ -190,7 +185,6 @@ func newUnixListener(ctx context.Context, network string, addr *net.UnixAddr, co
 
 type UnixListener struct {
 	ctx        context.Context
-	cancel     context.CancelFunc
 	fd         *sys.Fd
 	path       string
 	unlink     bool
@@ -271,10 +265,7 @@ func (ln *UnixListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-	defer func() {
-		_ = UnpinVortexes()
-	}()
-	defer ln.cancel()
+	defer Unpin()
 	ln.unlinkOnce.Do(func() {
 		if ln.path[0] != '@' && ln.unlink {
 			_ = syscall.Unlink(ln.path)
