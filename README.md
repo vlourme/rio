@@ -1,10 +1,18 @@
 # RIO
 
-基于`IOURING`的网络库，且遵循标准库模式，且非`CGO`方式。
+基于`IOURING`的`AIO`网络库，非`CGO`方式，且遵循标准库使用设计模式。
 
 支持协议：`TCP`、`UDP`、`UNIX`、`UNIXGRAM`（`IP`为代理标准库）。
 
-Linux 内核版本需要`>= 5.4`，推荐版本为`>= 6.1`。
+Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
+
+## 性能
+
+详见 [benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
+
+<img src="https://github.com/brickingsoft/rio_examples/blob/main/out/echo.png" width="336" height="144" border="0" alt="echo benchmark"><img src="benchmarks/out/http.png" width="336" height="144" border="0" alt="http benchmark">
+
+
 
 ## 使用
 
@@ -82,3 +90,79 @@ http.Serve(ln, handler)
 fasthttp.Serve(ln, handler)
 ```
 
+REUSE PORT：
+
+```go
+
+lc := rio.ListenConfig{}
+lc.SetReusePort(true)
+
+ln, lnErr := lc.Listen(...)
+
+```
+
+## 进阶调参
+
+`setting_linux.go`
+```go
+//go:build linux
+package main
+
+import (
+    "github.com/brickingsoft/rio"
+)
+
+
+func setup() {
+	// 设置进程等级
+	rio.UseProcessPriority()
+	// 设置 IOURING 的大小
+	rio.UseEntries()
+	// 设置边缘大小
+	// 不是越多越好，与 CPU 数量相关，默认是 CPU 数量的一半。
+	rio.UseSides()
+	// 设置边缘加载平衡器
+	rio.UseSidesLoadBalancer()
+	// 设置任务准备批大小
+	// 默认是任务数
+	rio.UsePrepareBatchSize()
+	// 设置完成事件等待变速器构建器
+	// 这与性能息息相关，调整变速器实现不同的性能。
+	// 默认是曲线变速器，
+	rio.UseWaitTransmissionBuilder() 
+	// 设置从可读方读数据策略
+	rio.UseReadFromFilePolicy()
+	// 使用爆操性能模式
+	rio.UsePreformMode()
+	// 设置 IOURING 的 Flags
+	rio.UseFlags()
+	// 设置 IOURING 的 Features
+	rio.UseFeatures()
+	
+}
+
+```
+
+`settings_posix.go`
+```go
+//go:build !linux
+package main
+
+
+func setup() {}
+
+```
+
+`main.go`
+
+```go
+package main
+
+import "github.com/brickingsoft/rio"
+
+func main() {
+	setup()
+
+	ln, lnErr := rio.Listen("tcp", ":9000")
+}
+```
