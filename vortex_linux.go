@@ -27,6 +27,20 @@ func UsePreformMode() {
 	)
 }
 
+func UseFlags(flags uint32) {
+	defaultVortexesOptions = append(
+		defaultVortexesOptions,
+		aio.WithFlags(flags),
+	)
+}
+
+func UseFeatures(feats uint32) {
+	defaultVortexesOptions = append(
+		defaultVortexesOptions,
+		aio.WithFeatures(feats),
+	)
+}
+
 func UseEntries(entries int) {
 	defaultVortexesOptions = append(
 		defaultVortexesOptions,
