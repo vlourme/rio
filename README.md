@@ -12,9 +12,6 @@ Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 
 <img src="benchmark/echo.png" width="336" height="144" border="0" alt="echo benchmark"><img src="benchmark/http.png" width="336" height="144" border="0" alt="http benchmark">
 
-![Echo](benchmark/echo.png)
-![Http](benchmark/http.png)
-
 ## 使用
 
 ```shell
