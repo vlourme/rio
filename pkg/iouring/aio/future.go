@@ -47,10 +47,9 @@ func (f *Future) await(ctx context.Context) (n int, err error) {
 	}
 	vortex := f.vortex
 	op := f.op
-	timeout := op.Timeout(ctx)
-	if timeout > 0 {
-		n, err = f.awaitWithDeadline(ctx, time.Now().Add(timeout))
-		return
+	var deadline time.Time
+	if timeout := op.Timeout(ctx); timeout > 0 {
+		deadline = time.Now().Add(timeout)
 	}
 
 	for {
@@ -58,6 +57,14 @@ func (f *Future) await(ctx context.Context) (n int, err error) {
 		if r != nil {
 			n, err = r.N, r.Err
 			break
+		}
+		if !deadline.IsZero() {
+			if deadline.Before(time.Now()) {
+				if vortex.Cancel(op) {
+					err = Timeout
+					break
+				}
+			}
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			if vortex.Cancel(op) {
@@ -72,35 +79,5 @@ func (f *Future) await(ctx context.Context) (n int, err error) {
 		time.Sleep(ns500)
 	}
 
-	return
-}
-
-func (f *Future) awaitWithDeadline(ctx context.Context, deadline time.Time) (n int, err error) {
-	vortex := f.vortex
-	op := f.op
-	for {
-		r := op.getResult()
-		if r != nil {
-			n, err = r.N, r.Err
-			break
-		}
-		if deadline.Before(time.Now()) {
-			if vortex.Cancel(op) {
-				err = Timeout
-				break
-			}
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			if vortex.Cancel(op) {
-				if errors.Is(ctxErr, context.DeadlineExceeded) {
-					err = Timeout
-				} else {
-					err = ctxErr
-				}
-				break
-			}
-		}
-		time.Sleep(ns500)
-	}
 	return
 }
