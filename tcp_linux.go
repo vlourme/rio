@@ -170,7 +170,12 @@ func (ln *TCPListener) Close() error {
 	}
 	defer Unpin()
 
-	if err := ln.fd.Close(); err != nil {
+	ctx := ln.ctx
+	fd := ln.fd.Socket()
+	vortex := ln.vortex
+
+	future := vortex.PrepareClose(fd)
+	if _, err := future.Await(ctx); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil

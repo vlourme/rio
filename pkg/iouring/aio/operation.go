@@ -90,6 +90,11 @@ func (op *Operation) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen
 	return
 }
 
+func (op *Operation) PrepareClose(fd int) {
+	op.kind = iouring.OpClose
+	op.fd = fd
+}
+
 func (op *Operation) PrepareReceive(fd int, b []byte) {
 	op.kind = iouring.OpRecv
 	op.fd = fd

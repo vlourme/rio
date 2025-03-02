@@ -25,6 +25,12 @@ func (vortex *Vortex) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLe
 	return vortex.prepareOperation(op)
 }
 
+func (vortex *Vortex) PrepareClose(fd int) Future {
+	op := vortex.acquireOperation()
+	op.PrepareClose(fd)
+	return vortex.prepareOperation(op)
+}
+
 func (vortex *Vortex) PrepareReceive(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceive(fd, b)
@@ -101,6 +107,10 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
 		sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
+		sqe.SetData(unsafe.Pointer(op))
+		break
+	case iouring.OpClose:
+		sqe.PrepareClose(op.fd)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecv:

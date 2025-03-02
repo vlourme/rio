@@ -112,7 +112,12 @@ func (c *conn) Close() error {
 		}
 	}(c)
 
-	if err := c.fd.Close(); err != nil {
+	ctx := c.ctx
+	fd := c.fd.Socket()
+	vortex := c.vortex
+
+	future := vortex.PrepareClose(fd)
+	if _, err := future.Await(ctx); err != nil {
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	return nil
