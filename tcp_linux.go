@@ -23,9 +23,9 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
 		UseSendZC:       false,
 		MultipathTCP:    false,
-		FastOpen:        false,
-		QuickAck:        false,
-		ReusePort:       false,
+		FastOpen:        true,
+		QuickAck:        true,
+		ReusePort:       true,
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
@@ -79,6 +79,7 @@ type TCPListener struct {
 	ctx             context.Context
 	fd              *sys.Fd
 	vortex          *aio.Vortex
+	multipathTCP    bool
 	useSendZC       bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig

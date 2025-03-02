@@ -6,6 +6,7 @@ import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -20,6 +21,11 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		FastOpen:        false,
 		QuickAck:        false,
 		ReusePort:       false,
+	}
+	if strings.HasPrefix(network, "tcp") {
+		config.SetQuickAck(true)
+		config.SetReusePort(true)
+		config.SetFastOpen(true)
 	}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
