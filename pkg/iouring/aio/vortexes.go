@@ -135,29 +135,26 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 
 	// sides
-	var sides []*Vortex
-	if sidesNum > 0 {
-		sides = make([]*Vortex, sidesNum)
-		for i := 0; i < len(sides); i++ {
-			sideWaitTransmission, sideWaitTransmissionErr := waitTransmissionBuilder.Build()
-			if sideWaitTransmissionErr != nil {
-				err = sideWaitTransmissionErr
-				return
-			}
-			sideOptions := VortexOptions{
-				Entries:          entries,
-				Flags:            flags,
-				Features:         features,
-				WaitTransmission: sideWaitTransmission,
-			}
-			side, sideErr := NewVortex(sideOptions)
-			if sideErr != nil {
-				_ = center.Close()
-				err = sideErr
-				return
-			}
-			sides[i] = side
+	sides := make([]*Vortex, sidesNum)
+	for i := 0; i < len(sides); i++ {
+		sideWaitTransmission, sideWaitTransmissionErr := waitTransmissionBuilder.Build()
+		if sideWaitTransmissionErr != nil {
+			err = sideWaitTransmissionErr
+			return
 		}
+		sideOptions := VortexOptions{
+			Entries:          entries,
+			Flags:            flags,
+			Features:         features,
+			WaitTransmission: sideWaitTransmission,
+		}
+		side, sideErr := NewVortex(sideOptions)
+		if sideErr != nil {
+			_ = center.Close()
+			err = sideErr
+			return
+		}
+		sides[i] = side
 	}
 
 	v = &Vortexes{
