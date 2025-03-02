@@ -193,92 +193,46 @@ func (vortex *Vortex) Start(ctx context.Context) {
 
 		cq := make([]*iouring.CompletionQueueEvent, ring.CQEntries())
 
-		for {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				break
-			}
-			if vortex.stopped.Load() {
-				break
-			}
-			// peek and submit
-			if peeked := vortex.ops.PeekBatch(operations); peeked > 0 {
-				prepared := int64(0)
-				for i := int64(0); i < peeked; i++ {
-					op := operations[i]
-					if op == nil {
-						break
-					}
-					operations[i] = nil
-					if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
-						if prepErr := vortex.prepareSQE(op); prepErr != nil {
-							if prepErr != nil { // when prep err occur, means invalid op kind,
-								op.setResult(0, prepErr)
-								if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
-									break
-								}
-								prepared++ // prepareSQE nop whit out userdata, so prepared++
-								continue
+	AGAIN:
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			goto STOP
+		}
+		if vortex.stopped.Load() {
+			goto STOP
+		}
+		// peek and submit
+		if peeked := vortex.ops.PeekBatch(operations); peeked > 0 {
+			prepared := int64(0)
+			for i := int64(0); i < peeked; i++ {
+				op := operations[i]
+				if op == nil {
+					break
+				}
+				operations[i] = nil
+				if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
+					if prepErr := vortex.prepareSQE(op); prepErr != nil {
+						if prepErr != nil { // when prep err occur, means invalid op kind,
+							op.setResult(0, prepErr)
+							if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
+								break
 							}
+							prepared++ // prepareSQE nop whit out userdata, so prepared++
+							continue
 						}
-						runtime.KeepAlive(op)
-						prepared++
-					} else { // maybe canceled
-						vortex.releaseOperation(op)
 					}
-				}
-				vortex.ops.Advance(prepared)
-			}
-			// wait
-			if _, waitErr := ring.SubmitAndWaitTimeout(waitCQENr, &waitCQETimeoutSYS, nil); waitErr != nil {
-				if errors.Is(waitErr, syscall.EAGAIN) || errors.Is(waitErr, syscall.EINTR) || errors.Is(waitErr, syscall.ETIME) {
-					// decr waitCQENr and waitTimeout
-					waitCQENr, waitCQETimeout = waitTransmission.Prev()
-					if waitCQENr < 1 {
-						waitCQENr = defaultWaitCQENr
-					}
-					if waitCQETimeout < 1 {
-						waitCQETimeout = defaultWaitTimeout
-					}
-					waitCQETimeoutSYS = syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
+					runtime.KeepAlive(op)
+					prepared++
+				} else { // maybe canceled
+					vortex.releaseOperation(op)
 				}
 			}
-			// peek cqe
-			if completed := ring.PeekBatchCQE(cq); completed > 0 {
-				for i := uint32(0); i < completed; i++ {
-					cqe := cq[i]
-					cq[i] = nil
-					if cqe.UserData == 0 { // no userdata means no op
-						continue
-					}
-					if notify := cqe.Flags&iouring.CQEFNotify != 0; notify { // used by send zc
-						continue
-					}
-					// get op from
-					copPtr := cqe.GetData()
-					cop := (*Operation)(copPtr)
-					// handle
-					if cop.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) { // not done
-						// sent result when op not done (when done means timeout or ctx canceled)
-						var (
-							res int
-							err error
-						)
-						if cqe.Res < 0 {
-							err = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
-						} else {
-							res = int(cqe.Res)
-						}
-						cop.setResult(res, err)
-					} else { // done
-						// 1. by timeout or ctx canceled, so should be hijacked
-						// release
-						vortex.releaseOperation(cop)
-					}
-				}
-				// CQAdvance
-				ring.CQAdvance(completed)
-				// incr waitCQENr and waitTimeout
-				waitCQENr, waitCQETimeout = waitTransmission.Next()
+			vortex.ops.Advance(prepared)
+		}
+		// wait
+		if _, waitErr := ring.SubmitAndWaitTimeout(waitCQENr, &waitCQETimeoutSYS, nil); waitErr != nil {
+			if errors.Is(waitErr, syscall.EAGAIN) || errors.Is(waitErr, syscall.EINTR) || errors.Is(waitErr, syscall.ETIME) {
+				// decr waitCQENr and waitTimeout
+				waitCQENr, waitCQETimeout = waitTransmission.Prev()
 				if waitCQENr < 1 {
 					waitCQENr = defaultWaitCQENr
 				}
@@ -288,7 +242,54 @@ func (vortex *Vortex) Start(ctx context.Context) {
 				waitCQETimeoutSYS = syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
 			}
 		}
+		// peek cqe
+		if completed := ring.PeekBatchCQE(cq); completed > 0 {
+			for i := uint32(0); i < completed; i++ {
+				cqe := cq[i]
+				cq[i] = nil
+				if cqe.UserData == 0 { // no userdata means no op
+					continue
+				}
+				if notify := cqe.Flags&iouring.CQEFNotify != 0; notify { // used by send zc
+					continue
+				}
+				// get op from
+				copPtr := cqe.GetData()
+				cop := (*Operation)(copPtr)
+				// handle
+				if cop.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) { // not done
+					// sent result when op not done (when done means timeout or ctx canceled)
+					var (
+						res int
+						err error
+					)
+					if cqe.Res < 0 {
+						err = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
+					} else {
+						res = int(cqe.Res)
+					}
+					cop.setResult(res, err)
+				} else { // done
+					// 1. by timeout or ctx canceled, so should be hijacked
+					// release
+					vortex.releaseOperation(cop)
+				}
+			}
+			// CQAdvance
+			ring.CQAdvance(completed)
+			// incr waitCQENr and waitTimeout
+			waitCQENr, waitCQETimeout = waitTransmission.Next()
+			if waitCQENr < 1 {
+				waitCQENr = defaultWaitCQENr
+			}
+			if waitCQETimeout < 1 {
+				waitCQETimeout = defaultWaitTimeout
+			}
+			waitCQETimeoutSYS = syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
+		}
+		goto AGAIN
 
+	STOP:
 		// evict remain
 		if remains := vortex.ops.Length(); remains > 0 {
 			peeked := vortex.ops.PeekBatch(operations)

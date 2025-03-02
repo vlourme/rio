@@ -25,49 +25,49 @@ type Queue[E any] struct {
 
 func (q *Queue[E]) Enqueue(entry *E) {
 	node := &queueNode[E]{entry: entry}
-	for {
-		var (
-			tail = q.tail.Load()
-			next = tail.next.Load()
-		)
+RETRY:
+	var (
+		tail = q.tail.Load()
+		next = tail.next.Load()
+	)
 
-		if tail == q.tail.Load() {
-			if next == nil {
-				if tail.next.CompareAndSwap(next, node) {
-					q.tail.CompareAndSwap(tail, node)
-					q.len.Add(1)
-					return
-				}
-			} else {
-				q.tail.CompareAndSwap(tail, next)
+	if tail == q.tail.Load() {
+		if next == nil {
+			if tail.next.CompareAndSwap(next, node) {
+				q.tail.CompareAndSwap(tail, node)
+				q.len.Add(1)
+				return
 			}
+		} else {
+			q.tail.CompareAndSwap(tail, next)
 		}
 	}
+	goto RETRY
 }
 
 func (q *Queue[E]) Dequeue() *E {
-	for {
-		var (
-			head = q.head.Load()
-			tail = q.tail.Load()
-			next = head.next.Load()
-		)
+RETRY:
+	var (
+		head = q.head.Load()
+		tail = q.tail.Load()
+		next = head.next.Load()
+	)
 
-		if head == q.head.Load() {
-			if head == tail {
-				if next == nil {
-					return nil
-				}
-				q.tail.CompareAndSwap(tail, next)
-			} else {
-				entry := next.entry
-				if q.head.CompareAndSwap(head, next) {
-					q.len.Add(-1)
-					return entry
-				}
+	if head == q.head.Load() {
+		if head == tail {
+			if next == nil {
+				return nil
+			}
+			q.tail.CompareAndSwap(tail, next)
+		} else {
+			entry := next.entry
+			if q.head.CompareAndSwap(head, next) {
+				q.len.Add(-1)
+				return entry
 			}
 		}
 	}
+	goto RETRY
 }
 
 func (q *Queue[E]) PeekBatch(entries []*E) (n int64) {

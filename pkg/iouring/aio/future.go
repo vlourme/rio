@@ -52,20 +52,19 @@ func (f *Future) await(ctx context.Context) (n int, err error) {
 		deadline = time.Now().Add(timeout)
 	}
 
-	for {
-		r := op.getResult()
-		if r != nil {
-			n, err = r.N, r.Err
-			break
-		}
+RETRY:
+	r := op.getResult()
+	if r == nil {
+		// timeout
 		if !deadline.IsZero() {
 			if deadline.Before(time.Now()) {
 				if vortex.Cancel(op) {
 					err = Timeout
-					break
+					return
 				}
 			}
 		}
+		// ctx
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			if vortex.Cancel(op) {
 				if errors.Is(ctxErr, context.DeadlineExceeded) {
@@ -73,11 +72,12 @@ func (f *Future) await(ctx context.Context) (n int, err error) {
 				} else {
 					err = ctxErr
 				}
-				break
+				return
 			}
 		}
 		time.Sleep(ns500)
+		goto RETRY
 	}
-
+	n, err = r.N, r.Err
 	return
 }
