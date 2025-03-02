@@ -24,8 +24,9 @@ func (builder *CurveTransmissionBuilder) Build() (Transmission, error) {
 }
 
 type Transmission interface {
-	Prev() (n uint32, timeout time.Duration)
-	Next() (n uint32, timeout time.Duration)
+	MatchN(n uint32) (uint32, time.Duration)
+	Up() (n uint32, timeout time.Duration)
+	Down() (n uint32, timeout time.Duration)
 	Close() error
 }
 
@@ -38,22 +39,23 @@ var (
 	defaultCurve = Curve{
 		{1, 1 * time.Microsecond},
 		{32, 1 * time.Microsecond},
-		{64, 10 * time.Microsecond},
-		{96, 10 * time.Microsecond},
-		{128, 20 * time.Microsecond},
-		{256, 20 * time.Microsecond},
-		{384, 20 * time.Microsecond},
+		{64, 1 * time.Microsecond},
+		{96, 1 * time.Microsecond},
+		{128, 5 * time.Microsecond},
+		{256, 10 * time.Microsecond},
+		{384, 15 * time.Microsecond},
 		{512, 20 * time.Microsecond},
-		{768, 20 * time.Microsecond},
-		{1024, 50 * time.Microsecond},
-		{1536, 50 * time.Microsecond},
-		{2048, 100 * time.Microsecond},
-		{3072, 100 * time.Microsecond},
-		{4096, 200 * time.Microsecond},
-		{5120, 200 * time.Microsecond},
-		{6144, 200 * time.Microsecond},
-		{7168, 200 * time.Microsecond},
-		{8192, 300 * time.Microsecond},
+		{768, 25 * time.Microsecond},
+		{1024, 30 * time.Microsecond},
+		{1536, 30 * time.Microsecond},
+		{2048, 40 * time.Microsecond},
+		{3072, 40 * time.Microsecond},
+		{4096, 40 * time.Microsecond},
+		{5120, 50 * time.Microsecond},
+		{6144, 50 * time.Microsecond},
+		{7168, 60 * time.Microsecond},
+		{8192, 60 * time.Microsecond},
+		{10240, 100 * time.Microsecond},
 	}
 )
 
@@ -74,7 +76,21 @@ type CurveTransmission struct {
 	size  int
 }
 
-func (tran *CurveTransmission) Prev() (n uint32, timeout time.Duration) {
+func (tran *CurveTransmission) MatchN(n uint32) (uint32, time.Duration) {
+	for i := 1; i < tran.size; i++ {
+		p := tran.curve[i]
+		if p.N > n {
+			tran.idx = i - 1
+			p = tran.curve[tran.idx]
+			return p.N, p.Timeout
+		}
+	}
+	tran.idx = tran.size - 1
+	p := tran.curve[tran.idx]
+	return p.N, p.Timeout
+}
+
+func (tran *CurveTransmission) Down() (n uint32, timeout time.Duration) {
 	if tran == nil || tran.size == 0 {
 		return
 	}
@@ -88,7 +104,7 @@ func (tran *CurveTransmission) Prev() (n uint32, timeout time.Duration) {
 	return
 }
 
-func (tran *CurveTransmission) Next() (n uint32, timeout time.Duration) {
+func (tran *CurveTransmission) Up() (n uint32, timeout time.Duration) {
 	if tran == nil || tran.size == 0 {
 		return
 	}
