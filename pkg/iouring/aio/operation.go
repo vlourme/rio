@@ -32,7 +32,7 @@ const (
 func NewOperation() *Operation {
 	return &Operation{
 		kind:   iouring.OpLast,
-		result: NewQueue[Result](),
+		result: atomic.Pointer[Result]{},
 	}
 }
 
@@ -46,7 +46,7 @@ type Operation struct {
 	pipe     pipeRequest
 	ptr      unsafe.Pointer
 	deadline time.Time
-	result   *Queue[Result]
+	result   atomic.Pointer[Result]
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -190,11 +190,7 @@ func (op *Operation) reset() {
 	// ptr
 	op.ptr = nil
 	// result
-	for {
-		if r := op.result.Dequeue(); r == nil {
-			break
-		}
-	}
+	op.result.Store(nil)
 	return
 }
 
@@ -242,12 +238,12 @@ func (op *Operation) Flags() int {
 }
 
 func (op *Operation) setResult(n int, err error) {
-	op.result.Enqueue(&Result{
+	op.result.Store(&Result{
 		N:   n,
 		Err: err,
 	})
 }
 
 func (op *Operation) getResult() *Result {
-	return op.result.Dequeue()
+	return op.result.Load()
 }

@@ -100,7 +100,7 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 				return &Operation{
 					kind:     iouring.OpLast,
 					borrowed: true,
-					result:   NewQueue[Result](),
+					result:   atomic.Pointer[Result]{},
 				}
 			},
 		},
