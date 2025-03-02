@@ -182,7 +182,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 		operations := make([]*Operation, prepareBatch)
 
 		waitTransmission := vortex.waitTransmission
-		waitCQENr, waitCQETimeout := waitTransmission.Next()
+		waitCQENr, waitCQETimeout := waitTransmission.MatchN(1)
 		if waitCQENr < 1 {
 			waitCQENr = defaultWaitCQENr
 		}
@@ -232,7 +232,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 		if _, waitErr := ring.SubmitAndWaitTimeout(waitCQENr, &waitCQETimeoutSYS, nil); waitErr != nil {
 			if errors.Is(waitErr, syscall.EAGAIN) || errors.Is(waitErr, syscall.EINTR) || errors.Is(waitErr, syscall.ETIME) {
 				// decr waitCQENr and waitTimeout
-				waitCQENr, waitCQETimeout = waitTransmission.Prev()
+				waitCQENr, waitCQETimeout = waitTransmission.Down()
 				if waitCQENr < 1 {
 					waitCQENr = defaultWaitCQENr
 				}
@@ -241,6 +241,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 				}
 				waitCQETimeoutSYS = syscall.NsecToTimespec(waitCQETimeout.Nanoseconds())
 			}
+			goto AGAIN
 		}
 		// peek cqe
 		if completed := ring.PeekBatchCQE(cq); completed > 0 {
@@ -278,7 +279,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 			// CQAdvance
 			ring.CQAdvance(completed)
 			// incr waitCQENr and waitTimeout
-			waitCQENr, waitCQETimeout = waitTransmission.Next()
+			waitCQENr, waitCQETimeout = waitTransmission.MatchN(completed)
 			if waitCQENr < 1 {
 				waitCQENr = defaultWaitCQENr
 			}
