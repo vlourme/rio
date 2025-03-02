@@ -9,7 +9,7 @@ Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 ## 性能
 测试环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（13600K）。
 
-基于默认参数的测试，RIO 相比 STD（标准库）约快30%，详见 [Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
+基于默认参数的测试，RIO 相比 STD（标准库）约快10%，详见 [Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
 
 注意：CurveWaitTransmission 在不同环境下的性能体现是不同的，需按需调整来发挥出高效的性能。 
 
