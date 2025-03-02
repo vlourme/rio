@@ -71,9 +71,9 @@ unixConn, ok := conn.(*rio.UnixConn)
 而`Dial`的生命周期是短的，往往是频繁`Dial`，所以需要`PIN`来常驻`IOURING`，而不是频繁开闭。
 ```go
 // 程序启动位置
-pinErr := rio.PinVortexes()
+rio.Pin()
 // 程序退出位置
-unpinErr := rio.UnpinVortexes()
+rio.Unpin()
 ```
 
 HTTP场景：
