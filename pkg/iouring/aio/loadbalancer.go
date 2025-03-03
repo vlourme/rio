@@ -20,6 +20,10 @@ func (lb *RoundRobinLoadBalancer) Next(vs []*Vortex) (n int) {
 		n = -1
 		return
 	}
+	if vsLen == 1 {
+		n = 0
+		return
+	}
 	pos := lb.pos.Add(1)
 	n = int(pos % vsLen)
 	return
@@ -33,6 +37,10 @@ func (lb *RandomLoadBalancer) Next(vs []*Vortex) (n int) {
 		n = -1
 		return
 	}
+	if vsLen == 1 {
+		n = 0
+		return
+	}
 	return rand.Intn(vsLen)
 }
 
@@ -42,6 +50,10 @@ func (lb *LeastLoadBalancer) Next(vs []*Vortex) (n int) {
 	vsLen := len(vs)
 	if vsLen == 0 {
 		n = -1
+		return
+	}
+	if vsLen == 1 {
+		n = 0
 		return
 	}
 	spaceLefts := make([]uint32, vsLen)

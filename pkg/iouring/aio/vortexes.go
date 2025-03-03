@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
+	"math"
 	"runtime"
 )
 
@@ -87,7 +88,16 @@ func WithWaitTransmissionBuilder(builder TransmissionBuilder) Option {
 }
 
 func New(options ...Option) (v *Vortexes, err error) {
-	opt := Options{}
+	opt := Options{
+		Entries:                 iouring.DefaultEntries,
+		Sides:                   math.MaxInt32,
+		Flags:                   0,
+		Features:                0,
+		UseCPUAffinity:          false,
+		SidesLoadBalancer:       nil,
+		PrepareBatchSize:        0,
+		WaitTransmissionBuilder: nil,
+	}
 	for _, option := range options {
 		if err = option(&opt); err != nil {
 			return
@@ -98,11 +108,12 @@ func New(options ...Option) (v *Vortexes, err error) {
 		entries = iouring.DefaultEntries
 	}
 	sidesNum := opt.Sides
-	if sidesNum < 1 {
+	if sidesNum == math.MaxInt32 {
 		cpus := uint32(runtime.NumCPU())
-		sidesNum = cpus / 2
-		if sidesNum < 1 {
-			sidesNum = 1
+		if cpus == 1 {
+			sidesNum = 0
+		} else {
+			sidesNum = cpus/2 - 1
 		}
 	}
 	lb := opt.SidesLoadBalancer
@@ -117,6 +128,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 
 	prepareBatchSize := opt.PrepareBatchSize
+	useCPUAffinity := opt.UseCPUAffinity
 
 	waitTransmissionBuilder := opt.WaitTransmissionBuilder
 	if waitTransmissionBuilder == nil {
@@ -134,6 +146,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 		Flags:            flags,
 		Features:         features,
 		PrepareBatchSize: prepareBatchSize,
+		UseCPUAffinity:   useCPUAffinity,
 		WaitTransmission: centerWaitTransmission,
 	}
 	center, centerErr := NewVortex(centerOptions)
@@ -143,27 +156,37 @@ func New(options ...Option) (v *Vortexes, err error) {
 	}
 
 	// sides
-	sides := make([]*Vortex, sidesNum)
-	for i := 0; i < len(sides); i++ {
-		sideWaitTransmission, sideWaitTransmissionErr := waitTransmissionBuilder.Build()
-		if sideWaitTransmissionErr != nil {
-			err = sideWaitTransmissionErr
-			return
+	var sides []*Vortex = nil
+	if sidesNum > 0 {
+		sides = make([]*Vortex, sidesNum)
+		for i := 0; i < len(sides); i++ {
+			sideWaitTransmission, sideWaitTransmissionErr := waitTransmissionBuilder.Build()
+			if sideWaitTransmissionErr != nil {
+				err = sideWaitTransmissionErr
+				return
+			}
+			sideOptions := VortexOptions{
+				Entries:          entries,
+				Flags:            flags,
+				Features:         features,
+				PrepareBatchSize: prepareBatchSize,
+				UseCPUAffinity:   useCPUAffinity,
+				WaitTransmission: sideWaitTransmission,
+			}
+			side, sideErr := NewVortex(sideOptions)
+			if sideErr != nil {
+				for _, prev := range sides {
+					if prev != nil {
+						_ = prev.Close()
+					}
+				}
+				_ = center.Close()
+				err = sideErr
+				return
+			}
+			side.SetId(i + 1)
+			sides[i] = side
 		}
-		sideOptions := VortexOptions{
-			Entries:          entries,
-			Flags:            flags,
-			Features:         features,
-			WaitTransmission: sideWaitTransmission,
-		}
-		side, sideErr := NewVortex(sideOptions)
-		if sideErr != nil {
-			_ = center.Close()
-			err = sideErr
-			return
-		}
-		side.SetId(i + 1)
-		sides[i] = side
 	}
 
 	v = &Vortexes{
@@ -192,6 +215,9 @@ func (vs *Vortexes) Center() *Vortex {
 }
 
 func (vs *Vortexes) Side() *Vortex {
+	if vs.sides == nil {
+		return vs.center
+	}
 	n := vs.sidesLoadBalancer.Next(vs.sides)
 	if n < 0 {
 		return vs.center
