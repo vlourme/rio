@@ -37,15 +37,15 @@ func NewOperation() *Operation {
 }
 
 type Operation struct {
+	status   atomic.Int64
 	kind     uint8
 	borrowed bool
-	status   atomic.Int64
+	deadline time.Time
+	result   atomic.Pointer[Result]
 	fd       int
 	msg      syscall.Msghdr
 	pipe     pipeRequest
 	ptr      unsafe.Pointer
-	deadline time.Time
-	result   atomic.Pointer[Result]
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
