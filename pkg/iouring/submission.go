@@ -223,14 +223,14 @@ func (entry *SubmissionQueueEntry) PrepareSend(fd int, addr uintptr, length uint
 	entry.OpcodeFlags = uint32(flags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareSendZC(sockFd int, buf []byte, flags int, zcFlags uint32) {
-	entry.prepareRW(OpSendZC, sockFd, uintptr(unsafe.Pointer(&buf[0])), uint32(len(buf)), 0)
+func (entry *SubmissionQueueEntry) PrepareSendZC(sockFd int, addr uintptr, length uint32, flags int, zcFlags uint32) {
+	entry.prepareRW(OpSendZC, sockFd, addr, length, 0)
 	entry.OpcodeFlags = uint32(flags)
 	entry.IoPrio = uint16(zcFlags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareSendZCFixed(sockFd int, buf []byte, flags int, zcFlags, bufIndex uint32) {
-	entry.PrepareSendZC(sockFd, buf, flags, zcFlags)
+func (entry *SubmissionQueueEntry) PrepareSendZCFixed(sockFd int, addr uintptr, length uint32, flags int, zcFlags, bufIndex uint32) {
+	entry.PrepareSendZC(sockFd, addr, length, flags, zcFlags)
 	entry.IoPrio |= RecvsendFixedBuf
 	entry.BufIG = uint16(bufIndex)
 }

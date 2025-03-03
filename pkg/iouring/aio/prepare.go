@@ -126,7 +126,9 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendZC:
-		sqe.PrepareSendZC(op.fd, op.b, 0, 0)
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
+		sqe.PrepareSendZC(op.fd, b, bLen, 0, 0)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecvmsg:

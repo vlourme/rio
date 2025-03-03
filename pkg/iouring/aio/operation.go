@@ -41,7 +41,6 @@ type Operation struct {
 	borrowed bool
 	status   atomic.Int64
 	fd       int
-	b        []byte
 	msg      syscall.Msghdr
 	pipe     pipeRequest
 	ptr      unsafe.Pointer
@@ -114,7 +113,8 @@ func (op *Operation) PrepareSend(fd int, b []byte) {
 func (op *Operation) PrepareSendZC(fd int, b []byte) {
 	op.kind = iouring.OpSendZC
 	op.fd = fd
-	op.b = b
+	op.msg.Name = &b[0]
+	op.msg.Namelen = uint32(len(b))
 	return
 }
 
@@ -169,8 +169,6 @@ func (op *Operation) reset() {
 	op.status.Store(ReadyOperationStatus)
 	// fd
 	op.fd = 0
-	// b
-	op.b = nil
 	// msg
 	op.msg.Name = nil
 	op.msg.Namelen = 0
