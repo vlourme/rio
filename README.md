@@ -137,20 +137,24 @@ func setup() {
 	// 设置 IOURING 的 Features
 	rio.UseFeatures()
 	// 设置IOURING个数
+	// 这与性能息息相关
 	// 不是越多越好，与 CPU 数量相关，默认是 CPU 数量的1/8。
 	rio.UseVortexNum(1)
 	// 设置IOURING加载平衡器
+	// 当 VortexNum 大于1时起效，默认是 RoundRobin
 	rio.UseLoadBalancer()
 	// 设置任务准备批大小
-	// 默认是任务数
+	// 默认是 SQE 数
 	rio.UsePrepareBatchSize()
 	// 设置完成事件等待变速器构建器
-	// 这与性能息息相关，调整变速器实现不同的性能。
-	// 默认是曲线变速器，
+	// 这与性能息息相关
+	// 调整变速器实现不同的性能。
 	rio.UseWaitTransmissionBuilder() 
 	// 设置从可读方读数据策略
 	rio.UseReadFromFilePolicy()
-	// 使用爆操性能模式
+	// 使用狂暴性能模式
+	// 它会占用很多资源，不建议使用。
+	// 默认已经根据内核版本启用了相应优势特性与标识。
 	rio.UsePreformMode()
 }
 
