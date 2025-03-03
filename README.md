@@ -85,7 +85,7 @@ unixConn, ok := conn.(*rio.UnixConn)
 
 因为`Listen`的生命周期往往和程序是一致的，所以`IOURING`为常驻状况。
 
-而`Dial`的生命周期是短的，往往是频繁`Dial`，所以需要`PIN`来常驻`IOURING`，而不是频繁开闭。
+而`Dial`的生命周期是短的，往往是频繁`Dial`，所以需要`PIN`来常驻`IOURING`，而不是频繁启停。
 ```go
 // 程序启动位置
 rio.Pin()
@@ -105,7 +105,7 @@ http.Serve(ln, handler)
 fasthttp.Serve(ln, handler)
 ```
 
-REUSE PORT：
+REUSE PORT（监听TCP时自动启用）：
 
 ```go
 
@@ -118,7 +118,6 @@ ln, lnErr := lc.Listen(...)
 
 ## 进阶调参
 
-`setting_linux.go`
 ```go
 //go:build linux
 package main
@@ -133,11 +132,15 @@ func setup() {
 	rio.UseProcessPriority()
 	// 设置 IOURING 的大小
 	rio.UseEntries()
-	// 设置边缘大小
-	// 不是越多越好，与 CPU 数量相关，默认是 CPU 数量的一半。
-	rio.UseSides()
-	// 设置边缘加载平衡器
-	rio.UseSidesLoadBalancer()
+	// 设置 IOURING 的 Flags
+	rio.UseFlags()
+	// 设置 IOURING 的 Features
+	rio.UseFeatures()
+	// 设置IOURING个数
+	// 不是越多越好，与 CPU 数量相关，默认是 CPU 数量的1/4。
+	rio.UseVortexNum(1)
+	// 设置IOURING加载平衡器
+	rio.UseLoadBalancer()
 	// 设置任务准备批大小
 	// 默认是任务数
 	rio.UsePrepareBatchSize()
@@ -149,35 +152,7 @@ func setup() {
 	rio.UseReadFromFilePolicy()
 	// 使用爆操性能模式
 	rio.UsePreformMode()
-	// 设置 IOURING 的 Flags
-	rio.UseFlags()
-	// 设置 IOURING 的 Features
-	rio.UseFeatures()
-	
 }
 
 ```
 
-`settings_posix.go`
-```go
-//go:build !linux
-package main
-
-
-func setup() {}
-
-```
-
-`main.go`
-
-```go
-package main
-
-import "github.com/brickingsoft/rio"
-
-func main() {
-	setup()
-
-	ln, lnErr := rio.Listen("tcp", ":9000")
-}
-```
