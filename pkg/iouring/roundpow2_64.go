@@ -2,7 +2,7 @@
 
 package iouring
 
-func roundupPow2(n uint32) uint32 {
+func RoundupPow2(n uint32) uint32 {
 	if n < 1 {
 		return 0
 	}

@@ -39,7 +39,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 		return syscall.EINVAL
 	}
 
-	entries = roundupPow2(entries)
+	entries = RoundupPow2(entries)
 
 	if params.flags&SetupNoMmap != 0 {
 		_, err = allocHuge(entries, params, ring.sqRing, ring.cqRing, buf, bufSize)
@@ -314,7 +314,7 @@ func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
 		entries = kernMaxEntries
 	}
 
-	entries = roundupPow2(entries)
+	entries = RoundupPow2(entries)
 	if p.flags&SetupCQSize != 0 {
 		if p.cqEntries == 0 {
 			return 0, 0, syscall.EINVAL
@@ -326,7 +326,7 @@ func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
 			}
 			cqEntries = kernMaxCQEntries
 		}
-		cqEntries = roundupPow2(cqEntries)
+		cqEntries = RoundupPow2(cqEntries)
 		if cqEntries < entries {
 			return 0, 0, syscall.EINVAL
 		}
