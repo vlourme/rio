@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
+	"github.com/brickingsoft/rio/pkg/process"
 	"os"
 	"runtime"
 	"sync"
@@ -46,6 +47,7 @@ type VortexOptions struct {
 	Flags            uint32
 	Features         uint32
 	PrepareBatchSize uint32
+	UseCPUAffinity   bool
 	WaitTransmission Transmission
 }
 
@@ -93,7 +95,7 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 		ring:             ring,
 		ops:              NewQueue[Operation](),
 		prepareBatch:     options.PrepareBatchSize,
-		lockOSThread:     options.Flags&iouring.SetupSingleIssuer != 0 || runtime.NumCPU() > 1,
+		useCPUAffinity:   options.UseCPUAffinity,
 		waitTransmission: options.WaitTransmission,
 		operations: sync.Pool{
 			New: func() interface{} {
@@ -114,13 +116,21 @@ func NewVortex(options VortexOptions) (v *Vortex, err error) {
 type Vortex struct {
 	ring             *iouring.Ring
 	ops              *Queue[Operation]
-	lockOSThread     bool
+	id               int
+	useCPUAffinity   bool
 	prepareBatch     uint32
 	waitTransmission Transmission
 	operations       sync.Pool
 	running          atomic.Bool
 	stopped          atomic.Bool
 	wg               sync.WaitGroup
+}
+
+func (vortex *Vortex) SetId(id int) {
+	if id < 1 {
+		id = 0
+	}
+	vortex.id = id
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -168,9 +178,13 @@ func (vortex *Vortex) Start(ctx context.Context) {
 	vortex.running.Store(true)
 	vortex.wg.Add(1)
 	go func(ctx context.Context, vortex *Vortex) {
-		// lock os thread
-		if vortex.lockOSThread {
-			runtime.LockOSThread()
+		// cpu affinity
+		threadLocked := false
+		if vortex.useCPUAffinity {
+			if err := process.SetCPUAffinity(vortex.id); err == nil {
+				threadLocked = true
+				runtime.LockOSThread()
+			}
 		}
 
 		ring := vortex.ring
@@ -302,7 +316,7 @@ func (vortex *Vortex) Start(ctx context.Context) {
 		}
 
 		// unlock os thread
-		if vortex.lockOSThread {
+		if threadLocked {
 			runtime.UnlockOSThread()
 		}
 		// done
