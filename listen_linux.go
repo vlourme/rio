@@ -23,9 +23,9 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		ReusePort:       false,
 	}
 	if strings.HasPrefix(network, "tcp") {
+		config.SetFastOpen(true)
 		config.SetQuickAck(true)
 		config.SetReusePort(true)
-		config.SetFastOpen(true)
 	}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)

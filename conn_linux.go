@@ -106,11 +106,6 @@ func (c *conn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	defer func(c *conn) {
-		if c.pinned {
-			Unpin()
-		}
-	}(c)
 
 	ctx := c.ctx
 	fd := c.fd.Socket()
@@ -118,7 +113,15 @@ func (c *conn) Close() error {
 
 	future := vortex.PrepareClose(fd)
 	if _, err := future.Await(ctx); err != nil {
+		if c.pinned {
+			_ = Unpin()
+		}
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+	}
+	if c.pinned {
+		if unpinErr := Unpin(); unpinErr != nil {
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: unpinErr}
+		}
 	}
 	return nil
 }

@@ -42,10 +42,11 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		addr = &net.TCPAddr{}
 	}
 	// vortex
-	vortex, vortexErr := getCenterVortex()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	pinErr := Pin()
+	if pinErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: pinErr}
 	}
+	vortex := getVortex()
 	// fd
 	var control ctrlCtxFn = nil
 	if lc.Control != nil {
@@ -135,15 +136,15 @@ RETRY:
 	}
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
-	// side
-	side := getSideVortex()
+	// conn vortex
+	connVortex := getVortex()
 	// tcp conn
 	tc = &TCPConn{
 		conn{
 			ctx:           ctx,
 			fd:            cfd,
 			useZC:         ln.useSendZC,
-			vortex:        side,
+			vortex:        connVortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        false,
@@ -169,7 +170,6 @@ func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-	defer Unpin()
 
 	ctx := ln.ctx
 	fd := ln.fd.Socket()
@@ -177,7 +177,11 @@ func (ln *TCPListener) Close() error {
 
 	future := vortex.PrepareClose(fd)
 	if _, err := future.Await(ctx); err != nil {
+		_ = Unpin()
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+	}
+	if unpinErr := Unpin(); unpinErr != nil {
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
 	}
 	return nil
 }

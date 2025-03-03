@@ -136,10 +136,11 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: errors.New("missing address")}
 	}
 	// vortex
-	vortex, vortexErr := getCenterVortex()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	pinErr := Pin()
+	if pinErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: pinErr}
 	}
+	vortex := getVortex()
 
 	// fd
 	now := time.Now()
@@ -199,8 +200,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		fd.SetRemoteAddr(raddr)
 	}
 
-	side := getSideVortex()
-
 	// conn
 	useSendZC := d.UseSendZC
 	if useSendZC {
@@ -211,7 +210,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		conn{
 			ctx:           ctx,
 			fd:            fd,
-			vortex:        side,
+			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useZC:         useSendZC,
@@ -246,10 +245,11 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: net.UnknownNetworkError(network)}
 	}
 	// vortex
-	vortex, vortexErr := getCenterVortex()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	pinErr := Pin()
+	if pinErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: pinErr}
 	}
+	vortex := getVortex()
 	// fd
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
@@ -301,9 +301,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		fd.SetRemoteAddr(raddr)
 	}
 
-	// side vortex
-	side := getSideVortex()
-
 	// conn
 	useSendZC := d.UseSendZC
 	useSendMsgZC := false
@@ -316,7 +313,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		conn{
 			ctx:           ctx,
 			fd:            fd,
-			vortex:        side,
+			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useZC:         useSendZC,
@@ -355,10 +352,11 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		return nil, errors.New("missing address")
 	}
 	// vortex
-	vortex, vortexErr := getCenterVortex()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	pinErr := Pin()
+	if pinErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: pinErr}
 	}
+	vortex := getVortex()
 	// fd
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
@@ -410,9 +408,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		fd.SetRemoteAddr(raddr)
 	}
 
-	// side vortex
-	side := getSideVortex()
-
 	// conn
 	useSendZC := d.UseSendZC
 	useSendMsgZC := false
@@ -425,7 +420,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		conn{
 			ctx:           ctx,
 			fd:            fd,
-			vortex:        side,
+			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useZC:         useSendZC,

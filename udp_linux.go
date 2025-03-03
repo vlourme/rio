@@ -38,12 +38,7 @@ func (lc *ListenConfig) ListenMulticastUDP(ctx context.Context, network string, 
 }
 
 func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.Interface, addr *net.UDPAddr) (*UDPConn, error) {
-	// vortex
-	vortex, vortexErr := getCenterVortex()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
-	}
-	// fd
+	// network
 	switch network {
 	case "udp", "udp4", "udp6":
 	default:
@@ -52,6 +47,13 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	if addr == nil {
 		addr = &net.UDPAddr{}
 	}
+	// vortex
+	pinErr := Pin()
+	if pinErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: pinErr}
+	}
+	vortex := getVortex()
+	// fd
 	fd, fdErr := newUDPListenerFd(network, ifi, addr)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
