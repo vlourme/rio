@@ -13,6 +13,7 @@ type Options struct {
 	Sides                   uint32
 	Flags                   uint32
 	Features                uint32
+	UseCPUAffinity          bool
 	SidesLoadBalancer       LoadBalancer
 	PrepareBatchSize        uint32
 	WaitTransmissionBuilder TransmissionBuilder
@@ -36,6 +37,13 @@ func WithEntries(entries int) Option {
 func WithPrepareBatchSize(size uint32) Option {
 	return func(opts *Options) error {
 		opts.PrepareBatchSize = size
+		return nil
+	}
+}
+
+func WithCPUAffinity(use bool) Option {
+	return func(opts *Options) error {
+		opts.UseCPUAffinity = use
 		return nil
 	}
 }
@@ -154,6 +162,7 @@ func New(options ...Option) (v *Vortexes, err error) {
 			err = sideErr
 			return
 		}
+		side.SetId(i + 1)
 		sides[i] = side
 	}
 
