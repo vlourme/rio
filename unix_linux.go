@@ -118,6 +118,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useZC:         useSendZC,
+			pinned:        true,
 		},
 		useSendMsgZC,
 	}
@@ -254,7 +255,7 @@ RETRY:
 			vortex:        side,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			accepted:      true,
+			pinned:        false,
 		},
 		false,
 	}

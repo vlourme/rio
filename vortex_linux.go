@@ -76,6 +76,13 @@ func UseWaitTransmissionBuilder(builder aio.TransmissionBuilder) {
 	)
 }
 
+func UseCPUAffinity(use bool) {
+	defaultVortexesOptions = append(
+		defaultVortexesOptions,
+		aio.WithCPUAffinity(use),
+	)
+}
+
 // Pin
 // 钉住 aio.Vortexes 。
 // 一般用于程序启动时。
@@ -148,7 +155,6 @@ type referencedVortexes struct {
 }
 
 func (v *referencedVortexes) center() *aio.Vortex {
-	v.pin()
 	return v.vortexes.Center()
 }
 

@@ -25,7 +25,7 @@ type conn struct {
 	readBuffer    atomic.Int64
 	writeBuffer   atomic.Int64
 	useZC         bool
-	accepted      bool
+	pinned        bool
 }
 
 func (c *conn) Context() context.Context {
@@ -107,7 +107,7 @@ func (c *conn) Close() error {
 		return syscall.EINVAL
 	}
 	defer func(c *conn) {
-		if !c.accepted {
+		if c.pinned {
 			Unpin()
 		}
 	}(c)

@@ -146,7 +146,7 @@ RETRY:
 			vortex:        side,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			accepted:      true,
+			pinned:        false,
 		},
 	}
 	// no delay
