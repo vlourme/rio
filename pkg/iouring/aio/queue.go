@@ -70,7 +70,7 @@ RETRY:
 	goto RETRY
 }
 
-func (q *Queue[E]) PeekBatch(entries []*E) (n int64) {
+func (q *Queue[E]) PeekBatch(entries []*E) (n uint32) {
 	size := int64(len(entries))
 	if size == 0 {
 		return
@@ -97,8 +97,8 @@ func (q *Queue[E]) PeekBatch(entries []*E) (n int64) {
 	return
 }
 
-func (q *Queue[E]) Advance(n int64) {
-	for i := int64(0); i < n; i++ {
+func (q *Queue[E]) Advance(n uint32) {
+	for i := uint32(0); i < n; i++ {
 		if entry := q.Dequeue(); entry == nil {
 			break
 		}
