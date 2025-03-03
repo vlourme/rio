@@ -4,6 +4,7 @@ package rio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/process"
 	"sync/atomic"
@@ -55,17 +56,17 @@ func UsePrepareBatchSize(size uint32) {
 	)
 }
 
-func UseSides(sides int) {
+func UseVortexNum(n int) {
 	defaultVortexesOptions = append(
 		defaultVortexesOptions,
-		aio.WithSides(sides),
+		aio.WithN(n),
 	)
 }
 
-func UseSidesLoadBalancer(lb aio.LoadBalancer) {
+func UseLoadBalancer(lb aio.LoadBalancer) {
 	defaultVortexesOptions = append(
 		defaultVortexesOptions,
-		aio.WithSidesLoadBalancer(lb),
+		aio.WithLoadBalancer(lb),
 	)
 }
 
@@ -88,24 +89,22 @@ func UseCPUAffinity(use bool) {
 // 一般用于程序启动时。
 // 这用手动管理 aio.Vortexes 的生命周期，一般用于只有 Dial 的使用。
 // 注意：必须 Unpin 来关闭 aio.Vortexes 。
-func Pin() {
+func Pin() (err error) {
 	if rv == nil {
-		if err := createReferencedVortexes(); err != nil {
-			panic(err)
-			return
-		}
+		createReferencedVortexes()
 	}
-	rv.pin()
+	err = rv.pin()
 	return
 }
 
 // Unpin
 // 不钉住 aio.Vortexes 。
-func Unpin() {
+func Unpin() (err error) {
 	if rv != nil {
-		rv.unpin()
+		err = rv.unpin()
+		return
 	}
-	return
+	return errors.New("unpin failed cause not pinned")
 }
 
 var (
@@ -113,14 +112,10 @@ var (
 	rv  *referencedVortexes = nil
 )
 
-func createReferencedVortexes() (err error) {
+func createReferencedVortexes() {
 	for {
 		if rvp.CompareAndSwap(false, true) {
-			vortexes, vortexesErr := aio.New(defaultVortexesOptions...)
-			if vortexesErr != nil {
-				err = vortexesErr
-				return
-			}
+			vortexes := aio.New(defaultVortexesOptions...)
 			rv = &referencedVortexes{
 				ref:      atomic.Int64{},
 				vortexes: vortexes,
@@ -130,23 +125,13 @@ func createReferencedVortexes() (err error) {
 		if rv != nil {
 			break
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 	}
 	return
 }
 
-func getCenterVortex() (*aio.Vortex, error) {
-	if rv == nil {
-		if err := createReferencedVortexes(); err != nil {
-			return nil, err
-		}
-	}
-	rv.pin()
-	return rv.center(), nil
-}
-
-func getSideVortex() *aio.Vortex {
-	return rv.side()
+func getVortex() *aio.Vortex {
+	return rv.vortex()
 }
 
 type referencedVortexes struct {
@@ -154,23 +139,21 @@ type referencedVortexes struct {
 	vortexes *aio.Vortexes
 }
 
-func (v *referencedVortexes) center() *aio.Vortex {
-	return v.vortexes.Center()
+func (v *referencedVortexes) vortex() *aio.Vortex {
+	return v.vortexes.Vortex()
 }
 
-func (v *referencedVortexes) side() *aio.Vortex {
-	return v.vortexes.Side()
-}
-
-func (v *referencedVortexes) pin() {
+func (v *referencedVortexes) pin() (err error) {
 	if n := v.ref.Add(1); n == 1 {
 		ctx := context.Background()
-		v.vortexes.Start(ctx)
+		err = v.vortexes.Start(ctx)
 	}
+	return
 }
 
-func (v *referencedVortexes) unpin() {
+func (v *referencedVortexes) unpin() (err error) {
 	if n := v.ref.Add(-1); n < 1 {
-		_ = v.vortexes.Close()
+		err = v.vortexes.Close()
 	}
+	return
 }
