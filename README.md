@@ -17,6 +17,18 @@ RIO 相比 STD（标准库）约快13%，详见 [Benchmark](https://github.com/b
 
 <img src="benchmark/echo.png" width="336" height="144" border="0" alt="echo benchmark"><img src="benchmark/http.png" width="336" height="144" border="0" alt="http benchmark">
 
+
+```text
+------ Benchmark ------
+Port: 9000
+Workers: 10
+Count: 1000
+NBytes: 1024
+ECHO-RIO benching complete(1.564700361s): 6391 conn/sec, 6.2M inbounds/sec, 6.2M outbounds/sec, 0 failures
+ECHO-STD benching complete(1.821161901s): 5491 conn/sec, 5.4M inbounds/sec, 5.4M outbounds/sec, 0 failures
+HTTP-RIO benching complete(1.722059583s): 5807 conn/sec, 5.8M inbounds/sec, 5.8M outbounds/sec, 0 failures
+HTTP-STD benching complete(1.948937829s): 5131 conn/sec, 5M inbounds/sec, 5M outbounds/sec, 0 failures
+```
 ## 使用
 
 ```shell
