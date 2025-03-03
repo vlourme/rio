@@ -98,14 +98,16 @@ func (op *Operation) PrepareClose(fd int) {
 func (op *Operation) PrepareReceive(fd int, b []byte) {
 	op.kind = iouring.OpRecv
 	op.fd = fd
-	op.b = b
+	op.msg.Name = &b[0]
+	op.msg.Namelen = uint32(len(b))
 	return
 }
 
 func (op *Operation) PrepareSend(fd int, b []byte) {
 	op.kind = iouring.OpSend
 	op.fd = fd
-	op.b = b
+	op.msg.Name = &b[0]
+	op.msg.Namelen = uint32(len(b))
 	return
 }
 
@@ -133,7 +135,6 @@ func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.
 func (op *Operation) PrepareSendMsgZC(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
 	op.kind = iouring.OpSendMsgZC
 	op.fd = fd
-	op.b = b
 	op.setMsg(b, oob, addr, addrLen, flags)
 	return
 }

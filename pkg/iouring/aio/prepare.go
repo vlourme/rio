@@ -80,7 +80,7 @@ func (vortex *Vortex) PrepareTee(fdIn int, fdOut int, nbytes uint32, flags uint3
 }
 
 func (vortex *Vortex) prepareOperation(op *Operation) Future {
-	vortex.ops.Enqueue(op)
+	vortex.queue.Enqueue(op)
 	return Future{
 		vortex: vortex,
 		op:     op,
@@ -114,14 +114,14 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecv:
-		b := uintptr(unsafe.Pointer(&op.b[0]))
-		bLen := uint32(len(op.b))
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
 		sqe.PrepareRecv(op.fd, b, bLen, 0)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSend:
-		b := uintptr(unsafe.Pointer(&op.b[0]))
-		bLen := uint32(len(op.b))
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
 		sqe.PrepareSend(op.fd, b, bLen, 0)
 		sqe.SetData(unsafe.Pointer(op))
 		break
