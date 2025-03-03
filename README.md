@@ -137,7 +137,7 @@ func setup() {
 	// 设置 IOURING 的 Features
 	rio.UseFeatures()
 	// 设置IOURING个数
-	// 不是越多越好，与 CPU 数量相关，默认是 CPU 数量的1/4。
+	// 不是越多越好，与 CPU 数量相关，默认是 CPU 数量的1/8。
 	rio.UseVortexNum(1)
 	// 设置IOURING加载平衡器
 	rio.UseLoadBalancer()
