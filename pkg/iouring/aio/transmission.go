@@ -37,6 +37,7 @@ type Curve []struct {
 
 var (
 	defaultCurve = Curve{
+		{1, 500 * time.Nanosecond},
 		{8, 1 * time.Microsecond},
 		{32, 2 * time.Microsecond},
 		{64, 4 * time.Microsecond},
@@ -70,7 +71,7 @@ type CurveTransmission struct {
 func (tran *CurveTransmission) Match(n uint32) syscall.Timespec {
 	for i := 0; i < tran.size; i++ {
 		p := tran.curve[i]
-		if p.N > n {
+		if p.N >= n {
 			p = tran.curve[i]
 			return syscall.NsecToTimespec(p.Timeout.Nanoseconds())
 		}
