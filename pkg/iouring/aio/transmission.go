@@ -38,24 +38,30 @@ type Curve []struct {
 var (
 	defaultCurve = Curve{
 		{1, 1 * time.Microsecond},
-		{32, 1 * time.Microsecond},
-		{64, 1 * time.Microsecond},
-		{96, 1 * time.Microsecond},
-		{128, 5 * time.Microsecond},
-		{256, 10 * time.Microsecond},
-		{384, 15 * time.Microsecond},
-		{512, 20 * time.Microsecond},
-		{768, 25 * time.Microsecond},
-		{1024, 30 * time.Microsecond},
-		{1536, 30 * time.Microsecond},
-		{2048, 40 * time.Microsecond},
-		{3072, 40 * time.Microsecond},
-		{4096, 40 * time.Microsecond},
-		{5120, 50 * time.Microsecond},
-		{6144, 50 * time.Microsecond},
-		{7168, 60 * time.Microsecond},
-		{8192, 60 * time.Microsecond},
-		{10240, 100 * time.Microsecond},
+		{2, 2 * time.Microsecond},
+		{4, 4 * time.Microsecond},
+		{6, 6 * time.Microsecond},
+		{8, 8 * time.Microsecond},
+		{16, 16 * time.Microsecond},
+		{24, 24 * time.Microsecond},
+		{32, 32 * time.Microsecond},
+		{64, 64 * time.Microsecond},
+		{96, 96 * time.Microsecond},
+		{128, 128 * time.Microsecond},
+		{256, 512 * time.Microsecond},
+		{384, 384 * time.Microsecond},
+		{512, 512 * time.Microsecond},
+		{768, 768 * time.Microsecond},
+		{1024, 1024 * time.Microsecond},
+		{1536, 1536 * time.Microsecond},
+		{2048, 2048 * time.Microsecond},
+		{3072, 3072 * time.Microsecond},
+		{4096, 4096 * time.Microsecond},
+		{5120, 5120 * time.Microsecond},
+		{6144, 6144 * time.Microsecond},
+		{7168, 7168 * time.Microsecond},
+		{8192, 8192 * time.Microsecond},
+		{10240, 10240 * time.Microsecond},
 	}
 )
 
@@ -80,7 +86,7 @@ func (tran *CurveTransmission) MatchN(n uint32) (uint32, time.Duration) {
 	for i := 1; i < tran.size; i++ {
 		p := tran.curve[i]
 		if p.N > n {
-			tran.idx = i - 1
+			tran.idx = i
 			p = tran.curve[tran.idx]
 			return p.N, p.Timeout
 		}
