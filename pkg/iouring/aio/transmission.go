@@ -1,9 +1,12 @@
 package aio
 
-import "time"
+import (
+	"syscall"
+	"time"
+)
 
 type TransmissionBuilder interface {
-	Build() (Transmission, error)
+	Build() Transmission
 }
 
 func NewCurveTransmissionBuilder(curve Curve) TransmissionBuilder {
@@ -19,15 +22,12 @@ type CurveTransmissionBuilder struct {
 	curve Curve
 }
 
-func (builder *CurveTransmissionBuilder) Build() (Transmission, error) {
-	return NewCurveTransmission(builder.curve), nil
+func (builder *CurveTransmissionBuilder) Build() Transmission {
+	return NewCurveTransmission(builder.curve)
 }
 
 type Transmission interface {
-	MatchN(n uint32) (uint32, time.Duration)
-	Up() (n uint32, timeout time.Duration)
-	Down() (n uint32, timeout time.Duration)
-	Close() error
+	Match(n uint32) syscall.Timespec
 }
 
 type Curve []struct {
@@ -37,31 +37,18 @@ type Curve []struct {
 
 var (
 	defaultCurve = Curve{
-		{1, 1 * time.Microsecond},
-		{2, 2 * time.Microsecond},
-		{4, 4 * time.Microsecond},
-		{6, 6 * time.Microsecond},
-		{8, 8 * time.Microsecond},
-		{16, 16 * time.Microsecond},
-		{24, 24 * time.Microsecond},
-		{32, 32 * time.Microsecond},
-		{64, 64 * time.Microsecond},
-		{96, 96 * time.Microsecond},
-		{128, 128 * time.Microsecond},
-		{256, 512 * time.Microsecond},
-		{384, 384 * time.Microsecond},
-		{512, 512 * time.Microsecond},
-		{768, 768 * time.Microsecond},
-		{1024, 1024 * time.Microsecond},
-		{1536, 1536 * time.Microsecond},
-		{2048, 2048 * time.Microsecond},
-		{3072, 3072 * time.Microsecond},
-		{4096, 4096 * time.Microsecond},
-		{5120, 5120 * time.Microsecond},
-		{6144, 6144 * time.Microsecond},
-		{7168, 7168 * time.Microsecond},
-		{8192, 8192 * time.Microsecond},
-		{10240, 10240 * time.Microsecond},
+		{8, 1 * time.Microsecond},
+		{32, 2 * time.Microsecond},
+		{64, 4 * time.Microsecond},
+		{96, 8 * time.Microsecond},
+		{128, 12 * time.Microsecond},
+		{256, 16 * time.Microsecond},
+		{512, 32 * time.Microsecond},
+		{1024, 64 * time.Microsecond},
+		{2048, 128 * time.Microsecond},
+		{4096, 256 * time.Microsecond},
+		{8192, 512 * time.Microsecond},
+		{10240, 1000 * time.Microsecond},
 	}
 )
 
@@ -71,59 +58,23 @@ func NewCurveTransmission(curve Curve) Transmission {
 	}
 	return &CurveTransmission{
 		curve: curve,
-		idx:   -1,
 		size:  len(curve),
 	}
 }
 
 type CurveTransmission struct {
 	curve Curve
-	idx   int
 	size  int
 }
 
-func (tran *CurveTransmission) MatchN(n uint32) (uint32, time.Duration) {
-	for i := 1; i < tran.size; i++ {
+func (tran *CurveTransmission) Match(n uint32) syscall.Timespec {
+	for i := 0; i < tran.size; i++ {
 		p := tran.curve[i]
 		if p.N > n {
-			tran.idx = i
-			p = tran.curve[tran.idx]
-			return p.N, p.Timeout
+			p = tran.curve[i]
+			return syscall.NsecToTimespec(p.Timeout.Nanoseconds())
 		}
 	}
-	tran.idx = tran.size - 1
-	p := tran.curve[tran.idx]
-	return p.N, p.Timeout
-}
-
-func (tran *CurveTransmission) Down() (n uint32, timeout time.Duration) {
-	if tran == nil || tran.size == 0 {
-		return
-	}
-	tran.idx--
-	if tran.idx < 0 {
-		tran.idx = 0
-	}
-	idx := tran.idx % tran.size
-	node := tran.curve[idx]
-	n, timeout = node.N, node.Timeout
-	return
-}
-
-func (tran *CurveTransmission) Up() (n uint32, timeout time.Duration) {
-	if tran == nil || tran.size == 0 {
-		return
-	}
-	tran.idx++
-	if tran.idx < 0 {
-		tran.idx = 0
-	}
-	idx := tran.idx % tran.size
-	node := tran.curve[idx]
-	n, timeout = node.N, node.Timeout
-	return
-}
-
-func (tran *CurveTransmission) Close() error {
-	return nil
+	p := tran.curve[tran.size-1]
+	return syscall.NsecToTimespec(p.Timeout.Nanoseconds())
 }
