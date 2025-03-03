@@ -3,8 +3,8 @@ package aio
 import (
 	"context"
 	"errors"
-	"syscall"
 	"time"
+	"unsafe"
 )
 
 type Future struct {
@@ -23,11 +23,14 @@ func (f *Future) Await(ctx context.Context) (n int, err error) {
 	return
 }
 
-func (f *Future) AwaitMsg(ctx context.Context) (n int, msg syscall.Msghdr, err error) {
+func (f *Future) AwaitMsg(ctx context.Context) (n int, oobn int, flags int, addr unsafe.Pointer, addrLen uint32, err error) {
 	op := f.op
 	n, err = f.await(ctx)
 	if err == nil {
-		msg = op.msg
+		oobn = int(op.msg.Controllen)
+		flags = int(op.msg.Flags)
+		addr = unsafe.Pointer(op.msg.Name)
+		addrLen = op.msg.Namelen
 	}
 	if op.borrowed {
 		vortex := f.vortex

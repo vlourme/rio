@@ -417,8 +417,8 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 
 RETRY:
 	future := vortex.PrepareReceiveMsg(fd, b, oob, rsa, rsaLen, unix.MSG_CMSG_CLOEXEC, deadline)
-	rn, msg, rErr := future.AwaitMsg(ctx)
-	if rErr != nil {
+	n, oobn, flags, _, _, err = future.AwaitMsg(ctx)
+	if err != nil {
 		if errors.Is(err, syscall.EBUSY) {
 			if !deadline.IsZero() && deadline.Before(time.Now()) {
 				err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
@@ -426,13 +426,9 @@ RETRY:
 			}
 			goto RETRY
 		}
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rErr}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
-
-	n = rn
-	oobn = int(msg.Controllen)
-	flags = int(msg.Flags)
 
 	sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
 	if saErr != nil {
@@ -540,18 +536,10 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 RETRY:
 	if c.useMsgZC {
 		future := vortex.PrepareSendMsgZC(fd, b, oob, rsa, int(rsaLen), 0, deadline)
-		wn, msg, wErr := future.AwaitMsg(ctx)
-		if wErr == nil {
-			oobn = int(msg.Controllen)
-		}
-		n, err = wn, wErr
+		n, oobn, _, _, _, err = future.AwaitMsg(ctx)
 	} else {
 		future := vortex.PrepareSendMsg(fd, b, oob, rsa, int(rsaLen), 0, deadline)
-		wn, msg, wErr := future.AwaitMsg(ctx)
-		if wErr == nil {
-			oobn = int(msg.Controllen)
-		}
-		n, err = wn, wErr
+		n, oobn, _, _, _, err = future.AwaitMsg(ctx)
 	}
 
 	if err != nil {
