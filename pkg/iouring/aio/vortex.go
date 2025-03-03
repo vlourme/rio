@@ -253,6 +253,8 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 					waitTimeout = syscall.NsecToTimespec(defaultWaitTimeout.Nanoseconds())
 				}
 				_, _ = ring.WaitCQEs(processing, &waitTimeout, nil)
+			} else {
+				time.Sleep(ns500)
 			}
 			// peek cqe
 			if completed := ring.PeekBatchCQE(cq); completed > 0 {
