@@ -487,11 +487,6 @@ func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.
 			return
 		}
 	}
-	// reuse addr
-	if err = fd.AllowReuseAddr(); err != nil {
-		_ = fd.Close()
-		return
-	}
 	// broadcast
 	if err = fd.AllowBroadcast(); err != nil {
 		_ = fd.Close()
