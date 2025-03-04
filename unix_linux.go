@@ -33,11 +33,10 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
 	// vortex
-	pinErr := Pin()
-	if pinErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: pinErr}
+	vortex, vortexErr := aio.Acquire()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 	}
-	vortex := getVortex()
 	// fd
 	var control ctrlCtxFn = nil
 	if lc.Control != nil {
@@ -47,6 +46,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	}
 	fd, fdErr := newUnixListener(ctx, network, addr, control)
 	if fdErr != nil {
+		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
@@ -87,11 +87,10 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
 	// vortex
-	pinErr := Pin()
-	if pinErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: pinErr}
+	vortex, vortexErr := aio.Acquire()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 	}
-	vortex := getVortex()
 	// fd
 	var control ctrlCtxFn = nil
 	if lc.Control != nil {
@@ -101,6 +100,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	}
 	fd, fdErr := newUnixListener(ctx, network, addr, control)
 	if fdErr != nil {
+		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
@@ -246,15 +246,13 @@ RETRY:
 	}
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
-	// conn vortex
-	connVortex := getVortex()
 	// unix conn
 	c = &UnixConn{
 		conn{
 			ctx:           ctx,
 			fd:            cfd,
 			useZC:         ln.useSendZC,
-			vortex:        connVortex,
+			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        false,
@@ -280,10 +278,11 @@ func (ln *UnixListener) Close() error {
 
 	future := vortex.PrepareClose(fd)
 	if _, err := future.Await(ctx); err != nil {
-		_ = Unpin()
+		_ = syscall.Close(fd)
+		_ = aio.Release(vortex)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
-	if unpinErr := Unpin(); unpinErr != nil {
+	if unpinErr := aio.Release(vortex); unpinErr != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
 	}
 	return nil

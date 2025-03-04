@@ -48,14 +48,14 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		addr = &net.UDPAddr{}
 	}
 	// vortex
-	pinErr := Pin()
-	if pinErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: pinErr}
+	vortex, vortexErr := aio.Acquire()
+	if vortexErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 	}
-	vortex := getVortex()
 	// fd
 	fd, fdErr := newUDPListenerFd(network, ifi, addr)
 	if fdErr != nil {
+		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// sendzc

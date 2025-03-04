@@ -42,7 +42,41 @@ func IsUnsupported(err error) bool {
 	return errors.Is(err, UnsupportedOp)
 }
 
-type VortexOptions struct {
+func CheckSendZCEnable() bool {
+	ver, verErr := kernel.Get()
+	if verErr != nil {
+		return false
+	}
+	target := kernel.Version{
+		Kernel: ver.Kernel,
+		Major:  6,
+		Minor:  0,
+		Flavor: ver.Flavor,
+	}
+	if kernel.Compare(*ver, target) < 0 {
+		return false
+	}
+	return true
+}
+
+func CheckSendMsdZCEnable() bool {
+	ver, verErr := kernel.Get()
+	if verErr != nil {
+		return false
+	}
+	target := kernel.Version{
+		Kernel: ver.Kernel,
+		Major:  6,
+		Minor:  1,
+		Flavor: ver.Flavor,
+	}
+	if kernel.Compare(*ver, target) < 0 {
+		return false
+	}
+	return true
+}
+
+type Options struct {
 	Entries          uint32
 	Flags            uint32
 	Features         uint32
@@ -51,15 +85,54 @@ type VortexOptions struct {
 	WaitTransmission Transmission
 }
 
-func (options *VortexOptions) prepare() {
-	if options.Entries == 0 {
-		options.Entries = iouring.DefaultEntries
+func (opts *Options) loadDefault() {
+	if opts.Entries == 0 {
+		opts.Entries = iouring.DefaultEntries
 	}
-	if options.Flags == 0 && options.Features == 0 {
-		options.Flags, options.Features = DefaultIOURingFlagsAndFeatures()
+	if opts.Flags == 0 && opts.Features == 0 {
+		opts.Flags, opts.Features = DefaultIOURingFlagsAndFeatures()
 	}
-	if options.WaitTransmission == nil {
-		options.WaitTransmission = NewCurveTransmission(defaultCurve)
+	if opts.WaitTransmission == nil {
+		opts.WaitTransmission = NewCurveTransmission(defaultCurve)
+	}
+	return
+}
+
+type Option func(*Options)
+
+func WithEntries(entries int) Option {
+	return func(opts *Options) {
+		opts.Entries = uint32(entries)
+	}
+}
+
+func WithPrepareBatchSize(size uint32) Option {
+	return func(opts *Options) {
+		opts.PrepareBatchSize = size
+	}
+}
+
+func WithUseCPUAffinity(use bool) Option {
+	return func(opts *Options) {
+		opts.UseCPUAffinity = use
+	}
+}
+
+func WithFlags(flags uint32) Option {
+	return func(opts *Options) {
+		opts.Flags = flags
+	}
+}
+
+func WithFeatures(features uint32) Option {
+	return func(opts *Options) {
+		opts.Features = features
+	}
+}
+
+func WithWaitTransmission(transmission Transmission) Option {
+	return func(opts *Options) {
+		opts.WaitTransmission = transmission
 	}
 }
 
@@ -68,12 +141,13 @@ const (
 	minKernelVersionMinor = 1
 )
 
-func NewVortex(options VortexOptions) (v *Vortex) {
+func New(options ...Option) (v *Vortex, err error) {
 	ver, verErr := kernel.Get()
 	if verErr != nil {
-		panic(errors.New("get kernel version failed"))
-		return nil
+		err = errors.New("get kernel version failed")
+		return
 	}
+
 	target := kernel.Version{
 		Kernel: ver.Kernel,
 		Major:  minKernelVersionMajor,
@@ -82,24 +156,32 @@ func NewVortex(options VortexOptions) (v *Vortex) {
 	}
 
 	if kernel.Compare(*ver, target) < 0 {
-		panic(errors.New("kernel version too low"))
-		return nil
+		err = errors.New("kernel version too low")
+		return
 	}
 
-	options.prepare()
+	opt := Options{}
+	for _, option := range options {
+		option(&opt)
+	}
+	opt.loadDefault()
 
-	// vortex
 	v = &Vortex{
 		ring:    nil,
 		queue:   NewQueue[Operation](),
-		options: options,
+		options: opt,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
 					kind:     iouring.OpLast,
 					borrowed: true,
-					result:   atomic.Pointer[Result]{},
+					rch:      make(chan Result),
 				}
+			},
+		},
+		timers: sync.Pool{
+			New: func() interface{} {
+				return time.NewTimer(0)
 			},
 		},
 		running: atomic.Bool{},
@@ -114,17 +196,11 @@ type Vortex struct {
 	running    atomic.Bool
 	stopped    atomic.Bool
 	operations sync.Pool
+	timers     sync.Pool
 	wg         sync.WaitGroup
-	options    VortexOptions
+	options    Options
 	ring       *iouring.Ring
 	queue      *Queue[Operation]
-}
-
-func (vortex *Vortex) SetId(id int) {
-	if id < 1 {
-		id = 0
-	}
-	vortex.id = id
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -137,6 +213,17 @@ func (vortex *Vortex) releaseOperation(op *Operation) {
 		op.reset()
 		vortex.operations.Put(op)
 	}
+}
+
+func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
+	timer := vortex.timers.Get().(*time.Timer)
+	timer.Reset(timeout)
+	return timer
+}
+
+func (vortex *Vortex) releaseTimer(timer *time.Timer) {
+	timer.Stop()
+	vortex.timers.Put(timer)
 }
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {

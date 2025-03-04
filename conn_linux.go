@@ -113,13 +113,14 @@ func (c *conn) Close() error {
 
 	future := vortex.PrepareClose(fd)
 	if _, err := future.Await(ctx); err != nil {
+		_ = syscall.Close(fd)
 		if c.pinned {
-			_ = Unpin()
+			_ = aio.Release(vortex)
 		}
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 	if c.pinned {
-		if unpinErr := Unpin(); unpinErr != nil {
+		if unpinErr := aio.Release(vortex); unpinErr != nil {
 			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: unpinErr}
 		}
 	}

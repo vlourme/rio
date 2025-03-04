@@ -5,27 +5,6 @@ import (
 	"time"
 )
 
-type TransmissionBuilder interface {
-	Build() Transmission
-}
-
-func NewCurveTransmissionBuilder(curve Curve) TransmissionBuilder {
-	if len(curve) == 0 {
-		curve = defaultCurve
-	}
-	return &CurveTransmissionBuilder{
-		curve: curve,
-	}
-}
-
-type CurveTransmissionBuilder struct {
-	curve Curve
-}
-
-func (builder *CurveTransmissionBuilder) Build() Transmission {
-	return NewCurveTransmission(builder.curve)
-}
-
 type Transmission interface {
 	Match(n uint32) syscall.Timespec
 }
