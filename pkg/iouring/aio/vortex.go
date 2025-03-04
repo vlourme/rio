@@ -200,8 +200,10 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 		waitTransmission := vortex.options.WaitTransmission
 		cq := make([]*iouring.CompletionQueueEvent, ring.CQEntries())
 
-		processing := uint32(0)
-
+		var (
+			processing uint32
+			submittedN uint32
+		)
 		for {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				break
@@ -237,14 +239,25 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 					}
 				}
 				// submit
-				for i := 0; i < 5; i++ {
-					if _, submitErr := ring.Submit(); submitErr == nil {
+				for {
+					submitted, submitErr := ring.Submit()
+					if submitErr != nil {
+						if ctxErr := ctx.Err(); ctxErr != nil {
+							break
+						}
+						if vortex.stopped.Load() {
+							break
+						}
+						time.Sleep(ns500)
+					}
+					submittedN += uint32(submitted)
+					if submittedN >= prepared {
+						vortex.queue.Advance(prepared)
+						processing += prepared
 						break
 					}
-					time.Sleep(ns500)
 				}
-				vortex.queue.Advance(prepared)
-				processing += prepared
+				submittedN = 0
 			}
 			// wait
 			if processing > 0 {
