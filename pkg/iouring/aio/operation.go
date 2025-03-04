@@ -31,8 +31,8 @@ const (
 
 func NewOperation() *Operation {
 	return &Operation{
-		kind:   iouring.OpLast,
-		result: atomic.Pointer[Result]{},
+		kind: iouring.OpLast,
+		rch:  make(chan Result),
 	}
 }
 
@@ -41,7 +41,7 @@ type Operation struct {
 	kind     uint8
 	borrowed bool
 	deadline time.Time
-	result   atomic.Pointer[Result]
+	rch      chan Result
 	fd       int
 	msg      syscall.Msghdr
 	pipe     pipeRequest
@@ -194,8 +194,6 @@ func (op *Operation) reset() {
 	if op.ptr != nil {
 		op.ptr = nil
 	}
-	// result
-	op.result.Store(nil)
 	return
 }
 
@@ -243,12 +241,8 @@ func (op *Operation) Flags() int {
 }
 
 func (op *Operation) setResult(n int, err error) {
-	op.result.Store(&Result{
+	op.rch <- Result{
 		N:   n,
 		Err: err,
-	})
-}
-
-func (op *Operation) getResult() *Result {
-	return op.result.Load()
+	}
 }
