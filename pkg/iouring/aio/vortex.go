@@ -211,7 +211,7 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 			if vortex.stopped.Load() {
 				break
 			}
-			// peek and submit
+			// handle sqe
 			if peeked := vortex.queue.PeekBatch(operations); peeked > 0 {
 				// peek
 				prepared := uint32(0)
@@ -248,7 +248,6 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 						if vortex.stopped.Load() {
 							break
 						}
-						time.Sleep(ns500)
 					}
 					submittedN += uint32(submitted)
 					if submittedN >= prepared {
@@ -259,50 +258,52 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 				}
 				submittedN = 0
 			}
-			// wait
+			// handle cqe
 			if processing > 0 {
+				// wait
 				waitTimeout := waitTransmission.Match(processing)
 				if waitTimeout.Sec == 0 && waitTimeout.Nsec == 0 {
 					waitTimeout = syscall.NsecToTimespec(defaultWaitTimeout.Nanoseconds())
 				}
 				_, _ = ring.WaitCQEs(processing, &waitTimeout, nil)
+
+				// peek cqe
+				if completed := ring.PeekBatchCQE(cq); completed > 0 {
+					for i := uint32(0); i < completed; i++ {
+						cqe := cq[i]
+						cq[i] = nil
+						if cqe.UserData == 0 { // no userdata means no op
+							continue
+						}
+						if notify := cqe.Flags&iouring.CQEFNotify != 0; notify { // used by send zc
+							continue
+						}
+						// get op from
+						copPtr := cqe.GetData()
+						cop := (*Operation)(copPtr)
+						// handle
+						if cop.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) { // not done
+							var (
+								opN   int
+								opErr error
+							)
+							if cqe.Res < 0 {
+								opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
+							} else {
+								opN = int(cqe.Res)
+							}
+							cop.setResult(opN, opErr)
+						} else { // done
+							// canceled then release op
+							vortex.releaseOperation(cop)
+						}
+					}
+					// CQAdvance
+					ring.CQAdvance(completed)
+					processing -= completed
+				}
 			} else {
 				time.Sleep(ns500)
-			}
-			// peek cqe
-			if completed := ring.PeekBatchCQE(cq); completed > 0 {
-				for i := uint32(0); i < completed; i++ {
-					cqe := cq[i]
-					cq[i] = nil
-					if cqe.UserData == 0 { // no userdata means no op
-						continue
-					}
-					if notify := cqe.Flags&iouring.CQEFNotify != 0; notify { // used by send zc
-						continue
-					}
-					// get op from
-					copPtr := cqe.GetData()
-					cop := (*Operation)(copPtr)
-					// handle
-					if cop.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) { // not done
-						var (
-							opN   int
-							opErr error
-						)
-						if cqe.Res < 0 {
-							opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
-						} else {
-							opN = int(cqe.Res)
-						}
-						cop.setResult(opN, opErr)
-					} else { // done
-						// canceled then release op
-						vortex.releaseOperation(cop)
-					}
-				}
-				// CQAdvance
-				ring.CQAdvance(completed)
-				processing -= completed
 			}
 		}
 

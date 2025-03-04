@@ -172,22 +172,28 @@ func (op *Operation) reset() {
 	// msg
 	op.msg.Name = nil
 	op.msg.Namelen = 0
-	op.msg.Iov = nil
-	op.msg.Iovlen = 0
-	op.msg.Control = nil
-	op.msg.Controllen = 0
-	op.msg.Flags = 0
+	if op.msg.Iov != nil {
+		op.msg.Iov = nil
+		op.msg.Iovlen = 0
+		op.msg.Control = nil
+		op.msg.Controllen = 0
+		op.msg.Flags = 0
+	}
 	// pipe
-	op.pipe.fdIn = 0
-	op.pipe.offIn = 0
-	op.pipe.fdOut = 0
-	op.pipe.offOut = 0
-	op.pipe.nbytes = 0
-	op.pipe.spliceFlags = 0
+	if op.pipe.fdIn != 0 {
+		op.pipe.fdIn = 0
+		op.pipe.offIn = 0
+		op.pipe.fdOut = 0
+		op.pipe.offOut = 0
+		op.pipe.nbytes = 0
+		op.pipe.spliceFlags = 0
+	}
 	// deadline
 	op.deadline = time.Time{}
 	// ptr
-	op.ptr = nil
+	if op.ptr != nil {
+		op.ptr = nil
+	}
 	// result
 	op.result.Store(nil)
 	return
