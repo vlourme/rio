@@ -7,58 +7,19 @@
 Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 
 ## 性能
+### Benchmark
 测试环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（13600K）。
 
 基于默认参数的测试，10线程，每线程1000链接，共计10000链接。
 
-RIO 相比 STD（go net 标准库）约快13%，详见 [Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
+RIO 相比 STD（go net 标准库）约快 `13%`，详见 [Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
 
 注意：CurveWaitTransmission 在不同环境下的性能体现是不同的，需按需调整来发挥出高效的性能。 
 
-<img src="benchmark/echo-tcpkali.png" width="336" height="144" border="0" alt="http benchmark">
+
 <img src="benchmark/echo.png" width="336" height="144" border="0" alt="echo benchmark">
 <img src="benchmark/http.png" width="336" height="144" border="0" alt="http benchmark">
 
-
-
-
-`tcpkali`压测。
-
-| 类型  | packet rate estimate |
-|-----|----------------------|
-| RIO | 8967.3               |
-| NET | 6866.4               |
-```shell
-  tcpkali --workers 1 -c 50 -T 10s -m "PING" 127.0.0.1:9000
-```
-```text
------- RIO ------
-Destination: [127.0.0.1]:9000
-Interface lo address [127.0.0.1]:0
-Interface lo address [10.255.255.254]:0
-Using interface lo to connect to [127.0.0.1]:9000
-Ramped up to 50 connections.
-Total data sent:     125.1 MiB (131137536 bytes)
-Total data received: 114.8 MiB (120352691 bytes)
-Bandwidth per channel: 4.021⇅ Mbps (502.6 kBps)
-Aggregate bandwidth: 96.206↓, 104.827↑ Mbps
-Packet rate estimate: 8967.3↓, 9086.6↑ (2↓, 41↑ TCP MSS/op)
-Test duration: 10.0079 s.
-```
-```text
------- NET ------
-Destination: [127.0.0.1]:9000
-Interface lo address [127.0.0.1]:0
-Interface lo address [10.255.255.254]:0
-Using interface lo to connect to [127.0.0.1]:9000
-Ramped up to 50 connections.
-Total data sent:     93.3 MiB (97845248 bytes)
-Total data received: 86.5 MiB (90741081 bytes)
-Bandwidth per channel: 3.016⇅ Mbps (377.0 kBps)
-Aggregate bandwidth: 72.565↓, 78.246↑ Mbps
-Packet rate estimate: 6866.4↓, 6826.6↑ (2↓, 42↑ TCP MSS/op)
-Test duration: 10.0038 s.
-```
 
 ```text
 ------ Benchmark ------
@@ -71,6 +32,54 @@ ECHO-STD benching complete(1.821161901s): 5491 conn/sec, 5.4M inbounds/sec, 5.4M
 HTTP-RIO benching complete(1.722059583s): 5807 conn/sec, 5.8M inbounds/sec, 5.8M outbounds/sec, 0 failures
 HTTP-STD benching complete(1.948937829s): 5131 conn/sec, 5M inbounds/sec, 5M outbounds/sec, 0 failures
 ```
+
+### TCPKALI
+
+服务端环境：Win11（Hyper-V）、Ubuntu24.10（6.11.0-8-generic）、CPU（4核）。
+
+客户端环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（13600K）。
+
+`tcpkali` 压测结果为 RIO 相比 STD（go net 标准库）约快 `30%` 。
+
+注意：请不要本地压测本地。
+
+<img src="benchmark/tcpkali-echo.png" width="336" height="144" border="0" alt="http benchmark">
+
+| 类型  | packet rate estimate |
+|-----|----------------------|
+| RIO | 22330.7              |
+| NET | 16918.8              |
+
+```shell
+tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
+```
+```text
+------ RIO ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     218.8 MiB (229455392 bytes)
+Total data received: 217.3 MiB (227831216 bytes)
+Bandwidth per channel: 7.316⇅ Mbps (914.5 kBps)
+Aggregate bandwidth: 182.254↓, 183.554↑ Mbps
+Packet rate estimate: 22330.7↓, 15969.6↑ (3↓, 35↑ TCP MSS/op)
+Test duration: 10.0006 s.
+```
+```text
+------ NET ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     217.6 MiB (228130816 bytes)
+Total data received: 215.8 MiB (226292180 bytes)
+Bandwidth per channel: 7.122⇅ Mbps (890.2 kBps)
+Aggregate bandwidth: 180.871↓, 182.341↑ Mbps
+Packet rate estimate: 16918.8↓, 15884.2↑ (2↓, 45↑ TCP MSS/op)
+Test duration: 10.009 s.
+```
+
 
 ## 使用
 
