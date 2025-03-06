@@ -33,7 +33,7 @@ func Release(v *Vortex) (err error) {
 		return
 	}
 	if n := pollInited.Add(-1); n == 0 {
-		err = poll.Close()
+		err = poll.Shutdown()
 	}
 	return
 }
