@@ -47,7 +47,7 @@ func New(options ...Option) (v *Vortex, err error) {
 	}
 	// default flags and feats
 	if opt.Flags&iouring.SetupSQPoll != 0 && opt.SQThreadIdle == 0 {
-		opt.SQThreadIdle = 1 // default sq thread idle is 1 milli
+		opt.SQThreadIdle = 500 // default sq thread idle is 500 milli
 	}
 	// default wait transmission
 	if opt.WaitTransmission == nil {
@@ -166,15 +166,13 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	go func(ctx context.Context, vortex *Vortex) {
 		// cpu affinity
 		threadLocked := false
-		if vortex.options.UseCPUAffinity {
-			if setErr := process.SetCPUAffinity(vortex.id); setErr == nil {
-				threadLocked = true
-				runtime.LockOSThread()
-			}
+		if vortex.options.UseCPUAffinity || vortex.options.Flags&iouring.SetupSingleIssuer != 0 {
+			_ = process.SetCPUAffinity(vortex.id)
+			threadLocked = true
+			runtime.LockOSThread()
 		}
 
 		ring := vortex.ring
-		useSQPoll := vortex.options.Flags&iouring.SetupSQPoll != 0
 
 		prepareBatch := vortex.options.PrepareBatchSize
 		if prepareBatch < 1 {
@@ -242,13 +240,6 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 					}
 				}
 				submittedN = 0
-			}
-			if processing == 0 && useSQPoll { // try touch ring by noop
-				if sqe := ring.GetSQE(); sqe != nil {
-					sqe.PrepareNop()
-					_, _ = ring.Submit()
-					processing++
-				}
 			}
 			// handle cqe
 			if processing > 0 {
