@@ -9,6 +9,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
 	"reflect"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -34,13 +35,22 @@ func Dial(network string, address string) (net.Conn, error) {
 }
 
 func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	return DefaultDialer.DialContext(ctx, network, address)
+	dialer := DefaultDialer
+	if strings.HasPrefix(network, "tcp") {
+		dialer.SetFastOpen(true)
+		dialer.SetQuickAck(true)
+	}
+	return dialer.DialContext(ctx, network, address)
 }
 
 func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
 	ctx := context.Background()
 	dialer := DefaultDialer
 	dialer.Timeout = timeout
+	if strings.HasPrefix(network, "tcp") {
+		dialer.SetFastOpen(true)
+		dialer.SetQuickAck(true)
+	}
 	return dialer.DialContext(ctx, network, address)
 }
 
@@ -63,6 +73,10 @@ func (d *Dialer) SetFastOpen(use bool) {
 
 func (d *Dialer) SetQuickAck(use bool) {
 	d.QuickAck = use
+}
+
+func (d *Dialer) SetSendZC(use bool) {
+	d.UseSendZC = use
 }
 
 func (d *Dialer) SetMultipathTCP(use bool) {
@@ -122,7 +136,12 @@ func (d *Dialer) Dial(network string, address string) (c net.Conn, err error) {
 
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	ctx := context.Background()
-	return DefaultDialer.DialTCP(ctx, network, laddr, raddr)
+	dialer := DefaultDialer
+	if strings.HasPrefix(network, "tcp") {
+		dialer.SetFastOpen(true)
+		dialer.SetQuickAck(true)
+	}
+	return dialer.DialTCP(ctx, network, laddr, raddr)
 }
 
 func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
