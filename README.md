@@ -171,12 +171,24 @@ ln, lnErr := lc.Listen(...)
 ## 进阶调参
 通过设置环境变量进行调控，具体详见 [IOURING](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)。
 
-| 名称                         | 值  | 说明                             |
-|----------------------------|----|--------------------------------|
-| IOURING_ENTRIES            | 数字 | 环大小，默认为最大值 16384。              |
-| IOURING_FLAGS              | 文本 | 标识，如`1 \| 2`。                  |
-| IOURING_FEATURES           | 文本 | 特性，如`1 \| 2`。                  |
-| IOURING_PREPARE_BATCH_SIZE | 数字 | 准备 SQE 的缓冲大小，默认为 SQ 的大小。       |
-| IOURING_USE_CPU_AFFILIATE  | 布尔 | 是否使用 CPU AFFILIATE             |
-| IOURING_CURVE_TRANSMISSION | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:1us`。 |
+| 名称                         | 值  | 说明                                                                     |
+|----------------------------|----|------------------------------------------------------------------------|
+| IOURING_ENTRIES            | 数字 | 环大小，默认为最大值 16384。                                                      |
+| IOURING_SCHEMA             | 文本 | 环运行方案，默认为`DEFAULT`，可选 `DEFAULT`, `PERFORMANCE`, `NONE`。                |
+| IOURING_SETUP_FLAGS        | 文本 | 标识，SCHEMA 必须为 `NONE`，如`IORING_SETUP_SQPOLL, IORING_SETUP_SUBMIT_ALL`等。 |
+| IOURING_SQ_THREAD_CPU      | 数字 | 设置环锁亲和的CPUID。                                                          |
+| IOURING_SQ_THREAD_IDLE     | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 1 毫秒。                     |
+| IOURING_PREPARE_BATCH_SIZE | 数字 | 准备 SQE 的缓冲大小，默认为 SQ 的大小。                                               |
+| IOURING_USE_CPU_AFFILIATE  | 布尔 | 是否使用 CPU AFFILIATE。                                                    |
+| IOURING_CURVE_TRANSMISSION | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:1us`。                                         |
+
+注意：`IOURING_SETUP_FLAGS` 与系统内核版本有关联，如果使用 `NONE` 方案进行自定义时，请务必确认版本。
+
+内置的方案是已经根据版本开启对应的 `IOURING_SETUP_FLAGS`。
+
+| IOURING_SCHEMA | 说明                                                                           |
+|----------------|------------------------------------------------------------------------------|
+| DEFAULT        | `IORING_SETUP_SUBMIT_ALL`                                                    |
+| PERFORMANCE    | `IORING_SETUP_SQPOLL` `IORING_SETUP_SUBMIT_ALL` `IORING_SETUP_SINGLE_ISSUER` |
+| NONE           | 空                                                                            |
 
