@@ -14,6 +14,29 @@ import (
 	"time"
 )
 
+var (
+	defaultRingSetupFlags     = uint32(0)
+	defaultRingSetupFlagsOnce = sync.Once{}
+)
+
+func DefaultIOURingSetupFlags() uint32 {
+	defaultRingSetupFlagsOnce.Do(func() {
+		version, versionErr := kernel.Get()
+		if versionErr != nil {
+			return
+		}
+		major, minor := version.Major, version.Minor
+		// flags
+		flags := uint32(0)
+		if compareKernelVersion(major, minor, 5, 18) >= 0 {
+			// submit all
+			flags |= iouring.SetupSubmitAll
+		}
+		defaultRingSetupFlags = flags
+	})
+	return defaultRingSetupFlags
+}
+
 func New(options ...Option) (v *Vortex, err error) {
 	ver, verErr := kernel.Get()
 	if verErr != nil {
@@ -35,7 +58,7 @@ func New(options ...Option) (v *Vortex, err error) {
 
 	opt := Options{
 		Entries:          0,
-		Flags:            DefaultIOURingSetupSchema(),
+		Flags:            DefaultIOURingSetupFlags(),
 		SQThreadCPU:      0,
 		SQThreadIdle:     0,
 		PrepareBatchSize: 0,
