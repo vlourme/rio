@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/kernel"
 	"os"
 	"strconv"
 	"strings"
@@ -48,6 +49,7 @@ var (
 const (
 	envEntries           = "IOURING_ENTRIES"
 	envFlags             = "IOURING_SETUP_FLAGS"
+	envFlagsSchema       = "IOURING_SETUP_FLAGS_SCHEMA"
 	envSQThreadCPU       = "IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle      = "IOURING_SQ_THREAD_IDLE"
 	envPrepareBatchSize  = "IOURING_PREPARE_BATCH_SIZE"
@@ -95,10 +97,60 @@ func loadEnvEntries() uint32 {
 	return uint32(u)
 }
 
+func defaultIOURingSetupFlags() uint32 {
+	version, versionErr := kernel.Get()
+	if versionErr != nil {
+		return 0
+	}
+	major, minor := version.Major, version.Minor
+	// flags
+	flags := uint32(0)
+	if compareKernelVersion(major, minor, 5, 18) >= 0 {
+		// submit all
+		flags |= iouring.SetupSubmitAll
+	}
+	return flags
+}
+
+func performanceIOURingSetupFlags() uint32 {
+	version, versionErr := kernel.Get()
+	if versionErr != nil {
+		return 0
+	}
+	major, minor := version.Major, version.Minor
+	// flags
+	flags := uint32(0)
+	if compareKernelVersion(major, minor, 5, 13) >= 0 {
+		// submit all
+		flags |= iouring.SetupSQPoll
+		if compareKernelVersion(major, minor, 5, 18) >= 0 {
+			// submit all
+			flags |= iouring.SetupSubmitAll
+			if compareKernelVersion(major, minor, 6, 0) >= 0 {
+				// submit all
+				flags |= iouring.SetupSingleIssuer
+			}
+		}
+	}
+	return flags
+}
+
 func loadEnvFlags() uint32 {
 	s, has := os.LookupEnv(envFlags)
 	if !has {
-		return 0
+		if schema, ok := os.LookupEnv(envFlagsSchema); ok {
+			schema = strings.TrimSpace(schema)
+			schema = strings.ToUpper(schema)
+			switch schema {
+			case "DEFAULT":
+				return defaultIOURingSetupFlags()
+			case "PERFORMANCE":
+				return performanceIOURingSetupFlags()
+			default:
+				return defaultIOURingSetupFlags()
+			}
+		}
+		return defaultIOURingSetupFlags()
 	}
 	flags := uint32(0)
 	ss := strings.Split(s, ",")

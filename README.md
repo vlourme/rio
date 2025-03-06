@@ -175,13 +175,19 @@ ln, lnErr := lc.Listen(...)
 |----------------------------|----|------------------------------------------------------|
 | IOURING_ENTRIES            | 数字 | 环大小，默认为最大值 16384。                                    |
 | IOURING_SETUP_FLAGS        | 文本 | 标识，如`IORING_SETUP_SQPOLL, IORING_SETUP_SUBMIT_ALL`等。 |
+| IOURING_SETUP_FLAGS_SCHEMA | 文本 | 标识方案，`DEFAULT` 或 `PERFORMANCE`。                      |
 | IOURING_SQ_THREAD_CPU      | 数字 | 设置环锁亲和的CPUID。                                        |
 | IOURING_SQ_THREAD_IDLE     | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 1 毫秒。   |
 | IOURING_PREPARE_BATCH_SIZE | 数字 | 准备 SQE 的缓冲大小，默认为 SQ 的大小。                             |
 | IOURING_USE_CPU_AFFILIATE  | 布尔 | 是否使用 CPU AFFILIATE。                                  |
-| IOURING_CURVE_TRANSMISSION | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:1us`。                       |
+| IOURING_CURVE_TRANSMISSION | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:2us`。                       |
 
-注意：`IOURING_SETUP_FLAGS` 与系统内核版本有关联，如果使用 `NONE` 方案进行自定义时，请务必确认版本。
+注意事项：
+* `IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本。
+* `IORING_SETUP_SQPOLL` 取决于运行环境，请自行测试效果。
+* `IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `IOURING_SETUP_FLAGS` 。
+* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SUBMIT_ALL` `IORING_SETUP_SINGLE_ISSUER` 的组合。
+* `DEFAULT` 为 `IORING_SETUP_SUBMIT_ALL`。
 
 
 
