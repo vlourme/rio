@@ -100,24 +100,15 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
 	deadline := ln.deadline
-
-RETRY:
+	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	future := vortex.PrepareAccept(fd, addr, addrLen, deadline)
-	accepted, acceptErr := future.Await(ctx)
+	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, deadline)
 	if acceptErr != nil {
-		if errors.Is(acceptErr, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
-
+	// fd
 	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
 	// local addr
 	if err = cfd.LoadLocalAddr(); err != nil {
@@ -173,8 +164,7 @@ func (ln *TCPListener) Close() error {
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
 
-	future := vortex.PrepareClose(fd)
-	if _, err := future.Await(ctx); err != nil {
+	if err := vortex.Close(ctx, fd); err != nil {
 		_ = syscall.Close(fd)
 		_ = aio.Release(vortex)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}

@@ -44,22 +44,14 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	ctx := c.ctx
 	fd := c.fd.Socket()
 	vortex := c.vortex
-	deadline := c.readDeadline
+	deadline := c.deadline(ctx, c.readDeadline)
 
-RETRY:
-	future := vortex.PrepareReceive(fd, b, deadline)
-	n, err = future.Await(ctx)
+	n, err = vortex.Receive(ctx, fd, b, deadline)
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
+
 	if n == 0 && c.fd.ZeroReadIsEOF() {
 		err = io.EOF
 		return
@@ -77,25 +69,14 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	ctx := c.ctx
 	fd := c.fd.Socket()
 	vortex := c.vortex
-	deadline := c.writeDeadline
+	deadline := c.deadline(ctx, c.writeDeadline)
 
-RETRY:
 	if c.useZC {
-		future := vortex.PrepareSendZC(fd, b, deadline)
-		n, err = future.Await(ctx)
+		n, err = vortex.SendZC(ctx, fd, b, deadline)
 	} else {
-		future := vortex.PrepareSend(fd, b, deadline)
-		n, err = future.Await(ctx)
+		n, err = vortex.Send(ctx, fd, b, deadline)
 	}
-
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -111,14 +92,22 @@ func (c *conn) Close() error {
 	fd := c.fd.Socket()
 	vortex := c.vortex
 
-	future := vortex.PrepareClose(fd)
-	if _, err := future.Await(ctx); err != nil {
-		_ = syscall.Close(fd)
+	err := vortex.Close(ctx, fd)
+	if err != nil {
+		err = syscall.Close(fd)
 		if c.pinned {
-			_ = aio.Release(vortex)
+			if unpinErr := aio.Release(vortex); unpinErr != nil {
+				if err == nil {
+					err = unpinErr
+				}
+			}
 		}
-		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		if err != nil {
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		}
+		return nil
 	}
+
 	if c.pinned {
 		if unpinErr := aio.Release(vortex); unpinErr != nil {
 			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: unpinErr}
@@ -257,6 +246,17 @@ func (c *conn) file() (*os.File, error) {
 	}
 	f := os.NewFile(uintptr(ns), c.fd.Name())
 	return f, nil
+}
+
+func (c *conn) deadline(ctx context.Context, deadline time.Time) time.Time {
+	if ctxDeadline, ok := ctx.Deadline(); ok {
+		if deadline.IsZero() {
+			deadline = ctxDeadline
+		} else if ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+	}
+	return deadline
 }
 
 func (c *conn) SyscallConn() (syscall.RawConn, error) {

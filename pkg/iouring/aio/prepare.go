@@ -10,77 +10,117 @@ import (
 )
 
 func (vortex *Vortex) PrepareOperation(op *Operation) Future {
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareClose(fd int) Future {
 	op := vortex.acquireOperation()
 	op.PrepareClose(fd)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareReceive(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceive(fd, b)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareSend(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSend(fd, b)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareSendZC(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendZC(fd, b)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareReceiveMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, addr, addrLen, flags)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendMsg(fd, b, oob, addr, addrLen, flags)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareSendMsgZC(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, flags)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, flags uint32) Future {
 	op := vortex.acquireOperation()
 	op.PrepareSplice(fdIn, offIn, fdOut, offOut, nbytes, flags)
-	return vortex.prepareOperation(op)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
 }
 
 func (vortex *Vortex) PrepareTee(fdIn int, fdOut int, nbytes uint32, flags uint32) Future {
 	op := vortex.acquireOperation()
 	op.PrepareTee(fdIn, fdOut, nbytes, flags)
-	return vortex.prepareOperation(op)
-}
-
-func (vortex *Vortex) prepareOperation(op *Operation) Future {
-	vortex.queue.Enqueue(op)
+	vortex.submit(op)
 	return Future{
 		vortex: vortex,
 		op:     op,

@@ -1,7 +1,6 @@
 package aio
 
 import (
-	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"sync/atomic"
 	"syscall"
@@ -53,19 +52,11 @@ func (op *Operation) WithDeadline(deadline time.Time) *Operation {
 	return op
 }
 
-func (op *Operation) Timeout(ctx context.Context) (timeout time.Duration) {
-	if deadline, ok := ctx.Deadline(); ok {
-		if op.deadline.IsZero() {
-			op.deadline = deadline
-		} else if deadline.Before(op.deadline) {
-			op.deadline = deadline
-		}
+func (op *Operation) Timeout() time.Duration {
+	if deadline := op.deadline; !deadline.IsZero() {
+		return time.Until(deadline)
 	}
-	if op.deadline.IsZero() {
-		return 0
-	}
-	timeout = time.Until(op.deadline)
-	return
+	return 0
 }
 
 func (op *Operation) PrepareNop() (err error) {

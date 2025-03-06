@@ -226,6 +226,10 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	vortex.timers.Put(timer)
 }
 
+func (vortex *Vortex) submit(op *Operation) {
+	vortex.queue.Enqueue(op)
+}
+
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 	if target.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) || target.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
 		op := &Operation{} // do not make ch cause no userdata
@@ -237,7 +241,7 @@ func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 	return
 }
 
-func (vortex *Vortex) Close() (err error) {
+func (vortex *Vortex) Shutdown() (err error) {
 	if vortex.running.CompareAndSwap(true, false) {
 		vortex.stopped.Store(true)
 		vortex.wg.Wait()
@@ -250,6 +254,7 @@ func (vortex *Vortex) Close() (err error) {
 
 const (
 	defaultWaitTimeout = 1 * time.Microsecond
+	ns500              = 500 * time.Nanosecond
 )
 
 func (vortex *Vortex) Start(ctx context.Context) (err error) {

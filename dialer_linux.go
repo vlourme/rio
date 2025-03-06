@@ -181,8 +181,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
-	future := vortex.PrepareConnect(fd.Socket(), rsa, int(rsaLen), deadline)
-	_, err := future.Await(ctx)
+	_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
 	if err != nil {
 		_ = fd.Close()
 		_ = aio.Release(vortex)
@@ -286,8 +285,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			_ = aio.Release(vortex)
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		future := vortex.PrepareConnect(fd.Socket(), rsa, int(rsaLen), deadline)
-		_, err := future.Await(ctx)
+		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
 		if err != nil {
 			_ = fd.Close()
 			_ = aio.Release(vortex)
@@ -398,8 +396,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			_ = aio.Release(vortex)
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		future := vortex.PrepareConnect(fd.Socket(), rsa, int(rsaLen), deadline)
-		_, err := future.Await(ctx)
+		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
 		if err != nil {
 			_ = fd.Close()
 			_ = aio.Release(vortex)

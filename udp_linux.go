@@ -205,19 +205,10 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	deadline := c.readDeadline
+	deadline := c.deadline(ctx, c.readDeadline)
 
-RETRY:
-	future := vortex.PrepareReceiveMsg(fd, b, nil, rsa, rsaLen, 0, deadline)
-	n, err = future.Await(ctx)
+	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline)
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -268,19 +259,10 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	deadline := c.readDeadline
+	deadline := c.deadline(ctx, c.readDeadline)
 
-RETRY:
-	future := vortex.PrepareReceiveMsg(fd, b, oob, rsa, rsaLen, 0, deadline)
-	n, oobn, flags, _, _, err = future.AwaitMsg(ctx)
+	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline)
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -359,29 +341,17 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	fd := c.fd.Socket()
 	vortex := c.vortex
 
-	deadline := c.writeDeadline
+	deadline := c.deadline(ctx, c.writeDeadline)
 
-RETRY:
 	if c.useMsgZC {
-		future := vortex.PrepareSendMsgZC(fd, b, nil, rsa, int(rsaLen), 0, deadline)
-		n, err = future.Await(ctx)
+		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline)
 	} else {
-		future := vortex.PrepareSendMsg(fd, b, nil, rsa, int(rsaLen), 0, deadline)
-		n, err = future.Await(ctx)
+		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
 	}
-
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
-
 	return
 }
 
@@ -436,25 +406,15 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 	fd := c.fd.Socket()
 	vortex := c.vortex
 
-	deadline := c.writeDeadline
+	deadline := c.deadline(ctx, c.writeDeadline)
 
-RETRY:
 	if c.useMsgZC {
-		future := vortex.PrepareSendMsgZC(fd, b, oob, rsa, int(rsaLen), 0, deadline)
-		n, oobn, _, _, _, err = future.AwaitMsg(ctx)
+		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
 	} else {
-		future := vortex.PrepareSendMsg(fd, b, oob, rsa, int(rsaLen), 0, deadline)
-		n, oobn, _, _, _, err = future.AwaitMsg(ctx)
+		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
 	}
 
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: aio.Timeout}
-				return
-			}
-			goto RETRY
-		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}

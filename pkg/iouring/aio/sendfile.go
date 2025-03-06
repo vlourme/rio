@@ -75,11 +75,9 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useZC 
 			wErr error
 		)
 		if useZC {
-			future := vortex.PrepareSendZC(dst, b[written:written+int64(chunk)], time.Time{})
-			n, wErr = future.Await(ctx)
+			n, wErr = vortex.SendZC(ctx, dst, b[written:written+int64(chunk)], time.Time{})
 		} else {
-			future := vortex.PrepareSend(dst, b[written:written+int64(chunk)], time.Time{})
-			n, wErr = future.Await(ctx)
+			n, wErr = vortex.Send(ctx, dst, b[written:written+int64(chunk)], time.Time{})
 		}
 		if n > 0 {
 			written += int64(n)
@@ -113,11 +111,9 @@ func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remai
 			wErr error
 		)
 		if useZC {
-			future := vortex.PrepareSendZC(dst, b, time.Time{})
-			n, wErr = future.Await(ctx)
+			n, wErr = vortex.SendZC(ctx, dst, b, time.Time{})
 		} else {
-			future := vortex.PrepareSend(dst, b, time.Time{})
-			n, wErr = future.Await(ctx)
+			n, wErr = vortex.Send(ctx, dst, b, time.Time{})
 		}
 		if n > 0 {
 			written += int64(n)
