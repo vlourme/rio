@@ -47,7 +47,6 @@ var (
 
 const (
 	envEntries           = "IOURING_ENTRIES"
-	envSchema            = "IOURING_SCHEMA"
 	envFlags             = "IOURING_SETUP_FLAGS"
 	envSQThreadCPU       = "IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle      = "IOURING_SQ_THREAD_IDLE"
@@ -60,10 +59,8 @@ func pollInit() (err error) {
 	opts := make([]Option, 0, 1)
 	entries := loadEnvEntries()
 	opts = append(opts, WithEntries(int(entries)))
-	flags := loadEnvSchema()
-	if flags == 0 {
-		flags = loadEnvFlags()
-	}
+
+	flags := loadEnvFlags()
 	opts = append(opts, WithFlags(flags))
 
 	sqThreadCPU := loadEnvSQThreadCPU()
@@ -96,27 +93,6 @@ func loadEnvEntries() uint32 {
 		return 0
 	}
 	return uint32(u)
-}
-
-func loadEnvSchema() (flags uint32) {
-	s, has := os.LookupEnv(envSchema)
-	if !has {
-		flags = DefaultIOURingSetupSchema()
-		return
-	}
-	s = strings.TrimSpace(s)
-	s = strings.ToUpper(s)
-	switch s {
-	case "NONE":
-		flags = 0
-		return
-	case "PERFORMANCE":
-		flags = PerformanceIOURingSetupSchema()
-	default:
-		flags = DefaultIOURingSetupSchema()
-		return
-	}
-	return
 }
 
 func loadEnvFlags() uint32 {
