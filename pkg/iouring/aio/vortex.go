@@ -14,133 +14,6 @@ import (
 	"time"
 )
 
-var (
-	Uncompleted   = errors.New("uncompleted")
-	Timeout       = &TimeoutError{}
-	UnsupportedOp = errors.New("unsupported op")
-)
-
-type TimeoutError struct{}
-
-func (e *TimeoutError) Error() string   { return "i/o timeout" }
-func (e *TimeoutError) Timeout() bool   { return true }
-func (e *TimeoutError) Temporary() bool { return true }
-
-func (e *TimeoutError) Is(err error) bool {
-	return err == context.DeadlineExceeded
-}
-
-func IsUncompleted(err error) bool {
-	return errors.Is(err, Uncompleted)
-}
-
-func IsTimeout(err error) bool {
-	return errors.Is(err, Timeout) || errors.Is(err, context.DeadlineExceeded)
-}
-
-func IsUnsupported(err error) bool {
-	return errors.Is(err, UnsupportedOp)
-}
-
-func CheckSendZCEnable() bool {
-	ver, verErr := kernel.Get()
-	if verErr != nil {
-		return false
-	}
-	target := kernel.Version{
-		Kernel: ver.Kernel,
-		Major:  6,
-		Minor:  0,
-		Flavor: ver.Flavor,
-	}
-	if kernel.Compare(*ver, target) < 0 {
-		return false
-	}
-	return true
-}
-
-func CheckSendMsdZCEnable() bool {
-	ver, verErr := kernel.Get()
-	if verErr != nil {
-		return false
-	}
-	target := kernel.Version{
-		Kernel: ver.Kernel,
-		Major:  6,
-		Minor:  1,
-		Flavor: ver.Flavor,
-	}
-	if kernel.Compare(*ver, target) < 0 {
-		return false
-	}
-	return true
-}
-
-type Options struct {
-	Entries          uint32
-	Flags            uint32
-	Features         uint32
-	PrepareBatchSize uint32
-	UseCPUAffinity   bool
-	WaitTransmission Transmission
-}
-
-func (opts *Options) loadDefault() {
-	if opts.Entries == 0 {
-		opts.Entries = iouring.DefaultEntries
-	}
-	if opts.Flags == 0 && opts.Features == 0 {
-		opts.Flags, opts.Features = DefaultIOURingFlagsAndFeatures()
-	}
-	if opts.WaitTransmission == nil {
-		opts.WaitTransmission = NewCurveTransmission(defaultCurve)
-	}
-	return
-}
-
-type Option func(*Options)
-
-func WithEntries(entries int) Option {
-	return func(opts *Options) {
-		opts.Entries = uint32(entries)
-	}
-}
-
-func WithPrepareBatchSize(size uint32) Option {
-	return func(opts *Options) {
-		opts.PrepareBatchSize = size
-	}
-}
-
-func WithUseCPUAffinity(use bool) Option {
-	return func(opts *Options) {
-		opts.UseCPUAffinity = use
-	}
-}
-
-func WithFlags(flags uint32) Option {
-	return func(opts *Options) {
-		opts.Flags = flags
-	}
-}
-
-func WithFeatures(features uint32) Option {
-	return func(opts *Options) {
-		opts.Features = features
-	}
-}
-
-func WithWaitTransmission(transmission Transmission) Option {
-	return func(opts *Options) {
-		opts.WaitTransmission = transmission
-	}
-}
-
-const (
-	minKernelVersionMajor = 5
-	minKernelVersionMinor = 1
-)
-
 func New(options ...Option) (v *Vortex, err error) {
 	ver, verErr := kernel.Get()
 	if verErr != nil {
@@ -160,11 +33,26 @@ func New(options ...Option) (v *Vortex, err error) {
 		return
 	}
 
-	opt := Options{}
+	opt := Options{
+		Entries:          0,
+		Flags:            DefaultIOURingFlagsAndFeatures(),
+		SQThreadCPU:      0,
+		SQThreadIdle:     0,
+		PrepareBatchSize: 0,
+		UseCPUAffinity:   false,
+		WaitTransmission: nil,
+	}
 	for _, option := range options {
 		option(&opt)
 	}
-	opt.loadDefault()
+	// default flags and feats
+	if opt.Flags&iouring.SetupSQPoll != 0 && opt.SQThreadIdle == 0 {
+		opt.SQThreadIdle = 1 // default sq thread idle is 1 milli
+	}
+	// default wait transmission
+	if opt.WaitTransmission == nil {
+		opt.WaitTransmission = NewCurveTransmission(defaultCurve)
+	}
 
 	v = &Vortex{
 		ring:    nil,
@@ -254,7 +142,6 @@ func (vortex *Vortex) Shutdown() (err error) {
 
 const (
 	defaultWaitTimeout = 1 * time.Microsecond
-	ns500              = 500 * time.Nanosecond
 )
 
 func (vortex *Vortex) Start(ctx context.Context) (err error) {
@@ -264,7 +151,12 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	}
 
 	options := vortex.options
-	uring, uringErr := iouring.New(options.Entries, options.Flags, options.Features, nil)
+	uring, uringErr := iouring.New(
+		iouring.WithEntries(options.Entries),
+		iouring.WithFlags(options.Flags),
+		iouring.WithSQThreadIdle(options.SQThreadIdle),
+		iouring.WithSQThreadCPU(options.SQThreadCPU),
+	)
 	if uringErr != nil {
 		return uringErr
 	}
@@ -282,6 +174,7 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 		}
 
 		ring := vortex.ring
+		useSQPoll := vortex.options.Flags&iouring.SetupSQPoll != 0
 
 		prepareBatch := vortex.options.PrepareBatchSize
 		if prepareBatch < 1 {
@@ -350,6 +243,13 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 				}
 				submittedN = 0
 			}
+			if processing == 0 && useSQPoll { // try touch ring by noop
+				if sqe := ring.GetSQE(); sqe != nil {
+					sqe.PrepareNop()
+					_, _ = ring.Submit()
+					processing++
+				}
+			}
 			// handle cqe
 			if processing > 0 {
 				// wait
@@ -395,7 +295,7 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 					processing -= completed
 				}
 			} else {
-				time.Sleep(ns500)
+				time.Sleep(defaultWaitTimeout)
 			}
 		}
 
