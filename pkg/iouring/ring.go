@@ -1,7 +1,6 @@
 package iouring
 
 import (
-	"errors"
 	"syscall"
 	"unsafe"
 )
@@ -196,10 +195,10 @@ const (
 	// 以前的内核使用的内核线程会假定原始 io_uring 拥有任务的身份，但以后的内核会主动创建看起来更像普通进程的线程。
 	// 自内核 5.12 起可用。
 	FeatNativeWorkers
-	// FeatRcrcTags
+	// FeatRsrcTags
 	// 如果设置了这个标志，那么 io_uring 将支持与固定文件和缓冲区相关的各种功能。
 	// 尤其是，它表明已注册的缓冲区可以就地更新，而在此之前，必须先取消注册整个缓冲区。自内核 5.13 起可用。
-	FeatRcrcTags
+	FeatRsrcTags
 	// FeatCQESkip
 	// 如果设置了该标志，io_uring 就支持在提交的 SQE 中设置 IOSQE_CQE_SKIP_SUCCESS，表明如果正常执行，就不会为该 SQE 生成 CQE。
 	// 如果在处理 SQE 时发生错误，仍会生成带有相应错误值的 CQE。自内核 5.17 起可用。
@@ -224,22 +223,30 @@ const (
 	DefaultEntries = MaxEntries / 2
 )
 
-func New(entries uint32, flags uint32, features uint32, memoryBuffer []byte) (ring *Ring, err error) {
-	if entries > MaxEntries {
-		err = errors.New("entries too big")
-		return
+func New(options ...Option) (ring *Ring, err error) {
+	opts := Options{
+		Entries:      DefaultEntries,
+		Flags:        0,
+		SQThreadCPU:  0,
+		SQThreadIdle: 0,
+		MemoryBuffer: nil,
 	}
-	if entries < 1 {
-		entries = DefaultEntries
+	for _, o := range options {
+		if err = o(&opts); err != nil {
+			return
+		}
 	}
 
+	entries := opts.Entries
+
 	params := &Params{}
-	params.flags = flags
-	params.features = features
+	params.flags = opts.Flags
+	params.sqThreadCPU = opts.SQThreadCPU
+	params.sqThreadIdle = opts.SQThreadIdle
 
 	var buf unsafe.Pointer
 	var bufSize uint64
-	if memoryBuffer != nil {
+	if memoryBuffer := opts.MemoryBuffer; len(memoryBuffer) > 0 {
 		buf = unsafe.Pointer(unsafe.SliceData(memoryBuffer))
 		bufSize = uint64(len(memoryBuffer))
 		params.flags |= SetupNoMmap
@@ -249,7 +256,6 @@ func New(entries uint32, flags uint32, features uint32, memoryBuffer []byte) (ri
 		sqRing: &SubmissionQueue{},
 		cqRing: &CompletionQueue{},
 	}
-
 	err = ring.setup(entries, params, buf, bufSize)
 	return
 }

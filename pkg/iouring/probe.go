@@ -34,7 +34,7 @@ func (p *Probe) IsSupported(op uint8) bool {
 const probeEntries = 2
 
 func GetProbe() (*Probe, error) {
-	ring, err := New(probeEntries, 0, 0, nil)
+	ring, err := New(WithEntries(probeEntries))
 	if err != nil {
 		return nil, err
 	}

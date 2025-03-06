@@ -30,6 +30,21 @@ type Params struct {
 	cqOff        CQRingOffsets
 }
 
+func (p *Params) SetFlags(flags uint32) *Params {
+	p.flags = flags
+	return p
+}
+
+func (p *Params) SetSQThreadCPU(n uint32) *Params {
+	p.sqThreadCPU = n
+	return p
+}
+
+func (p *Params) SetSQThreadIdle(n uint32) *Params {
+	p.sqThreadIdle = n
+	return p
+}
+
 func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufSize uint64) error {
 	var fd int
 	var sqEntries, index uint32
