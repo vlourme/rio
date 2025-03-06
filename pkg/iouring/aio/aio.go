@@ -101,7 +101,7 @@ func loadEnvEntries() uint32 {
 func loadEnvSchema() (flags uint32) {
 	s, has := os.LookupEnv(envSchema)
 	if !has {
-		flags = DefaultIOURingFlagsAndFeatures()
+		flags = DefaultIOURingSetupSchema()
 		return
 	}
 	s = strings.TrimSpace(s)
@@ -111,9 +111,9 @@ func loadEnvSchema() (flags uint32) {
 		flags = 0
 		return
 	case "PERFORMANCE":
-		flags = PerformanceIOURingFlagsAndFeatures()
+		flags = PerformanceIOURingSetupSchema()
 	default:
-		flags = DefaultIOURingFlagsAndFeatures()
+		flags = DefaultIOURingSetupSchema()
 		return
 	}
 	return
