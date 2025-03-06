@@ -35,7 +35,7 @@ func New(options ...Option) (v *Vortex, err error) {
 
 	opt := Options{
 		Entries:          0,
-		Flags:            DefaultIOURingFlagsAndFeatures(),
+		Flags:            DefaultIOURingSetupSchema(),
 		SQThreadCPU:      0,
 		SQThreadIdle:     0,
 		PrepareBatchSize: 0,
