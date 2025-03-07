@@ -7,40 +7,13 @@
 Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 
 ## 性能
-### Benchmark
-测试环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（13600K）。
-
-基于默认参数的测试，10线程，每线程1000链接，共计10000链接。
-
-RIO 相比 STD（go net 标准库）约快 `13%`，详见 [Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
-
-注意：CurveWaitTransmission 在不同环境下的性能体现是不同的，需按需调整来发挥出高效的性能。 
-
-
-<img src="benchmark/echo.png" width="336" height="144" border="0" alt="echo benchmark">
-<img src="benchmark/http.png" width="336" height="144" border="0" alt="http benchmark">
-
-<details>
-<summary>详细结果</summary>
-
-```text
------- Benchmark ------
-Port: 9000
-Workers: 10
-Count: 1000
-NBytes: 1024
-ECHO-RIO benching complete(1.564700361s): 6391 conn/sec, 6.2M inbounds/sec, 6.2M outbounds/sec, 0 failures
-ECHO-STD benching complete(1.821161901s): 5491 conn/sec, 5.4M inbounds/sec, 5.4M outbounds/sec, 0 failures
-HTTP-RIO benching complete(1.722059583s): 5807 conn/sec, 5.8M inbounds/sec, 5.8M outbounds/sec, 0 failures
-HTTP-STD benching complete(1.948937829s): 5131 conn/sec, 5M inbounds/sec, 5M outbounds/sec, 0 failures
-```
-</details>
-
 ### TCPKALI
 
 服务端环境：Win11（Hyper-V）、Ubuntu24.10（6.11.0-8-generic）、CPU（4核）。
 
-客户端环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（13600K）。
+客户端环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（4核）。
+
+[Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/tcpkali) 。
 
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
@@ -52,10 +25,10 @@ tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 
 | 类型       | packet rate estimate |
 |----------|----------------------|
-| RIO      | 23224.0              |
+| RIO      | 27791.8              |
 | GNET     | 22095.3              |
 | EVIO     | 14272.9              |
-| NET(STD) | 14754.7              |
+| NET(STD) | 15161.3              |
 
 <details>
 <summary>详细结果</summary>
@@ -66,12 +39,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     225.0 MiB (235888384 bytes)
-Total data received: 223.1 MiB (233886740 bytes)
-Bandwidth per channel: 7.222⇅ Mbps (902.7 kBps)
-Aggregate bandwidth: 186.967↓, 188.568↑ Mbps
-Packet rate estimate: 23224.0↓, 16224.2↑ (3↓, 35↑ TCP MSS/op)
-Test duration: 10.0076 s.
+Total data sent:     287.6 MiB (301548988 bytes)
+Total data received: 286.4 MiB (300361173 bytes)
+Bandwidth per channel: 9.627⇅ Mbps (1203.3 kBps)
+Aggregate bandwidth: 240.188↓, 241.138↑ Mbps
+Packet rate estimate: 27791.8↓, 20820.1↑ (3↓, 32↑ TCP MSS/op)
+Test duration: 10.0042 s.
 ```
 
 ```text
@@ -108,12 +81,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     192.8 MiB (202113024 bytes)
-Total data received: 191.3 MiB (200561884 bytes)
-Bandwidth per channel: 6.315⇅ Mbps (789.4 kBps)
-Aggregate bandwidth: 160.411↓, 161.652↑ Mbps
-Packet rate estimate: 14754.7↓, 14117.6↑ (2↓, 45↑ TCP MSS/op)
-Test duration: 10.0024 s.
+Total data sent:     199.2 MiB (208928768 bytes)
+Total data received: 197.8 MiB (207359332 bytes)
+Bandwidth per channel: 6.654⇅ Mbps (831.7 kBps)
+Aggregate bandwidth: 165.720↓, 166.974↑ Mbps
+Packet rate estimate: 15161.3↓, 14565.3↑ (2↓, 45↑ TCP MSS/op)
+Test duration: 10.0101 s.
 ```
 </details>
 
