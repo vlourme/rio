@@ -1,10 +1,11 @@
+//go:build linux
+
 package aio
 
 import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/kernel"
 	"os"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ func Acquire() (v *Vortex, err error) {
 	if err != nil {
 		return
 	}
-	if n := pollInited.Add(1); n == 1 {
+	if n := pollAcquires.Add(1); n == 1 {
 		if err == nil {
 			err = poll.Start(context.Background())
 		}
@@ -34,16 +35,21 @@ func Release(v *Vortex) (err error) {
 		err = errors.New("release vortex is nil")
 		return
 	}
-	if n := pollInited.Add(-1); n == 0 {
+	if n := pollAcquires.Add(-1); n == 0 {
 		err = poll.Shutdown()
 	}
 	return
 }
 
+func PrepareInitIOURingOptions(options ...Option) {
+	pollOptions = append(pollOptions, options...)
+}
+
 var (
-	pollOnce   sync.Once
-	poll       *Vortex
-	pollInited atomic.Int64
+	pollOnce     sync.Once
+	poll         *Vortex
+	pollAcquires atomic.Int64
+	pollOptions  []Option = make([]Option, 0, 1)
 )
 
 const (
@@ -58,30 +64,32 @@ const (
 )
 
 func pollInit() (err error) {
-	opts := make([]Option, 0, 1)
-	entries := loadEnvEntries()
-	opts = append(opts, WithEntries(int(entries)))
+	if len(pollOptions) == 0 {
+		entries := loadEnvEntries()
+		pollOptions = append(pollOptions, WithEntries(int(entries)))
 
-	flags := loadEnvFlags()
-	opts = append(opts, WithFlags(flags))
+		flags := loadEnvFlags()
+		pollOptions = append(pollOptions, WithFlags(flags))
 
-	sqThreadCPU := loadEnvSQThreadCPU()
-	opts = append(opts, WithSQThreadCPU(sqThreadCPU))
+		sqThreadCPU := loadEnvSQThreadCPU()
+		pollOptions = append(pollOptions, WithSQThreadCPU(sqThreadCPU))
 
-	sqThreadIdle := loadEnvSQThreadIdle()
-	opts = append(opts, WithSQThreadIdle(sqThreadIdle))
+		sqThreadIdle := loadEnvSQThreadIdle()
+		pollOptions = append(pollOptions, WithSQThreadIdle(sqThreadIdle))
 
-	prepareBatchSize := loadEnvPrepareBatchSize()
-	opts = append(opts, WithPrepareBatchSize(prepareBatchSize))
+		prepareBatchSize := loadEnvPrepareBatchSize()
+		pollOptions = append(pollOptions, WithPrepareBatchSize(prepareBatchSize))
 
-	useCPUAffinity := loadEnvUseCPUAffinity()
-	opts = append(opts, WithUseCPUAffinity(useCPUAffinity))
+		useCPUAffinity := loadEnvUseCPUAffinity()
+		pollOptions = append(pollOptions, WithUseCPUAffinity(useCPUAffinity))
 
-	curveTransmission := loadEnvCurveTransmission()
-	if len(curveTransmission) > 0 {
-		opts = append(opts, WithWaitTransmission(NewCurveTransmission(curveTransmission)))
+		curveTransmission := loadEnvCurveTransmission()
+		if len(curveTransmission) > 0 {
+			pollOptions = append(pollOptions, WithWaitTransmission(NewCurveTransmission(curveTransmission)))
+		}
 	}
-	poll, err = New(opts...)
+
+	poll, err = New(pollOptions...)
 	return
 }
 
@@ -97,44 +105,6 @@ func loadEnvEntries() uint32 {
 	return uint32(u)
 }
 
-func defaultIOURingSetupFlags() uint32 {
-	version, versionErr := kernel.Get()
-	if versionErr != nil {
-		return 0
-	}
-	major, minor := version.Major, version.Minor
-	// flags
-	flags := uint32(0)
-	if compareKernelVersion(major, minor, 5, 18) >= 0 {
-		// submit all
-		flags |= iouring.SetupSubmitAll
-	}
-	return flags
-}
-
-func performanceIOURingSetupFlags() uint32 {
-	version, versionErr := kernel.Get()
-	if versionErr != nil {
-		return 0
-	}
-	major, minor := version.Major, version.Minor
-	// flags
-	flags := uint32(0)
-	if compareKernelVersion(major, minor, 5, 13) >= 0 {
-		// submit all
-		flags |= iouring.SetupSQPoll
-		if compareKernelVersion(major, minor, 5, 18) >= 0 {
-			// submit all
-			flags |= iouring.SetupSubmitAll
-			if compareKernelVersion(major, minor, 6, 0) >= 0 {
-				// submit all
-				flags |= iouring.SetupSingleIssuer
-			}
-		}
-	}
-	return flags
-}
-
 func loadEnvFlags() uint32 {
 	s, has := os.LookupEnv(envFlags)
 	if !has {
@@ -142,9 +112,9 @@ func loadEnvFlags() uint32 {
 			schema = strings.TrimSpace(schema)
 			schema = strings.ToUpper(schema)
 			switch schema {
-			case "DEFAULT":
+			case DefaultFlagsSchema:
 				return defaultIOURingSetupFlags()
-			case "PERFORMANCE":
+			case PerformanceFlagsSchema:
 				return performanceIOURingSetupFlags()
 			default:
 				return defaultIOURingSetupFlags()
