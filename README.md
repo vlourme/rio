@@ -20,6 +20,8 @@ RIO 相比 STD（go net 标准库）约快 `13%`，详见 [Benchmark](https://gi
 <img src="benchmark/echo.png" width="336" height="144" border="0" alt="echo benchmark">
 <img src="benchmark/http.png" width="336" height="144" border="0" alt="http benchmark">
 
+<details>
+<summary>详细结果</summary>
 
 ```text
 ------ Benchmark ------
@@ -32,6 +34,7 @@ ECHO-STD benching complete(1.821161901s): 5491 conn/sec, 5.4M inbounds/sec, 5.4M
 HTTP-RIO benching complete(1.722059583s): 5807 conn/sec, 5.8M inbounds/sec, 5.8M outbounds/sec, 0 failures
 HTTP-STD benching complete(1.948937829s): 5131 conn/sec, 5M inbounds/sec, 5M outbounds/sec, 0 failures
 ```
+</details>
 
 ### TCPKALI
 
@@ -39,47 +42,80 @@ HTTP-STD benching complete(1.948937829s): 5131 conn/sec, 5M inbounds/sec, 5M out
 
 客户端环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（13600K）。
 
-`tcpkali` 压测结果为 RIO 相比 STD（go net 标准库）约快 `30%` 。
-
-注意：请不要本地压测本地。
-
-<img src="benchmark/tcpkali-echo.png" width="336" height="144" border="0" alt="http benchmark">
-
-| 类型  | packet rate estimate |
-|-----|----------------------|
-| RIO | 22330.7              |
-| NET | 16918.8              |
-
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 ```
+
+注意：请不要本地压测本地。
+
+<img src="benchmark/tcpkali.png" width="336" height="144" border="0" alt="http benchmark">
+
+| 类型       | packet rate estimate |
+|----------|----------------------|
+| RIO      | 23224.0              |
+| GNET     | 22095.3              |
+| EVIO     | 14272.9              |
+| NET(STD) | 14754.7              |
+
+<details>
+<summary>详细结果</summary>
+
 ```text
 ------ RIO ------
 Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     218.8 MiB (229455392 bytes)
-Total data received: 217.3 MiB (227831216 bytes)
-Bandwidth per channel: 7.316⇅ Mbps (914.5 kBps)
-Aggregate bandwidth: 182.254↓, 183.554↑ Mbps
-Packet rate estimate: 22330.7↓, 15969.6↑ (3↓, 35↑ TCP MSS/op)
-Test duration: 10.0006 s.
+Total data sent:     225.0 MiB (235888384 bytes)
+Total data received: 223.1 MiB (233886740 bytes)
+Bandwidth per channel: 7.222⇅ Mbps (902.7 kBps)
+Aggregate bandwidth: 186.967↓, 188.568↑ Mbps
+Packet rate estimate: 23224.0↓, 16224.2↑ (3↓, 35↑ TCP MSS/op)
+Test duration: 10.0076 s.
 ```
+
+```text
+------ GNET ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     219.4 MiB (230096896 bytes)
+Total data received: 217.7 MiB (228243396 bytes)
+Bandwidth per channel: 7.329⇅ Mbps (916.1 kBps)
+Aggregate bandwidth: 182.481↓, 183.963↑ Mbps
+Packet rate estimate: 22095.3↓, 15777.4↑ (3↓, 44↑ TCP MSS/op)
+Test duration: 10.0062 s.
+```
+
+```text
+------ EVIO ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     200.4 MiB (210108416 bytes)
+Total data received: 198.6 MiB (208234360 bytes)
+Bandwidth per channel: 6.688⇅ Mbps (836.0 kBps)
+Aggregate bandwidth: 166.458↓, 167.956↑ Mbps
+Packet rate estimate: 14272.9↓, 14412.0↑ (2↓, 44↑ TCP MSS/op)
+Test duration: 10.0078 s.
+```
+
 ```text
 ------ NET ------
 Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     217.6 MiB (228130816 bytes)
-Total data received: 215.8 MiB (226292180 bytes)
-Bandwidth per channel: 7.122⇅ Mbps (890.2 kBps)
-Aggregate bandwidth: 180.871↓, 182.341↑ Mbps
-Packet rate estimate: 16918.8↓, 15884.2↑ (2↓, 45↑ TCP MSS/op)
-Test duration: 10.009 s.
+Total data sent:     192.8 MiB (202113024 bytes)
+Total data received: 191.3 MiB (200561884 bytes)
+Bandwidth per channel: 6.315⇅ Mbps (789.4 kBps)
+Aggregate bandwidth: 160.411↓, 161.652↑ Mbps
+Packet rate estimate: 14754.7↓, 14117.6↑ (2↓, 45↑ TCP MSS/op)
+Test duration: 10.0024 s.
 ```
-
+</details>
 
 ## 使用
 
