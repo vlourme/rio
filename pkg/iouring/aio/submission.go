@@ -33,6 +33,24 @@ func (vortex *Vortex) Close(ctx context.Context, fd int) (err error) {
 	return
 }
 
+func (vortex *Vortex) ReadFixed(ctx context.Context, fd int, buf *FixedBuffer, deadline time.Time) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.WithDeadline(deadline).PrepareReadFixed(fd, buf)
+	n, err = vortex.submitAndWait(ctx, op)
+	buf.rightShiftWritePosition(n)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) WriteFixed(ctx context.Context, fd int, buf *FixedBuffer, deadline time.Time) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.WithDeadline(deadline).PrepareWriteFixed(fd, buf)
+	n, err = vortex.submitAndWait(ctx, op)
+	buf.rightShiftReadPosition(n)
+	vortex.releaseOperation(op)
+	return
+}
+
 func (vortex *Vortex) Receive(ctx context.Context, fd int, b []byte, deadline time.Time) (n int, err error) {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceive(fd, b)

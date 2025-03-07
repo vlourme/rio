@@ -86,6 +86,24 @@ func (op *Operation) PrepareClose(fd int) {
 	op.fd = fd
 }
 
+func (op *Operation) PrepareReadFixed(fd int, buf *FixedBuffer) {
+	op.kind = iouring.OpReadFixed
+	op.fd = fd
+	op.msg.Name = &buf.value[buf.rPos]
+	op.msg.Namelen = uint32(len(buf.value) - buf.rPos)
+	op.msg.Iovlen = uint64(buf.index)
+	return
+}
+
+func (op *Operation) PrepareWriteFixed(fd int, buf *FixedBuffer) {
+	op.kind = iouring.OpWriteFixed
+	op.fd = fd
+	op.msg.Name = &buf.value[buf.rPos]
+	op.msg.Namelen = uint32(buf.Length())
+	op.msg.Iovlen = uint64(buf.index)
+	return
+}
+
 func (op *Operation) PrepareReceive(fd int, b []byte) {
 	op.kind = iouring.OpRecv
 	op.fd = fd

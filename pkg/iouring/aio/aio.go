@@ -53,14 +53,15 @@ var (
 )
 
 const (
-	envEntries           = "IOURING_ENTRIES"
-	envFlags             = "IOURING_SETUP_FLAGS"
-	envFlagsSchema       = "IOURING_SETUP_FLAGS_SCHEMA"
-	envSQThreadCPU       = "IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle      = "IOURING_SQ_THREAD_IDLE"
-	envPrepareBatchSize  = "IOURING_PREPARE_BATCH_SIZE"
-	envUseCPUAffinity    = "IOURING_USE_CPU_AFFILIATE"
-	envCurveTransmission = "IOURING_CURVE_TRANSMISSION"
+	envEntries              = "IOURING_ENTRIES"
+	envFlags                = "IOURING_SETUP_FLAGS"
+	envFlagsSchema          = "IOURING_SETUP_FLAGS_SCHEMA"
+	envSQThreadCPU          = "IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle         = "IOURING_SQ_THREAD_IDLE"
+	envPrepareBatchSize     = "IOURING_PREPARE_BATCH_SIZE"
+	envUseCPUAffinity       = "IOURING_USE_CPU_AFFILIATE"
+	envCurveTransmission    = "IOURING_CURVE_TRANSMISSION"
+	envRegisterFixedBuffers = "IOURING_REG_BUFFERS"
 )
 
 func pollInit() (err error) {
@@ -76,6 +77,9 @@ func pollInit() (err error) {
 
 		sqThreadIdle := loadEnvSQThreadIdle()
 		pollOptions = append(pollOptions, WithSQThreadIdle(sqThreadIdle))
+
+		bufs, bufc := loadEnvRegFixedBuffers()
+		pollOptions = append(pollOptions, WithRegisterFixedBuffer(bufs, bufc))
 
 		prepareBatchSize := loadEnvPrepareBatchSize()
 		pollOptions = append(pollOptions, WithPrepareBatchSize(prepareBatchSize))
@@ -177,6 +181,32 @@ func loadEnvUseCPUAffinity() bool {
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
 	return s == "true" || s == "1"
+}
+
+func loadEnvRegFixedBuffers() (size uint32, count uint32) {
+	s, has := os.LookupEnv(envRegisterFixedBuffers)
+	if !has {
+		return
+	}
+	idx := strings.IndexByte(s, ',')
+	if idx < 1 {
+		return
+	}
+	ss := strings.TrimSpace(s[:idx])
+	us, parseSizeErr := strconv.ParseUint(ss, 10, 32)
+	if parseSizeErr != nil {
+		return
+	}
+
+	cs := strings.TrimSpace(s[idx+1:])
+	uc, parseCountErr := strconv.ParseUint(cs, 10, 32)
+	if parseCountErr != nil {
+		return
+	}
+
+	size = uint32(us)
+	count = uint32(uc)
+	return
 }
 
 func loadEnvCurveTransmission() Curve {

@@ -7,13 +7,15 @@ import (
 )
 
 type Options struct {
-	Entries          uint32
-	Flags            uint32
-	SQThreadCPU      uint32
-	SQThreadIdle     uint32
-	PrepareBatchSize uint32
-	UseCPUAffinity   bool
-	WaitTransmission Transmission
+	Entries                  uint32
+	Flags                    uint32
+	SQThreadCPU              uint32
+	SQThreadIdle             uint32
+	PrepareBatchSize         uint32
+	UseCPUAffinity           bool
+	RegisterFixedBufferSize  uint32
+	RegisterFixedBufferCount uint32
+	WaitTransmission         Transmission
 }
 
 type Option func(*Options)
@@ -51,6 +53,16 @@ func WithSQThreadCPU(cpuId uint32) Option {
 func WithSQThreadIdle(idle uint32) Option {
 	return func(opts *Options) {
 		opts.SQThreadIdle = idle
+	}
+}
+
+func WithRegisterFixedBuffer(size uint32, count uint32) Option {
+	return func(opts *Options) {
+		if size == 0 || count == 0 {
+			return
+		}
+		opts.RegisterFixedBufferSize = size
+		opts.RegisterFixedBufferCount = count
 	}
 }
 

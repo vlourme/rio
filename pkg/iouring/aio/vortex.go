@@ -70,6 +70,7 @@ func New(options ...Option) (v *Vortex, err error) {
 		},
 		running: atomic.Bool{},
 		wg:      sync.WaitGroup{},
+		buffers: NewQueue[FixedBuffer](),
 	}
 	return
 }
@@ -82,6 +83,7 @@ type Vortex struct {
 	options    Options
 	ring       *iouring.Ring
 	queue      *Queue[Operation]
+	buffers    *Queue[FixedBuffer]
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -111,11 +113,34 @@ func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 	return
 }
 
+func (vortex *Vortex) AcquireBuffer() *FixedBuffer {
+	if vortex.options.RegisterFixedBufferSize == 0 {
+		return nil
+	}
+	return vortex.buffers.Dequeue()
+}
+
+func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
+	if vortex.options.RegisterFixedBufferSize == 0 || buf == nil {
+		return
+	}
+	buf.Reset()
+	vortex.buffers.Enqueue(buf)
+}
+
 func (vortex *Vortex) Shutdown() (err error) {
 	if vortex.running.CompareAndSwap(true, false) {
 		vortex.wg.Wait()
 		ring := vortex.ring
 		vortex.ring = nil
+		if vortex.options.RegisterFixedBufferCount > 0 {
+			_, _ = ring.UnregisterBuffers()
+			for {
+				if buf := vortex.buffers.Dequeue(); buf == nil {
+					break
+				}
+			}
+		}
 		err = ring.Close()
 	}
 	return
@@ -141,6 +166,30 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	if uringErr != nil {
 		return uringErr
 	}
+
+	// register buffers
+	if size, count := vortex.options.RegisterFixedBufferSize, vortex.options.RegisterFixedBufferCount; count > 0 && size > 0 {
+		iovecs := make([]syscall.Iovec, count)
+		for i := uint32(0); i < count; i++ {
+			buf := make([]byte, size)
+			vortex.buffers.Enqueue(&FixedBuffer{
+				value: buf,
+				index: int(i),
+			})
+			iovecs[i] = syscall.Iovec{
+				Base: &buf[0],
+				Len:  uint64(size),
+			}
+		}
+		_, regErr := uring.RegisterBuffers(iovecs)
+		if regErr != nil {
+			vortex.options.RegisterFixedBufferSize, vortex.options.RegisterFixedBufferCount = 0, 0
+			for i := uint32(0); i < count; i++ {
+				_ = vortex.buffers.Dequeue()
+			}
+		}
+	}
+
 	vortex.ring = uring
 
 	vortex.wg.Add(1)

@@ -7,28 +7,28 @@
 Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 
 ## 性能
-### TCPKALI
 
-服务端环境：Win11（Hyper-V）、Ubuntu24.10（6.11.0-8-generic）、CPU（4核）。
-
-客户端环境：Win11（WSL2）、内核（6.6.36.6-microsoft-standard-WSL2）、CPU（4核）。
-
-[Benchmark](https://github.com/brickingsoft/rio_examples/tree/main/tcpkali) 。
+使用 `tcpkali` 进行压力测试，
+[代码地址](https://github.com/brickingsoft/rio_examples/tree/main/tcpkali) 。
 
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 ```
 
-注意：请不要本地压测本地。
+| 端   | 平台      | IP              | OS                                             | 规格     |
+|-----|---------|-----------------|------------------------------------------------|--------|
+| 客户端 | WSL2    | 192.168.100.1   | Ubuntu22.04 （6.6.36.6-microsoft-standard-WSL2） | 4C 16G |
+| 服务端 | Hyper-V | 192.168.100.120 | Ubuntu24.10（6.11.0-8-generic）                  | 4C 8G  |
+
 
 <img src="benchmark/tcpkali.png" width="336" height="144" border="0" alt="http benchmark">
 
-| 类型       | packet rate estimate |
-|----------|----------------------|
-| RIO      | 27791.8              |
-| GNET     | 22095.3              |
-| EVIO     | 14272.9              |
-| NET(STD) | 15161.3              |
+| 种类       | 速率 （pps） | 说明           |
+|----------|----------|--------------|
+| RIO      | 27791.8  | 稳定在25000     |
+| GNET     | 22095.3  | 稳定在18000     |
+| EVIO     | 14272.9  | 稳定在14000     |
+| NET(STD) | 15161.3  | 稳定在14000     |
 
 <details>
 <summary>详细结果</summary>
@@ -177,6 +177,38 @@ ln, lnErr := lc.Listen(...)
 
 ```
 
+FIXED READ AND WRITE：
+
+使用注册的`BUFFER`进行读写，这会减少用户与内核之间的切换。
+
+必须设置`IOURING_REG_BUFFERS`环境变量来注册`BUFFER`，详细见`进阶调参`。
+
+
+```go
+frw, ok := rio.Fixed(conn)
+if !ok {
+	// handle err
+}
+
+b := make([]byte, 1024)
+buf := frw.AcquireRegisteredBuffer()
+
+// read
+rn, rErr := frw.ReadFixed(buf)
+// check err
+_, _ = buf.Read(b[:rn]) // read into b
+
+// write
+buf.Reset() // reset is good
+
+_, _ = buf.Write(b[:rn]) // write into buffer
+wn, wErr := frw.WriteFixed(buf)
+// check err
+
+frw.ReleaseRegisteredBuffer(buf)
+
+```
+
 ## 进阶调参
 通过设置环境变量进行调控，具体详见 [IOURING](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)。
 
@@ -190,10 +222,11 @@ ln, lnErr := lc.Listen(...)
 | IOURING_PREPARE_BATCH_SIZE | 数字 | 准备 SQE 的缓冲大小，默认为 SQ 的大小。                             |
 | IOURING_USE_CPU_AFFILIATE  | 布尔 | 是否使用 CPU AFFILIATE。                                  |
 | IOURING_CURVE_TRANSMISSION | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:2us`。                       |
+| IOURING_REG_BUFFERS        | 文本 | 设置等待注册字节缓冲，格式为 `单个大小, 个数`， 如`1024, 100`。             |
 
 注意事项：
 * `IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本。
-* `IORING_SETUP_SQPOLL` 取决于运行环境，请自行测试效果。
+* `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行测试。
 * `IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `IOURING_SETUP_FLAGS` 。
 * `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SUBMIT_ALL` `IORING_SETUP_SINGLE_ISSUER` 的组合。
 * `DEFAULT` 为 `IORING_SETUP_SUBMIT_ALL`。

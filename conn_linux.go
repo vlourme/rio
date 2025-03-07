@@ -268,6 +268,73 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
 
+func (c *conn) AcquireRegisteredBuffer() *aio.FixedBuffer {
+	if !c.ok() {
+		return nil
+	}
+	return c.vortex.AcquireBuffer()
+}
+
+func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
+	if !c.ok() {
+		return
+	}
+	c.vortex.ReleaseBuffer(buf)
+}
+
+func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if buf == nil {
+		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+	}
+	if !buf.Validate() {
+		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+	}
+
+	ctx := c.ctx
+	fd := c.fd.Socket()
+	vortex := c.vortex
+	deadline := c.deadline(ctx, c.readDeadline)
+
+	n, err = vortex.ReadFixed(ctx, fd, buf, deadline)
+	if err != nil {
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return
+	}
+
+	if n == 0 && c.fd.ZeroReadIsEOF() {
+		err = io.EOF
+		return
+	}
+	return
+}
+
+func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if buf == nil {
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+	}
+	if !buf.Validate() {
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+	}
+
+	ctx := c.ctx
+	fd := c.fd.Socket()
+	vortex := c.vortex
+	deadline := c.deadline(ctx, c.writeDeadline)
+
+	n, err = vortex.WriteFixed(ctx, fd, buf, deadline)
+	if err != nil {
+		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return
+	}
+	return
+}
+
 func newRawConn(fd *sys.Fd) syscall.RawConn {
 	return &rawConn{fd: fd}
 }

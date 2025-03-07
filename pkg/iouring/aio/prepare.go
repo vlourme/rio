@@ -49,6 +49,26 @@ func (vortex *Vortex) PrepareClose(fd int) Future {
 	}
 }
 
+func (vortex *Vortex) PrepareReadFixed(fd int, buf *FixedBuffer, deadline time.Time) Future {
+	op := vortex.acquireOperation()
+	op.WithDeadline(deadline).PrepareReadFixed(fd, buf)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
+}
+
+func (vortex *Vortex) PrepareWriteFixed(fd int, buf *FixedBuffer, deadline time.Time) Future {
+	op := vortex.acquireOperation()
+	op.WithDeadline(deadline).PrepareWriteFixed(fd, buf)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
+}
+
 func (vortex *Vortex) PrepareReceive(fd int, b []byte, deadline time.Time) Future {
 	op := vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceive(fd, b)
@@ -153,6 +173,20 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 		break
 	case iouring.OpClose:
 		sqe.PrepareClose(op.fd)
+		sqe.SetData(unsafe.Pointer(op))
+		break
+	case iouring.OpReadFixed:
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
+		idx := op.msg.Iovlen
+		sqe.PrepareReadFixed(op.fd, b, bLen, 0, int(idx))
+		sqe.SetData(unsafe.Pointer(op))
+		break
+	case iouring.OpWriteFixed:
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
+		idx := op.msg.Iovlen
+		sqe.PrepareWriteFixed(op.fd, b, bLen, 0, int(idx))
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecv:
