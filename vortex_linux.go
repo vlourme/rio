@@ -13,6 +13,10 @@ func UseProcessPriority(level process.PriorityLevel) {
 	_ = process.SetCurrentProcessPriority(level)
 }
 
+func PrepareIOURingSetupOptions(options ...aio.Option) {
+	aio.PrepareInitIOURingOptions(options...)
+}
+
 // Pin
 // 钉住 IOURING 。
 // 一般用于程序启动时。
