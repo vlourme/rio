@@ -57,10 +57,8 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	}
 
 	// ln
-	lnCTX, cancel := context.WithCancel(ctx)
 	ln := &UnixListener{
-		ctx:        lnCTX,
-		cancel:     cancel,
+		ctx:        ctx,
 		fd:         fd,
 		path:       fd.LocalAddr().String(),
 		unlink:     true,
@@ -114,11 +112,9 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		useSendMsgZC = aio.CheckSendMsdZCEnable()
 	}
 	// conn
-	connCTX, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
 		conn{
-			ctx:           connCTX,
-			cancel:        cancel,
+			ctx:           ctx,
 			fd:            fd,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
@@ -192,7 +188,6 @@ func newUnixListener(ctx context.Context, network string, addr *net.UnixAddr, co
 
 type UnixListener struct {
 	ctx        context.Context
-	cancel     context.CancelFunc
 	fd         *sys.Fd
 	path       string
 	unlink     bool
@@ -244,11 +239,9 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
 	// unix conn
-	connCTX, cancel := context.WithCancel(ctx)
 	c = &UnixConn{
 		conn{
-			ctx:           connCTX,
-			cancel:        cancel,
+			ctx:           ctx,
 			fd:            cfd,
 			useZC:         ln.useSendZC,
 			vortex:        vortex,
@@ -265,7 +258,6 @@ func (ln *UnixListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-	defer ln.cancel()
 
 	ln.unlinkOnce.Do(func() {
 		if ln.path[0] != '@' && ln.unlink {

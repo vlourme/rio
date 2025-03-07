@@ -18,7 +18,6 @@ import (
 
 type conn struct {
 	ctx           context.Context
-	cancel        context.CancelFunc
 	fd            *sys.Fd
 	vortex        *aio.Vortex
 	readDeadline  time.Time
@@ -88,7 +87,6 @@ func (c *conn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
-	defer c.cancel()
 
 	ctx := c.ctx
 	fd := c.fd.Socket()

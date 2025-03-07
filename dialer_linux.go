@@ -227,11 +227,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if useSendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
-	connCTX, cancel := context.WithCancel(ctx)
 	c := &TCPConn{
 		conn{
-			ctx:           connCTX,
-			cancel:        cancel,
+			ctx:           ctx,
 			fd:            fd,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
@@ -335,11 +333,9 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMsgZC = aio.CheckSendMsdZCEnable()
 	}
-	connCTX, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
 		conn{
-			ctx:           connCTX,
-			cancel:        cancel,
+			ctx:           ctx,
 			fd:            fd,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
@@ -447,11 +443,9 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMsgZC = aio.CheckSendMsdZCEnable()
 	}
-	connCTX, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
 		conn{
-			ctx:           connCTX,
-			cancel:        cancel,
+			ctx:           ctx,
 			fd:            fd,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
