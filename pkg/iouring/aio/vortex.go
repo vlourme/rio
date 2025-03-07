@@ -65,17 +65,10 @@ func New(options ...Option) (v *Vortex, err error) {
 				return &Operation{
 					kind:     iouring.OpLast,
 					borrowed: true,
-					rch:      make(chan Result),
 				}
 			},
 		},
-		timers: sync.Pool{
-			New: func() interface{} {
-				return time.NewTimer(0)
-			},
-		},
 		running: atomic.Bool{},
-		stopped: atomic.Bool{},
 		wg:      sync.WaitGroup{},
 	}
 	return
@@ -84,9 +77,7 @@ func New(options ...Option) (v *Vortex, err error) {
 type Vortex struct {
 	id         int
 	running    atomic.Bool
-	stopped    atomic.Bool
 	operations sync.Pool
-	timers     sync.Pool
 	wg         sync.WaitGroup
 	options    Options
 	ring       *iouring.Ring
@@ -103,17 +94,6 @@ func (vortex *Vortex) releaseOperation(op *Operation) {
 		op.reset()
 		vortex.operations.Put(op)
 	}
-}
-
-func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
-	timer := vortex.timers.Get().(*time.Timer)
-	timer.Reset(timeout)
-	return timer
-}
-
-func (vortex *Vortex) releaseTimer(timer *time.Timer) {
-	timer.Stop()
-	vortex.timers.Put(timer)
 }
 
 func (vortex *Vortex) submit(op *Operation) {
@@ -133,7 +113,6 @@ func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 
 func (vortex *Vortex) Shutdown() (err error) {
 	if vortex.running.CompareAndSwap(true, false) {
-		vortex.stopped.Store(true)
 		vortex.wg.Wait()
 		ring := vortex.ring
 		vortex.ring = nil
@@ -187,19 +166,19 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 
 		var (
 			processing uint32
+			prepared   uint32
 			submittedN uint32
 		)
 		for {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				break
 			}
-			if vortex.stopped.Load() {
+			if !vortex.running.Load() {
 				break
 			}
 			// handle sqe
 			if peeked := vortex.queue.PeekBatch(operations); peeked > 0 {
 				// peek
-				prepared := uint32(0)
 				for i := uint32(0); i < peeked; i++ {
 					op := operations[i]
 					if op == nil {
@@ -217,31 +196,31 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 								continue
 							}
 						}
-						runtime.KeepAlive(op)
 						prepared++
-					} else { // maybe canceled
-						vortex.releaseOperation(op)
 					}
 				}
 				// submit
-				for {
-					submitted, submitErr := ring.Submit()
-					if submitErr != nil {
-						if ctxErr := ctx.Err(); ctxErr != nil {
-							break
+				if prepared > 0 {
+					for {
+						submitted, submitErr := ring.Submit()
+						if submitErr != nil {
+							if ctxErr := ctx.Err(); ctxErr != nil {
+								break
+							}
+							if !vortex.running.Load() {
+								break
+							}
 						}
-						if vortex.stopped.Load() {
+						submittedN += uint32(submitted)
+						if submittedN >= prepared {
+							vortex.queue.Advance(prepared)
+							processing += prepared
 							break
 						}
 					}
-					submittedN += uint32(submitted)
-					if submittedN >= prepared {
-						vortex.queue.Advance(prepared)
-						processing += prepared
-						break
-					}
+					prepared = 0
+					submittedN = 0
 				}
-				submittedN = 0
 			}
 			// handle cqe
 			if processing > 0 {

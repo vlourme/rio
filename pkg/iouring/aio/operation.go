@@ -33,7 +33,6 @@ const (
 func NewOperation() *Operation {
 	return &Operation{
 		kind: iouring.OpLast,
-		rch:  make(chan Result),
 	}
 }
 
@@ -42,7 +41,7 @@ type Operation struct {
 	kind     uint8
 	borrowed bool
 	deadline time.Time
-	rch      chan Result
+	result   atomic.Pointer[Result]
 	fd       int
 	msg      syscall.Msghdr
 	pipe     pipeRequest
@@ -160,6 +159,8 @@ func (op *Operation) reset() {
 	op.kind = iouring.OpLast
 	// status
 	op.status.Store(ReadyOperationStatus)
+	// result
+	op.result.Store(nil)
 	// fd
 	op.fd = 0
 	// msg
@@ -234,8 +235,8 @@ func (op *Operation) Flags() int {
 }
 
 func (op *Operation) setResult(n int, err error) {
-	op.rch <- Result{
+	op.result.Store(&Result{
 		N:   n,
 		Err: err,
-	}
+	})
 }
