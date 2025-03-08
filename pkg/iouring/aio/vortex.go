@@ -49,7 +49,7 @@ func New(options ...Option) (v *Vortex, err error) {
 	}
 	// default flags and feats
 	if opt.Flags&iouring.SetupSQPoll != 0 && opt.SQThreadIdle == 0 {
-		opt.SQThreadIdle = 1 // default sq thread idle is 1 milli
+		opt.SQThreadIdle = 60000 // default sq thread idle is 60 sec
 	}
 	// default wait transmission
 	if opt.WaitTransmission == nil {
