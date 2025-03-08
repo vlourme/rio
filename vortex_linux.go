@@ -9,10 +9,14 @@ import (
 	"sync"
 )
 
+// UseProcessPriority
+// 设置进程等级
 func UseProcessPriority(level process.PriorityLevel) {
 	_ = process.SetCurrentProcessPriority(level)
 }
 
+// PrepareIOURingSetupOptions
+// 准备 IOURING 的设置选项，必须在 Pin、 Dial 、 Listen 之前。
 func PrepareIOURingSetupOptions(options ...aio.Option) {
 	aio.PrepareInitIOURingOptions(options...)
 }
@@ -31,6 +35,7 @@ func Pin() (err error) {
 
 // Unpin
 // 取钉。
+// 用于关闭 IOURING。
 func Unpin() (err error) {
 	pinnedLock.Lock()
 	defer pinnedLock.Unlock()
