@@ -49,7 +49,7 @@ func New(options ...Option) (v *Vortex, err error) {
 	}
 	// default flags and feats
 	if opt.Flags&iouring.SetupSQPoll != 0 && opt.SQThreadIdle == 0 {
-		opt.SQThreadIdle = 60000 // default sq thread idle is 60 sec
+		opt.SQThreadIdle = 500 // default sq thread idle is 60 sec
 	}
 	// default wait transmission
 	if opt.WaitTransmission == nil {
@@ -65,7 +65,13 @@ func New(options ...Option) (v *Vortex, err error) {
 				return &Operation{
 					kind:     iouring.OpLast,
 					borrowed: true,
+					resultCh: make(chan Result),
 				}
+			},
+		},
+		timers: sync.Pool{
+			New: func() interface{} {
+				return time.NewTimer(0)
 			},
 		},
 		running: atomic.Bool{},
@@ -79,6 +85,7 @@ type Vortex struct {
 	id         int
 	running    atomic.Bool
 	operations sync.Pool
+	timers     sync.Pool
 	wg         sync.WaitGroup
 	options    Options
 	ring       *iouring.Ring
@@ -96,6 +103,17 @@ func (vortex *Vortex) releaseOperation(op *Operation) {
 		op.reset()
 		vortex.operations.Put(op)
 	}
+}
+
+func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
+	timer := vortex.timers.Get().(*time.Timer)
+	timer.Reset(timeout)
+	return timer
+}
+
+func (vortex *Vortex) releaseTimer(timer *time.Timer) {
+	timer.Stop()
+	vortex.timers.Put(timer)
 }
 
 func (vortex *Vortex) submit(op *Operation) {
@@ -214,9 +232,9 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 		cq := make([]*iouring.CompletionQueueEvent, ring.CQEntries())
 
 		var (
-			processing uint32
-			prepared   uint32
-			submittedN uint32
+			processing   uint32
+			prepared     uint32
+			needToSubmit int64
 		)
 		for {
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -236,7 +254,7 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 					operations[i] = nil
 					if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
 						if prepErr := vortex.prepareSQE(op); prepErr != nil {
-							if prepErr != nil { // when prep err occur, means invalid op kind,
+							if prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
 								op.setResult(0, prepErr)
 								if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
 									break
@@ -249,26 +267,12 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 					}
 				}
 				// submit
-				if prepared > 0 {
-					for {
-						submitted, submitErr := ring.Submit()
-						if submitErr != nil {
-							if ctxErr := ctx.Err(); ctxErr != nil {
-								break
-							}
-							if !vortex.running.Load() {
-								break
-							}
-						}
-						submittedN += uint32(submitted)
-						if submittedN >= prepared {
-							vortex.queue.Advance(prepared)
-							processing += prepared
-							break
-						}
-					}
+				if prepared > 0 || needToSubmit > 0 {
+					submitted, _ := ring.Submit()
+					needToSubmit += int64(prepared) - int64(submitted)
+					vortex.queue.Advance(prepared)
+					processing += prepared
 					prepared = 0
-					submittedN = 0
 				}
 			}
 			// handle cqe
@@ -306,9 +310,6 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 								opN = int(cqe.Res)
 							}
 							cop.setResult(opN, opErr)
-						} else { // done
-							// canceled then release op
-							vortex.releaseOperation(cop)
 						}
 					}
 					// CQAdvance

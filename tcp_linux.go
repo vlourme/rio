@@ -65,8 +65,10 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		useSendZC = aio.CheckSendZCEnable()
 	}
 	// ln
+	cc, cancel := context.WithCancel(ctx)
 	ln := &TCPListener{
-		ctx:             ctx,
+		ctx:             cc,
+		cancel:          cancel,
 		fd:              fd,
 		vortex:          vortex,
 		useSendZC:       useSendZC,
@@ -78,6 +80,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 
 type TCPListener struct {
 	ctx             context.Context
+	cancel          context.CancelFunc
 	fd              *sys.Fd
 	vortex          *aio.Vortex
 	multipathTCP    bool
@@ -128,9 +131,11 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
 	cfd.SetRemoteAddr(localAddr)
 	// tcp conn
+	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
 		conn{
-			ctx:           ctx,
+			ctx:           cc,
+			cancel:        cancel,
 			fd:            cfd,
 			useZC:         ln.useSendZC,
 			vortex:        vortex,
@@ -159,6 +164,8 @@ func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
+
+	defer ln.cancel()
 
 	ctx := ln.ctx
 	fd := ln.fd.Socket()

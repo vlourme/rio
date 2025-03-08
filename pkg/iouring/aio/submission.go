@@ -151,41 +151,87 @@ RETRY:
 	return
 }
 
-const (
-	ns500 = 500 * time.Nanosecond
-)
-
 func (vortex *Vortex) await(ctx context.Context, op *Operation) (n int, err error) {
-	for {
-		r := op.result.Load()
-		if r != nil {
+	timeout := op.Timeout()
+	switch {
+	case timeout == 0:
+		select {
+		case r, ok := <-op.resultCh:
+			if !ok {
+				err = Uncompleted
+				break
+			}
 			n, err = r.N, r.Err
 			break
-		}
-		if !op.deadline.IsZero() {
-			if op.deadline.Before(time.Now()) {
-				if vortex.Cancel(op) {
-					err = Timeout
-					break
-				}
-			}
-			time.Sleep(ns500)
-			continue
-		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
+		case <-ctx.Done():
 			if vortex.Cancel(op) {
-				if errors.Is(ctxErr, context.DeadlineExceeded) {
+				err = ctx.Err()
+				if errors.Is(err, context.DeadlineExceeded) {
 					err = Timeout
-				} else {
-					err = ctxErr
 				}
 				break
 			}
-			time.Sleep(ns500)
-			continue
+			r, ok := <-op.resultCh
+			if !ok {
+				err = Uncompleted
+				break
+			}
+			n, err = r.N, r.Err
+			break
 		}
-		time.Sleep(ns500)
-		continue
+		break
+	case timeout > 0:
+		timer := vortex.acquireTimer(timeout)
+		select {
+		case r, ok := <-op.resultCh:
+			if !ok {
+				err = Uncompleted
+				break
+			}
+			n, err = r.N, r.Err
+			break
+		case <-timer.C:
+			if vortex.Cancel(op) {
+				err = Timeout
+				break
+			}
+			r, ok := <-op.resultCh
+			if !ok {
+				err = Uncompleted
+				break
+			}
+			n, err = r.N, r.Err
+			break
+		case <-ctx.Done():
+			if vortex.Cancel(op) {
+				err = ctx.Err()
+				if errors.Is(err, context.DeadlineExceeded) {
+					err = Timeout
+				}
+				break
+			}
+			r, ok := <-op.resultCh
+			if !ok {
+				err = Uncompleted
+				break
+			}
+			n, err = r.N, r.Err
+			break
+		}
+		vortex.releaseTimer(timer)
+		break
+	case timeout < 0:
+		if vortex.Cancel(op) {
+			err = Timeout
+			break
+		}
+		r, ok := <-op.resultCh
+		if !ok {
+			err = Uncompleted
+			break
+		}
+		n, err = r.N, r.Err
+		break
 	}
 	return
 }

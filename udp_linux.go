@@ -66,9 +66,11 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		useSendMsgZC = aio.CheckSendMsdZCEnable()
 	}
 	// conn
+	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
 		conn{
-			ctx:           ctx,
+			ctx:           cc,
+			cancel:        cancel,
 			fd:            fd,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
