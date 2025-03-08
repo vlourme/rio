@@ -1,5 +1,3 @@
-//go:build linux
-
 package aio
 
 import "github.com/brickingsoft/rio/pkg/kernel"
