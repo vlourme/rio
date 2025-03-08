@@ -9,7 +9,7 @@ Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 ## 性能
 
 使用 `tcpkali` 进行压力测试，
-[代码地址](https://github.com/brickingsoft/rio_examples/tree/main/tcpkali) 。
+[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/tcpkali) 。
 
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
@@ -23,12 +23,12 @@ tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 
 <img src="benchmark/tcpkali.png" width="336" height="144" border="0" alt="http benchmark">
 
-| 种类       | 速率 （pps） | 说明           |
-|----------|----------|--------------|
-| RIO      | 27791.8  | 稳定在25000     |
-| GNET     | 22095.3  | 稳定在18000     |
-| EVIO     | 14272.9  | 稳定在14000     |
-| NET(STD) | 15161.3  | 稳定在14000     |
+| 种类       | 速率 （pps） | 说明       | 性能    |
+|----------|----------|----------|-------|
+| RIO      | 25033.5  | 稳定在25000 | 100 % |
+| GNET     | 18635.1  | 稳定在18000 | 74 %  |
+| EVIO     | 19344.9  | 稳定在19000 | 77 %  |
+| NET(STD) | 14937.1  | 稳定在14000 | 59 %  |
 
 <details>
 <summary>详细结果</summary>
@@ -39,12 +39,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     287.6 MiB (301548988 bytes)
-Total data received: 286.4 MiB (300361173 bytes)
-Bandwidth per channel: 9.627⇅ Mbps (1203.3 kBps)
-Aggregate bandwidth: 240.188↓, 241.138↑ Mbps
-Packet rate estimate: 27791.8↓, 20820.1↑ (3↓, 32↑ TCP MSS/op)
-Test duration: 10.0042 s.
+Total data sent:     265.5 MiB (278387192 bytes)
+Total data received: 264.1 MiB (276937819 bytes)
+Bandwidth per channel: 8.879⇅ Mbps (1109.8 kBps)
+Aggregate bandwidth: 221.386↓, 222.544↑ Mbps
+Packet rate estimate: 25033.5↓, 19456.6↑ (3↓, 31↑ TCP MSS/op)
+Test duration: 10.0074 s.
 ```
 
 ```text
@@ -53,12 +53,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     219.4 MiB (230096896 bytes)
-Total data received: 217.7 MiB (228243396 bytes)
-Bandwidth per channel: 7.329⇅ Mbps (916.1 kBps)
-Aggregate bandwidth: 182.481↓, 183.963↑ Mbps
-Packet rate estimate: 22095.3↓, 15777.4↑ (3↓, 44↑ TCP MSS/op)
-Test duration: 10.0062 s.
+Total data sent:     185.6 MiB (194641920 bytes)
+Total data received: 183.8 MiB (192732708 bytes)
+Bandwidth per channel: 6.074⇅ Mbps (759.3 kBps)
+Aggregate bandwidth: 154.127↓, 155.654↑ Mbps
+Packet rate estimate: 18635.1↓, 13607.3↑ (3↓, 45↑ TCP MSS/op)
+Test duration: 10.0038 s.
 ```
 
 ```text
@@ -67,12 +67,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     200.4 MiB (210108416 bytes)
-Total data received: 198.6 MiB (208234360 bytes)
-Bandwidth per channel: 6.688⇅ Mbps (836.0 kBps)
-Aggregate bandwidth: 166.458↓, 167.956↑ Mbps
-Packet rate estimate: 14272.9↓, 14412.0↑ (2↓, 44↑ TCP MSS/op)
-Test duration: 10.0078 s.
+Total data sent:     183.4 MiB (192282624 bytes)
+Total data received: 181.9 MiB (190755004 bytes)
+Bandwidth per channel: 6.123⇅ Mbps (765.3 kBps)
+Aggregate bandwidth: 152.457↓, 153.678↑ Mbps
+Packet rate estimate: 19344.9↓, 13442.1↑ (3↓, 45↑ TCP MSS/op)
+Test duration: 10.0096 s.
 ```
 
 ```text
@@ -81,12 +81,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     199.2 MiB (208928768 bytes)
-Total data received: 197.8 MiB (207359332 bytes)
-Bandwidth per channel: 6.654⇅ Mbps (831.7 kBps)
-Aggregate bandwidth: 165.720↓, 166.974↑ Mbps
-Packet rate estimate: 15161.3↓, 14565.3↑ (2↓, 45↑ TCP MSS/op)
-Test duration: 10.0101 s.
+Total data sent:     198.3 MiB (207945728 bytes)
+Total data received: 196.6 MiB (206165284 bytes)
+Bandwidth per channel: 6.623⇅ Mbps (827.9 kBps)
+Aggregate bandwidth: 164.859↓, 166.282↑ Mbps
+Packet rate estimate: 14937.1↓, 14506.0↑ (2↓, 45↑ TCP MSS/op)
+Test duration: 10.0045 s.
 ```
 </details>
 
