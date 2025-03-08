@@ -7,9 +7,10 @@
 Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 
 ## 性能
+### 对比测试
+使用 `tcpkali` 进行压力测试，`RIO` 使用默认设置方案。
 
-使用 `tcpkali` 进行压力测试，
-[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
+[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 
 
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
@@ -23,12 +24,12 @@ tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 
 <img src="benchmark/tcpkali.png" width="336" height="144" border="0" alt="http benchmark">
 
-| 种类       | 速率 （pps） | 说明       | 性能    |
-|----------|----------|----------|-------|
-| RIO      | 25033.5  | 稳定在25000 | 100 % |
-| GNET     | 18635.1  | 稳定在18000 | 74 %  |
-| EVIO     | 19344.9  | 稳定在19000 | 77 %  |
-| NET(STD) | 14937.1  | 稳定在14000 | 59 %  |
+| 种类           | 速率 （pps） | 说明       | 性能    |
+|--------------|----------|----------|-------|
+| RIO(DEFAULT) | 20438.3  | 稳定在20000 | 100 % |
+| EVIO         | 18568.5  | 稳定在18000 | 91 %  |
+| GNET         | 17832.6  | 稳定在17000 | 87 %  |
+| NET(STD)     | 14937.1  | 稳定在14000 | 73 %  |
 
 <details>
 <summary>详细结果</summary>
@@ -39,26 +40,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     265.5 MiB (278387192 bytes)
-Total data received: 264.1 MiB (276937819 bytes)
-Bandwidth per channel: 8.879⇅ Mbps (1109.8 kBps)
-Aggregate bandwidth: 221.386↓, 222.544↑ Mbps
-Packet rate estimate: 25033.5↓, 19456.6↑ (3↓, 31↑ TCP MSS/op)
-Test duration: 10.0074 s.
-```
-
-```text
------- GNET ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     185.6 MiB (194641920 bytes)
-Total data received: 183.8 MiB (192732708 bytes)
-Bandwidth per channel: 6.074⇅ Mbps (759.3 kBps)
-Aggregate bandwidth: 154.127↓, 155.654↑ Mbps
-Packet rate estimate: 18635.1↓, 13607.3↑ (3↓, 45↑ TCP MSS/op)
-Test duration: 10.0038 s.
+Total data sent:     193.9 MiB (203302768 bytes)
+Total data received: 192.3 MiB (201660064 bytes)
+Bandwidth per channel: 6.476⇅ Mbps (809.5 kBps)
+Aggregate bandwidth: 161.249↓, 162.563↑ Mbps
+Packet rate estimate: 20438.3↓, 14234.6↑ (3↓, 36↑ TCP MSS/op)
+Test duration: 10.0049 s.
 ```
 
 ```text
@@ -67,13 +54,29 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     183.4 MiB (192282624 bytes)
-Total data received: 181.9 MiB (190755004 bytes)
-Bandwidth per channel: 6.123⇅ Mbps (765.3 kBps)
-Aggregate bandwidth: 152.457↓, 153.678↑ Mbps
-Packet rate estimate: 19344.9↓, 13442.1↑ (3↓, 45↑ TCP MSS/op)
-Test duration: 10.0096 s.
+Total data sent:     177.4 MiB (185991168 bytes)
+Total data received: 176.0 MiB (184593536 bytes)
+Bandwidth per channel: 5.925⇅ Mbps (740.6 kBps)
+Aggregate bandwidth: 147.555↓, 148.673↑ Mbps
+Packet rate estimate: 18568.5↓, 12776.1↑ (3↓, 44↑ TCP MSS/op)
+Test duration: 10.0081 s.
 ```
+
+```text
+------ GNET ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     176.8 MiB (185401344 bytes)
+Total data received: 175.4 MiB (183927028 bytes)
+Bandwidth per channel: 5.908⇅ Mbps (738.4 kBps)
+Aggregate bandwidth: 147.099↓, 148.278↑ Mbps
+Packet rate estimate: 17832.6↓, 12716.7↑ (3↓, 44↑ TCP MSS/op)
+Test duration: 10.0029 s.
+```
+
+
 
 ```text
 ------ NET ------
@@ -87,6 +90,60 @@ Bandwidth per channel: 6.623⇅ Mbps (827.9 kBps)
 Aggregate bandwidth: 164.859↓, 166.282↑ Mbps
 Packet rate estimate: 14937.1↓, 14506.0↑ (2↓, 45↑ TCP MSS/op)
 Test duration: 10.0045 s.
+```
+</details>
+
+
+### 设置方案
+
+`DEFAULT` VS `PERFORMANCE`
+
+```shell
+tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.1:9000
+```
+
+| 端   | 平台   | IP            | OS                                             | 规格     |
+|-----|------|---------------|------------------------------------------------|--------|
+| 客户端 | WSL2 | 192.168.100.1 | Ubuntu22.04 （6.6.36.6-microsoft-standard-WSL2） | 4C 16G |
+| 服务端 | WSL2 | 192.168.100.1 | Ubuntu22.04 （6.6.36.6-microsoft-standard-WSL2） | 4C 16G |
+
+
+<img src="benchmark/schema.png" width="336" height="144" border="0" alt="http benchmark">
+
+| 设置方案        | 速率 （pps） | 说明        | 性能    |
+|-------------|----------|-----------|-------|
+| PERFORMANCE | 452421.4 | 稳定在450000 | 100 % |
+| DEFAULT     | 331318.0 | 稳定在330000 | 73 %  |
+
+<details>
+<summary>详细结果</summary>
+
+```text
+------ PERFORMANCE ------
+Destination: [192.168.100.1]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.1]:9000
+Ramped up to 50 connections.
+Total data sent:     5717.3 MiB (5995036672 bytes)
+Total data received: 5715.7 MiB (5993316356 bytes)
+Bandwidth per channel: 191.714⇅ Mbps (23964.3 kBps)
+Aggregate bandwidth: 4792.163↓, 4793.539↑ Mbps
+Packet rate estimate: 452421.4↓, 411432.7↑ (3↓, 45↑ TCP MSS/op)
+Test duration: 10.0052 s.
+```
+
+```text
+------ DEFAULT ------
+Destination: [192.168.100.1]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.1]:9000
+Ramped up to 50 connections.
+Total data sent:     4185.1 MiB (4388421632 bytes)
+Total data received: 4184.3 MiB (4387593946 bytes)
+Bandwidth per channel: 140.414⇅ Mbps (17551.7 kBps)
+Aggregate bandwidth: 3510.010↓, 3510.672↑ Mbps
+Packet rate estimate: 331318.0↓, 301323.4↑ (3↓, 45↑ TCP MSS/op)
+Test duration: 10.0002 s.
 ```
 </details>
 
@@ -218,7 +275,7 @@ frw.ReleaseRegisteredBuffer(buf)
 | IOURING_SETUP_FLAGS        | 文本 | 标识，如`IORING_SETUP_SQPOLL, IORING_SETUP_SUBMIT_ALL`等。 |
 | IOURING_SETUP_FLAGS_SCHEMA | 文本 | 标识方案，`DEFAULT` 或 `PERFORMANCE`。                      |
 | IOURING_SQ_THREAD_CPU      | 数字 | 设置环锁亲和的CPUID。                                        |
-| IOURING_SQ_THREAD_IDLE     | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 1 毫秒。   |
+| IOURING_SQ_THREAD_IDLE     | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 15 秒。   |
 | IOURING_PREPARE_BATCH_SIZE | 数字 | 准备 SQE 的缓冲大小，默认为 SQ 的大小。                             |
 | IOURING_USE_CPU_AFFILIATE  | 布尔 | 是否使用 CPU AFFILIATE。                                  |
 | IOURING_CURVE_TRANSMISSION | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:2us`。                       |
@@ -228,7 +285,7 @@ frw.ReleaseRegisteredBuffer(buf)
 * `IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本。
 * `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行调试。
 * `IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `IOURING_SETUP_FLAGS` 。
-* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SINGLE_ISSUER` 的组合。
+* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SINGLE_ISSUER` 的组合，所以非常吃配置。
 * `DEFAULT` 为 `0`。
 
 
