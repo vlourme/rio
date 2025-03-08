@@ -226,7 +226,7 @@ frw.ReleaseRegisteredBuffer(buf)
 
 注意事项：
 * `IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本。
-* `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行测试。
+* `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行调试。
 * `IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `IOURING_SETUP_FLAGS` 。
 * `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SUBMIT_ALL` `IORING_SETUP_SINGLE_ISSUER` 的组合。
 * `DEFAULT` 为 `IORING_SETUP_SUBMIT_ALL`。
