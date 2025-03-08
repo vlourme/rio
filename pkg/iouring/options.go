@@ -44,6 +44,7 @@ func WithSQThreadIdle(n uint32) Option {
 func WithSQThreadCPU(cpuId uint32) Option {
 	return func(o *Options) error {
 		o.SQThreadCPU = cpuId
+		o.Flags |= SetupSQAff
 		return nil
 	}
 }
