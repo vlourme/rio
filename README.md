@@ -9,7 +9,7 @@ Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
 ## 性能
 
 使用 `tcpkali` 进行压力测试，
-[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/tcpkali) 。
+[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
 
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
