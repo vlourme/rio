@@ -59,6 +59,15 @@ const (
 	OpUringCmd
 	OpSendZC
 	OpSendMsgZC
+	OpReadMultishot
+	OpWaitId
+	OpFutexWait
+	OpFutexWake
+	OpFutexWaitv
+	OPFixedFdInstall
+	OpFtuncate
+	OpBind
+	OpListen
 	OpLast
 )
 
