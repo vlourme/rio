@@ -275,6 +275,14 @@ type Ring struct {
 	pad2        uint32
 }
 
+func (ring *Ring) Flags() uint32 {
+	return ring.flags
+}
+
+func (ring *Ring) Features() uint32 {
+	return ring.features
+}
+
 func (ring *Ring) Close() (err error) {
 	sq := ring.sqRing
 	cq := ring.cqRing

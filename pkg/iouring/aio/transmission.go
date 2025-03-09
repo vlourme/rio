@@ -7,7 +7,8 @@ import (
 )
 
 type Transmission interface {
-	Match(n uint32) syscall.Timespec
+	Up() (uint32, syscall.Timespec)
+	Down() (uint32, syscall.Timespec)
 }
 
 type Curve []struct {
@@ -15,21 +16,17 @@ type Curve []struct {
 	Timeout time.Duration
 }
 
+const (
+	defaultWaitTimeout = 1 * time.Microsecond
+)
+
 var (
 	defaultCurve = Curve{
-		{1, 500 * time.Nanosecond},
+		{4, 500 * time.Nanosecond},
 		{8, 1 * time.Microsecond},
-		{32, 2 * time.Microsecond},
-		{64, 4 * time.Microsecond},
-		{96, 8 * time.Microsecond},
-		{128, 12 * time.Microsecond},
-		{256, 16 * time.Microsecond},
-		{512, 32 * time.Microsecond},
-		{1024, 64 * time.Microsecond},
-		{2048, 128 * time.Microsecond},
-		{4096, 256 * time.Microsecond},
-		{8192, 512 * time.Microsecond},
-		{10240, 1000 * time.Microsecond},
+		{16, 500 * time.Microsecond},
+		{32, 1 * time.Millisecond},
+		{64, 2 * time.Millisecond},
 	}
 )
 
@@ -48,12 +45,12 @@ func NewCurveTransmission(curve Curve) Transmission {
 			timeout = defaultWaitTimeout
 		}
 		times[i] = WaitNTime{
-			N:    n,
+			n:    n,
 			time: syscall.NsecToTimespec(timeout.Nanoseconds()),
 		}
 	}
 	sort.Slice(times, func(i, j int) bool {
-		return times[i].N < times[j].N
+		return times[i].n < times[j].n
 	})
 	return &CurveTransmission{
 		curve: times,
@@ -62,23 +59,28 @@ func NewCurveTransmission(curve Curve) Transmission {
 }
 
 type WaitNTime struct {
-	N    uint32
+	n    uint32
 	time syscall.Timespec
 }
 
 type CurveTransmission struct {
 	curve []WaitNTime
 	size  int
+	idx   int
 }
 
-func (tran *CurveTransmission) Match(n uint32) syscall.Timespec {
-	for i := 0; i < tran.size; i++ {
-		p := tran.curve[i]
-		if p.N >= n {
-			p = tran.curve[i]
-			return p.time
-		}
+func (tran *CurveTransmission) Up() (uint32, syscall.Timespec) {
+	if tran.idx == tran.size-1 {
+		return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 	}
-	p := tran.curve[tran.size-1]
-	return p.time
+	tran.idx++
+	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
+}
+
+func (tran *CurveTransmission) Down() (uint32, syscall.Timespec) {
+	if tran.idx == 0 {
+		return tran.curve[0].n, tran.curve[0].time
+	}
+	tran.idx--
+	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 }

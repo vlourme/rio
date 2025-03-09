@@ -2,6 +2,7 @@ package aio
 
 import (
 	"strings"
+	"time"
 )
 
 type Options struct {
@@ -9,10 +10,13 @@ type Options struct {
 	Flags                    uint32
 	SQThreadCPU              uint32
 	SQThreadIdle             uint32
-	PrepareBatchSize         uint32
 	UseCPUAffinity           bool
+	SQAffinityCPU            uint32
+	CQAffinityCPU            uint32
 	RegisterFixedBufferSize  uint32
 	RegisterFixedBufferCount uint32
+	PrepareBatchSize         uint32
+	PrepareIdleTime          time.Duration
 	WaitTransmission         Transmission
 }
 
@@ -30,9 +34,27 @@ func WithPrepareBatchSize(size uint32) Option {
 	}
 }
 
-func WithUseCPUAffinity(use bool) Option {
+const (
+	defaultPrepareIdleTime = 500 * time.Nanosecond
+)
+
+func WithPrepareIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
-		opts.UseCPUAffinity = use
+		if d < 1 {
+			d = defaultPrepareIdleTime
+		}
+		opts.PrepareIdleTime = d
+	}
+}
+
+func WithAffinityCPU(sqCPU int, cqCPU int) Option {
+	return func(opts *Options) {
+		if sqCPU < 0 || cqCPU < 0 {
+			return
+		}
+		opts.UseCPUAffinity = true
+		opts.SQAffinityCPU = uint32(sqCPU)
+		opts.CQAffinityCPU = uint32(cqCPU)
 	}
 }
 
@@ -70,7 +92,7 @@ func WithWaitTransmission(transmission Transmission) Option {
 	}
 }
 
-func WithCurveWaitTransmission(curve Curve) Option {
+func WithCQEWaitTimeCurve(curve Curve) Option {
 	return func(opts *Options) {
 		opts.WaitTransmission = NewCurveTransmission(curve)
 	}

@@ -59,8 +59,9 @@ const (
 	envSQThreadCPU          = "IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle         = "IOURING_SQ_THREAD_IDLE"
 	envPrepareBatchSize     = "IOURING_PREPARE_BATCH_SIZE"
+	envPrepareIdleTime      = "IOURING_PREPARE_IDLE_TIME"
 	envUseCPUAffinity       = "IOURING_USE_CPU_AFFILIATE"
-	envCurveTransmission    = "IOURING_CURVE_TRANSMISSION"
+	envCQEWaitTimeCurve     = "IOURING_CQE_WAIT_TIME_CURVE"
 	envRegisterFixedBuffers = "IOURING_REG_BUFFERS"
 )
 
@@ -84,8 +85,11 @@ func pollInit() (err error) {
 		prepareBatchSize := loadEnvPrepareBatchSize()
 		pollOptions = append(pollOptions, WithPrepareBatchSize(prepareBatchSize))
 
-		useCPUAffinity := loadEnvUseCPUAffinity()
-		pollOptions = append(pollOptions, WithUseCPUAffinity(useCPUAffinity))
+		prepareIdleTime := loadEnvPrepareIdleTime()
+		pollOptions = append(pollOptions, WithPrepareIdleTime(prepareIdleTime))
+
+		sc, cc := loadEnvUseCPUAffinity()
+		pollOptions = append(pollOptions, WithAffinityCPU(sc, cc))
 
 		curveTransmission := loadEnvCurveTransmission()
 		if len(curveTransmission) > 0 {
@@ -173,14 +177,50 @@ func loadEnvPrepareBatchSize() uint32 {
 	return uint32(u)
 }
 
-func loadEnvUseCPUAffinity() bool {
+func loadEnvPrepareIdleTime() time.Duration {
+	s, has := os.LookupEnv(envPrepareIdleTime)
+	if !has {
+		return 0
+	}
+	d, parseErr := time.ParseDuration(strings.TrimSpace(s))
+	if parseErr != nil {
+		return 0
+	}
+	return d
+}
+
+func loadEnvUseCPUAffinity() (int, int) {
 	s, has := os.LookupEnv(envUseCPUAffinity)
 	if !has {
-		return false
+		return -1, -1
 	}
-	s = strings.TrimSpace(s)
-	s = strings.ToLower(s)
-	return s == "true" || s == "1"
+	idx := strings.Index(s, ",")
+	if idx == -1 {
+		return -1, -1
+	}
+	sqs := strings.TrimSpace(s[:idx])
+	sqi := strings.Index(sqs, ":")
+	if sqi == -1 {
+		return -1, -1
+	}
+	sq := strings.TrimSpace(sqs[sqi+1:])
+	sc, scErr := strconv.Atoi(sq)
+	if scErr != nil {
+		return -1, -1
+	}
+
+	cqs := strings.TrimSpace(s[idx+1:])
+	cqi := strings.Index(cqs, ":")
+	if cqi == -1 {
+		return -1, -1
+	}
+	cq := strings.TrimSpace(cqs[cqi+1:])
+	cc, ccErr := strconv.Atoi(cq)
+	if ccErr != nil {
+		return -1, -1
+	}
+
+	return sc, cc
 }
 
 func loadEnvRegFixedBuffers() (size uint32, count uint32) {
@@ -210,7 +250,7 @@ func loadEnvRegFixedBuffers() (size uint32, count uint32) {
 }
 
 func loadEnvCurveTransmission() Curve {
-	s, has := os.LookupEnv(envCurveTransmission)
+	s, has := os.LookupEnv(envCQEWaitTimeCurve)
 	if !has {
 		return nil
 	}

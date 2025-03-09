@@ -75,7 +75,11 @@ func (q *Queue[E]) PeekBatch(entries []*E) (n uint32) {
 	if size == 0 {
 		return
 	}
-	if entriesLen := q.Length(); entriesLen < size {
+	entriesLen := q.Length()
+	if entriesLen == 0 {
+		return
+	}
+	if entriesLen < size {
 		size = entriesLen
 	}
 	head := q.head.Load()
