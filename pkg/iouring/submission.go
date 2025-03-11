@@ -68,6 +68,10 @@ const (
 	OpFtuncate
 	OpBind
 	OpListen
+	OpRecvZC
+	OpEpollWait
+	OpReadvFixed
+	OpWritevFixed
 	OpLast
 )
 
