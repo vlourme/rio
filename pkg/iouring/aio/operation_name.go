@@ -104,6 +104,32 @@ func (op *Operation) Name() string {
 		return "sendzc"
 	case iouring.OpSendMsgZC:
 		return "sendmsgzc"
+	case iouring.OpReadMultishot:
+		return "read_multishot"
+	case iouring.OpWaitId:
+		return "wait_id"
+	case iouring.OpFutexWait:
+		return "futex_wait"
+	case iouring.OpFutexWake:
+		return "futex_wake"
+	case iouring.OpFutexWaitv:
+		return "futex_waitv"
+	case iouring.OPFixedFdInstall:
+		return "fixed_fd_install"
+	case iouring.OpFtuncate:
+		return "ftuncate"
+	case iouring.OpBind:
+		return "bind"
+	case iouring.OpListen:
+		return "listen"
+	case iouring.OpRecvZC:
+		return "recvzc"
+	case iouring.OpEpollWait:
+		return "epollwait"
+	case iouring.OpReadvFixed:
+		return "readv_fixed"
+	case iouring.OpWritevFixed:
+		return "writev_fixed"
 	default:
 		return "unknown"
 	}
