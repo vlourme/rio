@@ -4,7 +4,7 @@
 
 支持协议：`TCP`、`UDP`、`UNIX`、`UNIXGRAM`（`IP`为代理标准库）。
 
-Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.1`。
+Linux 内核版本需要`>= 5.14`，推荐版本为`>= 6.6`。
 
 ## 性能
 ### 对比测试
@@ -24,30 +24,15 @@ tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 
 <img src="benchmark/bench_echo.png" width="336" height="144" border="0" alt="http benchmark">
 
-| 种类               | 速率 （pps） | 说明       | 性能    |
-|------------------|----------|----------|-------|
-| RIO(PERFORMANCE) | 42126.6  | 稳定在40000 | 100 % |
-| RIO(DEFAULT)     | 35599.0  | 稳定在35000 | 85 %  |
-| EVIO             | 18568.5  | 稳定在18000 | 44 %  |
-| GNET             | 17832.6  | 稳定在17000 | 43 %  |
-| NET              | 14937.1  | 稳定在14000 | 35 %  |
+| 种类           | 速率 （pps） | 说明       | 性能    |
+|--------------|----------|----------|-------|
+| RIO(DEFAULT) | 35599.0  | 稳定在35000 | 100 % |
+| EVIO         | 18568.5  | 稳定在18000 | 52 %  |
+| GNET         | 17832.6  | 稳定在17000 | 50 %  |
+| NET          | 14937.1  | 稳定在14000 | 42 %  |
 
 <details>
 <summary>详细结果</summary>
-
-```text
------- RIO(PERFORMANCE) ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     416.2 MiB (436411168 bytes)
-Total data received: 414.1 MiB (434172878 bytes)
-Bandwidth per channel: 13.915⇅ Mbps (1739.4 kBps)
-Aggregate bandwidth: 346.990↓, 348.779↑ Mbps
-Packet rate estimate: 42126.6↓, 30867.4↑ (3↓, 26↑ TCP MSS/op)
-Test duration: 10.01 s.
-```
 
 ```text
 ------ RIO(DEFAULT) ------
