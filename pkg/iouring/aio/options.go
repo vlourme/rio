@@ -10,14 +10,14 @@ type Options struct {
 	Flags                    uint32
 	SQThreadCPU              uint32
 	SQThreadIdle             uint32
-	UseCPUAffinity           bool
-	SQAffinityCPU            uint32
-	CQAffinityCPU            uint32
 	RegisterFixedBufferSize  uint32
 	RegisterFixedBufferCount uint32
-	PrepareBatchSize         uint32
-	PrepareIdleTime          time.Duration
-	WaitTransmission         Transmission
+	PrepareSQBatchSize       uint32
+	PrepareSQAffinityCPU     uint32
+	PrepareSQIdleTime        time.Duration
+	WaitCQBatchSize          uint32
+	WaitCQAffinityCPU        uint32
+	WaitCQTransmission       Transmission
 }
 
 type Option func(*Options)
@@ -28,33 +28,28 @@ func WithEntries(entries int) Option {
 	}
 }
 
-func WithPrepareBatchSize(size uint32) Option {
+func WithPrepareSQBatchSize(size uint32) Option {
 	return func(opts *Options) {
-		opts.PrepareBatchSize = size
+		opts.PrepareSQBatchSize = size
 	}
 }
 
 const (
-	defaultPrepareIdleTime = 500 * time.Nanosecond
+	defaultPrepareSQIdleTime = 500 * time.Nanosecond
 )
 
-func WithPrepareIdleTime(d time.Duration) Option {
+func WithPrepareSQIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
 		if d < 1 {
-			d = defaultPrepareIdleTime
+			d = defaultPrepareSQIdleTime
 		}
-		opts.PrepareIdleTime = d
+		opts.PrepareSQIdleTime = d
 	}
 }
 
-func WithAffinityCPU(sqCPU int, cqCPU int) Option {
+func WithPrepareSQAffinityCPU(cpuId uint32) Option {
 	return func(opts *Options) {
-		if sqCPU < 0 || cqCPU < 0 {
-			return
-		}
-		opts.UseCPUAffinity = true
-		opts.SQAffinityCPU = uint32(sqCPU)
-		opts.CQAffinityCPU = uint32(cqCPU)
+		opts.PrepareSQAffinityCPU = cpuId
 	}
 }
 
@@ -76,6 +71,30 @@ func WithSQThreadIdle(idle uint32) Option {
 	}
 }
 
+func WithWaitCQBatchSize(size uint32) Option {
+	return func(opts *Options) {
+		opts.WaitCQBatchSize = size
+	}
+}
+
+func WithWaitCQAffinityCPU(cpuId uint32) Option {
+	return func(opts *Options) {
+		opts.WaitCQAffinityCPU = cpuId
+	}
+}
+
+func WithWaitCQTransmission(transmission Transmission) Option {
+	return func(opts *Options) {
+		opts.WaitCQTransmission = transmission
+	}
+}
+
+func WithWaitCQTimeCurve(curve Curve) Option {
+	return func(opts *Options) {
+		opts.WaitCQTransmission = NewCurveTransmission(curve)
+	}
+}
+
 func WithRegisterFixedBuffer(size uint32, count uint32) Option {
 	return func(opts *Options) {
 		if size == 0 || count == 0 {
@@ -83,18 +102,6 @@ func WithRegisterFixedBuffer(size uint32, count uint32) Option {
 		}
 		opts.RegisterFixedBufferSize = size
 		opts.RegisterFixedBufferCount = count
-	}
-}
-
-func WithWaitTransmission(transmission Transmission) Option {
-	return func(opts *Options) {
-		opts.WaitTransmission = transmission
-	}
-}
-
-func WithCQEWaitTimeCurve(curve Curve) Option {
-	return func(opts *Options) {
-		opts.WaitTransmission = NewCurveTransmission(curve)
 	}
 }
 

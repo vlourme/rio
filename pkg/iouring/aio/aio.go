@@ -58,10 +58,12 @@ const (
 	envFlagsSchema          = "IOURING_SETUP_FLAGS_SCHEMA"
 	envSQThreadCPU          = "IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle         = "IOURING_SQ_THREAD_IDLE"
-	envPrepareBatchSize     = "IOURING_PREPARE_BATCH_SIZE"
-	envPrepareIdleTime      = "IOURING_PREPARE_IDLE_TIME"
-	envUseCPUAffinity       = "IOURING_USE_CPU_AFFILIATE"
-	envCQEWaitTimeCurve     = "IOURING_CQE_WAIT_TIME_CURVE"
+	envPrepareSQBatchSize   = "IOURING_PREP_SQ_BATCH_SIZE"
+	envPrepareSQIdleTime    = "IOURING_PREP_SQ_IDLE_TIME"
+	envPrepareSQAffinityCPU = "IOURING_PREP_SQ_AFFINITY_CPU"
+	envWaitCQBatchSize      = "IOURING_WAIT_CQ_BATCH_SIZE"
+	envWaitCQAffinityCPU    = "IOURING_WAIT_CQ_AFFINITY_CPU"
+	envWaitCQTimeCurve      = "IOURING_WAIT_CQ_TIME_CURVE"
 	envRegisterFixedBuffers = "IOURING_REG_BUFFERS"
 )
 
@@ -82,19 +84,24 @@ func pollInit() (err error) {
 		bufs, bufc := loadEnvRegFixedBuffers()
 		pollOptions = append(pollOptions, WithRegisterFixedBuffer(bufs, bufc))
 
-		prepareBatchSize := loadEnvPrepareBatchSize()
-		pollOptions = append(pollOptions, WithPrepareBatchSize(prepareBatchSize))
+		prepareBatchSize := loadEnvPrepareSQBatchSize()
+		pollOptions = append(pollOptions, WithPrepareSQBatchSize(prepareBatchSize))
 
-		prepareIdleTime := loadEnvPrepareIdleTime()
-		pollOptions = append(pollOptions, WithPrepareIdleTime(prepareIdleTime))
+		prepareIdleTime := loadEnvPrepareSQIdleTime()
+		pollOptions = append(pollOptions, WithPrepareSQIdleTime(prepareIdleTime))
 
-		sc, cc := loadEnvUseCPUAffinity()
-		pollOptions = append(pollOptions, WithAffinityCPU(sc, cc))
+		prepareSQAffinityCPU := loadEnvPrepareSQAffinityCPU()
+		pollOptions = append(pollOptions, WithPrepareSQAffinityCPU(prepareSQAffinityCPU))
 
-		curveTransmission := loadEnvCurveTransmission()
-		if len(curveTransmission) > 0 {
-			pollOptions = append(pollOptions, WithWaitTransmission(NewCurveTransmission(curveTransmission)))
-		}
+		waitCQBatchSize := loadEnvWaitCQBatchSize()
+		pollOptions = append(pollOptions, WithWaitCQBatchSize(waitCQBatchSize))
+
+		waitCQAffinityCPU := loadEnvWaitCQAffinityCPU()
+		pollOptions = append(pollOptions, WithWaitCQAffinityCPU(waitCQAffinityCPU))
+
+		curve := loadEnvWaitCQTimeCurve()
+		pollOptions = append(pollOptions, WithWaitCQTimeCurve(curve))
+
 	}
 
 	poll, err = New(pollOptions...)
@@ -165,8 +172,8 @@ func loadEnvSQThreadIdle() uint32 {
 	return uint32(u)
 }
 
-func loadEnvPrepareBatchSize() uint32 {
-	s, has := os.LookupEnv(envPrepareBatchSize)
+func loadEnvPrepareSQBatchSize() uint32 {
+	s, has := os.LookupEnv(envPrepareSQBatchSize)
 	if !has {
 		return 0
 	}
@@ -177,8 +184,8 @@ func loadEnvPrepareBatchSize() uint32 {
 	return uint32(u)
 }
 
-func loadEnvPrepareIdleTime() time.Duration {
-	s, has := os.LookupEnv(envPrepareIdleTime)
+func loadEnvPrepareSQIdleTime() time.Duration {
+	s, has := os.LookupEnv(envPrepareSQIdleTime)
 	if !has {
 		return 0
 	}
@@ -189,68 +196,44 @@ func loadEnvPrepareIdleTime() time.Duration {
 	return d
 }
 
-func loadEnvUseCPUAffinity() (int, int) {
-	s, has := os.LookupEnv(envUseCPUAffinity)
+func loadEnvPrepareSQAffinityCPU() uint32 {
+	s, has := os.LookupEnv(envPrepareSQAffinityCPU)
 	if !has {
-		return -1, -1
+		return 0
 	}
-	idx := strings.Index(s, ",")
-	if idx == -1 {
-		return -1, -1
+	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if parseErr != nil {
+		return 0
 	}
-	sqs := strings.TrimSpace(s[:idx])
-	sqi := strings.Index(sqs, ":")
-	if sqi == -1 {
-		return -1, -1
-	}
-	sq := strings.TrimSpace(sqs[sqi+1:])
-	sc, scErr := strconv.Atoi(sq)
-	if scErr != nil {
-		return -1, -1
-	}
-
-	cqs := strings.TrimSpace(s[idx+1:])
-	cqi := strings.Index(cqs, ":")
-	if cqi == -1 {
-		return -1, -1
-	}
-	cq := strings.TrimSpace(cqs[cqi+1:])
-	cc, ccErr := strconv.Atoi(cq)
-	if ccErr != nil {
-		return -1, -1
-	}
-
-	return sc, cc
+	return uint32(u)
 }
 
-func loadEnvRegFixedBuffers() (size uint32, count uint32) {
-	s, has := os.LookupEnv(envRegisterFixedBuffers)
+func loadEnvWaitCQBatchSize() uint32 {
+	s, has := os.LookupEnv(envWaitCQBatchSize)
 	if !has {
-		return
+		return 0
 	}
-	idx := strings.IndexByte(s, ',')
-	if idx < 1 {
-		return
+	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if parseErr != nil {
+		return 0
 	}
-	ss := strings.TrimSpace(s[:idx])
-	us, parseSizeErr := strconv.ParseUint(ss, 10, 32)
-	if parseSizeErr != nil {
-		return
-	}
-
-	cs := strings.TrimSpace(s[idx+1:])
-	uc, parseCountErr := strconv.ParseUint(cs, 10, 32)
-	if parseCountErr != nil {
-		return
-	}
-
-	size = uint32(us)
-	count = uint32(uc)
-	return
+	return uint32(u)
 }
 
-func loadEnvCurveTransmission() Curve {
-	s, has := os.LookupEnv(envCQEWaitTimeCurve)
+func loadEnvWaitCQAffinityCPU() uint32 {
+	s, has := os.LookupEnv(envWaitCQAffinityCPU)
+	if !has {
+		return 0
+	}
+	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if parseErr != nil {
+		return 0
+	}
+	return uint32(u)
+}
+
+func loadEnvWaitCQTimeCurve() Curve {
+	s, has := os.LookupEnv(envWaitCQTimeCurve)
 	if !has {
 		return nil
 	}
@@ -279,4 +262,30 @@ func loadEnvCurveTransmission() Curve {
 		}{N: uint32(n), Timeout: t})
 	}
 	return curve
+}
+
+func loadEnvRegFixedBuffers() (size uint32, count uint32) {
+	s, has := os.LookupEnv(envRegisterFixedBuffers)
+	if !has {
+		return
+	}
+	idx := strings.IndexByte(s, ',')
+	if idx < 1 {
+		return
+	}
+	ss := strings.TrimSpace(s[:idx])
+	us, parseSizeErr := strconv.ParseUint(ss, 10, 32)
+	if parseSizeErr != nil {
+		return
+	}
+
+	cs := strings.TrimSpace(s[idx+1:])
+	uc, parseCountErr := strconv.ParseUint(cs, 10, 32)
+	if parseCountErr != nil {
+		return
+	}
+
+	size = uint32(us)
+	count = uint32(uc)
+	return
 }
