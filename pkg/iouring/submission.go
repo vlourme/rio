@@ -186,6 +186,14 @@ func (entry *SubmissionQueueEntry) PrepareNop() {
 
 // [Net] ***************************************************************************************************************
 
+func (entry *SubmissionQueueEntry) PrepareBind(fd int, addr *syscall.RawSockaddrAny, addrLen uint64) {
+	entry.prepareRW(OpBind, fd, uintptr(unsafe.Pointer(addr)), 0, addrLen)
+}
+
+func (entry *SubmissionQueueEntry) PrepareListen(fd int, backlog uint32) {
+	entry.prepareRW(OpListen, fd, 0, backlog, 0)
+}
+
 func (entry *SubmissionQueueEntry) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32) {
 	entry.prepareRW(OpAccept, fd, uintptr(unsafe.Pointer(addr)), 0, addrLen)
 	entry.OpcodeFlags = flags
@@ -571,6 +579,12 @@ func (entry *SubmissionQueueEntry) PrepareSyncFileRange(fd int, length uint32, o
 }
 
 // [F] *****************************************************************************************************************
+
+func (entry *SubmissionQueueEntry) PrepareFixedFdInstall(fd int, flags uint32) {
+	entry.prepareRW(OPFixedFdInstall, fd, 0, 0, 0)
+	entry.Flags = SQEFixedFile
+	entry.OpcodeFlags = flags
+}
 
 func (entry *SubmissionQueueEntry) PrepareFadvise(fd int, offset uint64, length int, advise uint32) {
 	entry.prepareRW(OpFadvise, fd, 0, uint32(length), offset)
