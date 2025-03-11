@@ -7,8 +7,8 @@ import (
 )
 
 type Transmission interface {
-	Up() (uint32, syscall.Timespec)
-	Down() (uint32, syscall.Timespec)
+	Up() (uint32, *syscall.Timespec)
+	Down() (uint32, *syscall.Timespec)
 }
 
 type Curve []struct {
@@ -16,17 +16,13 @@ type Curve []struct {
 	Timeout time.Duration
 }
 
-const (
-	defaultWaitTimeout = 1 * time.Microsecond
-)
-
 var (
 	defaultCurve = Curve{
 		{4, 500 * time.Nanosecond},
 		{8, 1 * time.Microsecond},
-		{16, 500 * time.Microsecond},
-		{32, 1 * time.Millisecond},
-		{64, 2 * time.Millisecond},
+		{16, 50 * time.Microsecond},
+		{32, 500 * time.Microsecond},
+		{64, 1 * time.Millisecond},
 	}
 )
 
@@ -42,7 +38,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 		}
 		timeout := t.Timeout
 		if timeout < 1 {
-			timeout = defaultWaitTimeout
+			timeout = 1 * time.Millisecond
 		}
 		times[i] = WaitNTime{
 			n:    n,
@@ -55,6 +51,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 	return &CurveTransmission{
 		curve: times,
 		size:  len(curve),
+		idx:   -1,
 	}
 }
 
@@ -69,18 +66,18 @@ type CurveTransmission struct {
 	idx   int
 }
 
-func (tran *CurveTransmission) Up() (uint32, syscall.Timespec) {
+func (tran *CurveTransmission) Up() (uint32, *syscall.Timespec) {
 	if tran.idx == tran.size-1 {
-		return tran.curve[tran.idx].n, tran.curve[tran.idx].time
+		return tran.curve[tran.idx].n, &tran.curve[tran.idx].time
 	}
 	tran.idx++
-	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
+	return tran.curve[tran.idx].n, &tran.curve[tran.idx].time
 }
 
-func (tran *CurveTransmission) Down() (uint32, syscall.Timespec) {
+func (tran *CurveTransmission) Down() (uint32, *syscall.Timespec) {
 	if tran.idx == 0 {
-		return tran.curve[0].n, tran.curve[0].time
+		return tran.curve[0].n, &tran.curve[0].time
 	}
 	tran.idx--
-	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
+	return tran.curve[tran.idx].n, &tran.curve[tran.idx].time
 }
