@@ -2,6 +2,11 @@ package aio
 
 import "github.com/brickingsoft/rio/pkg/kernel"
 
+const (
+	minKernelVersionMajor = 5
+	minKernelVersionMinor = 1
+)
+
 func CheckSendZCEnable() bool {
 	ver, verErr := kernel.Get()
 	if verErr != nil {
@@ -34,23 +39,4 @@ func CheckSendMsdZCEnable() bool {
 		return false
 	}
 	return true
-}
-
-const (
-	minKernelVersionMajor = 5
-	minKernelVersionMinor = 1
-)
-
-func compareKernelVersion(aMajor, aMinor, bMajor, bMinor int) int {
-	if aMajor > bMajor {
-		return 1
-	} else if aMajor < bMajor {
-		return -1
-	}
-	if aMinor > bMinor {
-		return 1
-	} else if aMinor < bMinor {
-		return -1
-	}
-	return 0
 }

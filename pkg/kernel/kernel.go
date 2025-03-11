@@ -29,6 +29,20 @@ func Compare(a, b Version) int {
 	return 0
 }
 
+func CompareMajorAndMinor(aMajor, aMinor, bMajor, bMinor int) int {
+	if aMajor > bMajor {
+		return 1
+	} else if aMajor < bMajor {
+		return -1
+	}
+	if aMinor > bMinor {
+		return 1
+	} else if aMinor < bMinor {
+		return -1
+	}
+	return 0
+}
+
 func Check(k, major, minor int) (bool, error) {
 	var (
 		v   *Version
