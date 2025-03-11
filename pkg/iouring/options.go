@@ -9,10 +9,16 @@ type Options struct {
 	Flags        uint32
 	SQThreadCPU  uint32
 	SQThreadIdle uint32
+	WQFd         uint32
 	MemoryBuffer []byte
 }
 
 type Option func(*Options) error
+
+const (
+	MaxEntries     = 32768
+	DefaultEntries = MaxEntries / 2
+)
 
 func WithEntries(entries uint32) Option {
 	return func(o *Options) error {
@@ -27,6 +33,8 @@ func WithEntries(entries uint32) Option {
 	}
 }
 
+// WithFlags
+// see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
 func WithFlags(flags uint32) Option {
 	return func(o *Options) error {
 		o.Flags = flags
@@ -44,6 +52,17 @@ func WithSQThreadIdle(n uint32) Option {
 func WithSQThreadCPU(cpuId uint32) Option {
 	return func(o *Options) error {
 		o.SQThreadCPU = cpuId
+		return nil
+	}
+}
+
+func WithAttachWQFd(fd uint32) Option {
+	return func(o *Options) error {
+		if fd == 0 {
+			return errors.New("invalid wqfd")
+		}
+		o.WQFd = fd
+		o.Flags |= SetupAttachWQ
 		return nil
 	}
 }

@@ -19,19 +19,6 @@ const (
 	appMemRing    uint8 = 4
 )
 
-type Params struct {
-	sqEntries    uint32
-	cqEntries    uint32
-	flags        uint32
-	sqThreadCPU  uint32
-	sqThreadIdle uint32
-	features     uint32
-	wqFd         uint32
-	resv         [3]uint32
-	sqOff        SQRingOffsets
-	cqOff        CQRingOffsets
-}
-
 func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufSize uint64) error {
 	var fd int
 	var sqEntries, index uint32
