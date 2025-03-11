@@ -253,8 +253,4 @@ func (op *Operation) Flags() int {
 
 func (op *Operation) setResult(n int, err error) {
 	op.resultCh <- Result{n, err}
-	//op.result.Store(&Result{
-	//	N:   n,
-	//	Err: err,
-	//})
 }
