@@ -38,8 +38,8 @@ func NewSocket(family int, sotype int, protocol int) (sock int, err error) {
 		major = 0
 		minor = 0
 	)
-	version, _ := kernel.Get()
-	if version != nil {
+	version := kernel.Get()
+	if version.Validate() {
 		major, minor = version.Major, version.Minor
 	}
 	if major >= 4 && minor >= 14 {

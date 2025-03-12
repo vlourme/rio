@@ -98,8 +98,8 @@ func maxAckBacklog(n int) int {
 		major = 0
 		minor = 0
 	)
-	version, _ := kernel.Get()
-	if version != nil {
+	version := kernel.Get()
+	if version.Validate() {
 		major, minor = version.Major, version.Minor
 	}
 	size := 16

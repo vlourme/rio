@@ -1,59 +1,70 @@
 package kernel
 
+import "fmt"
+
 type Version struct {
-	Kernel int
-	Major  int
-	Minor  int
-	Flavor string
+	Major    int
+	Minor    int
+	Patch    int
+	Flavor   string
+	validate bool
 }
 
-func Compare(a, b Version) int {
-	if a.Kernel > b.Kernel {
-		return 1
-	} else if a.Kernel < b.Kernel {
-		return -1
-	}
-
-	if a.Major > b.Major {
-		return 1
-	} else if a.Major < b.Major {
-		return -1
-	}
-
-	if a.Minor > b.Minor {
-		return 1
-	} else if a.Minor < b.Minor {
-		return -1
-	}
-
-	return 0
+func (v Version) Validate() bool {
+	return v.validate
 }
 
-func CompareMajorAndMinor(aMajor, aMinor, bMajor, bMinor int) int {
-	if aMajor > bMajor {
+func (v Version) Invalidate() bool {
+	return !v.validate
+}
+
+func (v Version) Compare(o Version) int {
+	if v.Major > o.Major {
 		return 1
-	} else if aMajor < bMajor {
+	} else if v.Major < o.Major {
 		return -1
 	}
-	if aMinor > bMinor {
+
+	if v.Minor > o.Minor {
 		return 1
-	} else if aMinor < bMinor {
+	} else if v.Minor < o.Minor {
+		return -1
+	}
+
+	if v.Patch > o.Patch {
+		return 1
+	} else if v.Patch < o.Patch {
 		return -1
 	}
 	return 0
 }
 
-func Check(k, major, minor int) (bool, error) {
-	var (
-		v   *Version
-		err error
-	)
-	if v, err = Get(); err != nil {
-		return false, err
-	}
-	if Compare(*v, Version{Kernel: k, Major: major, Minor: minor}) < 0 {
-		return false, nil
-	}
+func (v Version) GTE(major, minor, patch int) bool {
+	return v.Compare(Version{Major: major, Minor: minor, Patch: patch}) >= 0
+}
 
-	return true, nil
+func (v Version) LT(major, minor, patch int) bool {
+	return v.Compare(Version{Major: major, Minor: minor, Patch: patch}) < 0
+}
+
+func (v Version) String() string {
+	return fmt.Sprintf("%d.%d.%d%s", v.Major, v.Minor, v.Patch, v.Flavor)
+}
+
+func Enable(major, minor, patch int) bool {
+	v := Get()
+	if v.Invalidate() {
+		return false
+	}
+	target := Version{
+		Major:    major,
+		Minor:    minor,
+		Patch:    patch,
+		Flavor:   "",
+		validate: true,
+	}
+	if v.Compare(target) <= 0 {
+		return false
+	}
+	return true
 }

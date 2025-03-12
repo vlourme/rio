@@ -2,8 +2,6 @@
 
 package kernel
 
-import "syscall"
-
-func Get() (*Version, error) {
-	return nil, syscall.EINVAL
+func Get() Version {
+	return Version{}
 }

@@ -48,8 +48,8 @@ func initMPTCPavailable() {
 		major = 0
 		minor = 0
 	)
-	version, _ := kernel.Get()
-	if version != nil {
+	version := kernel.Get()
+	if version.Validate() {
 		major, minor = version.Major, version.Minor
 	}
 	hasSOLMPTCP = major > 5 || (major == 5 && minor >= 16)
