@@ -58,13 +58,11 @@ const (
 	envFlagsSchema          = "IOURING_SETUP_FLAGS_SCHEMA"
 	envSQThreadCPU          = "IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle         = "IOURING_SQ_THREAD_IDLE"
-	envPrepareSQBatchSize   = "IOURING_PREP_SQ_BATCH_SIZE"
-	envPrepareSQIdleTime    = "IOURING_PREP_SQ_IDLE_TIME"
-	envPrepareSQAffinityCPU = "IOURING_PREP_SQ_AFFINITY_CPU"
-	envWaitCQBatchSize      = "IOURING_WAIT_CQ_BATCH_SIZE"
-	envWaitCQAffinityCPU    = "IOURING_WAIT_CQ_AFFINITY_CPU"
-	envWaitCQTimeCurve      = "IOURING_WAIT_CQ_TIME_CURVE"
-	envRegisterFixedBuffers = "IOURING_REG_BUFFERS"
+	envPrepSQEBatchSize     = "IOURING_PREP_SQE_BATCH_SIZE"
+	envPrepSQEIdleTime      = "IOURING_PREP_SQE_IDLE_TIME"
+	envWaitCQEBatchSize     = "IOURING_WAIT_CQE_BATCH_SIZE"
+	envWaitCQETimeCurve     = "IOURING_WAIT_CQE_TIME_CURVE"
+	envRegisterFixedBuffers = "IOURING_REG_FIXED_BUFFERS"
 )
 
 func pollInit() (err error) {
@@ -90,14 +88,8 @@ func pollInit() (err error) {
 		prepareIdleTime := loadEnvPrepareSQIdleTime()
 		pollOptions = append(pollOptions, WithPrepareSQIdleTime(prepareIdleTime))
 
-		prepareSQAffinityCPU := loadEnvPrepareSQAffinityCPU()
-		pollOptions = append(pollOptions, WithPrepareSQAffinityCPU(prepareSQAffinityCPU))
-
 		waitCQBatchSize := loadEnvWaitCQBatchSize()
 		pollOptions = append(pollOptions, WithWaitCQBatchSize(waitCQBatchSize))
-
-		waitCQAffinityCPU := loadEnvWaitCQAffinityCPU()
-		pollOptions = append(pollOptions, WithWaitCQAffinityCPU(waitCQAffinityCPU))
 
 		curve := loadEnvWaitCQTimeCurve()
 		pollOptions = append(pollOptions, WithWaitCQTimeCurve(curve))
@@ -173,7 +165,7 @@ func loadEnvSQThreadIdle() uint32 {
 }
 
 func loadEnvPrepareSQBatchSize() uint32 {
-	s, has := os.LookupEnv(envPrepareSQBatchSize)
+	s, has := os.LookupEnv(envPrepSQEBatchSize)
 	if !has {
 		return 0
 	}
@@ -185,7 +177,7 @@ func loadEnvPrepareSQBatchSize() uint32 {
 }
 
 func loadEnvPrepareSQIdleTime() time.Duration {
-	s, has := os.LookupEnv(envPrepareSQIdleTime)
+	s, has := os.LookupEnv(envPrepSQEIdleTime)
 	if !has {
 		return 0
 	}
@@ -196,32 +188,8 @@ func loadEnvPrepareSQIdleTime() time.Duration {
 	return d
 }
 
-func loadEnvPrepareSQAffinityCPU() uint32 {
-	s, has := os.LookupEnv(envPrepareSQAffinityCPU)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
 func loadEnvWaitCQBatchSize() uint32 {
-	s, has := os.LookupEnv(envWaitCQBatchSize)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
-func loadEnvWaitCQAffinityCPU() uint32 {
-	s, has := os.LookupEnv(envWaitCQAffinityCPU)
+	s, has := os.LookupEnv(envWaitCQEBatchSize)
 	if !has {
 		return 0
 	}
@@ -233,7 +201,7 @@ func loadEnvWaitCQAffinityCPU() uint32 {
 }
 
 func loadEnvWaitCQTimeCurve() Curve {
-	s, has := os.LookupEnv(envWaitCQTimeCurve)
+	s, has := os.LookupEnv(envWaitCQETimeCurve)
 	if !has {
 		return nil
 	}

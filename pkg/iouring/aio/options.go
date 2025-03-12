@@ -12,12 +12,10 @@ type Options struct {
 	SQThreadIdle             uint32
 	RegisterFixedBufferSize  uint32
 	RegisterFixedBufferCount uint32
-	PrepareSQBatchSize       uint32
-	PrepareSQAffinityCPU     uint32
-	PrepareSQIdleTime        time.Duration
-	WaitCQBatchSize          uint32
-	WaitCQAffinityCPU        uint32
-	WaitCQTransmission       Transmission
+	PrepSQEBatchSize         uint32
+	PrepSQEIdleTime          time.Duration
+	WaitCQEBatchSize         uint32
+	WaitCQETimeCurve         Curve
 }
 
 type Option func(*Options)
@@ -30,12 +28,12 @@ func WithEntries(entries int) Option {
 
 func WithPrepareSQBatchSize(size uint32) Option {
 	return func(opts *Options) {
-		opts.PrepareSQBatchSize = size
+		opts.PrepSQEBatchSize = size
 	}
 }
 
 const (
-	defaultPrepareSQIdleTime = 500 * time.Nanosecond
+	defaultPrepareSQIdleTime = 15 * time.Second
 )
 
 func WithPrepareSQIdleTime(d time.Duration) Option {
@@ -43,13 +41,7 @@ func WithPrepareSQIdleTime(d time.Duration) Option {
 		if d < 1 {
 			d = defaultPrepareSQIdleTime
 		}
-		opts.PrepareSQIdleTime = d
-	}
-}
-
-func WithPrepareSQAffinityCPU(cpuId uint32) Option {
-	return func(opts *Options) {
-		opts.PrepareSQAffinityCPU = cpuId
+		opts.PrepSQEIdleTime = d
 	}
 }
 
@@ -73,25 +65,13 @@ func WithSQThreadIdle(idle uint32) Option {
 
 func WithWaitCQBatchSize(size uint32) Option {
 	return func(opts *Options) {
-		opts.WaitCQBatchSize = size
-	}
-}
-
-func WithWaitCQAffinityCPU(cpuId uint32) Option {
-	return func(opts *Options) {
-		opts.WaitCQAffinityCPU = cpuId
-	}
-}
-
-func WithWaitCQTransmission(transmission Transmission) Option {
-	return func(opts *Options) {
-		opts.WaitCQTransmission = transmission
+		opts.WaitCQEBatchSize = size
 	}
 }
 
 func WithWaitCQTimeCurve(curve Curve) Option {
 	return func(opts *Options) {
-		opts.WaitCQTransmission = NewCurveTransmission(curve)
+		opts.WaitCQETimeCurve = curve
 	}
 }
 
