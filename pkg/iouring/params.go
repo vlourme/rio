@@ -2,7 +2,10 @@
 
 package iouring
 
-import "github.com/brickingsoft/rio/pkg/kernel"
+import (
+	"errors"
+	"github.com/brickingsoft/rio/pkg/kernel"
+)
 
 type Params struct {
 	sqEntries    uint32
@@ -18,11 +21,10 @@ type Params struct {
 }
 
 func (params *Params) Validate() error {
-	version, versionErr := kernel.Get()
-	if versionErr != nil {
-		return versionErr
+	version := kernel.Get()
+	if version.Invalidate() {
+		return errors.New("get kernel version failed")
 	}
-	major, minor := version.Major, version.Minor
 
 	flags := uint32(0)
 
@@ -30,7 +32,7 @@ func (params *Params) Validate() error {
 		flags |= SetupIOPoll
 	}
 	if params.flags&SetupSQPoll != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 13) > -1 {
+		if version.GTE(5, 13, 0) {
 			flags |= SetupSQPoll
 		}
 	}
@@ -60,57 +62,57 @@ func (params *Params) Validate() error {
 		}
 	}
 	if params.flags&SetupRDisabled != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 10) > -1 {
+		if version.GTE(5, 10, 0) {
 			flags |= SetupRDisabled
 		}
 	}
 	if params.flags&SetupSubmitAll != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 18) > -1 {
+		if version.GTE(5, 18, 0) {
 			flags |= SetupSubmitAll
 		}
 	}
 	if params.flags&SetupCoopTaskRun != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 19) > -1 {
+		if version.GTE(5, 19, 0) {
 			flags |= SetupCoopTaskRun
 		}
 	}
 	if params.flags&SetupTaskRunFlag != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 19) > -1 && flags&SetupCoopTaskRun != 0 {
+		if version.GTE(5, 19, 0) && flags&SetupCoopTaskRun != 0 {
 			flags |= SetupTaskRunFlag
 		}
 	}
 	if params.flags&SetupSQE128 != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 19) > -1 {
+		if version.GTE(5, 19, 0) {
 			flags |= SetupSQE128
 		}
 	}
 	if params.flags&SetupCQE32 != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 5, 19) > -1 {
+		if version.GTE(5, 19, 0) {
 			flags |= SetupCQE32
 		}
 	}
 	if params.flags&SetupSingleIssuer != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 6, 0) > -1 {
+		if version.GTE(6, 0, 0) {
 			flags |= SetupSingleIssuer
 		}
 	}
 	if params.flags&SetupDeferTaskRun != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 6, 1) > -1 && flags&SetupSingleIssuer != 0 {
+		if version.GTE(6, 1, 0) && flags&SetupSingleIssuer != 0 {
 			flags |= SetupDeferTaskRun
 		}
 	}
 	if params.flags&SetupNoMmap != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 6, 5) > -1 {
+		if version.GTE(6, 5, 0) {
 			flags |= SetupNoMmap
 		}
 	}
 	if params.flags&SetupRegisteredFdOnly != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 6, 5) > -1 && flags&SetupNoMmap != 0 {
+		if version.GTE(6, 5, 0) && flags&SetupNoMmap != 0 {
 			flags |= SetupRegisteredFdOnly
 		}
 	}
 	if params.flags&SetupNoSQArray != 0 {
-		if kernel.CompareMajorAndMinor(major, minor, 6, 6) > -1 {
+		if version.GTE(6, 6, 0) {
 			flags |= SetupNoSQArray
 		}
 	}
