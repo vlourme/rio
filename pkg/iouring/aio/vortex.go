@@ -7,9 +7,8 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
-	"github.com/brickingsoft/rio/pkg/process"
+	"github.com/brickingsoft/rio/pkg/semaphores"
 	"os"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -17,21 +16,13 @@ import (
 )
 
 func New(options ...Option) (v *Vortex, err error) {
-	ver, verErr := kernel.Get()
-	if verErr != nil {
+	version := kernel.Get()
+	if version.Invalidate() {
 		err = errors.New("get kernel version failed")
 		return
 	}
-
-	target := kernel.Version{
-		Kernel: ver.Kernel,
-		Major:  minKernelVersionMajor,
-		Minor:  minKernelVersionMinor,
-		Flavor: ver.Flavor,
-	}
-
-	if kernel.Compare(*ver, target) < 0 {
-		err = errors.New("kernel version too low")
+	if !version.GTE(5, 1, 0) {
+		err = errors.New("kernel version must greater than or equal to 5.1")
 		return
 	}
 
@@ -39,25 +30,15 @@ func New(options ...Option) (v *Vortex, err error) {
 	for _, option := range options {
 		option(&opt)
 	}
-	// default wait transmission
-	if opt.WaitCQTransmission == nil {
-		opt.WaitCQTransmission = NewCurveTransmission(defaultCurve)
+	// sq semaphores
+	prepareIdleTime := opt.PrepSQEIdleTime
+	if prepareIdleTime < 1 {
+		prepareIdleTime = defaultPrepareSQIdleTime
 	}
-	// affinity cpu
-	if opt.PrepareSQAffinityCPU == 0 && opt.WaitCQAffinityCPU == 0 {
-		opt.PrepareSQAffinityCPU = 0
-		opt.WaitCQAffinityCPU = 1
-	}
-	if opt.Flags&iouring.SetupSQAff != 0 {
-		if opt.SQThreadCPU == opt.PrepareSQAffinityCPU {
-			opt.PrepareSQAffinityCPU++
-		}
-		if opt.SQThreadCPU == opt.WaitCQAffinityCPU {
-			opt.WaitCQAffinityCPU++
-		}
-		if opt.PrepareSQAffinityCPU == opt.WaitCQAffinityCPU {
-			opt.WaitCQAffinityCPU++
-		}
+	sqSemaphores, sqSemaphoresErr := semaphores.New(prepareIdleTime)
+	if sqSemaphoresErr != nil {
+		err = sqSemaphoresErr
+		return
 	}
 
 	v = &Vortex{
@@ -70,6 +51,7 @@ func New(options ...Option) (v *Vortex, err error) {
 					kind:     iouring.OpLast,
 					borrowed: true,
 					resultCh: make(chan Result),
+					ringId:   -1,
 				}
 			},
 		},
@@ -78,23 +60,28 @@ func New(options ...Option) (v *Vortex, err error) {
 				return time.NewTimer(0)
 			},
 		},
-		running: atomic.Bool{},
-		wg:      sync.WaitGroup{},
-		buffers: NewQueue[FixedBuffer](),
+		running:      atomic.Bool{},
+		wg:           sync.WaitGroup{},
+		sqSemaphores: sqSemaphores,
+		buffers:      NewQueue[FixedBuffer](),
 	}
 	return
 }
 
 type Vortex struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
 	running    atomic.Bool
 	operations sync.Pool
 	timers     sync.Pool
-	wg         sync.WaitGroup
 	options    Options
-	ring       *iouring.Ring
-	queue      *Queue[Operation]
-	buffers    *Queue[FixedBuffer]
-	cancel     context.CancelFunc
+	rings      []*URing
+
+	wg           sync.WaitGroup
+	sqSemaphores *semaphores.Semaphores
+	ring         *iouring.Ring
+	queue        *Queue[Operation]
+	buffers      *Queue[FixedBuffer]
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -122,13 +109,14 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 
 func (vortex *Vortex) submit(op *Operation) {
 	vortex.queue.Enqueue(op)
+	vortex.sqSemaphores.Signal()
 }
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
 	if target.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) || target.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
 		op := &Operation{} // do not make ch cause no userdata
 		op.PrepareCancel(target)
-		vortex.queue.Enqueue(op)
+		vortex.submit(op)
 		ok = true
 		return
 	}
@@ -148,6 +136,15 @@ func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
 	}
 	buf.Reset()
 	vortex.buffers.Enqueue(buf)
+}
+
+func (vortex *Vortex) Done() <-chan struct{} {
+	if ctx := vortex.ctx; ctx != nil {
+		return ctx.Done()
+	}
+	ch := make(chan struct{})
+	close(ch)
+	return ch
 }
 
 func (vortex *Vortex) Shutdown() (err error) {
@@ -213,6 +210,7 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	vortex.ring = uring
 
 	cc, cancel := context.WithCancel(ctx)
+	vortex.ctx = cc
 	vortex.cancel = cancel
 
 	vortex.wg.Add(2)
@@ -226,86 +224,91 @@ func (vortex *Vortex) preparingSQE(ctx context.Context) {
 	defer vortex.wg.Done()
 
 	// lock os thread
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	//runtime.LockOSThread()
+	//defer runtime.UnlockOSThread()
 
 	// cpu affinity
-	_ = process.SetCPUAffinity(int(vortex.options.PrepareSQAffinityCPU))
+	//_ = process.SetCPUAffinity(int(vortex.options.PrepareSQEAffinityCPU))
 
 	ring := vortex.ring
 
 	queue := vortex.queue
-	stopped := false
+	shs := vortex.sqSemaphores
 	var (
 		peeked       uint32
 		prepared     uint32
 		needToSubmit int64
 	)
 
-	prepareBatch := vortex.options.PrepareSQBatchSize
+	prepareBatch := vortex.options.PrepSQEBatchSize
 	if prepareBatch < 1 {
 		prepareBatch = 1024
 	}
 	operations := make([]*Operation, prepareBatch)
-	prepareIdleTime := vortex.options.PrepareSQIdleTime
-	if prepareIdleTime < 1 {
-		prepareIdleTime = defaultPrepareSQIdleTime
-	}
 	for {
-		select {
-		case <-ctx.Done():
-			stopped = true
-			break
-		default:
-			if peeked = queue.PeekBatch(operations); peeked == 0 {
-				if needToSubmit > 0 {
-					submitted, _ := ring.Submit()
-					needToSubmit -= int64(submitted)
-				}
-				time.Sleep(prepareIdleTime)
-				break
+		if peeked = queue.PeekBatch(operations); peeked == 0 {
+			if needToSubmit > 0 {
+				submitted, _ := ring.Submit()
+				needToSubmit -= int64(submitted)
 			}
-			for i := uint32(0); i < peeked; i++ {
-				op := operations[i]
-				if op == nil {
+			if waitErr := shs.Wait(ctx); waitErr != nil {
+				if errors.Is(waitErr, context.Canceled) {
+					break
+				}
+			}
+			continue
+		}
+		for i := uint32(0); i < peeked; i++ {
+			op := operations[i]
+			if op == nil {
+				continue
+			}
+			operations[i] = nil
+			if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
+				if prepErr := vortex.prepareSQE(op); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
+					op.setResult(0, prepErr)
+					if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
+						break
+					}
+					prepared++ // prepareSQE nop whit out userdata, so prepared++
 					continue
 				}
-				operations[i] = nil
-				if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
-					if prepErr := vortex.prepareSQE(op); prepErr != nil {
-						if prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
-							op.setResult(0, prepErr)
-							if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
-								break
-							}
-							prepared++ // prepareSQE nop whit out userdata, so prepared++
-							continue
-						}
-					}
-					prepared++
-				}
+				prepared++
 			}
-			// submit
-			if prepared > 0 || needToSubmit > 0 {
-				submitted, _ := ring.Submit()
-				needToSubmit += int64(prepared) - int64(submitted)
-				vortex.queue.Advance(prepared)
-				prepared = 0
+		}
+		// submit
+		if prepared > 0 || needToSubmit > 0 {
+			submitted, _ := ring.Submit()
+			needToSubmit += int64(prepared) - int64(submitted)
+			vortex.queue.Advance(prepared)
+			prepared = 0
+		}
+	}
+	// evict
+	if remains := vortex.queue.Length(); remains > 0 {
+		peeked = vortex.queue.PeekBatch(operations)
+		for i := uint32(0); i < peeked; i++ {
+			op := operations[i]
+			operations[i] = nil
+			op.setResult(0, Uncompleted)
+		}
+	}
+	// prepare noop to wakeup cq waiter
+	for {
+		sqe := ring.GetSQE()
+		if sqe == nil {
+			time.Sleep(1 * time.Millisecond)
+			continue
+		}
+		sqe.PrepareNop()
+		for {
+			if _, subErr := ring.Submit(); subErr != nil {
+				time.Sleep(1 * time.Millisecond)
+				continue
 			}
 			break
 		}
-		if stopped {
-			// evict
-			if remains := vortex.queue.Length(); remains > 0 {
-				peeked = vortex.queue.PeekBatch(operations)
-				for i := uint32(0); i < peeked; i++ {
-					op := operations[i]
-					operations[i] = nil
-					op.setResult(0, Uncompleted)
-				}
-			}
-			break
-		}
+		break
 	}
 	return
 }
@@ -314,16 +317,16 @@ func (vortex *Vortex) waitingCQE(ctx context.Context) {
 	defer vortex.wg.Done()
 
 	// lock os thread
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	//runtime.LockOSThread()
+	//defer runtime.UnlockOSThread()
 
 	// cpu affinity
-	_ = process.SetCPUAffinity(int(vortex.options.WaitCQAffinityCPU))
+	//_ = process.SetCPUAffinity(int(vortex.options.WaitCQEAffinityCPU))
 
 	ring := vortex.ring
-	transmission := vortex.options.WaitCQTransmission
+	transmission := NewCurveTransmission(vortex.options.WaitCQETimeCurve)
 	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
-	waitCQBatchSize := vortex.options.WaitCQBatchSize
+	waitCQBatchSize := vortex.options.WaitCQEBatchSize
 	if waitCQBatchSize < 1 {
 		waitCQBatchSize = 1024
 	}
@@ -366,11 +369,7 @@ func (vortex *Vortex) waitingCQE(ctx context.Context) {
 				ring.CQAdvance(completed)
 			} else {
 				if _, waitErr := ring.WaitCQEs(cqeWaitMaxCount, cqeWaitTimeout, nil); waitErr != nil {
-					if errors.Is(waitErr, syscall.EAGAIN) || errors.Is(waitErr, syscall.EINTR) {
-						time.Sleep(time.Duration(cqeWaitTimeout.Nano()))
-					} else if errors.Is(waitErr, syscall.ETIME) {
-						cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
-					}
+					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
 				} else {
 					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
 				}

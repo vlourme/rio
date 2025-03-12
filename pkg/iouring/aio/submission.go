@@ -152,6 +152,7 @@ RETRY:
 }
 
 func (vortex *Vortex) await(ctx context.Context, op *Operation) (n int, err error) {
+	// todo: add case vortex.Done()
 	timeout := op.Timeout()
 	switch {
 	case timeout == 0:
@@ -177,6 +178,9 @@ func (vortex *Vortex) await(ctx context.Context, op *Operation) (n int, err erro
 				break
 			}
 			n, err = r.N, r.Err
+			break
+		case <-vortex.Done():
+			err = Uncompleted
 			break
 		}
 		break
@@ -216,6 +220,9 @@ func (vortex *Vortex) await(ctx context.Context, op *Operation) (n int, err erro
 				break
 			}
 			n, err = r.N, r.Err
+			break
+		case <-vortex.Done():
+			err = Uncompleted
 			break
 		}
 		vortex.releaseTimer(timer)

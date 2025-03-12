@@ -34,6 +34,7 @@ func NewOperation() *Operation {
 	return &Operation{
 		kind:     iouring.OpLast,
 		resultCh: make(chan Result),
+		ringId:   -1,
 	}
 }
 
@@ -42,11 +43,17 @@ type Operation struct {
 	kind     uint8
 	borrowed bool
 	resultCh chan Result
+	ringId   int
 	deadline time.Time
 	fd       int
 	msg      syscall.Msghdr
 	pipe     pipeRequest
 	ptr      unsafe.Pointer
+}
+
+func (op *Operation) WithRingId(ringId int) *Operation {
+	op.ringId = ringId
+	return op
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -178,6 +185,8 @@ func (op *Operation) reset() {
 	op.kind = iouring.OpLast
 	// status
 	op.status.Store(ReadyOperationStatus)
+	// ring id
+	op.ringId = -1
 	// fd
 	op.fd = 0
 	// msg
