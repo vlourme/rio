@@ -389,6 +389,11 @@ func (entry *SubmissionQueueEntry) PrepareCancelFd(fd int, flags uint32) {
 	entry.OpcodeFlags = flags | AsyncCancelFd
 }
 
+func (entry *SubmissionQueueEntry) PrepareCancelALL() {
+	entry.prepareRW(OpAsyncCancel, 0, 0, 0, 0)
+	entry.OpcodeFlags = AsyncCancelAll
+}
+
 // [Timeout] ***********************************************************************************************************
 
 func (entry *SubmissionQueueEntry) PrepareTimeout(spec *syscall.Timespec, count, flags uint32) {
