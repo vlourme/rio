@@ -7,6 +7,11 @@ type FixedBuffer struct {
 	index int
 	rPos  int
 	wPos  int
+	src   uint32
+}
+
+func (buf *FixedBuffer) Source() uint32 {
+	return buf.src
 }
 
 func (buf *FixedBuffer) Validate() bool {
