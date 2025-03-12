@@ -14,8 +14,10 @@ type Options struct {
 	RegisterFixedBufferCount uint32
 	PrepSQEBatchSize         uint32
 	PrepSQEIdleTime          time.Duration
+	PrepSQEAffCPU            int
 	WaitCQEBatchSize         uint32
 	WaitCQETimeCurve         Curve
+	WaitCQEAffCPU            int
 }
 
 type Option func(*Options)
@@ -23,25 +25,6 @@ type Option func(*Options)
 func WithEntries(entries int) Option {
 	return func(opts *Options) {
 		opts.Entries = uint32(entries)
-	}
-}
-
-func WithPrepareSQBatchSize(size uint32) Option {
-	return func(opts *Options) {
-		opts.PrepSQEBatchSize = size
-	}
-}
-
-const (
-	defaultPrepareSQIdleTime = 15 * time.Second
-)
-
-func WithPrepareSQIdleTime(d time.Duration) Option {
-	return func(opts *Options) {
-		if d < 1 {
-			d = defaultPrepareSQIdleTime
-		}
-		opts.PrepSQEIdleTime = d
 	}
 }
 
@@ -63,15 +46,46 @@ func WithSQThreadIdle(idle uint32) Option {
 	}
 }
 
-func WithWaitCQBatchSize(size uint32) Option {
+func WithPrepareSQEBatchSize(size uint32) Option {
+	return func(opts *Options) {
+		opts.PrepSQEBatchSize = size
+	}
+}
+
+const (
+	defaultPrepareSQIdleTime = 15 * time.Second
+)
+
+func WithPrepareSQEIdleTime(d time.Duration) Option {
+	return func(opts *Options) {
+		if d < 1 {
+			d = defaultPrepareSQIdleTime
+		}
+		opts.PrepSQEIdleTime = d
+	}
+}
+
+func WithPrepareSQEAFFCPU(cpu int) Option {
+	return func(opts *Options) {
+		opts.PrepSQEAffCPU = cpu
+	}
+}
+
+func WithWaitCQEBatchSize(size uint32) Option {
 	return func(opts *Options) {
 		opts.WaitCQEBatchSize = size
 	}
 }
 
-func WithWaitCQTimeCurve(curve Curve) Option {
+func WithWaitCQETimeCurve(curve Curve) Option {
 	return func(opts *Options) {
 		opts.WaitCQETimeCurve = curve
+	}
+}
+
+func WithWaitCQEAFFCPU(cpu int) Option {
+	return func(opts *Options) {
+		opts.WaitCQEAffCPU = cpu
 	}
 }
 

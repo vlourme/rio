@@ -51,6 +51,7 @@ func (s *Semaphores) Wait(ctx context.Context) (err error) {
 			break
 		}
 		s.timer.Stop()
+		s.status.Store(false)
 	}
 	return
 }

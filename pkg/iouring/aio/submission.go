@@ -179,9 +179,6 @@ func (vortex *Vortex) await(ctx context.Context, op *Operation) (n int, err erro
 			}
 			n, err = r.N, r.Err
 			break
-		case <-vortex.Done():
-			err = Uncompleted
-			break
 		}
 		break
 	case timeout > 0:
@@ -220,9 +217,6 @@ func (vortex *Vortex) await(ctx context.Context, op *Operation) (n int, err erro
 				break
 			}
 			n, err = r.N, r.Err
-			break
-		case <-vortex.Done():
-			err = Uncompleted
 			break
 		}
 		vortex.releaseTimer(timer)

@@ -214,27 +214,27 @@ frw.ReleaseRegisteredBuffer(buf)
 ## 进阶调参
 通过设置环境变量进行调控，具体详见 [IOURING](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)。
 
-| 名称                           | 值  | 说明                                                 |
-|------------------------------|----|----------------------------------------------------|
-| IOURING_ENTRIES              | 数字 | 环大小，默认为最大值 16384。                                  |
-| IOURING_SETUP_FLAGS          | 文本 | 标识，如`IORING_SETUP_SQPOLL, IORING_SETUP_SQ_AFF`等。   |
-| IOURING_SETUP_FLAGS_SCHEMA   | 文本 | 标识方案，`DEFAULT` 或 `PERFORMANCE`。                    |
-| IOURING_SQ_THREAD_CPU        | 数字 | 设置 SQ 环锁亲和的 CPU，默认 0。                              |
-| IOURING_SQ_THREAD_IDLE       | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 15 秒。 |
-| IOURING_PREP_SQ_BATCH_SIZE   | 数字 | 准备 SQE 的缓冲大小，默认为 1024 的大小。                         |
-| IOURING_PREP_SQ_IDLE_TIME    | 数字 | 准备 SQE 的空闲时长，默认 500 纳秒。                            |
-| IOURING_PREP_SQ_AFFINITY_CPU | 数字 | 设置准备 SQE 线程所亲和的 CPU，默认 1。                          |
-| IOURING_WAIT_CQ_BATCH_SIZE   | 数字 | 获取 CQE 的缓冲大小，默认为 1024 的大小。                         |
-| IOURING_WAIT_CQ_AFFINITY_CPU | 布尔 | 设置获取 CQE 线程所亲和的 CPU，默认 2。                          |
-| IOURING_WAIT_CQ_TIME_CURVE   | 文本 | 设置等待 CQ 策略曲线，如 `1:1us, 8:2us`。                     |
-| IOURING_REG_BUFFERS          | 文本 | 设置等待注册字节缓冲，格式为 `单个大小, 个数`， 如`1024, 100`。           |
+| 名称                          | 值  | 说明                                                 |
+|-----------------------------|----|----------------------------------------------------|
+| IOURING_ENTRIES             | 数字 | 环大小，默认为最大值 16384。                                  |
+| IOURING_SETUP_FLAGS         | 文本 | 标识，如`IORING_SETUP_SQPOLL, IORING_SETUP_SQ_AFF`等。   |
+| IOURING_SETUP_FLAGS_SCHEMA  | 文本 | 标识方案，`DEFAULT` 或 `PERFORMANCE`。                    |
+| IOURING_SQ_THREAD_CPU       | 数字 | 设置 SQ 环锁亲和的 CPU。                                   |
+| IOURING_SQ_THREAD_IDLE      | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 15 秒。 |
+| IOURING_PREP_SQE_BATCH_SIZE | 数字 | 准备 SQE 的缓冲大小，默认为 1024 的大小。                         |
+| IOURING_PREP_SQE_IDLE_TIME  | 数字 | 准备 SQE 的空闲时长，默认 500 纳秒。                            |
+| IOURING_PREP_SQE_AFF_CPU    | 数字 | 设置准备 SQE 线程所亲和的 CPU。                               |
+| IOURING_WAIT_CQE_BATCH_SIZE | 数字 | 获取 CQE 的缓冲大小，默认为 1024 的大小。                         |
+| IOURING_WAIT_CQE_AFF_CPU    | 布尔 | 设置获取 CQE 线程所亲和的 CPU。                               |
+| IOURING_WAIT_CQE_TIME_CURVE | 文本 | 设置等待 CQ 策略曲线，如 `1:15s, 8:2us, 16:1ms`。             |
+| IOURING_REG_FIXED_BUFFERS   | 文本 | 设置等待注册字节缓冲，格式为 `单个大小, 个数`， 如`1024, 100`。           |
 
 注意事项：
 * `IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本。
 * `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行调试。
 * `IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `IOURING_SETUP_FLAGS` 。
-* `DEFAULT` 为 `IORING_SETUP_SQ_AFF`
-* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SQ_AFF` 的组合，所以非常吃配置。
+* `DEFAULT` 为 `0`
+* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL`，所以非常吃配置。
 
 
 

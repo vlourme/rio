@@ -7,9 +7,9 @@ import (
 )
 
 func defaultIOURingSetupFlags() uint32 {
-	return iouring.SetupSQAff
+	return 0
 }
 
 func performanceIOURingSetupFlags() uint32 {
-	return iouring.SetupSQPoll | iouring.SetupSQAff
+	return iouring.SetupSQPoll
 }

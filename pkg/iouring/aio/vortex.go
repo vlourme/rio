@@ -7,8 +7,10 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
+	"github.com/brickingsoft/rio/pkg/process"
 	"github.com/brickingsoft/rio/pkg/semaphores"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -30,14 +32,14 @@ func New(options ...Option) (v *Vortex, err error) {
 	for _, option := range options {
 		option(&opt)
 	}
-	// sq semaphores
+	// op semaphores
 	prepareIdleTime := opt.PrepSQEIdleTime
 	if prepareIdleTime < 1 {
 		prepareIdleTime = defaultPrepareSQIdleTime
 	}
-	sqSemaphores, sqSemaphoresErr := semaphores.New(prepareIdleTime)
-	if sqSemaphoresErr != nil {
-		err = sqSemaphoresErr
+	submitSemaphores, submitSemaphoresErr := semaphores.New(prepareIdleTime)
+	if submitSemaphoresErr != nil {
+		err = submitSemaphoresErr
 		return
 	}
 
@@ -60,28 +62,25 @@ func New(options ...Option) (v *Vortex, err error) {
 				return time.NewTimer(0)
 			},
 		},
-		running:      atomic.Bool{},
-		wg:           sync.WaitGroup{},
-		sqSemaphores: sqSemaphores,
-		buffers:      NewQueue[FixedBuffer](),
+		running:          atomic.Bool{},
+		wg:               sync.WaitGroup{},
+		submitSemaphores: submitSemaphores,
+		buffers:          NewQueue[FixedBuffer](),
 	}
 	return
 }
 
 type Vortex struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	running    atomic.Bool
-	operations sync.Pool
-	timers     sync.Pool
-	options    Options
-	rings      []*URing
-
-	wg           sync.WaitGroup
-	sqSemaphores *semaphores.Semaphores
-	ring         *iouring.Ring
-	queue        *Queue[Operation]
-	buffers      *Queue[FixedBuffer]
+	running          atomic.Bool
+	operations       sync.Pool
+	timers           sync.Pool
+	options          Options
+	wg               sync.WaitGroup
+	submitSemaphores *semaphores.Semaphores
+	ring             *iouring.Ring
+	queue            *Queue[Operation]
+	buffers          *Queue[FixedBuffer]
+	cancel           context.CancelFunc
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -109,7 +108,7 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 
 func (vortex *Vortex) submit(op *Operation) {
 	vortex.queue.Enqueue(op)
-	vortex.sqSemaphores.Signal()
+	vortex.submitSemaphores.Signal()
 }
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
@@ -136,15 +135,6 @@ func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
 	}
 	buf.Reset()
 	vortex.buffers.Enqueue(buf)
-}
-
-func (vortex *Vortex) Done() <-chan struct{} {
-	if ctx := vortex.ctx; ctx != nil {
-		return ctx.Done()
-	}
-	ch := make(chan struct{})
-	close(ch)
-	return ch
 }
 
 func (vortex *Vortex) Shutdown() (err error) {
@@ -210,7 +200,6 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	vortex.ring = uring
 
 	cc, cancel := context.WithCancel(ctx)
-	vortex.ctx = cc
 	vortex.cancel = cancel
 
 	vortex.wg.Add(2)
@@ -223,17 +212,20 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 func (vortex *Vortex) preparingSQE(ctx context.Context) {
 	defer vortex.wg.Done()
 
-	// lock os thread
-	//runtime.LockOSThread()
-	//defer runtime.UnlockOSThread()
-
 	// cpu affinity
-	//_ = process.SetCPUAffinity(int(vortex.options.PrepareSQEAffinityCPU))
+	if cpu := vortex.options.PrepSQEAffCPU; cpu > -1 {
+		runtime.LockOSThread()
+		if setErr := process.SetCPUAffinity(cpu); setErr != nil {
+			runtime.UnlockOSThread()
+		} else {
+			defer runtime.UnlockOSThread()
+		}
+	}
 
 	ring := vortex.ring
 
 	queue := vortex.queue
-	shs := vortex.sqSemaphores
+	shs := vortex.submitSemaphores
 	var (
 		peeked       uint32
 		prepared     uint32
@@ -316,12 +308,15 @@ func (vortex *Vortex) preparingSQE(ctx context.Context) {
 func (vortex *Vortex) waitingCQE(ctx context.Context) {
 	defer vortex.wg.Done()
 
-	// lock os thread
-	//runtime.LockOSThread()
-	//defer runtime.UnlockOSThread()
-
 	// cpu affinity
-	//_ = process.SetCPUAffinity(int(vortex.options.WaitCQEAffinityCPU))
+	if cpu := vortex.options.WaitCQEAffCPU; cpu > -1 {
+		runtime.LockOSThread()
+		if setErr := process.SetCPUAffinity(cpu); setErr != nil {
+			runtime.UnlockOSThread()
+		} else {
+			defer runtime.UnlockOSThread()
+		}
+	}
 
 	ring := vortex.ring
 	transmission := NewCurveTransmission(vortex.options.WaitCQETimeCurve)

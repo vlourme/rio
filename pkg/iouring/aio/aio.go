@@ -49,7 +49,7 @@ var (
 	pollOnce     sync.Once
 	poll         *Vortex
 	pollAcquires atomic.Int64
-	pollOptions  []Option = make([]Option, 0, 1)
+	pollOptions  = make([]Option, 0, 1)
 )
 
 const (
@@ -60,8 +60,10 @@ const (
 	envSQThreadIdle         = "IOURING_SQ_THREAD_IDLE"
 	envPrepSQEBatchSize     = "IOURING_PREP_SQE_BATCH_SIZE"
 	envPrepSQEIdleTime      = "IOURING_PREP_SQE_IDLE_TIME"
+	envPrepSQEAffCPU        = "IOURING_PREP_SQE_AFF_CPU"
 	envWaitCQEBatchSize     = "IOURING_WAIT_CQE_BATCH_SIZE"
 	envWaitCQETimeCurve     = "IOURING_WAIT_CQE_TIME_CURVE"
+	envWaitCQEAffCPU        = "IOURING_WAIT_CQE_AFF_CPU"
 	envRegisterFixedBuffers = "IOURING_REG_FIXED_BUFFERS"
 )
 
@@ -79,21 +81,26 @@ func pollInit() (err error) {
 		sqThreadIdle := loadEnvSQThreadIdle()
 		pollOptions = append(pollOptions, WithSQThreadIdle(sqThreadIdle))
 
+		prepareBatchSize := loadEnvPrepareSQEBatchSize()
+		pollOptions = append(pollOptions, WithPrepareSQEBatchSize(prepareBatchSize))
+
+		prepareIdleTime := loadEnvPrepareSQEIdleTime()
+		pollOptions = append(pollOptions, WithPrepareSQEIdleTime(prepareIdleTime))
+
+		prepareSQEAffCPU := loadEnvPrepareSQEAFFCPU()
+		pollOptions = append(pollOptions, WithPrepareSQEAFFCPU(prepareSQEAffCPU))
+
+		waitCQBatchSize := loadEnvWaitCQEBatchSize()
+		pollOptions = append(pollOptions, WithWaitCQEBatchSize(waitCQBatchSize))
+
+		curve := loadEnvWaitCQETimeCurve()
+		pollOptions = append(pollOptions, WithWaitCQETimeCurve(curve))
+
+		waitCQEAffCPU := loadEnvWaitCQEAFFCPU()
+		pollOptions = append(pollOptions, WithWaitCQEAFFCPU(waitCQEAffCPU))
+
 		bufs, bufc := loadEnvRegFixedBuffers()
 		pollOptions = append(pollOptions, WithRegisterFixedBuffer(bufs, bufc))
-
-		prepareBatchSize := loadEnvPrepareSQBatchSize()
-		pollOptions = append(pollOptions, WithPrepareSQBatchSize(prepareBatchSize))
-
-		prepareIdleTime := loadEnvPrepareSQIdleTime()
-		pollOptions = append(pollOptions, WithPrepareSQIdleTime(prepareIdleTime))
-
-		waitCQBatchSize := loadEnvWaitCQBatchSize()
-		pollOptions = append(pollOptions, WithWaitCQBatchSize(waitCQBatchSize))
-
-		curve := loadEnvWaitCQTimeCurve()
-		pollOptions = append(pollOptions, WithWaitCQTimeCurve(curve))
-
 	}
 
 	poll, err = New(pollOptions...)
@@ -164,7 +171,7 @@ func loadEnvSQThreadIdle() uint32 {
 	return uint32(u)
 }
 
-func loadEnvPrepareSQBatchSize() uint32 {
+func loadEnvPrepareSQEBatchSize() uint32 {
 	s, has := os.LookupEnv(envPrepSQEBatchSize)
 	if !has {
 		return 0
@@ -176,7 +183,7 @@ func loadEnvPrepareSQBatchSize() uint32 {
 	return uint32(u)
 }
 
-func loadEnvPrepareSQIdleTime() time.Duration {
+func loadEnvPrepareSQEIdleTime() time.Duration {
 	s, has := os.LookupEnv(envPrepSQEIdleTime)
 	if !has {
 		return 0
@@ -188,7 +195,19 @@ func loadEnvPrepareSQIdleTime() time.Duration {
 	return d
 }
 
-func loadEnvWaitCQBatchSize() uint32 {
+func loadEnvPrepareSQEAFFCPU() int {
+	s, has := os.LookupEnv(envPrepSQEAffCPU)
+	if !has {
+		return -1
+	}
+	n, parseErr := strconv.Atoi(strings.TrimSpace(s))
+	if parseErr != nil {
+		return 0
+	}
+	return n
+}
+
+func loadEnvWaitCQEBatchSize() uint32 {
 	s, has := os.LookupEnv(envWaitCQEBatchSize)
 	if !has {
 		return 0
@@ -200,7 +219,7 @@ func loadEnvWaitCQBatchSize() uint32 {
 	return uint32(u)
 }
 
-func loadEnvWaitCQTimeCurve() Curve {
+func loadEnvWaitCQETimeCurve() Curve {
 	s, has := os.LookupEnv(envWaitCQETimeCurve)
 	if !has {
 		return nil
@@ -230,6 +249,18 @@ func loadEnvWaitCQTimeCurve() Curve {
 		}{N: uint32(n), Timeout: t})
 	}
 	return curve
+}
+
+func loadEnvWaitCQEAFFCPU() int {
+	s, has := os.LookupEnv(envWaitCQEAffCPU)
+	if !has {
+		return -1
+	}
+	n, parseErr := strconv.Atoi(strings.TrimSpace(s))
+	if parseErr != nil {
+		return 0
+	}
+	return n
 }
 
 func loadEnvRegFixedBuffers() (size uint32, count uint32) {
