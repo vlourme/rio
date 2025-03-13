@@ -18,9 +18,9 @@ func (vortex *Vortex) Connect(ctx context.Context, fd int, addr *syscall.RawSock
 	return
 }
 
-func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
+	op.PrepareAccept(fd, addr, addrLen)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
@@ -217,6 +217,7 @@ func (vortex *Vortex) AwaitOperation(ctx context.Context, op *Operation) (n int,
 			break
 		}
 		n, cqeFlags, err = r.N, r.Flags, r.Err
+		break
 	case <-done:
 		if vortex.Cancel(op) {
 			err = ctx.Err()
