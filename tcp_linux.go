@@ -199,6 +199,9 @@ func (ln *TCPListener) acceptTCPNormal() (tc *TCPConn, err error) {
 	addrLen := syscall.SizeofSockaddrAny
 	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen)
 	if acceptErr != nil {
+		if errors.Is(acceptErr, context.Canceled) {
+			acceptErr = net.ErrClosed
+		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
@@ -531,6 +534,9 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			lr.N -= written
 		}
 		if spliceErr != nil {
+			if errors.Is(spliceErr, context.Canceled) {
+				spliceErr = net.ErrClosed
+			}
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil
@@ -543,6 +549,9 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			lr.N -= written
 		}
 		if sendfileErr != nil {
+			if errors.Is(sendfileErr, context.Canceled) {
+				sendfileErr = net.ErrClosed
+			}
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: sendfileErr}
 		}
 		return written, nil
@@ -569,6 +578,9 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 		vortex := c.vortex
 		written, spliceErr := vortex.Splice(ctx, uc.fd.Socket(), fd, 1<<63-1)
 		if spliceErr != nil {
+			if errors.Is(spliceErr, context.Canceled) {
+				spliceErr = net.ErrClosed
+			}
 			return written, &net.OpError{Op: "writeto", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil

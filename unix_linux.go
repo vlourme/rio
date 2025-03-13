@@ -200,6 +200,9 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	addrLen := syscall.SizeofSockaddrAny
 	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen)
 	if acceptErr != nil {
+		if errors.Is(acceptErr, context.Canceled) {
+			acceptErr = net.ErrClosed
+		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
@@ -336,6 +339,9 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 
 	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -376,6 +382,9 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 
 	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, unix.MSG_CMSG_CLOEXEC, deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -431,6 +440,9 @@ func (c *UnixConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 
 	n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -469,6 +481,9 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 
 	n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}

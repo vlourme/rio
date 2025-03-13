@@ -48,6 +48,9 @@ func (c *conn) Read(b []byte) (n int, err error) {
 
 	n, err = vortex.Receive(ctx, fd, b, deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -73,6 +76,9 @@ func (c *conn) Write(b []byte) (n int, err error) {
 
 	n, err = vortex.Send(ctx, fd, b, deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -297,6 +303,9 @@ func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
 
 	n, err = vortex.ReadFixed(ctx, fd, buf, deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
@@ -326,6 +335,9 @@ func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
 
 	n, err = vortex.WriteFixed(ctx, fd, buf, deadline)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			err = net.ErrClosed
+		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}

@@ -14,107 +14,29 @@ import (
 	"time"
 )
 
-var (
-	DefaultDialer = Dialer{
-		Timeout:         15 * time.Second,
-		Deadline:        time.Time{},
-		KeepAlive:       0,
-		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		MultipathTCP:    false,
-		FastOpen:        false,
-		QuickAck:        false,
-		Control:         nil,
-		ControlContext:  nil,
-	}
-)
-
-func Dial(network string, address string) (net.Conn, error) {
-	ctx := context.Background()
-	return DialContext(ctx, network, address)
-}
-
-func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
-	dialer := DefaultDialer
-	if strings.HasPrefix(network, "tcp") {
-		dialer.SetFastOpen(true)
-		dialer.SetQuickAck(true)
-	}
-	return dialer.DialContext(ctx, network, address)
-}
-
-func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
-	ctx := context.Background()
-	dialer := DefaultDialer
-	dialer.Timeout = timeout
-	if strings.HasPrefix(network, "tcp") {
-		dialer.SetFastOpen(true)
-		dialer.SetQuickAck(true)
-	}
-	return dialer.DialContext(ctx, network, address)
-}
-
-type Dialer struct {
-	Timeout         time.Duration
-	Deadline        time.Time
-	KeepAlive       time.Duration
-	KeepAliveConfig net.KeepAliveConfig
-	MultipathTCP    bool
-	FastOpen        bool
-	QuickAck        bool
-	Control         func(network, address string, c syscall.RawConn) error
-	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
-}
-
-func (d *Dialer) SetFastOpen(use bool) {
-	d.FastOpen = use
-}
-
-func (d *Dialer) SetQuickAck(use bool) {
-	d.QuickAck = use
-}
-
-func (d *Dialer) SetMultipathTCP(use bool) {
-	d.MultipathTCP = use
-}
-
-func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {
-	if d.Timeout != 0 {
-		earliest = now.Add(d.Timeout)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		earliest = minNonzeroTime(earliest, deadline)
-	}
-	return minNonzeroTime(earliest, d.Deadline)
-}
-
-func minNonzeroTime(a, b time.Time) time.Time {
-	if a.IsZero() {
-		return b
-	}
-	if b.IsZero() || a.Before(b) {
-		return a
-	}
-	return b
-}
-
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (c net.Conn, err error) {
 	addr, _, _, addrErr := sys.ResolveAddr(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: addrErr}
 		return
 	}
+	la := d.LocalAddr
 	switch a := addr.(type) {
 	case *net.TCPAddr:
-		c, err = d.DialTCP(ctx, network, nil, a)
+		la, _ := la.(*net.TCPAddr)
+		c, err = d.DialTCP(ctx, network, la, a)
 		break
 	case *net.UDPAddr:
-		c, err = d.DialUDP(ctx, network, nil, a)
+		la, _ := la.(*net.UDPAddr)
+		c, err = d.DialUDP(ctx, network, la, a)
 		break
 	case *net.UnixAddr:
-		c, err = d.DialUnix(ctx, network, nil, a)
+		la, _ := la.(*net.UnixAddr)
+		c, err = d.DialUnix(ctx, network, la, a)
 		break
 	case *net.IPAddr:
-		c, err = d.DialIP(ctx, network, nil, a)
+		la, _ := la.(*net.IPAddr)
+		c, err = d.DialIP(ctx, network, la, a)
 		break
 	default:
 		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: addr, Err: &net.AddrError{Err: "unexpected address type", Addr: address}}
