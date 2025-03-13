@@ -670,6 +670,13 @@ func (entry *SubmissionQueueEntry) PreparePollUpdate(oldUserData, newUserData ui
 	entry.OpcodeFlags = pollMask
 }
 
+func (entry *SubmissionQueueEntry) PrepareEPollWait(fd int, events []syscall.EpollEvent, flags uint32) {
+	addr := unsafe.Pointer(&events[0])
+	length := uint32(len(events))
+	entry.prepareRW(OpEpollWait, fd, uintptr(addr), length, 0)
+	entry.OpcodeFlags = flags
+}
+
 // [private] ***********************************************************************************************************
 
 func (entry *SubmissionQueueEntry) prepareRW(opcode uint8, fd int, addr uintptr, length uint32, offset uint64) {
