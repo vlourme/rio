@@ -23,7 +23,6 @@ var (
 		MultipathTCP:    false,
 		FastOpen:        false,
 		QuickAck:        false,
-		UseSendZC:       false,
 		Control:         nil,
 		ControlContext:  nil,
 	}
@@ -62,7 +61,6 @@ type Dialer struct {
 	MultipathTCP    bool
 	FastOpen        bool
 	QuickAck        bool
-	UseSendZC       bool
 	Control         func(network, address string, c syscall.RawConn) error
 	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
 }
@@ -73,10 +71,6 @@ func (d *Dialer) SetFastOpen(use bool) {
 
 func (d *Dialer) SetQuickAck(use bool) {
 	d.QuickAck = use
-}
-
-func (d *Dialer) SetSendZC(use bool) {
-	d.UseSendZC = use
 }
 
 func (d *Dialer) SetMultipathTCP(use bool) {
@@ -223,10 +217,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// conn
-	useSendZC := d.UseSendZC
-	if useSendZC {
-		useSendZC = aio.CheckSendZCEnable()
-	}
 	cc, cancel := context.WithCancel(ctx)
 	c := &TCPConn{
 		conn{
@@ -236,7 +226,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			useZC:         useSendZC,
 			pinned:        true,
 		},
 	}
@@ -329,12 +318,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// conn
-	useSendZC := d.UseSendZC
-	useSendMsgZC := false
-	if useSendZC {
-		useSendZC = aio.CheckSendZCEnable()
-		useSendMsgZC = aio.CheckSendMsdZCEnable()
-	}
 	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
 		conn{
@@ -344,10 +327,8 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			useZC:         useSendZC,
 			pinned:        true,
 		},
-		useSendMsgZC,
 	}
 	return c, nil
 }
@@ -441,12 +422,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	}
 
 	// conn
-	useSendZC := d.UseSendZC
-	useSendMsgZC := false
-	if useSendZC {
-		useSendZC = aio.CheckSendZCEnable()
-		useSendMsgZC = aio.CheckSendMsdZCEnable()
-	}
 	cc, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
 		conn{
@@ -456,10 +431,8 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			useZC:         useSendZC,
 			pinned:        true,
 		},
-		useSendMsgZC,
 	}
 
 	return c, nil

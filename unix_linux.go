@@ -49,13 +49,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-
-	// sendzc
-	useSendZC := lc.UseSendZC
-	if useSendZC {
-		useSendZC = aio.CheckSendZCEnable()
-	}
-
 	// ln
 	cc, cancel := context.WithCancel(ctx)
 	ln := &UnixListener{
@@ -66,7 +59,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		unlink:     true,
 		unlinkOnce: sync.Once{},
 		vortex:     vortex,
-		useSendZC:  useSendZC,
 	}
 	return ln, nil
 }
@@ -105,13 +97,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// sendzc
-	useSendZC := lc.UseSendZC
-	useSendMsgZC := lc.UseSendZC
-	if useSendZC {
-		useSendZC = aio.CheckSendMsdZCEnable()
-		useSendMsgZC = aio.CheckSendMsdZCEnable()
-	}
 	// conn
 	cc, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
@@ -122,10 +107,8 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			useZC:         useSendZC,
 			pinned:        true,
 		},
-		useSendMsgZC,
 	}
 	return c, nil
 }
@@ -197,7 +180,6 @@ type UnixListener struct {
 	unlink     bool
 	unlinkOnce sync.Once
 	vortex     *aio.Vortex
-	useSendZC  bool
 }
 
 func (ln *UnixListener) Accept() (net.Conn, error) {
@@ -247,13 +229,11 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            cfd,
-			useZC:         ln.useSendZC,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        false,
 		},
-		false,
 	}
 	return
 }
@@ -331,7 +311,6 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 
 type UnixConn struct {
 	conn
-	useMsgZC bool
 }
 
 func (c *UnixConn) ReadFrom(b []byte) (int, net.Addr, error) {
@@ -450,11 +429,7 @@ func (c *UnixConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	if c.useMsgZC {
-		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline)
-	} else {
-		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
-	}
+	n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
 	if err != nil {
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
@@ -492,11 +467,7 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	if c.useMsgZC {
-		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
-	} else {
-		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
-	}
+	n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
 	if err != nil {
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return

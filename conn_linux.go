@@ -25,7 +25,6 @@ type conn struct {
 	writeDeadline time.Time
 	readBuffer    atomic.Int64
 	writeBuffer   atomic.Int64
-	useZC         bool
 	pinned        bool
 }
 
@@ -72,11 +71,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	vortex := c.vortex
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	if c.useZC {
-		n, err = vortex.SendZC(ctx, fd, b, deadline)
-	} else {
-		n, err = vortex.Send(ctx, fd, b, deadline)
-	}
+	n, err = vortex.Send(ctx, fd, b, deadline)
 	if err != nil {
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return

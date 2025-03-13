@@ -16,9 +16,7 @@ import (
 )
 
 func ListenUDP(network string, addr *net.UDPAddr) (*UDPConn, error) {
-	config := ListenConfig{
-		UseSendZC: false,
-	}
+	config := ListenConfig{}
 	ctx := context.Background()
 	return config.ListenUDP(ctx, network, addr)
 }
@@ -58,13 +56,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	// sendzc
-	useSendZC := lc.UseSendZC
-	useSendMsgZC := lc.UseSendZC
-	if useSendZC {
-		useSendZC = aio.CheckSendMsdZCEnable()
-		useSendMsgZC = aio.CheckSendMsdZCEnable()
-	}
 	// conn
 	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
@@ -75,10 +66,8 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
-			useZC:         useSendZC,
 			pinned:        true,
 		},
-		useSendMsgZC,
 	}
 	return c, nil
 }
@@ -189,7 +178,6 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 
 type UDPConn struct {
 	conn
-	useMsgZC bool
 }
 
 func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
@@ -345,11 +333,7 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	if c.useMsgZC {
-		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline)
-	} else {
-		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
-	}
+	n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
 	if err != nil {
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
@@ -410,12 +394,7 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	if c.useMsgZC {
-		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
-	} else {
-		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
-	}
-
+	n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
 	if err != nil {
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return

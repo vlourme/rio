@@ -83,7 +83,6 @@ func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline tim
 	}
 
 	if cqeFlags&iouring.CQEFMore != 0 {
-	WAIT_F_NOFTIFY:
 		_, cqeFlags, err = vortex.AwaitOperation(ctx, op)
 		if err != nil {
 			op.Complete()
@@ -91,7 +90,7 @@ func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline tim
 			return
 		}
 		if cqeFlags&iouring.CQEFNotify == 0 {
-			goto WAIT_F_NOFTIFY
+			err = errors.New("send_zc received CQE_F_MORE but no CQE_F_NOTIF")
 		}
 	}
 	op.Complete()
@@ -160,7 +159,6 @@ func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byt
 	oobn = int(op.msg.Controllen)
 
 	if cqeFlags&iouring.CQEFMore != 0 {
-	WAIT_F_NOFTIFY:
 		_, cqeFlags, err = vortex.AwaitOperation(ctx, op)
 		if err != nil {
 			op.Complete()
@@ -168,7 +166,7 @@ func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byt
 			return
 		}
 		if cqeFlags&iouring.CQEFNotify == 0 {
-			goto WAIT_F_NOFTIFY
+			err = errors.New("sendmsg_zc received CQE_F_MORE but no CQE_F_NOTIF")
 		}
 	}
 	op.Complete()

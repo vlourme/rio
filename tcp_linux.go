@@ -21,11 +21,11 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 		Control:         nil,
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		UseSendZC:       false,
 		MultipathTCP:    false,
 		FastOpen:        true,
 		QuickAck:        true,
 		ReusePort:       true,
+		AcceptMode:      AcceptMultishot,
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
@@ -59,11 +59,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// sendzc
-	useSendZC := lc.UseSendZC
-	if useSendZC {
-		useSendZC = aio.CheckSendZCEnable()
-	}
 	// ln
 	cc, cancel := context.WithCancel(ctx)
 	ln := &TCPListener{
@@ -71,7 +66,10 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		cancel:          cancel,
 		fd:              fd,
 		vortex:          vortex,
-		useSendZC:       useSendZC,
+		acceptFuture:    nil,
+		accepting:       atomic.Bool{},
+		acceptMode:      lc.AcceptMode,
+		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 	}
@@ -83,11 +81,12 @@ type TCPListener struct {
 	cancel          context.CancelFunc
 	fd              *sys.Fd
 	vortex          *aio.Vortex
+	acceptFuture    *aio.Future
+	accepting       atomic.Bool
+	acceptMode      AcceptMode
 	multipathTCP    bool
-	useSendZC       bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
-	deadline        time.Time
 }
 
 func (ln *TCPListener) Accept() (net.Conn, error) {
@@ -99,14 +98,106 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
+	switch ln.acceptMode {
+	case AcceptMultishot:
+		tc, err = ln.acceptTCPMultishot()
+		break
+	case AcceptEventFd:
+		// todo
+		break
+	default:
+		tc, err = ln.acceptTCPNormal()
+		break
+	}
+	return
+}
+
+func (ln *TCPListener) acceptTCPMultishot() (tc *TCPConn, err error) {
+	if ln.accepting.CompareAndSwap(false, true) {
+		ln.prepareAccepting()
+	}
+
+	ctx := ln.ctx
+
+	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
+	if acceptErr != nil {
+		if errors.Is(acceptErr, context.Canceled) {
+			acceptErr = net.ErrClosed
+		}
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
+		return
+	}
+	// fd
+	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
+	// local addr
+	if err = cfd.LoadLocalAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+	// remote addr
+	if err = cfd.LoadRemoteAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+
+	// tcp conn
+	cc, cancel := context.WithCancel(ctx)
+	tc = &TCPConn{
+		conn{
+			ctx:           cc,
+			cancel:        cancel,
+			fd:            cfd,
+			vortex:        ln.vortex,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			pinned:        false,
+		},
+	}
+	// no delay
+	_ = tc.SetNoDelay(true)
+	// keepalive
+	keepAliveConfig := ln.keepAliveConfig
+	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
+		keepAliveConfig = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   ln.keepAlive,
+		}
+	}
+	if keepAliveConfig.Enable {
+		_ = tc.SetKeepAliveConfig(keepAliveConfig)
+	}
+	return
+}
+
+func (ln *TCPListener) prepareAccepting() {
+	vortex := ln.vortex
+
+	fd := ln.fd.Socket()
+	addr := &syscall.RawSockaddrAny{}
+	addrLen := syscall.SizeofSockaddrAny
+	backlog := sys.MaxListenerBacklog()
+	if backlog < 8 {
+		backlog = 4096
+	}
+	future := vortex.PrepareAcceptMultishot(fd, addr, addrLen, backlog)
+	ln.acceptFuture = &future
+	return
+}
+
+func (ln *TCPListener) acceptTCPNormal() (tc *TCPConn, err error) {
+	if !ln.ok() {
+		return nil, syscall.EINVAL
+	}
+
 	ctx := ln.ctx
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
-	deadline := ln.deadline
 	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, deadline)
+	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen)
 	if acceptErr != nil {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
@@ -120,16 +211,16 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 		return
 	}
 	// remote addr
-	sa, saErr := sys.RawSockaddrAnyToSockaddr(addr)
-	if saErr != nil {
+	if sa, saErr := sys.RawSockaddrAnyToSockaddr(addr); sa != nil && saErr == nil {
+		remoteAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
+		cfd.SetRemoteAddr(remoteAddr)
+	} else {
 		if err = cfd.LoadRemoteAddr(); err != nil {
 			_ = cfd.Close()
 			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 			return
 		}
 	}
-	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
-	cfd.SetRemoteAddr(localAddr)
 	// tcp conn
 	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
@@ -137,7 +228,6 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            cfd,
-			useZC:         ln.useSendZC,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
@@ -217,14 +307,6 @@ func (ln *TCPListener) file() (*os.File, error) {
 	}
 	f := os.NewFile(uintptr(ns), ln.fd.Name())
 	return f, nil
-}
-
-func (ln *TCPListener) SetDeadline(t time.Time) error {
-	if !ln.ok() {
-		return syscall.EINVAL
-	}
-	ln.deadline = t
-	return nil
 }
 
 func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
@@ -456,7 +538,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		ctx := c.ctx
 		fd := c.fd.Socket()
 		vortex := c.vortex
-		written, sendfileErr := vortex.Sendfile(ctx, fd, r, c.useZC)
+		written, sendfileErr := vortex.Sendfile(ctx, fd, r)
 		if lr != nil {
 			lr.N -= written
 		}
