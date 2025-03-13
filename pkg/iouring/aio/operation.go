@@ -43,15 +43,16 @@ func NewOperation(resultChanBuffer int) *Operation {
 }
 
 type Operation struct {
-	status   atomic.Int64
-	kind     uint8
-	borrowed bool
-	resultCh chan Result
-	deadline time.Time
-	fd       int
-	msg      syscall.Msghdr
-	pipe     pipeRequest
-	ptr      unsafe.Pointer
+	status    atomic.Int64
+	kind      uint8
+	borrowed  bool
+	resultCh  chan Result
+	deadline  time.Time
+	multishot bool
+	fd        int
+	msg       syscall.Msghdr
+	pipe      pipeRequest
+	ptr       unsafe.Pointer
 }
 
 func (op *Operation) Close() {
@@ -64,6 +65,10 @@ func (op *Operation) Hijack() {
 
 func (op *Operation) Complete() {
 	op.status.Store(CompletedOperationStatus)
+}
+
+func (op *Operation) UseMultishot() {
+	op.multishot = true
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -85,6 +90,15 @@ func (op *Operation) PrepareNop() (err error) {
 
 func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
 	op.kind = iouring.OpConnect
+	op.fd = fd
+	op.msg.Name = (*byte)(unsafe.Pointer(addr))
+	op.msg.Namelen = uint32(addrLen)
+	return
+}
+
+func (op *Operation) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
+	op.kind = iouring.OpAccept
+	op.multishot = true
 	op.fd = fd
 	op.msg.Name = (*byte)(unsafe.Pointer(addr))
 	op.msg.Namelen = uint32(addrLen)
@@ -195,6 +209,8 @@ func (op *Operation) reset() {
 	op.kind = iouring.OpLast
 	// status
 	op.status.Store(ReadyOperationStatus)
+	// multishot
+	op.multishot = false
 	// fd
 	op.fd = 0
 	// msg
