@@ -7,11 +7,11 @@ import (
 	"net"
 )
 
-func NewListener(inner net.Listener, config *Config) net.Listener {
-	return tls.NewListener(inner, ConfigTo(config))
+func NewListener(inner net.Listener, config *tls.Config) net.Listener {
+	return tls.NewListener(inner, config)
 }
 
-func Listen(network, laddr string, config *Config) (net.Listener, error) {
+func Listen(network, laddr string, config *tls.Config) (net.Listener, error) {
 	if config == nil || len(config.Certificates) == 0 &&
 		config.GetCertificate == nil && config.GetConfigForClient == nil {
 		return nil, errors.New("tls: neither Certificates, GetCertificate, nor GetConfigForClient set in Config")
