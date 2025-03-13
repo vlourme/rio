@@ -374,14 +374,14 @@ func cmsgAlign(length uint64) uint64 {
 
 // [Cancel] ************************************************************************************************************
 
-func (entry *SubmissionQueueEntry) PrepareCancel(userData uintptr, flags int) {
+func (entry *SubmissionQueueEntry) PrepareCancel(userData uintptr, flags uint32) {
 	entry.PrepareCancel64(uint64(userData), flags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareCancel64(userData uint64, flags int) {
+func (entry *SubmissionQueueEntry) PrepareCancel64(userData uint64, flags uint32) {
 	entry.prepareRW(OpAsyncCancel, -1, 0, 0, 0)
 	entry.Addr = userData
-	entry.OpcodeFlags = uint32(flags)
+	entry.OpcodeFlags = flags
 }
 
 func (entry *SubmissionQueueEntry) PrepareCancelFd(fd int, flags uint32) {
