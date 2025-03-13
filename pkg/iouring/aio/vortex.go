@@ -140,32 +140,32 @@ func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
 	vortex.buffers.Enqueue(buf)
 }
 
-func (vortex *Vortex) RegisterFixedFile(fd int) (index uint32, err error) {
+func (vortex *Vortex) RegisterFixedFile(fd int) (index int, err error) {
 	vortex.locker.Lock()
 	defer vortex.locker.Unlock()
 	if vortex.ring == nil {
 		err = errors.New("vortex has not been started")
 		return
 	}
-	filesLen := uint32(len(vortex.files))
-	if filesLen == 0 && vortex.files[0] == -1 {
+	filesLen := len(vortex.files)
+	if filesLen == 1 && vortex.files[0] == -1 {
 		vortex.files[0] = fd
 	} else {
 		vortex.files = append(vortex.files, fd)
-		index = uint32(len(vortex.files) - 1)
+		index = len(vortex.files) - 1
 	}
 	_, err = vortex.ring.RegisterFilesUpdate(uint(index), vortex.files[index:])
 	return
 }
 
-func (vortex *Vortex) UnregisterFixedFile(index uint32) (err error) {
+func (vortex *Vortex) UnregisterFixedFile(index int) (err error) {
 	vortex.locker.Lock()
 	defer vortex.locker.Unlock()
 	if vortex.ring == nil {
 		err = errors.New("vortex has not been started")
 		return
 	}
-	if uint32(len(vortex.files)) < index {
+	if len(vortex.files) < index {
 		err = errors.New("index of file has not been registered")
 		return
 	}
@@ -259,6 +259,12 @@ func (vortex *Vortex) preparingSQE(ctx context.Context) {
 	defer vortex.wg.Done()
 
 	// cpu affinity
+	if vortex.ring.Flags()&iouring.SetupSingleIssuer != 0 && vortex.options.PrepSQEAffCPU == -1 {
+		vortex.options.PrepSQEAffCPU = 0
+		if vortex.ring.Flags()&iouring.SetupSQAff != 0 && uint32(vortex.options.PrepSQEAffCPU) == vortex.options.SQThreadCPU {
+			vortex.options.PrepSQEAffCPU++
+		}
+	}
 	if cpu := vortex.options.PrepSQEAffCPU; cpu > -1 {
 		runtime.LockOSThread()
 		if setErr := process.SetCPUAffinity(cpu); setErr != nil {

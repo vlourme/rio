@@ -18,11 +18,11 @@ type Curve []struct {
 var (
 	/* p5 ok -T 10s and -r 5000
 	{1, 15 * time.Second},
-		{8, 500 * time.Nanosecond},
-		{16, 1 * time.Microsecond},
-		{32, 50 * time.Microsecond},
-		{64, 100 * time.Microsecond},
-		{96, 500 * time.Microsecond},
+	{8, 500 * time.Nanosecond},
+	{16, 1 * time.Microsecond},
+	{32, 50 * time.Microsecond},
+	{64, 100 * time.Microsecond},
+	{96, 500 * time.Microsecond},
 	*/
 	defaultCurve = Curve{
 		{1, 15 * time.Second},
