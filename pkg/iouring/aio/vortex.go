@@ -346,6 +346,10 @@ func (vortex *Vortex) waitingCQE(ctx context.Context) {
 					if cqe.UserData == 0 { // no userdata means no op
 						continue
 					}
+					if cqe.IsInternalUpdateTimeoutUserdata() { // userdata means not op
+						continue
+					}
+
 					// get op from cqe
 					copPtr := cqe.GetData()
 					cop := (*Operation)(copPtr)
