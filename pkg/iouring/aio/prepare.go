@@ -29,9 +29,20 @@ func (vortex *Vortex) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrL
 	}
 }
 
-func (vortex *Vortex) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) Future {
+func (vortex *Vortex) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int) Future {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
+	op.PrepareAccept(fd, addr, addrLen)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
+}
+
+func (vortex *Vortex) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen int, buffer int) Future {
+	op := NewOperation(buffer)
+	op.Hijack()
+	op.PrepareAcceptMultishot(fd, addr, addrLen)
 	vortex.submit(op)
 	return Future{
 		vortex: vortex,
@@ -168,7 +179,11 @@ func (vortex *Vortex) prepareSQE(op *Operation) error {
 	case iouring.OpAccept:
 		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
-		sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
+		if op.multishot {
+			sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, 0)
+		} else {
+			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
+		}
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpClose:
