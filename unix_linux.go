@@ -67,7 +67,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		unlinkOnce: sync.Once{},
 		vortex:     vortex,
 		useSendZC:  useSendZC,
-		deadline:   time.Time{},
 	}
 	return ln, nil
 }
@@ -199,7 +198,6 @@ type UnixListener struct {
 	unlinkOnce sync.Once
 	vortex     *aio.Vortex
 	useSendZC  bool
-	deadline   time.Time
 }
 
 func (ln *UnixListener) Accept() (net.Conn, error) {
@@ -214,12 +212,11 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	ctx := ln.ctx
 	fd := ln.fd.Socket()
 	vortex := ln.vortex
-	deadline := ln.deadline
 
 	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, deadline)
+	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen)
 	if acceptErr != nil {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
@@ -294,14 +291,6 @@ func (ln *UnixListener) Addr() net.Addr {
 		return nil
 	}
 	return ln.fd.LocalAddr()
-}
-
-func (ln *UnixListener) SetDeadline(t time.Time) error {
-	if !ln.ok() {
-		return syscall.EINVAL
-	}
-	ln.deadline = t
-	return nil
 }
 
 func (ln *UnixListener) SetUnlinkOnClose(unlink bool) {
