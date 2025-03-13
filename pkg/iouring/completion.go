@@ -28,6 +28,10 @@ func (c *CompletionQueueEvent) GetData() unsafe.Pointer {
 	return unsafe.Pointer(uintptr(c.UserData))
 }
 
+func (c *CompletionQueueEvent) IsInternalUpdateTimeoutUserdata() bool {
+	return c.UserData == _updateTimeoutUserdata
+}
+
 type CQRingOffsets struct {
 	head        uint32
 	tail        uint32
