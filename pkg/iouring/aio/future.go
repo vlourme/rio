@@ -12,7 +12,11 @@ type Future struct {
 	op     *Operation
 }
 
-func (f Future) Await(ctx context.Context) (n int, cqeFlags uint32, err error) {
+func (f *Future) Operation() *Operation {
+	return f.op
+}
+
+func (f *Future) Await(ctx context.Context) (n int, cqeFlags uint32, err error) {
 	vortex := f.vortex
 	op := f.op
 	n, cqeFlags, err = vortex.AwaitOperation(ctx, op)
@@ -20,7 +24,7 @@ func (f Future) Await(ctx context.Context) (n int, cqeFlags uint32, err error) {
 	return
 }
 
-func (f Future) AwaitMsg(ctx context.Context) (n int, oobn int, flags int, addr unsafe.Pointer, addrLen uint32, cqeFlags uint32, err error) {
+func (f *Future) AwaitMsg(ctx context.Context) (n int, oobn int, flags int, addr unsafe.Pointer, addrLen uint32, cqeFlags uint32, err error) {
 	vortex := f.vortex
 	op := f.op
 	n, cqeFlags, err = vortex.AwaitOperation(ctx, op)
