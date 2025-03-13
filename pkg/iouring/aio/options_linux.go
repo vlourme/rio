@@ -7,7 +7,7 @@ import (
 )
 
 func defaultIOURingSetupFlags() uint32 {
-	return 0
+	return iouring.SetupCoopTaskRun
 }
 
 func performanceIOURingSetupFlags() uint32 {
