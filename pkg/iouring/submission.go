@@ -207,13 +207,13 @@ func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr *syscall.Raw
 	entry.setTargetFixedFile(fileIndex)
 }
 
-func (entry *SubmissionQueueEntry) PrepareMultishotAccept(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
+func (entry *SubmissionQueueEntry) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
 	entry.PrepareAccept(fd, addr, addrLen, uint32(flags))
 	entry.IoPrio |= AcceptMultishot
 }
 
-func (entry *SubmissionQueueEntry) PrepareMultishotAcceptDirect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
-	entry.PrepareMultishotAccept(fd, addr, addrLen, flags)
+func (entry *SubmissionQueueEntry) PrepareAcceptMultishotDirect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
+	entry.PrepareAcceptMultishot(fd, addr, addrLen, flags)
 	entry.setTargetFixedFile(FileIndexAlloc - 1)
 }
 
