@@ -52,7 +52,7 @@ func New(options ...Option) (v *Vortex, err error) {
 				return &Operation{
 					kind:     iouring.OpLast,
 					borrowed: true,
-					resultCh: make(chan Result),
+					resultCh: make(chan Result, 1),
 				}
 			},
 		},
@@ -63,10 +63,8 @@ func New(options ...Option) (v *Vortex, err error) {
 		},
 		running:          atomic.Bool{},
 		wg:               sync.WaitGroup{},
-		locker:           &sync.Mutex{},
 		submitSemaphores: submitSemaphores,
 		buffers:          NewQueue[FixedBuffer](),
-		files:            make([]int, 0, 1),
 	}
 	return
 }
@@ -77,13 +75,11 @@ type Vortex struct {
 	timers           sync.Pool
 	options          Options
 	wg               sync.WaitGroup
-	locker           sync.Locker
 	submitSemaphores *semaphores.Semaphores
 	ring             *iouring.Ring
 	requests         *Queue[Operation]
 	buffers          *Queue[FixedBuffer]
 	cancel           context.CancelFunc
-	files            []int
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -140,40 +136,6 @@ func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
 	vortex.buffers.Enqueue(buf)
 }
 
-func (vortex *Vortex) RegisterFixedFile(fd int) (index int, err error) {
-	vortex.locker.Lock()
-	defer vortex.locker.Unlock()
-	if vortex.ring == nil {
-		err = errors.New("vortex has not been started")
-		return
-	}
-	filesLen := len(vortex.files)
-	if filesLen == 1 && vortex.files[0] == -1 {
-		vortex.files[0] = fd
-	} else {
-		vortex.files = append(vortex.files, fd)
-		index = len(vortex.files) - 1
-	}
-	_, err = vortex.ring.RegisterFilesUpdate(uint(index), vortex.files[index:])
-	return
-}
-
-func (vortex *Vortex) UnregisterFixedFile(index int) (err error) {
-	vortex.locker.Lock()
-	defer vortex.locker.Unlock()
-	if vortex.ring == nil {
-		err = errors.New("vortex has not been started")
-		return
-	}
-	if len(vortex.files) < index {
-		err = errors.New("index of file has not been registered")
-		return
-	}
-	vortex.files[index] = -1
-	_, err = vortex.ring.RegisterFilesUpdate(uint(index), vortex.files[index:])
-	return
-}
-
 func (vortex *Vortex) Shutdown() (err error) {
 	if vortex.running.CompareAndSwap(true, false) {
 		vortex.cancel()
@@ -189,7 +151,6 @@ func (vortex *Vortex) Shutdown() (err error) {
 				}
 			}
 		}
-		_, _ = ring.UnregisterFiles()
 		err = ring.Close()
 	}
 	return
@@ -233,14 +194,6 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 				_ = vortex.buffers.Dequeue()
 			}
 		}
-	}
-	// register files
-	vortex.files = append(vortex.files, -1)
-	_, registerFileErr := uring.RegisterFiles(vortex.files)
-	if registerFileErr != nil {
-		err = registerFileErr
-		_ = uring.Close()
-		return
 	}
 
 	vortex.ring = uring

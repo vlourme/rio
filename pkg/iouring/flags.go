@@ -75,8 +75,8 @@ const (
 	SetupCoopTaskRun
 	// SetupTaskRunFlag
 	// 与 IORING_SETUP_COOP_TASKRUN 结合使用，它提供了一个标志 IORING_SQ_TASKRUN，
-	// 每当有应该处理的完成等待时，它就会在 SQ 环标志中被设置。即使在执行 io_uring_peek_cqe(3) 时，
-	// uring 也会检查该标志，并进入内核处理它们，应用程序也可以这样做。
+	// 每当有应该处理的完成等待时，它就会在 SQ 环标志中被设置。
+	// 即使在执行 io_uring_peek_cqe(3) 时，uring 也会检查该标志，并进入内核处理它们，应用程序也可以这样做。
 	// 这使得 IORING_SETUP_TASKRUN_FLAG 可以安全使用，即使应用程序依赖于 CQ 环上的偷看式操作来查看是否有任何待收获。自 5.19 版起可用。
 	SetupTaskRunFlag
 	// SetupSQE128

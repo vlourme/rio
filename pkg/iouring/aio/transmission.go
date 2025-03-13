@@ -23,14 +23,27 @@ var (
 	{32, 50 * time.Microsecond},
 	{64, 100 * time.Microsecond},
 	{96, 500 * time.Microsecond},
+
+	{1, 15 * time.Second},
+	{8, 500 * time.Nanosecond},
+	{16, 1 * time.Microsecond},
+	{32, 10 * time.Microsecond},
+	{64, 50 * time.Microsecond},
+	{128, 100 * time.Microsecond},
+	{256, 150 * time.Microsecond},
+	{512, 200 * time.Microsecond},
+	{1024, 500 * time.Microsecond},
 	*/
 	defaultCurve = Curve{
 		{1, 15 * time.Second},
 		{8, 500 * time.Nanosecond},
 		{16, 1 * time.Microsecond},
-		{32, 50 * time.Microsecond},
-		{64, 100 * time.Microsecond},
-		{96, 500 * time.Microsecond},
+		{32, 10 * time.Microsecond},
+		{64, 50 * time.Microsecond},
+		{128, 100 * time.Microsecond},
+		{256, 150 * time.Microsecond},
+		{512, 200 * time.Microsecond},
+		{1024, 500 * time.Microsecond},
 	}
 )
 
