@@ -11,8 +11,9 @@ import (
 )
 
 type Result struct {
-	N   int
-	Err error
+	N     int
+	Flags uint32
+	Err   error
 }
 
 type pipeRequest struct {
@@ -27,14 +28,17 @@ type pipeRequest struct {
 const (
 	ReadyOperationStatus int64 = iota
 	ProcessingOperationStatus
+	HijackedOperationStatus
 	CompletedOperationStatus
 )
 
-func NewOperation() *Operation {
+func NewOperation(resultChanBuffer int) *Operation {
+	if resultChanBuffer < 0 {
+		resultChanBuffer = 0
+	}
 	return &Operation{
 		kind:     iouring.OpLast,
-		resultCh: make(chan Result),
-		ringId:   -1,
+		resultCh: make(chan Result, resultChanBuffer),
 	}
 }
 
@@ -43,7 +47,6 @@ type Operation struct {
 	kind     uint8
 	borrowed bool
 	resultCh chan Result
-	ringId   int
 	deadline time.Time
 	fd       int
 	msg      syscall.Msghdr
@@ -51,9 +54,16 @@ type Operation struct {
 	ptr      unsafe.Pointer
 }
 
-func (op *Operation) WithRingId(ringId int) *Operation {
-	op.ringId = ringId
-	return op
+func (op *Operation) Close() {
+	close(op.resultCh)
+}
+
+func (op *Operation) Hijack() {
+	op.status.Store(HijackedOperationStatus)
+}
+
+func (op *Operation) Complete() {
+	op.status.Store(CompletedOperationStatus)
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -185,8 +195,6 @@ func (op *Operation) reset() {
 	op.kind = iouring.OpLast
 	// status
 	op.status.Store(ReadyOperationStatus)
-	// ring id
-	op.ringId = -1
 	// fd
 	op.fd = 0
 	// msg
@@ -260,6 +268,46 @@ func (op *Operation) Flags() int {
 	return int(op.msg.Flags)
 }
 
-func (op *Operation) setResult(n int, err error) {
-	op.resultCh <- Result{n, err}
+func (op *Operation) setResult(n int, flags uint32, err error) {
+	op.resultCh <- Result{n, flags, err}
+}
+
+func (op *Operation) canCancel() bool {
+	if ok := op.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus); ok {
+		return true
+	}
+	if ok := op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus); ok {
+		return true
+	}
+	if ok := op.status.CompareAndSwap(HijackedOperationStatus, CompletedOperationStatus); ok {
+		return true
+	}
+	return false
+}
+
+func (op *Operation) canPrepare() bool {
+	if ok := op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus); ok {
+		return true
+	}
+	if ok := op.status.Load() == HijackedOperationStatus; ok {
+		return true
+	}
+	return false
+}
+
+func (op *Operation) canSetResult() bool {
+	if ok := op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus); ok {
+		return true
+	}
+	if ok := op.status.Load() == HijackedOperationStatus; ok {
+		return true
+	}
+	return false
+}
+
+func (op *Operation) canRelease() bool {
+	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
+		return false
+	}
+	return op.borrowed
 }

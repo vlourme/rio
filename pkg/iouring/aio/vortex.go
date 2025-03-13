@@ -44,16 +44,15 @@ func New(options ...Option) (v *Vortex, err error) {
 	}
 
 	v = &Vortex{
-		ring:    nil,
-		queue:   NewQueue[Operation](),
-		options: opt,
+		ring:     nil,
+		requests: NewQueue[Operation](),
+		options:  opt,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
 					kind:     iouring.OpLast,
 					borrowed: true,
 					resultCh: make(chan Result),
-					ringId:   -1,
 				}
 			},
 		},
@@ -64,8 +63,10 @@ func New(options ...Option) (v *Vortex, err error) {
 		},
 		running:          atomic.Bool{},
 		wg:               sync.WaitGroup{},
+		locker:           &sync.Mutex{},
 		submitSemaphores: submitSemaphores,
 		buffers:          NewQueue[FixedBuffer](),
+		files:            make([]int, 0, 1),
 	}
 	return
 }
@@ -76,11 +77,13 @@ type Vortex struct {
 	timers           sync.Pool
 	options          Options
 	wg               sync.WaitGroup
+	locker           sync.Locker
 	submitSemaphores *semaphores.Semaphores
 	ring             *iouring.Ring
-	queue            *Queue[Operation]
+	requests         *Queue[Operation]
 	buffers          *Queue[FixedBuffer]
 	cancel           context.CancelFunc
+	files            []int
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -89,7 +92,7 @@ func (vortex *Vortex) acquireOperation() *Operation {
 }
 
 func (vortex *Vortex) releaseOperation(op *Operation) {
-	if op.borrowed {
+	if op.canRelease() {
 		op.reset()
 		vortex.operations.Put(op)
 	}
@@ -107,12 +110,12 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 }
 
 func (vortex *Vortex) submit(op *Operation) {
-	vortex.queue.Enqueue(op)
+	vortex.requests.Enqueue(op)
 	vortex.submitSemaphores.Signal()
 }
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
-	if target.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) || target.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
+	if target.canCancel() {
 		op := &Operation{} // do not make ch cause no userdata
 		op.PrepareCancel(target)
 		vortex.submit(op)
@@ -137,6 +140,40 @@ func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
 	vortex.buffers.Enqueue(buf)
 }
 
+func (vortex *Vortex) RegisterFixedFile(fd int) (index uint32, err error) {
+	vortex.locker.Lock()
+	defer vortex.locker.Unlock()
+	if vortex.ring == nil {
+		err = errors.New("vortex has not been started")
+		return
+	}
+	filesLen := uint32(len(vortex.files))
+	if filesLen == 0 && vortex.files[0] == -1 {
+		vortex.files[0] = fd
+	} else {
+		vortex.files = append(vortex.files, fd)
+		index = uint32(len(vortex.files) - 1)
+	}
+	_, err = vortex.ring.RegisterFilesUpdate(uint(index), vortex.files[index:])
+	return
+}
+
+func (vortex *Vortex) UnregisterFixedFile(index uint32) (err error) {
+	vortex.locker.Lock()
+	defer vortex.locker.Unlock()
+	if vortex.ring == nil {
+		err = errors.New("vortex has not been started")
+		return
+	}
+	if uint32(len(vortex.files)) < index {
+		err = errors.New("index of file has not been registered")
+		return
+	}
+	vortex.files[index] = -1
+	_, err = vortex.ring.RegisterFilesUpdate(uint(index), vortex.files[index:])
+	return
+}
+
 func (vortex *Vortex) Shutdown() (err error) {
 	if vortex.running.CompareAndSwap(true, false) {
 		vortex.cancel()
@@ -152,6 +189,7 @@ func (vortex *Vortex) Shutdown() (err error) {
 				}
 			}
 		}
+		_, _ = ring.UnregisterFiles()
 		err = ring.Close()
 	}
 	return
@@ -196,6 +234,14 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 			}
 		}
 	}
+	// register files
+	vortex.files = append(vortex.files, -1)
+	_, registerFileErr := uring.RegisterFiles(vortex.files)
+	if registerFileErr != nil {
+		err = registerFileErr
+		_ = uring.Close()
+		return
+	}
 
 	vortex.ring = uring
 
@@ -224,7 +270,7 @@ func (vortex *Vortex) preparingSQE(ctx context.Context) {
 
 	ring := vortex.ring
 
-	queue := vortex.queue
+	queue := vortex.requests
 	shs := vortex.submitSemaphores
 	var (
 		peeked       uint32
@@ -256,9 +302,9 @@ func (vortex *Vortex) preparingSQE(ctx context.Context) {
 				continue
 			}
 			operations[i] = nil
-			if op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus) {
+			if op.canPrepare() {
 				if prepErr := vortex.prepareSQE(op); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
-					op.setResult(0, prepErr)
+					op.setResult(0, 0, prepErr)
 					if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
 						break
 					}
@@ -272,17 +318,17 @@ func (vortex *Vortex) preparingSQE(ctx context.Context) {
 		if prepared > 0 || needToSubmit > 0 {
 			submitted, _ := ring.Submit()
 			needToSubmit += int64(prepared) - int64(submitted)
-			vortex.queue.Advance(prepared)
+			vortex.requests.Advance(prepared)
 			prepared = 0
 		}
 	}
 	// evict
-	if remains := vortex.queue.Length(); remains > 0 {
-		peeked = vortex.queue.PeekBatch(operations)
+	if remains := vortex.requests.Length(); remains > 0 {
+		peeked = vortex.requests.PeekBatch(operations)
 		for i := uint32(0); i < peeked; i++ {
 			op := operations[i]
 			operations[i] = nil
-			op.setResult(0, Uncompleted)
+			op.setResult(0, 0, Uncompleted)
 		}
 	}
 	// prepare noop to wakeup cq waiter
@@ -340,24 +386,23 @@ func (vortex *Vortex) waitingCQE(ctx context.Context) {
 					if cqe.UserData == 0 { // no userdata means no op
 						continue
 					}
-					if notify := cqe.Flags&iouring.CQEFNotify != 0; notify { // used by send zc
-						continue
-					}
-					// get op from
+					// get op from cqe
 					copPtr := cqe.GetData()
 					cop := (*Operation)(copPtr)
+
 					// handle
-					if cop.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) { // not done
+					if cop.canSetResult() { // not done
 						var (
-							opN   int
-							opErr error
+							opN     int
+							opFlags = cqe.Flags
+							opErr   error
 						)
 						if cqe.Res < 0 {
 							opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
 						} else {
 							opN = int(cqe.Res)
 						}
-						cop.setResult(opN, opErr)
+						cop.setResult(opN, opFlags, opErr)
 					}
 				}
 				// CQAdvance

@@ -30,7 +30,7 @@ func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64
 		}
 		// drain
 		drainFuture := vortex.PrepareSplice(src, -1, pipe.wfd, -1, uint32(chunk), unix.SPLICE_F_NONBLOCK)
-		drained, drainedErr := drainFuture.Await(ctx)
+		drained, _, drainedErr := drainFuture.Await(ctx)
 		if drainedErr != nil || drained == 0 {
 			err = drainedErr
 			break
@@ -38,7 +38,7 @@ func (vortex *Vortex) Splice(ctx context.Context, dst int, src int, remain int64
 		pipe.DrainN(drained)
 		// pump
 		pumpFuture := vortex.PrepareSplice(pipe.rfd, -1, dst, -1, uint32(drained), unix.SPLICE_F_NONBLOCK)
-		pumped, pumpedErr := pumpFuture.Await(ctx)
+		pumped, _, pumpedErr := pumpFuture.Await(ctx)
 		if pumped > 0 {
 			n += int64(pumped)
 			remain -= int64(pumped)
