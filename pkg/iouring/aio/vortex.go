@@ -23,8 +23,8 @@ func New(options ...Option) (v *Vortex, err error) {
 		err = errors.New("get kernel version failed")
 		return
 	}
-	if !version.GTE(5, 1, 0) {
-		err = errors.New("kernel version must greater than or equal to 5.1")
+	if !version.GTE(5, 19, 0) {
+		err = errors.New("kernel version must greater than or equal to 5.19")
 		return
 	}
 
@@ -383,6 +383,7 @@ func (vortex *Vortex) waitingCQE(ctx context.Context) {
 				for i := uint32(0); i < completed; i++ {
 					cqe := cq[i]
 					cq[i] = nil
+
 					if cqe.UserData == 0 { // no userdata means no op
 						continue
 					}

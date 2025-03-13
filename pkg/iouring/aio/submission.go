@@ -70,25 +70,31 @@ func (vortex *Vortex) Send(ctx context.Context, fd int, b []byte, deadline time.
 
 func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline time.Time) (n int, err error) {
 	op := vortex.acquireOperation()
+	op.Hijack()
 	op.WithDeadline(deadline).PrepareSendZC(fd, b)
 	var (
 		cqeFlags uint32
 	)
 	n, cqeFlags, err = vortex.submitAndWait(ctx, op)
 	if err != nil {
+		op.Complete()
 		vortex.releaseOperation(op)
 		return
 	}
+
 	if cqeFlags&iouring.CQEFMore != 0 {
-		_, cqeFlags, err = vortex.submitAndWait(ctx, op)
+	WAIT_F_NOFTIFY:
+		_, cqeFlags, err = vortex.AwaitOperation(ctx, op)
 		if err != nil {
+			op.Complete()
 			vortex.releaseOperation(op)
 			return
 		}
 		if cqeFlags&iouring.CQEFNotify == 0 {
-			err = errors.New("cqe_f_notify flags was not received")
+			goto WAIT_F_NOFTIFY
 		}
 	}
+	op.Complete()
 	vortex.releaseOperation(op)
 	return
 }
@@ -139,26 +145,33 @@ func (vortex *Vortex) SendMsg(ctx context.Context, fd int, b []byte, oob []byte,
 
 func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, oobn int, err error) {
 	op := vortex.acquireOperation()
+	op.Hijack()
 	op.WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, 0)
 	var (
 		cqeFlags uint32
 	)
 	n, cqeFlags, err = vortex.submitAndWait(ctx, op)
 	if err != nil {
+		op.Complete()
 		vortex.releaseOperation(op)
 		return
 	}
+
 	oobn = int(op.msg.Controllen)
+
 	if cqeFlags&iouring.CQEFMore != 0 {
-		_, cqeFlags, err = vortex.submitAndWait(ctx, op)
+	WAIT_F_NOFTIFY:
+		_, cqeFlags, err = vortex.AwaitOperation(ctx, op)
 		if err != nil {
+			op.Complete()
 			vortex.releaseOperation(op)
 			return
 		}
 		if cqeFlags&iouring.CQEFNotify == 0 {
-			err = errors.New("cqe_f_notify flags was not received")
+			goto WAIT_F_NOFTIFY
 		}
 	}
+	op.Complete()
 	vortex.releaseOperation(op)
 	return
 }
