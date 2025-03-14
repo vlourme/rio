@@ -17,7 +17,7 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		FastOpen:        false,
 		QuickAck:        false,
 		ReusePort:       false,
-		AcceptMode:      AcceptMultishot,
+		AcceptMode:      AcceptNormal,
 	}
 	if strings.HasPrefix(network, "tcp") {
 		config.SetFastOpen(true)
@@ -39,9 +39,9 @@ func ListenPacket(network string, addr string) (c net.PacketConn, err error) {
 type AcceptMode int
 
 const (
-	AcceptMultishot AcceptMode = 1
-	AcceptNormal    AcceptMode = 2
-	AcceptEventFd   AcceptMode = 3
+	AcceptNormal AcceptMode = iota
+	AcceptMultishot
+	AcceptEventFd
 )
 
 type ListenConfig struct {

@@ -58,6 +58,13 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
+	switch lc.AcceptMode {
+	case AcceptMultishot, AcceptEventFd:
+		break
+	default:
+		lc.AcceptMode = AcceptNormal
+		break
+	}
 
 	// ln
 	cc, cancel := context.WithCancel(ctx)
@@ -67,13 +74,59 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		fd:              fd,
 		vortex:          vortex,
 		acceptFuture:    nil,
-		accepting:       atomic.Bool{},
 		acceptMode:      lc.AcceptMode,
 		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 	}
+	switch ln.acceptMode {
+	case AcceptMultishot:
+		if err := ln.prepareMultishotAccepting(); err != nil {
+			_ = syscall.Close(fd.Socket())
+			_ = aio.Release(vortex)
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
+		break
+	case AcceptEventFd:
+		if err := ln.prepareEPollAccepting(); err != nil {
+			_ = syscall.Close(fd.Socket())
+			_ = aio.Release(vortex)
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
+		break
+	default:
+		break
+	}
+
 	return ln, nil
+}
+
+type AcceptFuture interface {
+	Await(ctx context.Context) (n int, cqeFlags uint32, err error)
+}
+
+type epollAcceptFuture struct {
+	ch   chan int
+	poll *sys.EPoll
+}
+
+func (f *epollAcceptFuture) Await(ctx context.Context) (n int, cqeFlags uint32, err error) {
+	select {
+	case fd, ok := <-f.ch:
+		if !ok {
+			err = context.Canceled
+			break
+		}
+		n = fd
+		break
+	case <-ctx.Done():
+		err = ctx.Err()
+		break
+	}
+	if err != nil {
+		_ = f.poll.Close()
+	}
+	return
 }
 
 type TCPListener struct {
@@ -81,9 +134,9 @@ type TCPListener struct {
 	cancel          context.CancelFunc
 	fd              *sys.Fd
 	vortex          *aio.Vortex
-	acceptFuture    *aio.Future
-	accepting       atomic.Bool
+	acceptFuture    AcceptFuture
 	acceptMode      AcceptMode
+	epoll           *sys.EPoll
 	multipathTCP    bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
@@ -103,152 +156,11 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 		tc, err = ln.acceptTCPMultishot()
 		break
 	case AcceptEventFd:
-		// todo
+		tc, err = ln.acceptTCPEPoll()
 		break
 	default:
 		tc, err = ln.acceptTCPNormal()
 		break
-	}
-	return
-}
-
-func (ln *TCPListener) acceptTCPMultishot() (tc *TCPConn, err error) {
-	if ln.accepting.CompareAndSwap(false, true) {
-		ln.prepareAccepting()
-	}
-
-	ctx := ln.ctx
-
-	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
-	if acceptErr != nil {
-		if errors.Is(acceptErr, context.Canceled) {
-			acceptErr = net.ErrClosed
-		}
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
-		return
-	}
-	// fd
-	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
-	// local addr
-	if err = cfd.LoadLocalAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-	// remote addr
-	if err = cfd.LoadRemoteAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-
-	// tcp conn
-	cc, cancel := context.WithCancel(ctx)
-	tc = &TCPConn{
-		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            cfd,
-			vortex:        ln.vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			pinned:        false,
-		},
-	}
-	// no delay
-	_ = tc.SetNoDelay(true)
-	// keepalive
-	keepAliveConfig := ln.keepAliveConfig
-	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
-		keepAliveConfig = net.KeepAliveConfig{
-			Enable: true,
-			Idle:   ln.keepAlive,
-		}
-	}
-	if keepAliveConfig.Enable {
-		_ = tc.SetKeepAliveConfig(keepAliveConfig)
-	}
-	return
-}
-
-func (ln *TCPListener) prepareAccepting() {
-	vortex := ln.vortex
-
-	fd := ln.fd.Socket()
-	addr := &syscall.RawSockaddrAny{}
-	addrLen := syscall.SizeofSockaddrAny
-	backlog := sys.MaxListenerBacklog()
-	if backlog < 8 {
-		backlog = 4096
-	}
-	future := vortex.PrepareAcceptMultishot(fd, addr, addrLen, backlog)
-	ln.acceptFuture = &future
-	return
-}
-
-func (ln *TCPListener) acceptTCPNormal() (tc *TCPConn, err error) {
-	if !ln.ok() {
-		return nil, syscall.EINVAL
-	}
-
-	ctx := ln.ctx
-	fd := ln.fd.Socket()
-	vortex := ln.vortex
-	// accept
-	addr := &syscall.RawSockaddrAny{}
-	addrLen := syscall.SizeofSockaddrAny
-	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen)
-	if acceptErr != nil {
-		if errors.Is(acceptErr, context.Canceled) {
-			acceptErr = net.ErrClosed
-		}
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
-		return
-	}
-	// fd
-	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
-	// local addr
-	if err = cfd.LoadLocalAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-	// remote addr
-	if sa, saErr := sys.RawSockaddrAnyToSockaddr(addr); sa != nil && saErr == nil {
-		remoteAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
-		cfd.SetRemoteAddr(remoteAddr)
-	} else {
-		if err = cfd.LoadRemoteAddr(); err != nil {
-			_ = cfd.Close()
-			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-			return
-		}
-	}
-	// tcp conn
-	cc, cancel := context.WithCancel(ctx)
-	tc = &TCPConn{
-		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            cfd,
-			vortex:        vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			pinned:        false,
-		},
-	}
-	// no delay
-	_ = tc.SetNoDelay(true)
-	// keepalive
-	keepAliveConfig := ln.keepAliveConfig
-	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
-		keepAliveConfig = net.KeepAliveConfig{
-			Enable: true,
-			Idle:   ln.keepAlive,
-		}
-	}
-	if keepAliveConfig.Enable {
-		_ = tc.SetKeepAliveConfig(keepAliveConfig)
 	}
 	return
 }
