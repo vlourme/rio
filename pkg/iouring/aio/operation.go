@@ -49,6 +49,7 @@ type Operation struct {
 	resultCh  chan Result
 	deadline  time.Time
 	multishot bool
+	fixedFile bool
 	fd        int
 	msg       syscall.Msghdr
 	pipe      pipeRequest
@@ -83,9 +84,23 @@ func (op *Operation) Timeout() time.Duration {
 	return 0
 }
 
+func (op *Operation) WithFixedFile(fileIndex int) *Operation {
+	op.fixedFile = true
+	op.fd = fileIndex
+	return op
+}
+
 func (op *Operation) PrepareNop() (err error) {
 	op.kind = iouring.OpNop
 	return
+}
+
+func (op *Operation) PrepareSocket(domain, socketType, protocol int, flags uint32) {
+	op.kind = iouring.OpSocket
+	op.pipe.fdIn = domain
+	op.pipe.fdOut = socketType
+	op.pipe.nbytes = uint32(protocol)
+	op.pipe.spliceFlags = flags
 }
 
 func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
@@ -211,8 +226,10 @@ func (op *Operation) reset() {
 	op.status.Store(ReadyOperationStatus)
 	// multishot
 	op.multishot = false
+	// fixed
+	op.fixedFile = false
 	// fd
-	op.fd = 0
+	op.fd = -1
 	// msg
 	op.msg.Name = nil
 	op.msg.Namelen = 0
