@@ -174,8 +174,8 @@ func (entry *SubmissionQueueEntry) SetData64(data uint64) {
 	entry.UserData = data
 }
 
-func (entry *SubmissionQueueEntry) SetFlags(flags uint32) {
-	entry.Flags = uint8(flags)
+func (entry *SubmissionQueueEntry) SetFlags(flags uint8) {
+	entry.Flags = flags
 }
 
 // [Nop] ***************************************************************************************************************
