@@ -66,6 +66,11 @@ func (ln *TCPListener) acceptTCPEPoll() (tc *TCPConn, err error) {
 			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 			return
 		}
+		if err = syscall.SetNonblock(nfd, true); err != nil {
+			_ = syscall.Close(nfd)
+			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+			return
+		}
 		// fd
 		cfd := sys.NewFd(ln.fd.Net(), nfd, ln.fd.Family(), ln.fd.SocketType())
 		// local addr
