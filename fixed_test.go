@@ -9,7 +9,7 @@ import (
 )
 
 func TestFixed(t *testing.T) {
-	os.Setenv("IOURING_REG_BUFFERS", "1024,10")
+	os.Setenv("IOURING_REG_FIXED_BUFFERS", "1024,10")
 
 	ln, lnErr := rio.Listen("tcp", ":9000")
 	if lnErr != nil {

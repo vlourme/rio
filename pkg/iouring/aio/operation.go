@@ -38,6 +38,7 @@ func NewOperation(resultChanBuffer int) *Operation {
 	}
 	return &Operation{
 		kind:     iouring.OpLast,
+		ringId:   -1,
 		resultCh: make(chan Result, resultChanBuffer),
 	}
 }
@@ -49,6 +50,7 @@ type Operation struct {
 	resultCh  chan Result
 	deadline  time.Time
 	multishot bool
+	ringId    int
 	fd        int
 	msg       syscall.Msghdr
 	pipe      pipeRequest
@@ -69,6 +71,11 @@ func (op *Operation) Complete() {
 
 func (op *Operation) UseMultishot() {
 	op.multishot = true
+}
+
+func (op *Operation) WithRingId(ringId int) *Operation {
+	op.ringId = ringId
+	return op
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -202,6 +209,7 @@ func (op *Operation) PrepareTee(fdIn int, fdOut int, nbytes uint32, flags uint32
 func (op *Operation) PrepareCancel(target *Operation) {
 	op.kind = iouring.OpAsyncCancel
 	op.ptr = unsafe.Pointer(target)
+	op.ringId = target.ringId
 }
 
 func (op *Operation) reset() {
@@ -213,6 +221,8 @@ func (op *Operation) reset() {
 	op.multishot = false
 	// fd
 	op.fd = 0
+	// ring id
+	op.ringId = -1
 	// msg
 	op.msg.Name = nil
 	op.msg.Namelen = 0

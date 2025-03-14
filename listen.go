@@ -17,7 +17,7 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		FastOpen:        false,
 		QuickAck:        false,
 		ReusePort:       false,
-		AcceptMode:      AcceptNormal,
+		AcceptMode:      AcceptMultishot,
 	}
 	if strings.HasPrefix(network, "tcp") {
 		config.SetFastOpen(true)

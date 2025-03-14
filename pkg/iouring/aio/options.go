@@ -6,6 +6,7 @@ import (
 )
 
 type Options struct {
+	RingNum                  uint32
 	Entries                  uint32
 	Flags                    uint32
 	SQThreadCPU              uint32
@@ -21,6 +22,12 @@ type Options struct {
 }
 
 type Option func(*Options)
+
+func RingNum(num uint32) Option {
+	return func(o *Options) {
+		o.RingNum = num
+	}
+}
 
 func WithEntries(entries int) Option {
 	return func(opts *Options) {
@@ -53,13 +60,13 @@ func WithPrepareSQEBatchSize(size uint32) Option {
 }
 
 const (
-	defaultPrepareSQIdleTime = 15 * time.Second
+	defaultPrepareSQEIdleTime = 15 * time.Second
 )
 
 func WithPrepareSQEIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
 		if d < 1 {
-			d = defaultPrepareSQIdleTime
+			d = defaultPrepareSQEIdleTime
 		}
 		opts.PrepSQEIdleTime = d
 	}
