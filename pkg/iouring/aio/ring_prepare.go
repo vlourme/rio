@@ -123,6 +123,22 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		sqe.PrepareNop()
 		sqe.SetData(unsafe.Pointer(op))
 		break
+	case iouring.OpSocket:
+		domain := op.pipe.fdIn
+		sotype := op.pipe.fdOut
+		proto := int(op.pipe.nbytes)
+		flags := op.pipe.spliceFlags
+		if op.fixedFile {
+			if op.fd < 0 {
+				sqe.PrepareSocketDirectAlloc(domain, sotype, proto, flags)
+			} else {
+				sqe.PrepareSocketDirect(domain, sotype, proto, uint32(op.fd), flags)
+			}
+		} else {
+			sqe.PrepareSocket(domain, sotype, proto, flags)
+		}
+		sqe.SetData(unsafe.Pointer(op))
+		break
 	case iouring.OpConnect:
 		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(op.msg.Namelen)
@@ -133,8 +149,17 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
 		if op.multishot {
-			sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, 0)
+			if op.fixedFile {
+				sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, 0)
+				sqe.SetFlags(iouring.SQEFixedFile)
+			} else {
+				sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, 0)
+			}
 		} else {
+			if op.fixedFile { // todo: [FIXED] fixed no file id for PrepareAcceptDirect
+				sqe.PrepareNop()
+				return UnsupportedOp
+			}
 			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
 		}
 		sqe.SetData(unsafe.Pointer(op))
@@ -161,12 +186,18 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		b := uintptr(unsafe.Pointer(op.msg.Name))
 		bLen := op.msg.Namelen
 		sqe.PrepareRecv(op.fd, b, bLen, 0)
+		if op.fixedFile {
+			sqe.SetFlags(iouring.SQEFixedFile)
+		}
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSend:
 		b := uintptr(unsafe.Pointer(op.msg.Name))
 		bLen := op.msg.Namelen
 		sqe.PrepareSend(op.fd, b, bLen, 0)
+		if op.fixedFile {
+			sqe.SetFlags(iouring.SQEFixedFile)
+		}
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendZC:
