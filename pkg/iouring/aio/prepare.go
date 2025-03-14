@@ -36,7 +36,7 @@ func (vortex *Vortex) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLe
 }
 
 func (vortex *Vortex) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen int, buffer int) Future {
-	op := NewOperation(buffer).WithRingId(vortex.ring.Id())
+	op := NewOperation(buffer)
 	op.Hijack()
 	op.PrepareAcceptMultishot(fd, addr, addrLen)
 	vortex.submit(op)

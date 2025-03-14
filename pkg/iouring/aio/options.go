@@ -6,7 +6,6 @@ import (
 )
 
 type Options struct {
-	RingNum                  uint32
 	Entries                  uint32
 	Flags                    uint32
 	SQThreadCPU              uint32
@@ -23,15 +22,9 @@ type Options struct {
 
 type Option func(*Options)
 
-func RingNum(num uint32) Option {
-	return func(o *Options) {
-		o.RingNum = num
-	}
-}
-
-func WithEntries(entries int) Option {
+func WithEntries(entries uint32) Option {
 	return func(opts *Options) {
-		opts.Entries = uint32(entries)
+		opts.Entries = entries
 	}
 }
 

@@ -3,15 +3,10 @@ package aio
 import "io"
 
 type FixedBuffer struct {
-	value  []byte
-	index  int
-	rPos   int
-	wPos   int
-	ringId int
-}
-
-func (buf *FixedBuffer) RingId() int {
-	return buf.ringId
+	value []byte
+	index int
+	rPos  int
+	wPos  int
 }
 
 func (buf *FixedBuffer) Validate() bool {

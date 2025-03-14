@@ -11,5 +11,5 @@ func defaultIOURingSetupFlags() uint32 {
 }
 
 func performanceIOURingSetupFlags() uint32 {
-	return iouring.SetupSQPoll | iouring.SetupSQAff | iouring.SetupSingleIssuer
+	return iouring.SetupSQPoll | iouring.SetupSQAff
 }

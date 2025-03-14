@@ -4,163 +4,23 @@ package aio
 
 import (
 	"context"
-	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/semaphores"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"time"
 )
 
 type IOURing interface {
 	Start(ctx context.Context)
-	Id() int
 	Submit(op *Operation)
+	FileFd(index int) int
 	AcquireBuffer() *FixedBuffer
 	ReleaseBuffer(buf *FixedBuffer)
 	Close() (err error)
 }
 
-type RingOptions struct {
-	Entries                  uint32
-	Flags                    uint32
-	SQThreadCPU              uint32
-	SQThreadIdle             uint32
-	RegisterFixedBufferSize  uint32
-	RegisterFixedBufferCount uint32
-	PrepSQEBatchSize         uint32
-	PrepSQEIdleTime          time.Duration
-	PrepSQEAffCPU            int
-	WaitCQEBatchSize         uint32
-	WaitCQETimeCurve         Curve
-	WaitCQEAffCPU            int
-}
-
-func NewIOURing(options Options) (uring IOURing, err error) {
-	num := options.RingNum
-	if num == 0 {
-		num = uint32(runtime.NumCPU() / 2)
-	}
-	if num == 1 {
-		uring, err = newRing(0, 0, options)
-		return
-	}
-
-	members := make([]*Ring, num)
-	// master
-	master, masterErr := newRing(0, 0, options)
-	if masterErr != nil {
-		err = masterErr
-		return
-	}
-	members[0] = master
-	// slaver
-	for i := uint32(0); i < num; i++ {
-		slaver, slaverErr := newRing(int(i), master.Fd(), options)
-		if slaverErr != nil {
-			err = slaverErr
-			break
-		}
-		members[i] = slaver
-	}
-	if err != nil {
-		for _, m := range members {
-			if m == nil {
-				break
-			}
-			_ = m.Close()
-		}
-		return
-	}
-	uring = &Rings{
-		members: members,
-		length:  uint64(len(members)),
-		idx:     atomic.Uint64{},
-	}
-	return
-}
-
-type Rings struct {
-	members []*Ring
-	length  uint64
-	idx     atomic.Uint64
-}
-
-func (rs *Rings) next() (r *Ring) {
-	idx := (rs.idx.Add(1) - 1) % rs.length
-	r = rs.members[idx]
-	return
-}
-
-func (rs *Rings) Id() int {
-	r := rs.next()
-	return r.id
-}
-
-func (rs *Rings) Submit(op *Operation) {
-	if op.ringId == -1 {
-		r := rs.next()
-		r.Submit(op)
-		return
-	}
-	for i := range rs.members {
-		m := rs.members[i]
-		if m.id == op.ringId {
-			m.Submit(op)
-			break
-		}
-	}
-	return
-}
-
-func (rs *Rings) AcquireBuffer() *FixedBuffer {
-	r := rs.next()
-	buf := r.AcquireBuffer()
-	return buf
-}
-
-func (rs *Rings) ReleaseBuffer(buf *FixedBuffer) {
-	for i := range rs.members {
-		m := rs.members[i]
-		if m.id == buf.ringId {
-			m.ReleaseBuffer(buf)
-			break
-		}
-	}
-	return
-}
-
-func (rs *Rings) Start(ctx context.Context) {
-	for _, ring := range rs.members {
-		ring.Start(ctx)
-	}
-}
-
-func (rs *Rings) Close() (err error) {
-	for i := uint64(1); i < rs.length; i++ {
-		member := rs.members[i]
-		if closeErr := member.Close(); closeErr != nil {
-			if err == nil {
-				err = closeErr
-			} else {
-				err = errors.Join(err, closeErr)
-			}
-		}
-	}
-	closeErr := rs.members[0].Close()
-	if closeErr != nil {
-		if err == nil {
-			err = closeErr
-		} else {
-			err = errors.Join(err, closeErr)
-		}
-	}
-	return
-}
-
-func newRing(id int, attach int, options Options) (r *Ring, err error) {
+func NewIOURing(options Options) (r IOURing, err error) {
 	// op semaphores
 	prepareIdleTime := options.PrepSQEIdleTime
 	if prepareIdleTime < 1 {
@@ -175,19 +35,25 @@ func newRing(id int, attach int, options Options) (r *Ring, err error) {
 	opts := make([]iouring.Option, 0, 1)
 	opts = append(opts, iouring.WithEntries(options.Entries))
 	opts = append(opts, iouring.WithFlags(options.Flags))
-	if attach == 0 {
-		opts = append(opts, iouring.WithSQThreadIdle(options.SQThreadIdle))
-		opts = append(opts, iouring.WithSQThreadCPU(options.SQThreadCPU))
-	} else {
-		opts = append(opts, iouring.WithAttachWQFd(uint32(attach)))
-	}
+	opts = append(opts, iouring.WithSQThreadIdle(options.SQThreadIdle))
+	opts = append(opts, iouring.WithSQThreadCPU(options.SQThreadCPU))
 	ring, ringErr := iouring.New(opts...)
 
 	if ringErr != nil {
 		err = ringErr
 		return
 	}
-
+	// register files 65535
+	files := make([]int, 65535)
+	for i := range files {
+		files[i] = -1
+	}
+	_, regFilesErr := ring.RegisterFiles(files)
+	if regFilesErr != nil {
+		_ = ring.Close()
+		err = regFilesErr
+		return
+	}
 	// register buffers
 	buffers := NewQueue[FixedBuffer]()
 	if size, count := options.RegisterFixedBufferSize, options.RegisterFixedBufferCount; count > 0 && size > 0 {
@@ -195,9 +61,8 @@ func newRing(id int, attach int, options Options) (r *Ring, err error) {
 		for i := uint32(0); i < count; i++ {
 			buf := make([]byte, size)
 			buffers.Enqueue(&FixedBuffer{
-				value:  buf,
-				index:  int(i),
-				ringId: id,
+				value: buf,
+				index: int(i),
 			})
 			iovecs[i] = syscall.Iovec{
 				Base: &buf[0],
@@ -213,10 +78,8 @@ func newRing(id int, attach int, options Options) (r *Ring, err error) {
 			}
 		}
 	}
-	// todo register files
 
 	r = &Ring{
-		id:                    id,
 		serving:               atomic.Bool{},
 		ring:                  ring,
 		requests:              NewQueue[Operation](),
@@ -225,7 +88,9 @@ func newRing(id int, attach int, options Options) (r *Ring, err error) {
 		cancel:                nil,
 		wg:                    sync.WaitGroup{},
 		fixedBufferRegistered: buffers.Length() > 0,
+		prepAFFCPU:            options.PrepSQEAffCPU,
 		prepSQEBatchSize:      options.PrepSQEBatchSize,
+		waitAFFCPU:            options.WaitCQEAffCPU,
 		waitCQEBatchSize:      options.WaitCQEBatchSize,
 		waitCQETimeCurve:      options.WaitCQETimeCurve,
 	}
@@ -233,7 +98,6 @@ func newRing(id int, attach int, options Options) (r *Ring, err error) {
 }
 
 type Ring struct {
-	id                    int
 	serving               atomic.Bool
 	ring                  *iouring.Ring
 	requests              *Queue[Operation]
@@ -242,17 +106,23 @@ type Ring struct {
 	cancel                context.CancelFunc
 	wg                    sync.WaitGroup
 	fixedBufferRegistered bool
+	prepAFFCPU            int
 	prepSQEBatchSize      uint32
+	waitAFFCPU            int
 	waitCQEBatchSize      uint32
 	waitCQETimeCurve      Curve
+	registeredFiles       []int
 }
 
 func (r *Ring) Fd() int {
 	return r.ring.Fd()
 }
 
-func (r *Ring) Id() int {
-	return r.id
+func (r *Ring) FileFd(index int) int {
+	if index < 0 || index >= len(r.registeredFiles) {
+		return -1
+	}
+	return r.registeredFiles[index]
 }
 
 func (r *Ring) AcquireBuffer() *FixedBuffer {
@@ -273,7 +143,6 @@ func (r *Ring) ReleaseBuffer(buf *FixedBuffer) {
 }
 
 func (r *Ring) Submit(op *Operation) {
-	op.ringId = r.id
 	r.requests.Enqueue(op)
 	r.submitSemaphores.Signal()
 }
@@ -303,6 +172,9 @@ func (r *Ring) Close() (err error) {
 				break
 			}
 		}
+	}
+	if len(r.registeredFiles) > 0 {
+		_, _ = r.ring.UnregisterFiles()
 	}
 	err = r.ring.Close()
 	return

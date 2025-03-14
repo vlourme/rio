@@ -70,7 +70,7 @@ const (
 func pollInit() (err error) {
 	if len(pollOptions) == 0 {
 		entries := loadEnvEntries()
-		pollOptions = append(pollOptions, WithEntries(int(entries)))
+		pollOptions = append(pollOptions, WithEntries(entries))
 
 		flags := loadEnvFlags()
 		pollOptions = append(pollOptions, WithFlags(flags))
@@ -202,7 +202,7 @@ func loadEnvPrepareSQEAFFCPU() int {
 	}
 	n, parseErr := strconv.Atoi(strings.TrimSpace(s))
 	if parseErr != nil {
-		return 0
+		return -1
 	}
 	return n
 }
@@ -258,7 +258,7 @@ func loadEnvWaitCQEAFFCPU() int {
 	}
 	n, parseErr := strconv.Atoi(strings.TrimSpace(s))
 	if parseErr != nil {
-		return 0
+		return -1
 	}
 	return n
 }

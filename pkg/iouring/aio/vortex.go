@@ -23,7 +23,20 @@ func New(options ...Option) (v *Vortex, err error) {
 		return
 	}
 
-	opt := Options{}
+	opt := Options{
+		Entries:                  0,
+		Flags:                    0,
+		SQThreadCPU:              0,
+		SQThreadIdle:             0,
+		RegisterFixedBufferSize:  0,
+		RegisterFixedBufferCount: 0,
+		PrepSQEBatchSize:         0,
+		PrepSQEIdleTime:          0,
+		PrepSQEAffCPU:            -1,
+		WaitCQEBatchSize:         0,
+		WaitCQETimeCurve:         nil,
+		WaitCQEAffCPU:            -1,
+	}
 	for _, option := range options {
 		option(&opt)
 	}
@@ -34,7 +47,6 @@ func New(options ...Option) (v *Vortex, err error) {
 			New: func() interface{} {
 				return &Operation{
 					kind:     iouring.OpLast,
-					ringId:   -1,
 					borrowed: true,
 					resultCh: make(chan Result, 1),
 				}
@@ -84,11 +96,6 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 
 func (vortex *Vortex) submit(op *Operation) {
 	vortex.ring.Submit(op)
-}
-
-func (vortex *Vortex) ringId() int {
-	id := vortex.ring.Id()
-	return id
 }
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {

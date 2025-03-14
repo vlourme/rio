@@ -18,9 +18,12 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 	defer r.wg.Done()
 
 	// cpu affinity
-	if r.ring.Flags()&iouring.SetupSingleIssuer != 0 {
+	if r.ring.Flags()&iouring.SetupSingleIssuer != 0 || r.prepAFFCPU > -1 {
+		if r.prepAFFCPU == -1 {
+			r.prepAFFCPU = 0
+		}
 		runtime.LockOSThread()
-		if setErr := process.SetCPUAffinity(r.id); setErr != nil {
+		if setErr := process.SetCPUAffinity(r.prepAFFCPU); setErr != nil {
 			runtime.UnlockOSThread()
 		} else {
 			defer runtime.UnlockOSThread()

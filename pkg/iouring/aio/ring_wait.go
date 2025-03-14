@@ -5,12 +5,24 @@ package aio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/process"
 	"os"
+	"runtime"
 	"syscall"
 )
 
 func (r *Ring) waitingCQE(ctx context.Context) {
 	defer r.wg.Done()
+
+	// cpu affinity
+	if r.waitAFFCPU > -1 {
+		runtime.LockOSThread()
+		if setErr := process.SetCPUAffinity(r.waitAFFCPU); setErr != nil {
+			runtime.UnlockOSThread()
+		} else {
+			defer runtime.UnlockOSThread()
+		}
+	}
 
 	ring := r.ring
 	transmission := NewCurveTransmission(r.waitCQETimeCurve)
