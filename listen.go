@@ -17,7 +17,6 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		FastOpen:        false,
 		QuickAck:        false,
 		ReusePort:       false,
-		AcceptMode:      AcceptMultishot,
 	}
 	if strings.HasPrefix(network, "tcp") {
 		config.SetFastOpen(true)
@@ -36,14 +35,6 @@ func ListenPacket(network string, addr string) (c net.PacketConn, err error) {
 	return
 }
 
-type AcceptMode int
-
-const (
-	AcceptNormal AcceptMode = iota
-	AcceptMultishot
-	AcceptEventFd
-)
-
 type ListenConfig struct {
 	Control         func(network, address string, c syscall.RawConn) error
 	KeepAlive       time.Duration
@@ -53,7 +44,6 @@ type ListenConfig struct {
 	QuickAck        bool
 	ReusePort       bool
 	UseSendZC       bool
-	AcceptMode      AcceptMode
 }
 
 func (lc *ListenConfig) SetFastOpen(use bool) {
@@ -75,8 +65,4 @@ func (lc *ListenConfig) SetReusePort(use bool) {
 
 func (lc *ListenConfig) SetUseSendZC(use bool) {
 	lc.UseSendZC = use
-}
-
-func (lc *ListenConfig) SetAcceptMode(mode AcceptMode) {
-	lc.AcceptMode = mode
 }

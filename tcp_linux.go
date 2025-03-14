@@ -25,7 +25,6 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 		FastOpen:        true,
 		QuickAck:        true,
 		ReusePort:       true,
-		AcceptMode:      AcceptMultishot,
 	}
 	ctx := context.Background()
 	return config.ListenTCP(ctx, network, addr)
@@ -58,13 +57,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	switch lc.AcceptMode {
-	case AcceptMultishot, AcceptEventFd:
-		break
-	default:
-		lc.AcceptMode = AcceptNormal
-		break
-	}
+
 	// send zc
 	useSendZC := false
 	if lc.UseSendZC {
@@ -79,29 +72,16 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		fd:              fd,
 		vortex:          vortex,
 		acceptFuture:    nil,
-		acceptMode:      lc.AcceptMode,
 		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 		useSendZC:       useSendZC,
 	}
-	switch ln.acceptMode {
-	case AcceptMultishot:
-		if err := ln.prepareMultishotAccepting(); err != nil {
-			_ = syscall.Close(fd.Socket())
-			_ = aio.Release(vortex)
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-		break
-	case AcceptEventFd:
-		if err := ln.prepareEPollAccepting(); err != nil {
-			_ = syscall.Close(fd.Socket())
-			_ = aio.Release(vortex)
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-		break
-	default:
-		break
+
+	if err := ln.prepareMultishotAccepting(); err != nil {
+		_ = syscall.Close(fd.Socket())
+		_ = aio.Release(vortex)
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 
 	return ln, nil
@@ -117,8 +97,6 @@ type TCPListener struct {
 	fd              *sys.Fd
 	vortex          *aio.Vortex
 	acceptFuture    AcceptFuture
-	acceptMode      AcceptMode
-	epoll           *sys.EPoll
 	multipathTCP    bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
@@ -134,17 +112,78 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
-	switch ln.acceptMode {
-	case AcceptMultishot:
-		tc, err = ln.acceptTCPMultishot()
-		break
-	case AcceptEventFd:
-		tc, err = ln.acceptTCPEPoll()
-		break
-	default:
-		tc, err = ln.acceptTCPNormal()
-		break
+	tc, err = ln.accept()
+	return
+}
+
+func (ln *TCPListener) accept() (tc *TCPConn, err error) {
+	ctx := ln.ctx
+
+	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
+	if acceptErr != nil {
+		if errors.Is(acceptErr, context.Canceled) {
+			acceptErr = net.ErrClosed
+		}
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
+		return
 	}
+	// fd
+	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
+	// local addr
+	if err = cfd.LoadLocalAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+	// remote addr
+	if err = cfd.LoadRemoteAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+
+	// tcp conn
+	cc, cancel := context.WithCancel(ctx)
+	tc = &TCPConn{
+		conn{
+			ctx:           cc,
+			cancel:        cancel,
+			fd:            cfd,
+			vortex:        ln.vortex,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			pinned:        false,
+			useSendZC:     ln.useSendZC,
+		},
+	}
+	// no delay
+	_ = tc.SetNoDelay(true)
+	// keepalive
+	keepAliveConfig := ln.keepAliveConfig
+	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
+		keepAliveConfig = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   ln.keepAlive,
+		}
+	}
+	if keepAliveConfig.Enable {
+		_ = tc.SetKeepAliveConfig(keepAliveConfig)
+	}
+	return
+}
+
+func (ln *TCPListener) prepareMultishotAccepting() (err error) {
+	vortex := ln.vortex
+
+	fd := ln.fd.Socket()
+	addr := &syscall.RawSockaddrAny{}
+	addrLen := syscall.SizeofSockaddrAny
+	backlog := sys.MaxListenerBacklog()
+	if backlog < 1024 {
+		backlog = 1024
+	}
+	future := vortex.PrepareAcceptMultishot(fd, addr, addrLen, backlog)
+	ln.acceptFuture = &future
 	return
 }
 
