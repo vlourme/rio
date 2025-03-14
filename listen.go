@@ -52,6 +52,7 @@ type ListenConfig struct {
 	FastOpen        bool
 	QuickAck        bool
 	ReusePort       bool
+	UseSendZC       bool
 	AcceptMode      AcceptMode
 }
 
@@ -70,6 +71,10 @@ func (lc *ListenConfig) SetQuickAck(use bool) {
 
 func (lc *ListenConfig) SetReusePort(use bool) {
 	lc.ReusePort = use
+}
+
+func (lc *ListenConfig) SetUseSendZC(use bool) {
+	lc.UseSendZC = use
 }
 
 func (lc *ListenConfig) SetAcceptMode(mode AcceptMode) {

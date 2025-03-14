@@ -137,7 +137,11 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
-
+	// send zc
+	useSendZC := false
+	if d.UseSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+	}
 	// conn
 	cc, cancel := context.WithCancel(ctx)
 	c := &TCPConn{
@@ -149,6 +153,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        true,
+			useSendZC:     useSendZC,
 		},
 	}
 	_ = c.SetNoDelay(true)
@@ -238,7 +243,13 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
-
+	// send zc
+	useSendZC := false
+	useSendMSGZC := false
+	if d.UseSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+		useSendMSGZC = aio.CheckSendMsdZCEnable()
+	}
 	// conn
 	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
@@ -250,7 +261,9 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        true,
+			useSendZC:     useSendZC,
 		},
+		useSendMSGZC,
 	}
 	return c, nil
 }
@@ -342,7 +355,13 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
-
+	// send zc
+	useSendZC := false
+	useSendMSGZC := false
+	if d.UseSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+		useSendMSGZC = aio.CheckSendMsdZCEnable()
+	}
 	// conn
 	cc, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
@@ -354,7 +373,9 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        true,
+			useSendZC:     useSendZC,
 		},
+		useSendMSGZC,
 	}
 
 	return c, nil

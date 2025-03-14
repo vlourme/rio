@@ -65,6 +65,11 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		lc.AcceptMode = AcceptNormal
 		break
 	}
+	// send zc
+	useSendZC := false
+	if lc.UseSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+	}
 
 	// ln
 	cc, cancel := context.WithCancel(ctx)
@@ -78,6 +83,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
+		useSendZC:       useSendZC,
 	}
 	switch ln.acceptMode {
 	case AcceptMultishot:
@@ -105,30 +111,6 @@ type AcceptFuture interface {
 	Await(ctx context.Context) (n int, cqeFlags uint32, err error)
 }
 
-type epollAcceptFuture struct {
-	ch   chan int
-	poll *sys.EPoll
-}
-
-func (f *epollAcceptFuture) Await(ctx context.Context) (n int, cqeFlags uint32, err error) {
-	select {
-	case fd, ok := <-f.ch:
-		if !ok {
-			err = context.Canceled
-			break
-		}
-		n = fd
-		break
-	case <-ctx.Done():
-		err = ctx.Err()
-		break
-	}
-	if err != nil {
-		_ = f.poll.Close()
-	}
-	return
-}
-
 type TCPListener struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -140,6 +122,7 @@ type TCPListener struct {
 	multipathTCP    bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
+	useSendZC       bool
 }
 
 func (ln *TCPListener) Accept() (net.Conn, error) {
@@ -456,7 +439,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		ctx := c.ctx
 		fd := c.fd.Socket()
 		vortex := c.vortex
-		written, sendfileErr := vortex.Sendfile(ctx, fd, r)
+		written, sendfileErr := vortex.Sendfile(ctx, fd, r, c.useSendZC)
 		if lr != nil {
 			lr.N -= written
 		}

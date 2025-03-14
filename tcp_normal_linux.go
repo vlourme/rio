@@ -60,6 +60,7 @@ func (ln *TCPListener) acceptTCPNormal() (tc *TCPConn, err error) {
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        false,
+			useSendZC:     ln.useSendZC,
 		},
 	}
 	// no delay

@@ -56,6 +56,13 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
+	// send zc
+	useSendZC := false
+	useSendMSGZC := false
+	if lc.UseSendZC {
+		useSendZC = aio.CheckSendZCEnable()
+		useSendMSGZC = aio.CheckSendMsdZCEnable()
+	}
 	// conn
 	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
@@ -67,7 +74,9 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        true,
+			useSendZC:     useSendZC,
 		},
+		useSendMSGZC,
 	}
 	return c, nil
 }
@@ -178,6 +187,7 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 
 type UDPConn struct {
 	conn
+	useSendMSGZC bool
 }
 
 func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
@@ -339,7 +349,11 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
+	if c.useSendMSGZC {
+		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline)
+	} else {
+		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -402,8 +416,11 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 	vortex := c.vortex
 
 	deadline := c.deadline(ctx, c.writeDeadline)
-
-	n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+	if c.useSendMSGZC {
+		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+	} else {
+		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed

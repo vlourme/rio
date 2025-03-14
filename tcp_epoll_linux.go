@@ -11,6 +11,30 @@ import (
 	"time"
 )
 
+type epollAcceptFuture struct {
+	ch   chan int
+	poll *sys.EPoll
+}
+
+func (f *epollAcceptFuture) Await(ctx context.Context) (n int, cqeFlags uint32, err error) {
+	select {
+	case fd, ok := <-f.ch:
+		if !ok {
+			err = context.Canceled
+			break
+		}
+		n = fd
+		break
+	case <-ctx.Done():
+		err = ctx.Err()
+		break
+	}
+	if err != nil {
+		_ = f.poll.Close()
+	}
+	return
+}
+
 func (ln *TCPListener) prepareEPollAccepting() (err error) {
 	poll, pollErr := sys.OpenEPoll()
 	if pollErr != nil {
@@ -94,6 +118,7 @@ func (ln *TCPListener) acceptTCPEPoll() (tc *TCPConn, err error) {
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				pinned:        false,
+				useSendZC:     ln.useSendZC,
 			},
 		}
 		// no delay

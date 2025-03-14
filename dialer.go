@@ -18,6 +18,7 @@ var (
 		MultipathTCP:    false,
 		FastOpen:        false,
 		QuickAck:        false,
+		UseSendZC:       false,
 		Control:         nil,
 		ControlContext:  nil,
 	}
@@ -57,6 +58,7 @@ type Dialer struct {
 	MultipathTCP    bool
 	FastOpen        bool
 	QuickAck        bool
+	UseSendZC       bool
 	Control         func(network, address string, c syscall.RawConn) error
 	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
 }
@@ -71,6 +73,10 @@ func (d *Dialer) SetQuickAck(use bool) {
 
 func (d *Dialer) SetMultipathTCP(use bool) {
 	d.MultipathTCP = use
+}
+
+func (d *Dialer) SetUseSendZC(use bool) {
+	d.UseSendZC = use
 }
 
 func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {

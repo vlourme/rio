@@ -20,7 +20,7 @@ var (
 	pagesize = os.Getpagesize()
 )
 
-func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader) (written int64, err error) {
+func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useSendZC bool) (written int64, err error) {
 	var remain int64 = 0
 	lr, ok := r.(*io.LimitedReader)
 	if ok {
@@ -46,7 +46,7 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader) (writt
 	srcFd := int(file.Fd())
 
 	if remain > int64(maxMMapSize) {
-		return vortex.sendfileChunk(ctx, dst, srcFd, remain)
+		return vortex.sendfileChunk(ctx, dst, srcFd, remain, useSendZC)
 	}
 	// mmap
 	b, mmapErr := mmap(srcFd, 0, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
@@ -72,7 +72,15 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader) (writt
 		if int64(chunk) > remain {
 			chunk = int(remain)
 		}
-		n, wErr := vortex.Send(ctx, dst, b[written:written+int64(chunk)], time.Time{})
+		var (
+			n    int
+			wErr error
+		)
+		if useSendZC {
+			n, wErr = vortex.SendZC(ctx, dst, b[written:written+int64(chunk)], time.Time{})
+		} else {
+			n, wErr = vortex.Send(ctx, dst, b[written:written+int64(chunk)], time.Time{})
+		}
 		if n > 0 {
 			written += int64(n)
 			remain -= int64(n)
@@ -87,7 +95,7 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader) (writt
 	return
 }
 
-func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remain int64) (written int64, err error) {
+func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remain int64, useSendZC bool) (written int64, err error) {
 	chunk := int64(pagesize)
 	for err == nil && remain > 0 {
 		if chunk > remain {
@@ -100,7 +108,15 @@ func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remai
 		}
 		_ = madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL)
 
-		n, wErr := vortex.Send(ctx, dst, b, time.Time{})
+		var (
+			n    int
+			wErr error
+		)
+		if useSendZC {
+			n, wErr = vortex.SendZC(ctx, dst, b, time.Time{})
+		} else {
+			n, wErr = vortex.Send(ctx, dst, b, time.Time{})
+		}
 		if n > 0 {
 			written += int64(n)
 			remain -= int64(n)

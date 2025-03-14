@@ -63,6 +63,7 @@ func (ln *TCPListener) acceptTCPMultishot() (tc *TCPConn, err error) {
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			pinned:        false,
+			useSendZC:     ln.useSendZC,
 		},
 	}
 	// no delay
