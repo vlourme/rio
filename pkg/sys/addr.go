@@ -42,7 +42,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 			break
 		case 0:
 			family = syscall.AF_INET
-			a.IP = net.IPv4zero.To4()
+			a.IP = net.IPv6zero
 			break
 		default:
 			err = errors.New("ip is invalid")
@@ -68,7 +68,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 			break
 		case 0:
 			family = syscall.AF_INET
-			a.IP = net.IPv4zero.To4()
+			a.IP = net.IPv6zero
 			break
 		default:
 			err = errors.New("ip is invalid")
@@ -97,7 +97,7 @@ func ResolveAddr(network string, address string) (addr net.Addr, family int, ipv
 			break
 		case 0:
 			family = syscall.AF_INET
-			a.IP = net.IPv4zero.To4()
+			a.IP = net.IPv6zero
 			break
 		default:
 			err = errors.New("ip is invalid")

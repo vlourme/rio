@@ -22,6 +22,9 @@ func TestTCP(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
+
+	t.Log("ln addr:", ln.Addr())
+
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
