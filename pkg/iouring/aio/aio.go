@@ -53,18 +53,19 @@ var (
 )
 
 const (
-	envEntries              = "IOURING_ENTRIES"
-	envFlags                = "IOURING_SETUP_FLAGS"
-	envFlagsSchema          = "IOURING_SETUP_FLAGS_SCHEMA"
-	envSQThreadCPU          = "IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle         = "IOURING_SQ_THREAD_IDLE"
-	envPrepSQEBatchSize     = "IOURING_PREP_SQE_BATCH_SIZE"
-	envPrepSQEIdleTime      = "IOURING_PREP_SQE_IDLE_TIME"
-	envPrepSQEAffCPU        = "IOURING_PREP_SQE_AFF_CPU"
-	envWaitCQEBatchSize     = "IOURING_WAIT_CQE_BATCH_SIZE"
-	envWaitCQETimeCurve     = "IOURING_WAIT_CQE_TIME_CURVE"
-	envWaitCQEAffCPU        = "IOURING_WAIT_CQE_AFF_CPU"
-	envRegisterFixedBuffers = "IOURING_REG_FIXED_BUFFERS"
+	envEntries                = "RIO_IOURING_ENTRIES"
+	envFlags                  = "RIO_IOURING_SETUP_FLAGS"
+	envFlagsSchema            = "RIO_IOURING_SETUP_FLAGS_SCHEMA"
+	envSQThreadCPU            = "RIO_IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle           = "RIO_IOURING_SQ_THREAD_IDLE"
+	envPrepSQEBatchSize       = "RIO_PREP_SQE_BATCH_SIZE"
+	envPrepSQEBatchTimeWindow = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
+	envPrepSQEBatchIdleTime   = "RIO_PREP_SQE_BATCH_IDLE_TIME"
+	envPrepSQEBatchAffCPU     = "RIO_PREP_SQE_BATCH_AFF_CPU"
+	envWaitCQEBatchSize       = "RIO_WAIT_CQE_BATCH_SIZE"
+	envWaitCQEBatchTimeCurve  = "RIO_WAIT_CQE_BATCH_TIME_CURVE"
+	envWaitCQEBatchAffCPU     = "RIO_WAIT_CQE_BATCH_AFF_CPU"
+	envRegisterFixedBuffers   = "RIO_REG_FIXED_BUFFERS"
 )
 
 func pollInit() (err error) {
@@ -84,20 +85,23 @@ func pollInit() (err error) {
 		prepareBatchSize := loadEnvPrepareSQEBatchSize()
 		pollOptions = append(pollOptions, WithPrepareSQEBatchSize(prepareBatchSize))
 
+		prepareBatchTimeWindow := loadEnvPrepareSQETimeWindow()
+		pollOptions = append(pollOptions, WithPrepSQEBatchTimeWindow(prepareBatchTimeWindow))
+
 		prepareIdleTime := loadEnvPrepareSQEIdleTime()
-		pollOptions = append(pollOptions, WithPrepareSQEIdleTime(prepareIdleTime))
+		pollOptions = append(pollOptions, WithPrepareSQEBatchIdleTime(prepareIdleTime))
 
 		prepareSQEAffCPU := loadEnvPrepareSQEAFFCPU()
-		pollOptions = append(pollOptions, WithPrepareSQEAFFCPU(prepareSQEAffCPU))
+		pollOptions = append(pollOptions, WithPrepareSQEBatchAFFCPU(prepareSQEAffCPU))
 
 		waitCQBatchSize := loadEnvWaitCQEBatchSize()
 		pollOptions = append(pollOptions, WithWaitCQEBatchSize(waitCQBatchSize))
 
 		curve := loadEnvWaitCQETimeCurve()
-		pollOptions = append(pollOptions, WithWaitCQETimeCurve(curve))
+		pollOptions = append(pollOptions, WithWaitCQEBatchTimeCurve(curve))
 
 		waitCQEAffCPU := loadEnvWaitCQEAFFCPU()
-		pollOptions = append(pollOptions, WithWaitCQEAFFCPU(waitCQEAffCPU))
+		pollOptions = append(pollOptions, WithWaitCQEBatchAFFCPU(waitCQEAffCPU))
 
 		bufs, bufc := loadEnvRegFixedBuffers()
 		pollOptions = append(pollOptions, WithRegisterFixedBuffer(bufs, bufc))
@@ -183,8 +187,20 @@ func loadEnvPrepareSQEBatchSize() uint32 {
 	return uint32(u)
 }
 
+func loadEnvPrepareSQETimeWindow() time.Duration {
+	s, has := os.LookupEnv(envPrepSQEBatchTimeWindow)
+	if !has {
+		return 0
+	}
+	d, parseErr := time.ParseDuration(strings.TrimSpace(s))
+	if parseErr != nil {
+		return 0
+	}
+	return d
+}
+
 func loadEnvPrepareSQEIdleTime() time.Duration {
-	s, has := os.LookupEnv(envPrepSQEIdleTime)
+	s, has := os.LookupEnv(envPrepSQEBatchIdleTime)
 	if !has {
 		return 0
 	}
@@ -196,7 +212,7 @@ func loadEnvPrepareSQEIdleTime() time.Duration {
 }
 
 func loadEnvPrepareSQEAFFCPU() int {
-	s, has := os.LookupEnv(envPrepSQEAffCPU)
+	s, has := os.LookupEnv(envPrepSQEBatchAffCPU)
 	if !has {
 		return -1
 	}
@@ -220,7 +236,7 @@ func loadEnvWaitCQEBatchSize() uint32 {
 }
 
 func loadEnvWaitCQETimeCurve() Curve {
-	s, has := os.LookupEnv(envWaitCQETimeCurve)
+	s, has := os.LookupEnv(envWaitCQEBatchTimeCurve)
 	if !has {
 		return nil
 	}
@@ -252,7 +268,7 @@ func loadEnvWaitCQETimeCurve() Curve {
 }
 
 func loadEnvWaitCQEAFFCPU() int {
-	s, has := os.LookupEnv(envWaitCQEAffCPU)
+	s, has := os.LookupEnv(envWaitCQEBatchAffCPU)
 	if !has {
 		return -1
 	}

@@ -46,6 +46,7 @@ type Operation struct {
 	status     atomic.Int64
 	kind       uint8
 	borrowed   bool
+	closed     atomic.Bool
 	resultCh   chan Result
 	deadline   time.Time
 	multishot  bool
@@ -59,7 +60,10 @@ type Operation struct {
 }
 
 func (op *Operation) Close() {
-	close(op.resultCh)
+	if op.closed.CompareAndSwap(false, true) {
+		op.borrowed = false
+		close(op.resultCh)
+	}
 }
 
 func (op *Operation) Hijack() {
@@ -347,6 +351,9 @@ func (op *Operation) canSetResult() bool {
 
 func (op *Operation) canRelease() bool {
 	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
+		return false
+	}
+	if op.closed.Load() {
 		return false
 	}
 	return op.borrowed

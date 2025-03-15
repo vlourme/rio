@@ -31,67 +31,108 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 	}
 
 	ring := r.ring
+	idleTime := r.prepSQEIdleTime
+	if idleTime < 1 {
+		idleTime = defaultPrepSQEBatchIdleTime
+	}
+	batchTimeWindow := r.prepSQEBatchTimeWindow
+	if batchTimeWindow < 1 {
+		batchTimeWindow = defaultPrepSQEBatchTimeWindow
+	}
 
-	queue := r.requests
-	shs := r.submitSemaphores
+	batchTimer := time.NewTimer(batchTimeWindow)
+	defer batchTimer.Stop()
+
+	batchSize := r.prepSQEBatchSize
+	if batchSize < 1 {
+		batchSize = 1024
+	}
+	batch := make([]*Operation, batchSize)
+
+	requestCh := r.requestCh
+
 	var (
-		peeked       uint32
-		prepared     uint32
-		needToSubmit int64
+		batchIdx      = -1
+		stopped       = false
+		idle          = false
+		needToPrepare = false
+		needToSubmit  = 0
 	)
 
-	prepareBatch := r.prepSQEBatchSize
-	if prepareBatch < 1 {
-		prepareBatch = 1024
-	}
-	operations := make([]*Operation, prepareBatch)
 	for {
-		if peeked = queue.PeekBatch(operations); peeked == 0 {
-			if needToSubmit > 0 {
-				submitted, _ := ring.Submit()
-				needToSubmit -= int64(submitted)
+		select {
+		case <-ctx.Done():
+			stopped = true
+			break
+		case <-batchTimer.C:
+			needToPrepare = true
+			break
+		case op, ok := <-requestCh:
+			if !ok {
+				stopped = true
+				break
 			}
-			if waitErr := shs.Wait(ctx); waitErr != nil {
-				if errors.Is(waitErr, context.Canceled) {
-					break
-				}
+			if op == nil {
+				break
 			}
+			if idle {
+				idle = false
+				batchTimer.Reset(batchTimeWindow)
+			}
+			batchIdx++
+			batch[batchIdx] = op
+			if uint32(batchIdx+1) == batchSize { // full so flush
+				needToPrepare = true
+			}
+			break
+		}
+		if stopped { // check stopped
+			break
+		}
+		if batchIdx == -1 { // when no request, use idle time
+			idle = true
+			batchTimer.Reset(idleTime)
 			continue
 		}
-		for i := uint32(0); i < peeked; i++ {
-			op := operations[i]
-			if op == nil {
-				continue
-			}
-			operations[i] = nil
-			if op.canPrepare() {
-				if prepErr := r.prepareSQE(op); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
-					op.setResult(0, 0, prepErr)
-					if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
-						break
+
+		if needToPrepare { // go to prepare
+			needToPrepare = false
+			prepared := 0
+			received := batchIdx + 1
+			for i := 0; i < received; i++ {
+				op := batch[i]
+				batchIdx--
+				batch[i] = nil
+				if op.canPrepare() {
+					if prepErr := r.prepareSQE(op); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
+						op.setResult(0, 0, prepErr)
+						if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
+							if next := i + 1; next < received { // not last, so keep unprepared
+								tmp := make([]*Operation, batchSize)
+								copy(tmp, batch[next:])
+								batch = tmp
+							}
+							break
+						}
+						prepared++ // prepareSQE nop whit out userdata, so prepared++
+						continue
 					}
-					prepared++ // prepareSQE nop whit out userdata, so prepared++
-					continue
+					prepared++
 				}
-				prepared++
 			}
+
+			if prepared > 0 || needToSubmit > 0 { // submit
+				submitted, _ := ring.Submit()
+				needToSubmit += prepared - int(submitted)
+				if needToSubmit < 0 {
+					needToSubmit = 0
+				}
+			}
+
+			// reset batch time window
+			batchTimer.Reset(batchTimeWindow)
 		}
-		// submit
-		if prepared > 0 || needToSubmit > 0 {
-			submitted, _ := ring.Submit()
-			needToSubmit += int64(prepared) - int64(submitted)
-			r.requests.Advance(prepared)
-			prepared = 0
-		}
-	}
-	// evict
-	if remains := r.requests.Length(); remains > 0 {
-		peeked = r.requests.PeekBatch(operations)
-		for i := uint32(0); i < peeked; i++ {
-			op := operations[i]
-			operations[i] = nil
-			op.setResult(0, 0, Uncompleted)
-		}
+
 	}
 	// prepare noop to wakeup cq waiter
 	for {
@@ -110,7 +151,6 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 		}
 		break
 	}
-	return
 }
 
 func (r *Ring) prepareSQE(op *Operation) error {

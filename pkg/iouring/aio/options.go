@@ -13,11 +13,12 @@ type Options struct {
 	RegisterFixedBufferSize  uint32
 	RegisterFixedBufferCount uint32
 	PrepSQEBatchSize         uint32
-	PrepSQEIdleTime          time.Duration
-	PrepSQEAffCPU            int
+	PrepSQEBatchTimeWindow   time.Duration
+	PrepSQEBatchIdleTime     time.Duration
+	PrepSQEBatchAffCPU       int
 	WaitCQEBatchSize         uint32
-	WaitCQETimeCurve         Curve
-	WaitCQEAffCPU            int
+	WaitCQEBatchTimeCurve    Curve
+	WaitCQEBatchAffCPU       int
 }
 
 type Option func(*Options)
@@ -53,21 +54,34 @@ func WithPrepareSQEBatchSize(size uint32) Option {
 }
 
 const (
-	defaultPrepareSQEIdleTime = 15 * time.Second
+	defaultPrepSQEBatchTimeWindow = 500 * time.Nanosecond
 )
 
-func WithPrepareSQEIdleTime(d time.Duration) Option {
+func WithPrepSQEBatchTimeWindow(window time.Duration) Option {
 	return func(opts *Options) {
-		if d < 1 {
-			d = defaultPrepareSQEIdleTime
+		if window < 1 {
+			window = defaultPrepSQEBatchTimeWindow
 		}
-		opts.PrepSQEIdleTime = d
+		opts.PrepSQEBatchTimeWindow = window
 	}
 }
 
-func WithPrepareSQEAFFCPU(cpu int) Option {
+const (
+	defaultPrepSQEBatchIdleTime = 15 * time.Second
+)
+
+func WithPrepareSQEBatchIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
-		opts.PrepSQEAffCPU = cpu
+		if d < 1 {
+			d = defaultPrepSQEBatchIdleTime
+		}
+		opts.PrepSQEBatchIdleTime = d
+	}
+}
+
+func WithPrepareSQEBatchAFFCPU(cpu int) Option {
+	return func(opts *Options) {
+		opts.PrepSQEBatchAffCPU = cpu
 	}
 }
 
@@ -77,15 +91,15 @@ func WithWaitCQEBatchSize(size uint32) Option {
 	}
 }
 
-func WithWaitCQETimeCurve(curve Curve) Option {
+func WithWaitCQEBatchTimeCurve(curve Curve) Option {
 	return func(opts *Options) {
-		opts.WaitCQETimeCurve = curve
+		opts.WaitCQEBatchTimeCurve = curve
 	}
 }
 
-func WithWaitCQEAFFCPU(cpu int) Option {
+func WithWaitCQEBatchAFFCPU(cpu int) Option {
 	return func(opts *Options) {
-		opts.WaitCQEAffCPU = cpu
+		opts.WaitCQEBatchAffCPU = cpu
 	}
 }
 

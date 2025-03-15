@@ -31,11 +31,11 @@ func New(options ...Option) (v *Vortex, err error) {
 		RegisterFixedBufferSize:  0,
 		RegisterFixedBufferCount: 0,
 		PrepSQEBatchSize:         0,
-		PrepSQEIdleTime:          0,
-		PrepSQEAffCPU:            -1,
+		PrepSQEBatchIdleTime:     0,
+		PrepSQEBatchAffCPU:       -1,
 		WaitCQEBatchSize:         0,
-		WaitCQETimeCurve:         nil,
-		WaitCQEAffCPU:            -1,
+		WaitCQEBatchTimeCurve:    nil,
+		WaitCQEBatchAffCPU:       -1,
 	}
 	for _, option := range options {
 		option(&opt)
@@ -94,27 +94,36 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	vortex.timers.Put(timer)
 }
 
-func (vortex *Vortex) submit(op *Operation) {
-	vortex.ring.Submit(op)
+func (vortex *Vortex) submit(op *Operation) (ok bool) {
+	if vortex.ok() {
+		ok = vortex.ring.Submit(op)
+	}
+	return
 }
 
 func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
-	if target.canCancel() {
+	if vortex.ok() && target.canCancel() {
 		op := &Operation{} // do not make ch cause no userdata
 		op.PrepareCancel(target)
-		vortex.submit(op)
-		ok = true
+		if ok = vortex.submit(op); !ok {
+			target.setResult(0, 0, context.Canceled)
+		}
 		return
 	}
 	return
 }
 
 func (vortex *Vortex) AcquireBuffer() *FixedBuffer {
-	return vortex.ring.AcquireBuffer()
+	if vortex.ok() {
+		return vortex.ring.AcquireBuffer()
+	}
+	return nil
 }
 
 func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
-	vortex.ring.ReleaseBuffer(buf)
+	if vortex.ok() {
+		vortex.ring.ReleaseBuffer(buf)
+	}
 }
 
 func (vortex *Vortex) Shutdown() (err error) {
@@ -143,4 +152,8 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	ring.Start(ctx)
 
 	return
+}
+
+func (vortex *Vortex) ok() bool {
+	return vortex.running.Load() && vortex.ring != nil
 }

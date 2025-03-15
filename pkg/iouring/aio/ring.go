@@ -4,17 +4,16 @@ package aio
 
 import (
 	"context"
-	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/semaphores"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 type IOURing interface {
 	Start(ctx context.Context)
-	Submit(op *Operation)
+	Submit(op *Operation) (ok bool)
 	FileFd(index int) int
 	AcquireBuffer() *FixedBuffer
 	ReleaseBuffer(buf *FixedBuffer)
@@ -22,16 +21,6 @@ type IOURing interface {
 }
 
 func NewIOURing(options Options) (r IOURing, err error) {
-	// op semaphores
-	prepareIdleTime := options.PrepSQEIdleTime
-	if prepareIdleTime < 1 {
-		prepareIdleTime = defaultPrepareSQEIdleTime
-	}
-	submitSemaphores, submitSemaphoresErr := semaphores.New(prepareIdleTime)
-	if submitSemaphoresErr != nil {
-		err = submitSemaphoresErr
-		return
-	}
 	// ring
 	opts := make([]iouring.Option, 0, 1)
 	opts = append(opts, iouring.WithEntries(options.Entries))
@@ -81,39 +70,41 @@ func NewIOURing(options Options) (r IOURing, err error) {
 	}
 
 	r = &Ring{
-		serving:               atomic.Bool{},
-		ring:                  ring,
-		requests:              NewQueue[Operation](),
-		buffers:               buffers,
-		submitSemaphores:      submitSemaphores,
-		cancel:                nil,
-		wg:                    sync.WaitGroup{},
-		fixedBufferRegistered: buffers.Length() > 0,
-		prepAFFCPU:            options.PrepSQEAffCPU,
-		prepSQEBatchSize:      options.PrepSQEBatchSize,
-		waitAFFCPU:            options.WaitCQEAffCPU,
-		waitCQEBatchSize:      options.WaitCQEBatchSize,
-		waitCQETimeCurve:      options.WaitCQETimeCurve,
-		registeredFiles:       nil,
+		serving:                atomic.Bool{},
+		ring:                   ring,
+		requestCh:              make(chan *Operation, ring.SQEntries()),
+		buffers:                buffers,
+		cancel:                 nil,
+		wg:                     sync.WaitGroup{},
+		fixedBufferRegistered:  buffers.Length() > 0,
+		prepAFFCPU:             options.PrepSQEBatchAffCPU,
+		prepSQEBatchSize:       options.PrepSQEBatchSize,
+		prepSQEBatchTimeWindow: 0,
+		prepSQEIdleTime:        options.PrepSQEBatchIdleTime,
+		waitAFFCPU:             options.WaitCQEBatchAffCPU,
+		waitCQEBatchSize:       options.WaitCQEBatchSize,
+		waitCQETimeCurve:       options.WaitCQEBatchTimeCurve,
+		registeredFiles:        nil,
 	}
 	return
 }
 
 type Ring struct {
-	serving               atomic.Bool
-	ring                  *iouring.Ring
-	requests              *Queue[Operation]
-	buffers               *Queue[FixedBuffer]
-	submitSemaphores      *semaphores.Semaphores
-	cancel                context.CancelFunc
-	wg                    sync.WaitGroup
-	fixedBufferRegistered bool
-	prepAFFCPU            int
-	prepSQEBatchSize      uint32
-	waitAFFCPU            int
-	waitCQEBatchSize      uint32
-	waitCQETimeCurve      Curve
-	registeredFiles       []int
+	serving                atomic.Bool
+	ring                   *iouring.Ring
+	requestCh              chan *Operation
+	buffers                *Queue[FixedBuffer]
+	cancel                 context.CancelFunc
+	wg                     sync.WaitGroup
+	fixedBufferRegistered  bool
+	prepAFFCPU             int
+	prepSQEBatchSize       uint32
+	prepSQEBatchTimeWindow time.Duration
+	prepSQEIdleTime        time.Duration
+	waitAFFCPU             int
+	waitCQEBatchSize       uint32
+	waitCQETimeCurve       Curve
+	registeredFiles        []int
 }
 
 func (r *Ring) Fd() int {
@@ -124,8 +115,6 @@ func (r *Ring) FileFd(index int) int {
 	if index < 0 || index >= len(r.registeredFiles) {
 		return -1
 	}
-
-	fmt.Println(r.registeredFiles)
 	return r.registeredFiles[index]
 }
 
@@ -146,9 +135,11 @@ func (r *Ring) ReleaseBuffer(buf *FixedBuffer) {
 	}
 }
 
-func (r *Ring) Submit(op *Operation) {
-	r.requests.Enqueue(op)
-	r.submitSemaphores.Signal()
+func (r *Ring) Submit(op *Operation) (ok bool) {
+	if ok = r.serving.Load(); ok {
+		r.requestCh <- op
+	}
+	return
 }
 
 func (r *Ring) Start(ctx context.Context) {

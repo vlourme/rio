@@ -99,7 +99,7 @@ func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline tim
 	}
 
 	if cqeFlags&iouring.CQEFMore != 0 {
-		_, cqeFlags, err = vortex.AwaitOperation(ctx, op)
+		_, cqeFlags, err = vortex.awaitOperation(ctx, op)
 		if err != nil {
 			op.Complete()
 			vortex.releaseOperation(op)
@@ -175,7 +175,7 @@ func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byt
 	oobn = int(op.msg.Controllen)
 
 	if cqeFlags&iouring.CQEFMore != 0 {
-		_, cqeFlags, err = vortex.AwaitOperation(ctx, op)
+		_, cqeFlags, err = vortex.awaitOperation(ctx, op)
 		if err != nil {
 			op.Complete()
 			vortex.releaseOperation(op)
@@ -193,8 +193,11 @@ func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byt
 func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
 	deadline := op.deadline
 RETRY:
-	vortex.submit(op)
-	n, cqeFlags, err = vortex.AwaitOperation(ctx, op)
+	if submitted := vortex.submit(op); !submitted {
+		err = Uncompleted
+		return
+	}
+	n, cqeFlags, err = vortex.awaitOperation(ctx, op)
 	if err != nil {
 		if errors.Is(err, syscall.EBUSY) {
 			if !deadline.IsZero() && deadline.Before(time.Now()) {
@@ -208,7 +211,7 @@ RETRY:
 	return
 }
 
-func (vortex *Vortex) AwaitOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
+func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
 	var (
 		done                    = ctx.Done()
 		timer  *time.Timer      = nil
@@ -245,6 +248,7 @@ func (vortex *Vortex) AwaitOperation(ctx context.Context, op *Operation) (n int,
 			err = Uncompleted
 			break
 		}
+		op.Close()
 		n, cqeFlags, err = r.N, r.Flags, r.Err
 		break
 	case <-timerC:
