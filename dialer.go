@@ -10,17 +10,18 @@ import (
 
 var (
 	DefaultDialer = Dialer{
-		Timeout:         15 * time.Second,
-		Deadline:        time.Time{},
-		LocalAddr:       nil,
-		KeepAlive:       0,
-		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		MultipathTCP:    false,
-		FastOpen:        false,
-		QuickAck:        false,
-		UseSendZC:       false,
-		Control:         nil,
-		ControlContext:  nil,
+		Timeout:            15 * time.Second,
+		Deadline:           time.Time{},
+		LocalAddr:          nil,
+		KeepAlive:          0,
+		KeepAliveConfig:    net.KeepAliveConfig{Enable: true},
+		MultipathTCP:       false,
+		FastOpen:           false,
+		QuickAck:           false,
+		UseSendZC:          false,
+		AutoFixedFdInstall: false,
+		Control:            nil,
+		ControlContext:     nil,
 	}
 )
 
@@ -50,17 +51,18 @@ func DialTimeout(network string, address string, timeout time.Duration) (net.Con
 }
 
 type Dialer struct {
-	Timeout         time.Duration
-	Deadline        time.Time
-	KeepAlive       time.Duration
-	KeepAliveConfig net.KeepAliveConfig
-	LocalAddr       net.Addr
-	MultipathTCP    bool
-	FastOpen        bool
-	QuickAck        bool
-	UseSendZC       bool
-	Control         func(network, address string, c syscall.RawConn) error
-	ControlContext  func(ctx context.Context, network, address string, c syscall.RawConn) error
+	Timeout            time.Duration
+	Deadline           time.Time
+	KeepAlive          time.Duration
+	KeepAliveConfig    net.KeepAliveConfig
+	LocalAddr          net.Addr
+	MultipathTCP       bool
+	FastOpen           bool
+	QuickAck           bool
+	UseSendZC          bool
+	AutoFixedFdInstall bool
+	Control            func(network, address string, c syscall.RawConn) error
+	ControlContext     func(ctx context.Context, network, address string, c syscall.RawConn) error
 }
 
 func (d *Dialer) SetFastOpen(use bool) {
@@ -77,6 +79,10 @@ func (d *Dialer) SetMultipathTCP(use bool) {
 
 func (d *Dialer) SetUseSendZC(use bool) {
 	d.UseSendZC = use
+}
+
+func (d *Dialer) SetAutoFixedFdInstall(auto bool) {
+	d.AutoFixedFdInstall = auto
 }
 
 func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {

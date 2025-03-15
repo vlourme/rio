@@ -190,6 +190,14 @@ func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byt
 	return
 }
 
+func (vortex *Vortex) FixedFdInstall(ctx context.Context, fd int) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.PrepareFixedFdInstall(fd)
+	n, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
 func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
 	deadline := op.deadline
 RETRY:

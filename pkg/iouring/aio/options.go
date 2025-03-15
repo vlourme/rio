@@ -12,6 +12,7 @@ type Options struct {
 	SQThreadIdle             uint32
 	RegisterFixedBufferSize  uint32
 	RegisterFixedBufferCount uint32
+	RegisterFixedFiles       uint32
 	PrepSQEBatchSize         uint32
 	PrepSQEBatchTimeWindow   time.Duration
 	PrepSQEBatchIdleTime     time.Duration
@@ -110,6 +111,12 @@ func WithRegisterFixedBuffer(size uint32, count uint32) Option {
 		}
 		opts.RegisterFixedBufferSize = size
 		opts.RegisterFixedBufferCount = count
+	}
+}
+
+func WithRegisterFixedFiles(files uint32) Option {
+	return func(opts *Options) {
+		opts.RegisterFixedFiles = files
 	}
 }
 

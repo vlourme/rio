@@ -246,3 +246,17 @@ func (vortex *Vortex) TeeAsync(fdIn int, fdOut int, nbytes uint32, flags uint32,
 		err:    err,
 	}
 }
+
+func (vortex *Vortex) FixedFdInstallAsync(fd int) Future {
+	op := vortex.acquireOperation()
+	op.PrepareFixedFdInstall(fd)
+	var err error
+	if submitted := vortex.submit(op); !submitted {
+		err = Uncompleted
+	}
+	return Future{
+		vortex: vortex,
+		op:     op,
+		err:    err,
+	}
+}

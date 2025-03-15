@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
@@ -101,6 +102,30 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return
 	}
 	return
+}
+
+func (c *conn) InstallFixedFd() (err error) {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+
+	if c.fdFixed {
+		return nil
+	}
+	ctx := c.ctx
+	vortex := c.vortex
+
+	sock := c.fd.Socket()
+
+	file, regErr := vortex.RegisterFixedFd(ctx, sock)
+	if regErr != nil {
+		return &net.OpError{Op: "install_fixed_file", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: regErr}
+	}
+
+	c.fdFixed = true
+	c.fileIndex = file
+	c.sqeFlags |= iouring.SQEFixedFile
+	return nil
 }
 
 func (c *conn) Close() error {
@@ -308,13 +333,6 @@ func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
 		return
 	}
 	c.vortex.ReleaseBuffer(buf)
-}
-
-func (c *conn) InstallFixedFd() (err error) {
-	// todo: use sqe or update
-	// set sqe flags and file index
-	panic("not implemented")
-	return
 }
 
 func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {

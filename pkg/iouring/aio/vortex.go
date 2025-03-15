@@ -64,11 +64,12 @@ func New(options ...Option) (v *Vortex, err error) {
 }
 
 type Vortex struct {
-	running    atomic.Bool
-	operations sync.Pool
-	timers     sync.Pool
-	options    Options
-	ring       IOURing
+	running                 atomic.Bool
+	operations              sync.Pool
+	timers                  sync.Pool
+	options                 Options
+	ring                    IOURing
+	supportOpFixedFdInstall bool
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -126,6 +127,34 @@ func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
 	}
 }
 
+func (vortex *Vortex) RegisterFixedFdEnabled() bool {
+	if vortex.ok() {
+		return vortex.ring.RegisterFixedFdEnabled()
+	}
+	return false
+}
+
+func (vortex *Vortex) RegisterFixedFd(ctx context.Context, fd int) (index int, err error) {
+	if !vortex.ok() {
+		index = -1
+		err = errors.New("vortex is not running")
+		return
+	}
+	if vortex.supportOpFixedFdInstall {
+		index, err = vortex.FixedFdInstall(ctx, fd)
+	} else {
+		index, err = vortex.ring.RegisterFixedFd(fd)
+	}
+	return
+}
+
+func (vortex *Vortex) GetRegisterFixedFd(index int) int {
+	if vortex.ok() {
+		return vortex.ring.GetRegisterFixedFd(index)
+	}
+	return -1
+}
+
 func (vortex *Vortex) Shutdown() (err error) {
 	if vortex.running.CompareAndSwap(true, false) {
 		ring := vortex.ring
@@ -146,6 +175,8 @@ func (vortex *Vortex) Start(ctx context.Context) (err error) {
 	if ringErr != nil {
 		return ringErr
 	}
+
+	vortex.supportOpFixedFdInstall = ring.OpSupported(iouring.OPFixedFdInstall)
 
 	vortex.ring = ring
 

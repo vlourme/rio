@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"io"
@@ -62,8 +63,24 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// install fixed fd todo
+	// install fixed fd
 	fileIndex := -1
+	sqeFlags := uint8(0)
+	if lc.AutoFixedFdInstall {
+		if vortex.RegisterFixedFdEnabled() {
+			sock := fd.Socket()
+			file, regErr := vortex.RegisterFixedFd(ctx, sock)
+			if regErr != nil {
+				_ = fd.Close()
+				_ = aio.Release(vortex)
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
+			}
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			lc.AutoFixedFdInstall = false
+		}
+	}
 
 	// send zc
 	useSendZC := false
@@ -77,7 +94,10 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		ctx:                cc,
 		cancel:             cancel,
 		fd:                 fd,
+		autoFixedFdInstall: lc.AutoFixedFdInstall,
+		fdFixed:            fileIndex != -1,
 		fileIndex:          fileIndex,
+		sqeFlags:           sqeFlags,
 		vortex:             vortex,
 		acceptFuture:       nil,
 		multipathTCP:       lc.MultipathTCP,
@@ -101,6 +121,7 @@ type TCPListener struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	fd                 *sys.Fd
+	autoFixedFdInstall bool
 	fdFixed            bool
 	fileIndex          int
 	sqeFlags           uint8
@@ -189,6 +210,20 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 	if keepAliveConfig.Enable {
 		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
 	}
+	// fixed fd
+	fileIndex := -1
+	sqeFlags := uint8(0)
+	if ln.autoFixedFdInstall {
+		sock := cfd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr != nil {
+			_ = cfd.Close()
+			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
+			return
+		}
+		fileIndex = file
+		sqeFlags = iouring.SQEFixedFile
+	}
 
 	// conn
 	cc, cancel := context.WithCancel(ctx)
@@ -197,9 +232,9 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            cfd,
-			fdFixed:       false,
-			fileIndex:     -1,
-			sqeFlags:      0,
+			fdFixed:       fileIndex != -1,
+			fileIndex:     fileIndex,
+			sqeFlags:      sqeFlags,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
@@ -257,6 +292,21 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
 	}
 
+	// fixed fd
+	fileIndex := -1
+	sqeFlags := uint8(0)
+	if ln.autoFixedFdInstall {
+		sock := cfd.Socket()
+		file, regErr := ln.vortex.RegisterFixedFd(ctx, sock)
+		if regErr != nil {
+			_ = cfd.Close()
+			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
+			return
+		}
+		fileIndex = file
+		sqeFlags = iouring.SQEFixedFile
+	}
+
 	// tcp conn
 	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
@@ -264,10 +314,14 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            cfd,
-			fileIndex:     accepted,
+			fdFixed:       fileIndex != -1,
+			fileIndex:     fileIndex,
+			sqeFlags:      sqeFlags,
 			vortex:        ln.vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
 			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
@@ -306,6 +360,11 @@ func (ln *TCPListener) Close() error {
 	ctx := ln.ctx
 	vortex := ln.vortex
 
+	if ln.useMultishotAccept {
+		op := ln.acceptFuture.Operation()
+		vortex.Cancel(op)
+	}
+
 	var err error
 	if ln.fdFixed {
 		err = vortex.CloseDirect(ctx, ln.fileIndex)
@@ -323,6 +382,29 @@ func (ln *TCPListener) Close() error {
 	if unpinErr := aio.Release(vortex); unpinErr != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
 	}
+	return nil
+}
+
+func (ln *TCPListener) InstallFixedFd() error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	if ln.fdFixed {
+		return nil
+	}
+	ctx := ln.ctx
+	vortex := ln.vortex
+
+	sock := ln.fd.Socket()
+
+	file, regErr := vortex.RegisterFixedFd(ctx, sock)
+	if regErr != nil {
+		return &net.OpError{Op: "install_fixed_file", Net: ln.fd.Net(), Source: ln.fd.LocalAddr(), Addr: ln.fd.RemoteAddr(), Err: regErr}
+	}
+
+	ln.fdFixed = true
+	ln.fileIndex = file
+	ln.sqeFlags |= iouring.SQEFixedFile
 	return nil
 }
 

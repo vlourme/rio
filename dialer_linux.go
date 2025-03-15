@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
@@ -149,6 +150,22 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if keepAliveConfig.Enable {
 		_ = fd.SetKeepAliveConfig(keepAliveConfig)
 	}
+
+	// install fixed fd
+	fileIndex := -1
+	sqeFlags := uint8(0)
+	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr != nil {
+			_ = fd.Close()
+			_ = aio.Release(vortex)
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+		}
+		fileIndex = file
+		sqeFlags = iouring.SQEFixedFile
+	}
+
 	// send zc
 	useSendZC := false
 	if d.UseSendZC {
@@ -161,9 +178,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
-			fdFixed:       false,
-			fileIndex:     0,
-			sqeFlags:      0,
+			fdFixed:       fileIndex != -1,
+			fileIndex:     fileIndex,
+			sqeFlags:      sqeFlags,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
@@ -249,6 +266,22 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
+
+	// install fixed fd
+	fileIndex := -1
+	sqeFlags := uint8(0)
+	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr != nil {
+			_ = fd.Close()
+			_ = aio.Release(vortex)
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+		}
+		fileIndex = file
+		sqeFlags = iouring.SQEFixedFile
+	}
+
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -263,9 +296,9 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
-			fdFixed:       false,
-			fileIndex:     0,
-			sqeFlags:      0,
+			fdFixed:       fileIndex != -1,
+			fileIndex:     fileIndex,
+			sqeFlags:      sqeFlags,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
@@ -366,6 +399,22 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
+
+	// install fixed fd
+	fileIndex := -1
+	sqeFlags := uint8(0)
+	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr != nil {
+			_ = fd.Close()
+			_ = aio.Release(vortex)
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+		}
+		fileIndex = file
+		sqeFlags = iouring.SQEFixedFile
+	}
+
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -380,9 +429,9 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
-			fdFixed:       false,
-			fileIndex:     0,
-			sqeFlags:      0,
+			fdFixed:       fileIndex != -1,
+			fileIndex:     fileIndex,
+			sqeFlags:      sqeFlags,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},

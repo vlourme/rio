@@ -58,6 +58,8 @@ const (
 	envFlagsSchema            = "RIO_IOURING_SETUP_FLAGS_SCHEMA"
 	envSQThreadCPU            = "RIO_IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle           = "RIO_IOURING_SQ_THREAD_IDLE"
+	envRegisterFixedBuffers   = "RIO_IOURING_REG_FIXED_BUFFERS"
+	envRegisterFixedFiles     = "RIO_IOURING_REG_FIXED_FILES"
 	envPrepSQEBatchSize       = "RIO_PREP_SQE_BATCH_SIZE"
 	envPrepSQEBatchTimeWindow = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
 	envPrepSQEBatchIdleTime   = "RIO_PREP_SQE_BATCH_IDLE_TIME"
@@ -65,7 +67,6 @@ const (
 	envWaitCQEBatchSize       = "RIO_WAIT_CQE_BATCH_SIZE"
 	envWaitCQEBatchTimeCurve  = "RIO_WAIT_CQE_BATCH_TIME_CURVE"
 	envWaitCQEBatchAffCPU     = "RIO_WAIT_CQE_BATCH_AFF_CPU"
-	envRegisterFixedBuffers   = "RIO_REG_FIXED_BUFFERS"
 )
 
 func pollInit() (err error) {
@@ -105,6 +106,10 @@ func pollInit() (err error) {
 
 		bufs, bufc := loadEnvRegFixedBuffers()
 		pollOptions = append(pollOptions, WithRegisterFixedBuffer(bufs, bufc))
+
+		files := loadEnvRegFixedFiles()
+		pollOptions = append(pollOptions, WithRegisterFixedFiles(files))
+
 	}
 
 	poll, err = New(pollOptions...)
@@ -303,4 +308,16 @@ func loadEnvRegFixedBuffers() (size uint32, count uint32) {
 	size = uint32(us)
 	count = uint32(uc)
 	return
+}
+
+func loadEnvRegFixedFiles() uint32 {
+	s, has := os.LookupEnv(envRegisterFixedFiles)
+	if !has {
+		return 0
+	}
+	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if parseErr != nil {
+		return 0
+	}
+	return uint32(u)
 }

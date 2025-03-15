@@ -264,6 +264,11 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		sqe.PrepareCancel(uintptr(op.ptr), 0)
 		sqe.SetFlags(op.sqeFlags)
 		break
+	case iouring.OPFixedFdInstall:
+		sqe.PrepareFixedFdInstall(op.fd, 0)
+		sqe.SetFlags(op.sqeFlags)
+		sqe.SetData(unsafe.Pointer(op))
+		break
 	default:
 		sqe.PrepareNop()
 		return UnsupportedOp

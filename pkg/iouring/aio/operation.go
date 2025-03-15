@@ -226,6 +226,11 @@ func (op *Operation) PrepareCancel(target *Operation) {
 	op.ptr = unsafe.Pointer(target)
 }
 
+func (op *Operation) PrepareFixedFdInstall(fd int) {
+	op.kind = iouring.OPFixedFdInstall
+	op.fd = fd
+}
+
 func (op *Operation) reset() {
 	// kind
 	op.kind = iouring.OpLast

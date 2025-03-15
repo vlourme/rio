@@ -10,6 +10,7 @@ type FixedReaderWriter interface {
 	ReleaseRegisteredBuffer(buf *aio.FixedBuffer)
 	ReadFixed(buf *aio.FixedBuffer) (n int, err error)
 	WriteFixed(buf *aio.FixedBuffer) (n int, err error)
+	InstallFixedFd() (err error)
 }
 
 // Fixed

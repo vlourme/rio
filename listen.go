@@ -9,14 +9,16 @@ import (
 
 func Listen(network string, addr string) (ln net.Listener, err error) {
 	config := ListenConfig{
-		Control:         nil,
-		KeepAlive:       0,
-		KeepAliveConfig: net.KeepAliveConfig{},
-		MultipathTCP:    false,
-		FastOpen:        false,
-		QuickAck:        false,
-		ReusePort:       false,
-		MultishotAccept: false,
+		Control:            nil,
+		KeepAlive:          0,
+		KeepAliveConfig:    net.KeepAliveConfig{},
+		MultipathTCP:       false,
+		FastOpen:           false,
+		QuickAck:           false,
+		ReusePort:          false,
+		UseSendZC:          false,
+		MultishotAccept:    false,
+		AutoFixedFdInstall: false,
 	}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
@@ -31,15 +33,16 @@ func ListenPacket(network string, addr string) (c net.PacketConn, err error) {
 }
 
 type ListenConfig struct {
-	Control         func(network, address string, c syscall.RawConn) error
-	KeepAlive       time.Duration
-	KeepAliveConfig net.KeepAliveConfig
-	MultipathTCP    bool
-	FastOpen        bool
-	QuickAck        bool
-	ReusePort       bool
-	UseSendZC       bool
-	MultishotAccept bool
+	Control            func(network, address string, c syscall.RawConn) error
+	KeepAlive          time.Duration
+	KeepAliveConfig    net.KeepAliveConfig
+	MultipathTCP       bool
+	FastOpen           bool
+	QuickAck           bool
+	ReusePort          bool
+	UseSendZC          bool
+	MultishotAccept    bool
+	AutoFixedFdInstall bool
 }
 
 func (lc *ListenConfig) SetFastOpen(use bool) {
@@ -65,4 +68,8 @@ func (lc *ListenConfig) SetUseSendZC(use bool) {
 
 func (lc *ListenConfig) SetMultishotAccept(multi bool) {
 	lc.MultishotAccept = multi
+}
+
+func (lc *ListenConfig) SetAutoFixedFdInstall(auto bool) {
+	lc.AutoFixedFdInstall = auto
 }

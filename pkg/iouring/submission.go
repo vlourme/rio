@@ -268,13 +268,6 @@ func (entry *SubmissionQueueEntry) PrepareSendmsgZC(fd int, msg *syscall.Msghdr,
 	entry.OpCode = OpSendMsgZC
 }
 
-func (entry *SubmissionQueueEntry) PrepareSendto(sockFd int, buf []byte, flags int, addr *syscall.Sockaddr, addrLen uint32) {
-	entry.PrepareSend(sockFd, uintptr(unsafe.Pointer(&buf)), uint32(len(buf)), flags)
-	entry.Off = uint64(uintptr(unsafe.Pointer(addr)))
-	// Todo: FIXME?
-	entry.SpliceFdIn = int32(addrLen)
-}
-
 func (entry *SubmissionQueueEntry) PrepareShutdown(fd, how int) {
 	entry.prepareRW(OpShutdown, fd, 0, uint32(how), 0)
 }

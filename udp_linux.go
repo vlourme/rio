@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
@@ -57,6 +58,24 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
+	// install fixed fd
+	fileIndex := -1
+	sqeFlags := uint8(0)
+	if lc.AutoFixedFdInstall {
+		if vortex.RegisterFixedFdEnabled() {
+			sock := fd.Socket()
+			file, regErr := vortex.RegisterFixedFd(ctx, sock)
+			if regErr != nil {
+				_ = fd.Close()
+				_ = aio.Release(vortex)
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
+			}
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			lc.AutoFixedFdInstall = false
+		}
+	}
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -71,9 +90,9 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
-			fdFixed:       false,
-			fileIndex:     -1,
-			sqeFlags:      0,
+			fdFixed:       fileIndex != -1,
+			fileIndex:     fileIndex,
+			sqeFlags:      sqeFlags,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
