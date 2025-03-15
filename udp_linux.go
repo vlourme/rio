@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"reflect"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -70,9 +71,14 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
+			fdFixed:       false,
+			fileIndex:     -1,
+			sqeFlags:      0,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
 			pinned:        true,
 			useSendZC:     useSendZC,
 		},
@@ -199,7 +205,12 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	rsa := &syscall.RawSockaddrAny{}
@@ -207,7 +218,7 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline)
+	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -256,7 +267,12 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	rsa := &syscall.RawSockaddrAny{}
@@ -264,7 +280,7 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline)
+	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -344,15 +360,20 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 
 	if c.useSendMSGZC {
-		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline)
+		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline, c.sqeFlags)
 	} else {
-		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
+		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline, c.sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -412,14 +433,19 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline, c.sqeFlags)
 	} else {
-		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline, c.sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

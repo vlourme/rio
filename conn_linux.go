@@ -20,6 +20,9 @@ type conn struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	fd            *sys.Fd
+	fdFixed       bool
+	fileIndex     int
+	sqeFlags      uint8
 	vortex        *aio.Vortex
 	readDeadline  time.Time
 	writeDeadline time.Time
@@ -43,11 +46,16 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, err = vortex.Receive(ctx, fd, b, deadline)
+	n, err = vortex.Receive(ctx, fd, b, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -71,14 +79,19 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 	deadline := c.deadline(ctx, c.writeDeadline)
 
 	if c.useSendZC {
-		n, err = vortex.SendZC(ctx, fd, b, deadline)
+		n, err = vortex.SendZC(ctx, fd, b, deadline, c.sqeFlags)
 	} else {
-		n, err = vortex.Send(ctx, fd, b, deadline)
+		n, err = vortex.Send(ctx, fd, b, deadline, c.sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -97,11 +110,18 @@ func (c *conn) Close() error {
 	defer c.cancel()
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
 	vortex := c.vortex
 
-	err := vortex.Close(ctx, fd)
+	var err error
+	if c.fdFixed {
+		err = vortex.CloseDirect(ctx, c.fileIndex)
+	} else {
+		fd := c.fd.Socket()
+		err = vortex.Close(ctx, fd)
+	}
+
 	if err != nil {
+		fd := c.fd.Socket()
 		err = syscall.Close(fd)
 		if c.pinned {
 			if unpinErr := aio.Release(vortex); unpinErr != nil {
@@ -290,6 +310,13 @@ func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
 	c.vortex.ReleaseBuffer(buf)
 }
 
+func (c *conn) InstallFixedFd() (err error) {
+	// todo: use sqe or update
+	// set sqe flags and file index
+	panic("not implemented")
+	return
+}
+
 func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -302,11 +329,16 @@ func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, err = vortex.ReadFixed(ctx, fd, buf, deadline)
+	n, err = vortex.ReadFixed(ctx, fd, buf, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -334,11 +366,16 @@ func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 	deadline := c.deadline(ctx, c.writeDeadline)
 
-	n, err = vortex.WriteFixed(ctx, fd, buf, deadline)
+	n, err = vortex.WriteFixed(ctx, fd, buf, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed

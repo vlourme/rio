@@ -3,7 +3,6 @@ package rio
 import (
 	"context"
 	"net"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -17,11 +16,7 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		FastOpen:        false,
 		QuickAck:        false,
 		ReusePort:       false,
-	}
-	if strings.HasPrefix(network, "tcp") {
-		config.SetFastOpen(true)
-		config.SetQuickAck(true)
-		config.SetReusePort(true)
+		MultishotAccept: false,
 	}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
@@ -44,6 +39,7 @@ type ListenConfig struct {
 	QuickAck        bool
 	ReusePort       bool
 	UseSendZC       bool
+	MultishotAccept bool
 }
 
 func (lc *ListenConfig) SetFastOpen(use bool) {
@@ -65,4 +61,8 @@ func (lc *ListenConfig) SetReusePort(use bool) {
 
 func (lc *ListenConfig) SetUseSendZC(use bool) {
 	lc.UseSendZC = use
+}
+
+func (lc *ListenConfig) SetMultishotAccept(multi bool) {
+	lc.MultishotAccept = multi
 }

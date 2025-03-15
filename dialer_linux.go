@@ -9,7 +9,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
 	"reflect"
-	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -23,6 +23,8 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (c ne
 	la := d.LocalAddr
 	switch a := addr.(type) {
 	case *net.TCPAddr:
+		d.SetFastOpen(true)
+		d.SetQuickAck(true)
 		la, _ := la.(*net.TCPAddr)
 		c, err = d.DialTCP(ctx, network, la, a)
 		break
@@ -53,10 +55,6 @@ func (d *Dialer) Dial(network string, address string) (c net.Conn, err error) {
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (*TCPConn, error) {
 	ctx := context.Background()
 	dialer := DefaultDialer
-	if strings.HasPrefix(network, "tcp") {
-		dialer.SetFastOpen(true)
-		dialer.SetQuickAck(true)
-	}
 	return dialer.DialTCP(ctx, network, laddr, raddr)
 }
 
@@ -116,7 +114,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
-	_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+	_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline, 0)
 	if err != nil {
 		_ = fd.Close()
 		_ = aio.Release(vortex)
@@ -137,6 +135,20 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
 		fd.SetRemoteAddr(raddr)
 	}
+
+	// no delay
+	_ = fd.SetNoDelay(true)
+	// keepalive
+	keepAliveConfig := d.KeepAliveConfig
+	if !keepAliveConfig.Enable && d.KeepAlive >= 0 {
+		keepAliveConfig = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   d.KeepAlive,
+		}
+	}
+	if keepAliveConfig.Enable {
+		_ = fd.SetKeepAliveConfig(keepAliveConfig)
+	}
 	// send zc
 	useSendZC := false
 	if d.UseSendZC {
@@ -149,25 +161,19 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
+			fdFixed:       false,
+			fileIndex:     0,
+			sqeFlags:      0,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
 			pinned:        true,
 			useSendZC:     useSendZC,
 		},
 	}
-	_ = c.SetNoDelay(true)
-	// keepalive
-	keepAliveConfig := d.KeepAliveConfig
-	if !keepAliveConfig.Enable && d.KeepAlive >= 0 {
-		keepAliveConfig = net.KeepAliveConfig{
-			Enable: true,
-			Idle:   d.KeepAlive,
-		}
-	}
-	if keepAliveConfig.Enable {
-		_ = c.SetKeepAliveConfig(keepAliveConfig)
-	}
+
 	return c, nil
 }
 
@@ -221,7 +227,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			_ = aio.Release(vortex)
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline, 0)
 		if err != nil {
 			_ = fd.Close()
 			_ = aio.Release(vortex)
@@ -257,9 +263,14 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
+			fdFixed:       false,
+			fileIndex:     0,
+			sqeFlags:      0,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
 			pinned:        true,
 			useSendZC:     useSendZC,
 		},
@@ -333,7 +344,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			_ = aio.Release(vortex)
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline)
+		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline, 0)
 		if err != nil {
 			_ = fd.Close()
 			_ = aio.Release(vortex)
@@ -369,9 +380,14 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            fd,
+			fdFixed:       false,
+			fileIndex:     0,
+			sqeFlags:      0,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
 			pinned:        true,
 			useSendZC:     useSendZC,
 		},

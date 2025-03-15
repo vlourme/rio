@@ -43,17 +43,19 @@ func NewOperation(resultChanBuffer int) *Operation {
 }
 
 type Operation struct {
-	status    atomic.Int64
-	kind      uint8
-	borrowed  bool
-	resultCh  chan Result
-	deadline  time.Time
-	multishot bool
-	fixedFile bool
-	fd        int
-	msg       syscall.Msghdr
-	pipe      pipeRequest
-	ptr       unsafe.Pointer
+	status     atomic.Int64
+	kind       uint8
+	borrowed   bool
+	resultCh   chan Result
+	deadline   time.Time
+	multishot  bool
+	directMode bool
+	filedIndex uint32
+	sqeFlags   uint8
+	fd         int
+	msg        syscall.Msghdr
+	pipe       pipeRequest
+	ptr        unsafe.Pointer
 }
 
 func (op *Operation) Close() {
@@ -84,23 +86,24 @@ func (op *Operation) Timeout() time.Duration {
 	return 0
 }
 
-func (op *Operation) WithFixedFile(fileIndex int) *Operation {
-	op.fixedFile = true
-	op.fd = fileIndex
+func (op *Operation) WithSQEFlags(flags uint8) *Operation {
+	op.sqeFlags |= flags
+	return op
+}
+
+func (op *Operation) WithDirect(direct bool) *Operation {
+	op.directMode = direct
+	return op
+}
+
+func (op *Operation) WithFiledIndex(index uint32) *Operation {
+	op.filedIndex = index
 	return op
 }
 
 func (op *Operation) PrepareNop() (err error) {
 	op.kind = iouring.OpNop
 	return
-}
-
-func (op *Operation) PrepareSocket(domain, socketType, protocol int, flags uint32) {
-	op.kind = iouring.OpSocket
-	op.pipe.fdIn = domain
-	op.pipe.fdOut = socketType
-	op.pipe.nbytes = uint32(protocol)
-	op.pipe.spliceFlags = flags
 }
 
 func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
@@ -226,8 +229,12 @@ func (op *Operation) reset() {
 	op.status.Store(ReadyOperationStatus)
 	// multishot
 	op.multishot = false
-	// fixed
-	op.fixedFile = false
+	// direct
+	op.directMode = false
+	// file index
+	op.filedIndex = 0
+	// sqe flags
+	op.sqeFlags = 0
 	// fd
 	op.fd = -1
 	// msg

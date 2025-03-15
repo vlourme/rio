@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -23,6 +24,10 @@ func ListenUnix(network string, addr *net.UnixAddr) (*UnixListener, error) {
 }
 
 func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *net.UnixAddr) (*UnixListener, error) {
+	// check multishot accept
+	if lc.MultishotAccept {
+		lc.MultishotAccept = aio.CheckMultishotAcceptEnable()
+	}
 	// network
 	switch network {
 	case "unix", "unixpacket":
@@ -57,14 +62,26 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	// ln
 	cc, cancel := context.WithCancel(ctx)
 	ln := &UnixListener{
-		ctx:        cc,
-		cancel:     cancel,
-		fd:         fd,
-		path:       fd.LocalAddr().String(),
-		unlink:     true,
-		unlinkOnce: sync.Once{},
-		vortex:     vortex,
-		useSendZC:  useSendZC,
+		ctx:                cc,
+		cancel:             cancel,
+		fd:                 fd,
+		fdFixed:            false,
+		fileIndex:          -1,
+		sqeFlags:           0,
+		path:               fd.LocalAddr().String(),
+		unlink:             true,
+		unlinkOnce:         sync.Once{},
+		vortex:             vortex,
+		acceptFuture:       nil,
+		useSendZC:          useSendZC,
+		useMultishotAccept: lc.MultishotAccept,
+	}
+	// prepare multishot accept
+	if lc.MultishotAccept {
+		if err := ln.prepareMultishotAccepting(); err != nil {
+			_ = ln.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
 	}
 	return ln, nil
 }
@@ -187,14 +204,19 @@ func newUnixListener(ctx context.Context, network string, addr *net.UnixAddr, co
 }
 
 type UnixListener struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	fd         *sys.Fd
-	path       string
-	unlink     bool
-	unlinkOnce sync.Once
-	vortex     *aio.Vortex
-	useSendZC  bool
+	ctx                context.Context
+	cancel             context.CancelFunc
+	fd                 *sys.Fd
+	fdFixed            bool
+	fileIndex          int
+	sqeFlags           uint8
+	path               string
+	unlink             bool
+	unlinkOnce         sync.Once
+	vortex             *aio.Vortex
+	acceptFuture       *aio.Future
+	useSendZC          bool
+	useMultishotAccept bool
 }
 
 func (ln *UnixListener) Accept() (net.Conn, error) {
@@ -206,14 +228,28 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
+	if ln.useMultishotAccept {
+		c, err = ln.acceptMultishot()
+	} else {
+		c, err = ln.acceptOneshot()
+	}
+	return
+}
+
+func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 	ctx := ln.ctx
-	fd := ln.fd.Socket()
+	fd := 0
+	if ln.fdFixed {
+		fd = ln.fileIndex
+	} else {
+		fd = ln.fd.Socket()
+	}
 	vortex := ln.vortex
 
 	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen)
+	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, ln.sqeFlags)
 	if acceptErr != nil {
 		if errors.Is(acceptErr, context.Canceled) {
 			acceptErr = net.ErrClosed
@@ -230,16 +266,16 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		return
 	}
 	// remote addr
-	sa, saErr := sys.RawSockaddrAnyToSockaddr(addr)
-	if saErr != nil {
+	if sa, saErr := sys.RawSockaddrAnyToSockaddr(addr); saErr == nil {
+		remoteAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
+		cfd.SetRemoteAddr(remoteAddr)
+	} else {
 		if err = cfd.LoadRemoteAddr(); err != nil {
 			_ = cfd.Close()
 			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 			return
 		}
 	}
-	localAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
-	cfd.SetRemoteAddr(localAddr)
 
 	// unix conn
 	cc, cancel := context.WithCancel(ctx)
@@ -248,14 +284,89 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 			ctx:           cc,
 			cancel:        cancel,
 			fd:            cfd,
+			fdFixed:       false,
+			fileIndex:     -1,
+			sqeFlags:      0,
 			vortex:        vortex,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
 			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
 		false,
 	}
+	return
+}
+
+func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
+	ctx := ln.ctx
+
+	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
+	if acceptErr != nil {
+		if errors.Is(acceptErr, context.Canceled) {
+			acceptErr = net.ErrClosed
+		}
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
+		return
+	}
+	// fd
+	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
+	// local addr
+	if err = cfd.LoadLocalAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+	// remote addr
+	if err = cfd.LoadRemoteAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+
+	// unix conn
+	cc, cancel := context.WithCancel(ctx)
+	c = &UnixConn{
+		conn{
+			ctx:           cc,
+			cancel:        cancel,
+			fd:            cfd,
+			fdFixed:       false,
+			fileIndex:     -1,
+			sqeFlags:      0,
+			vortex:        ln.vortex,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
+			pinned:        false,
+			useSendZC:     ln.useSendZC,
+		},
+		false,
+	}
+	return
+}
+
+func (ln *UnixListener) prepareMultishotAccepting() (err error) {
+	vortex := ln.vortex
+
+	fd := 0
+	if ln.fdFixed {
+		fd = ln.fileIndex
+	} else {
+		fd = ln.fd.Socket()
+	}
+
+	addr := &syscall.RawSockaddrAny{}
+	addrLen := syscall.SizeofSockaddrAny
+	backlog := sys.MaxListenerBacklog()
+	if backlog < 1024 {
+		backlog = 1024
+	}
+	future := vortex.AcceptMultishotAsync(fd, addr, addrLen, backlog, ln.sqeFlags)
+	ln.acceptFuture = &future
 	return
 }
 
@@ -273,14 +384,22 @@ func (ln *UnixListener) Close() error {
 	})
 
 	ctx := ln.ctx
-	fd := ln.fd.Socket()
 	vortex := ln.vortex
 
-	if err := vortex.Close(ctx, fd); err != nil {
+	var err error
+	if ln.fdFixed {
+		err = vortex.CloseDirect(ctx, ln.fileIndex)
+	} else {
+		fd := ln.fd.Socket()
+		err = vortex.Close(ctx, fd)
+	}
+	if err != nil {
+		fd := ln.fd.Socket()
 		_ = syscall.Close(fd)
 		_ = aio.Release(vortex)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
+
 	if unpinErr := aio.Release(vortex); unpinErr != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
 	}
@@ -348,7 +467,12 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	rsa := &syscall.RawSockaddrAny{}
@@ -356,7 +480,7 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline)
+	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -391,7 +515,12 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	rsa := &syscall.RawSockaddrAny{}
@@ -399,7 +528,7 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, unix.MSG_CMSG_CLOEXEC, deadline)
+	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, unix.MSG_CMSG_CLOEXEC, deadline, c.sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -452,14 +581,19 @@ func (c *UnixConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 	if c.useSendMSGZC {
-		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline)
+		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline, c.sqeFlags)
 	} else {
-		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline)
+		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline, c.sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -496,14 +630,19 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 	}
 
 	ctx := c.ctx
-	fd := c.fd.Socket()
+	fd := 0
+	if c.fdFixed {
+		fd = c.fileIndex
+	} else {
+		fd = c.fd.Socket()
+	}
 	vortex := c.vortex
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline, c.sqeFlags)
 	} else {
-		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline, c.sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

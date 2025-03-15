@@ -16,6 +16,9 @@ func (lc *ListenConfig) Listen(ctx context.Context, network string, address stri
 	}
 	switch a := addr.(type) {
 	case *net.TCPAddr:
+		lc.SetFastOpen(true)
+		lc.SetQuickAck(true)
+		lc.SetReusePort(true)
 		ln, err = lc.ListenTCP(ctx, network, a)
 		break
 	case *net.UnixAddr:

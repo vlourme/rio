@@ -9,3 +9,7 @@ func CheckSendZCEnable() bool {
 func CheckSendMsdZCEnable() bool {
 	return kernel.Enable(6, 1, 0)
 }
+
+func CheckMultishotAcceptEnable() bool {
+	return kernel.Enable(5, 19, 0)
+}

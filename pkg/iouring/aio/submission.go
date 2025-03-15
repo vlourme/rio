@@ -10,17 +10,25 @@ import (
 	"time"
 )
 
-func (vortex *Vortex) Connect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) Connect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int) (n int, err error) {
+func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.PrepareAccept(fd, addr, addrLen)
+	op.WithSQEFlags(sqeFlags).PrepareAccept(fd, addr, addrLen)
+	n, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) AcceptDirect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8, fileIndex uint32) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.WithSQEFlags(sqeFlags).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
@@ -34,44 +42,52 @@ func (vortex *Vortex) Close(ctx context.Context, fd int) (err error) {
 	return
 }
 
-func (vortex *Vortex) ReadFixed(ctx context.Context, fd int, buf *FixedBuffer, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) CloseDirect(ctx context.Context, fd int) (err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReadFixed(fd, buf)
+	op.WithDirect(true).PrepareClose(fd)
+	_, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) ReadFixed(ctx context.Context, fd int, buf *FixedBuffer, deadline time.Time, sqeFlags uint8) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReadFixed(fd, buf)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	buf.rightShiftWritePosition(n)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) WriteFixed(ctx context.Context, fd int, buf *FixedBuffer, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) WriteFixed(ctx context.Context, fd int, buf *FixedBuffer, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareWriteFixed(fd, buf)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareWriteFixed(fd, buf)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	buf.rightShiftReadPosition(n)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) Receive(ctx context.Context, fd int, b []byte, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) Receive(ctx context.Context, fd int, b []byte, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceive(fd, b)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReceive(fd, b)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) Send(ctx context.Context, fd int, b []byte, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) Send(ctx context.Context, fd int, b []byte, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSend(fd, b)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSend(fd, b)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
 	op.Hijack()
-	op.WithDeadline(deadline).PrepareSendZC(fd, b)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendZC(fd, b)
 	var (
 		cqeFlags uint32
 	)
@@ -98,30 +114,30 @@ func (vortex *Vortex) SendZC(ctx context.Context, fd int, b []byte, deadline tim
 	return
 }
 
-func (vortex *Vortex) ReceiveFrom(ctx context.Context, fd int, b []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) ReceiveFrom(ctx context.Context, fd int, b []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, nil, addr, addrLen, 0)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReceiveMsg(fd, b, nil, addr, addrLen, 0)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) SendTo(ctx context.Context, fd int, b []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, err error) {
+func (vortex *Vortex) SendTo(ctx context.Context, fd int, b []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSendMsg(fd, b, nil, addr, addrLen, 0)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendMsg(fd, b, nil, addr, addrLen, 0)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) SendToZC(ctx context.Context, fd int, b []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, err error) {
-	n, _, err = vortex.SendMsgZC(ctx, fd, b, nil, addr, addrLen, deadline)
+func (vortex *Vortex) SendToZC(ctx context.Context, fd int, b []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
+	n, _, err = vortex.SendMsgZC(ctx, fd, b, nil, addr, addrLen, deadline, sqeFlags)
 	return
 }
 
-func (vortex *Vortex) ReceiveMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int, deadline time.Time) (n int, oobn int, flag int, err error) {
+func (vortex *Vortex) ReceiveMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int, deadline time.Time, sqeFlags uint8) (n int, oobn int, flag int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, addr, addrLen, int32(flags))
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, addr, addrLen, int32(flags))
 	n, _, err = vortex.submitAndWait(ctx, op)
 	if err == nil {
 		oobn = int(op.msg.Controllen)
@@ -131,9 +147,9 @@ func (vortex *Vortex) ReceiveMsg(ctx context.Context, fd int, b []byte, oob []by
 	return
 }
 
-func (vortex *Vortex) SendMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, oobn int, err error) {
+func (vortex *Vortex) SendMsg(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, oobn int, err error) {
 	op := vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSendMsg(fd, b, oob, addr, addrLen, 0)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendMsg(fd, b, oob, addr, addrLen, 0)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	if err == nil {
 		oobn = int(op.msg.Controllen)
@@ -142,10 +158,10 @@ func (vortex *Vortex) SendMsg(ctx context.Context, fd int, b []byte, oob []byte,
 	return
 }
 
-func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, oobn int, err error) {
+func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, oobn int, err error) {
 	op := vortex.acquireOperation()
 	op.Hijack()
-	op.WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, 0)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, 0)
 	var (
 		cqeFlags uint32
 	)

@@ -123,49 +123,39 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		sqe.PrepareNop()
 		sqe.SetData(unsafe.Pointer(op))
 		break
-	case iouring.OpSocket:
-		domain := op.pipe.fdIn
-		sotype := op.pipe.fdOut
-		proto := int(op.pipe.nbytes)
-		flags := op.pipe.spliceFlags
-		if op.fixedFile {
-			if op.fd < 0 {
-				sqe.PrepareSocketDirectAlloc(domain, sotype, proto, flags)
-			} else {
-				sqe.PrepareSocketDirect(domain, sotype, proto, uint32(op.fd), flags)
-			}
-		} else {
-			sqe.PrepareSocket(domain, sotype, proto, flags)
-		}
-		sqe.SetData(unsafe.Pointer(op))
-		break
 	case iouring.OpConnect:
 		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(op.msg.Namelen)
 		sqe.PrepareConnect(op.fd, addrPtr, addrLenPtr)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpAccept:
 		addrPtr := (*syscall.RawSockaddrAny)(unsafe.Pointer(op.msg.Name))
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
 		if op.multishot {
-			if op.fixedFile {
+			if op.directMode {
 				sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, 0)
-				sqe.SetFlags(iouring.SQEFixedFile)
 			} else {
 				sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, 0)
 			}
 		} else {
-			if op.fixedFile { // todo: [FIXED] fixed no file id for PrepareAcceptDirect
-				sqe.PrepareNop()
-				return UnsupportedOp
+			if op.directMode {
+				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, 0, op.filedIndex)
+			} else {
+				sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
 			}
-			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
 		}
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpClose:
-		sqe.PrepareClose(op.fd)
+		if op.directMode {
+			sqe.PrepareCloseDirect(uint32(op.fd))
+		} else {
+			sqe.PrepareClose(op.fd)
+		}
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpReadFixed:
@@ -173,6 +163,7 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		bLen := op.msg.Namelen
 		idx := op.msg.Iovlen
 		sqe.PrepareReadFixed(op.fd, b, bLen, 0, int(idx))
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpWriteFixed:
@@ -180,54 +171,58 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		bLen := op.msg.Namelen
 		idx := op.msg.Iovlen
 		sqe.PrepareWriteFixed(op.fd, b, bLen, 0, int(idx))
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecv:
 		b := uintptr(unsafe.Pointer(op.msg.Name))
 		bLen := op.msg.Namelen
 		sqe.PrepareRecv(op.fd, b, bLen, 0)
-		if op.fixedFile {
-			sqe.SetFlags(iouring.SQEFixedFile)
-		}
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSend:
 		b := uintptr(unsafe.Pointer(op.msg.Name))
 		bLen := op.msg.Namelen
 		sqe.PrepareSend(op.fd, b, bLen, 0)
-		if op.fixedFile {
-			sqe.SetFlags(iouring.SQEFixedFile)
-		}
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendZC:
 		b := uintptr(unsafe.Pointer(op.msg.Name))
 		bLen := op.msg.Namelen
 		sqe.PrepareSendZC(op.fd, b, bLen, 0, 0)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpRecvmsg:
 		sqe.PrepareRecvMsg(op.fd, &op.msg, 0)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendmsg:
 		sqe.PrepareSendMsg(op.fd, &op.msg, 0)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSendMsgZC:
 		sqe.PrepareSendmsgZC(op.fd, &op.msg, 0)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpSplice:
 		sqe.PrepareSplice(op.pipe.fdIn, op.pipe.offIn, op.pipe.fdOut, op.pipe.offOut, op.pipe.nbytes, op.pipe.spliceFlags)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpTee:
 		sqe.PrepareTee(op.pipe.fdIn, op.pipe.fdOut, op.pipe.nbytes, op.pipe.spliceFlags)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpAsyncCancel:
 		sqe.PrepareCancel(uintptr(op.ptr), 0)
+		sqe.SetFlags(op.sqeFlags)
 		break
 	default:
 		sqe.PrepareNop()

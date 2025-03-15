@@ -31,6 +31,10 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 }
 
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
+	// check multishot accept
+	if lc.MultishotAccept {
+		lc.MultishotAccept = aio.CheckMultishotAcceptEnable()
+	}
 	// network
 	switch network {
 	case "tcp", "tcp4", "tcp6":
@@ -57,6 +61,8 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
+	// install fixed fd todo
+	fileIndex := -1
 
 	// send zc
 	useSendZC := false
@@ -67,40 +73,43 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// ln
 	cc, cancel := context.WithCancel(ctx)
 	ln := &TCPListener{
-		ctx:             cc,
-		cancel:          cancel,
-		fd:              fd,
-		vortex:          vortex,
-		acceptFuture:    nil,
-		multipathTCP:    lc.MultipathTCP,
-		keepAlive:       lc.KeepAlive,
-		keepAliveConfig: lc.KeepAliveConfig,
-		useSendZC:       useSendZC,
+		ctx:                cc,
+		cancel:             cancel,
+		fd:                 fd,
+		fileIndex:          fileIndex,
+		vortex:             vortex,
+		acceptFuture:       nil,
+		multipathTCP:       lc.MultipathTCP,
+		keepAlive:          lc.KeepAlive,
+		keepAliveConfig:    lc.KeepAliveConfig,
+		useSendZC:          useSendZC,
+		useMultishotAccept: lc.MultishotAccept,
 	}
-
-	if err := ln.prepareMultishotAccepting(); err != nil {
-		_ = syscall.Close(fd.Socket())
-		_ = aio.Release(vortex)
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	// prepare multishot accept
+	if lc.MultishotAccept {
+		if err := ln.prepareMultishotAccepting(); err != nil {
+			_ = ln.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
 	}
 
 	return ln, nil
 }
 
-type AcceptFuture interface {
-	Await(ctx context.Context) (n int, cqeFlags uint32, err error)
-}
-
 type TCPListener struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	fd              *sys.Fd
-	vortex          *aio.Vortex
-	acceptFuture    AcceptFuture
-	multipathTCP    bool
-	keepAlive       time.Duration
-	keepAliveConfig net.KeepAliveConfig
-	useSendZC       bool
+	ctx                context.Context
+	cancel             context.CancelFunc
+	fd                 *sys.Fd
+	fdFixed            bool
+	fileIndex          int
+	sqeFlags           uint8
+	vortex             *aio.Vortex
+	acceptFuture       *aio.Future
+	multipathTCP       bool
+	keepAlive          time.Duration
+	keepAliveConfig    net.KeepAliveConfig
+	useSendZC          bool
+	useMultishotAccept bool
 }
 
 func (ln *TCPListener) Accept() (net.Conn, error) {
@@ -112,11 +121,91 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
-	tc, err = ln.accept()
+	if ln.useMultishotAccept {
+		tc, err = ln.acceptMultishot()
+	} else {
+		tc, err = ln.acceptOneshot()
+	}
 	return
 }
 
-func (ln *TCPListener) accept() (tc *TCPConn, err error) {
+func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
+	ctx := ln.ctx
+	fd := 0
+	if ln.fdFixed {
+		fd = ln.fileIndex
+	} else {
+		fd = ln.fd.Socket()
+	}
+	vortex := ln.vortex
+
+	// accept
+	addr := &syscall.RawSockaddrAny{}
+	addrLen := syscall.SizeofSockaddrAny
+	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, ln.sqeFlags)
+	if acceptErr != nil {
+		if errors.Is(acceptErr, context.Canceled) {
+			acceptErr = net.ErrClosed
+		}
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
+		return
+	}
+	// fd
+	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
+	// local addr
+	if err = cfd.LoadLocalAddr(); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
+	// remote addr
+	if sa, saErr := sys.RawSockaddrAnyToSockaddr(addr); saErr == nil {
+		remoteAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
+		cfd.SetRemoteAddr(remoteAddr)
+	} else {
+		if err = cfd.LoadRemoteAddr(); err != nil {
+			_ = cfd.Close()
+			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+			return
+		}
+	}
+	// no delay
+	_ = cfd.SetNoDelay(true)
+	// keepalive
+	keepAliveConfig := ln.keepAliveConfig
+	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
+		keepAliveConfig = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   ln.keepAlive,
+		}
+	}
+	if keepAliveConfig.Enable {
+		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
+	}
+
+	// conn
+	cc, cancel := context.WithCancel(ctx)
+	tc = &TCPConn{
+		conn{
+			ctx:           cc,
+			cancel:        cancel,
+			fd:            cfd,
+			fdFixed:       false,
+			fileIndex:     -1,
+			sqeFlags:      0,
+			vortex:        vortex,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			readBuffer:    atomic.Int64{},
+			writeBuffer:   atomic.Int64{},
+			pinned:        false,
+			useSendZC:     ln.useSendZC,
+		},
+	}
+	return
+}
+
+func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 	ctx := ln.ctx
 
 	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
@@ -141,23 +230,8 @@ func (ln *TCPListener) accept() (tc *TCPConn, err error) {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
-
-	// tcp conn
-	cc, cancel := context.WithCancel(ctx)
-	tc = &TCPConn{
-		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            cfd,
-			vortex:        ln.vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			pinned:        false,
-			useSendZC:     ln.useSendZC,
-		},
-	}
 	// no delay
-	_ = tc.SetNoDelay(true)
+	_ = cfd.SetNoDelay(true)
 	// keepalive
 	keepAliveConfig := ln.keepAliveConfig
 	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
@@ -167,7 +241,23 @@ func (ln *TCPListener) accept() (tc *TCPConn, err error) {
 		}
 	}
 	if keepAliveConfig.Enable {
-		_ = tc.SetKeepAliveConfig(keepAliveConfig)
+		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
+	}
+
+	// tcp conn
+	cc, cancel := context.WithCancel(ctx)
+	tc = &TCPConn{
+		conn{
+			ctx:           cc,
+			cancel:        cancel,
+			fd:            cfd,
+			fileIndex:     accepted,
+			vortex:        ln.vortex,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			pinned:        false,
+			useSendZC:     ln.useSendZC,
+		},
 	}
 	return
 }
@@ -175,14 +265,20 @@ func (ln *TCPListener) accept() (tc *TCPConn, err error) {
 func (ln *TCPListener) prepareMultishotAccepting() (err error) {
 	vortex := ln.vortex
 
-	fd := ln.fd.Socket()
+	fd := 0
+	if ln.fdFixed {
+		fd = ln.fileIndex
+	} else {
+		fd = ln.fd.Socket()
+	}
+
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
 	backlog := sys.MaxListenerBacklog()
 	if backlog < 1024 {
 		backlog = 1024
 	}
-	future := vortex.PrepareAcceptMultishot(fd, addr, addrLen, backlog)
+	future := vortex.AcceptMultishotAsync(fd, addr, addrLen, backlog, ln.sqeFlags)
 	ln.acceptFuture = &future
 	return
 }
@@ -195,14 +291,22 @@ func (ln *TCPListener) Close() error {
 	defer ln.cancel()
 
 	ctx := ln.ctx
-	fd := ln.fd.Socket()
 	vortex := ln.vortex
 
-	if err := vortex.Close(ctx, fd); err != nil {
+	var err error
+	if ln.fdFixed {
+		err = vortex.CloseDirect(ctx, ln.fileIndex)
+	} else {
+		fd := ln.fd.Socket()
+		err = vortex.Close(ctx, fd)
+	}
+	if err != nil {
+		fd := ln.fd.Socket()
 		_ = syscall.Close(fd)
 		_ = aio.Release(vortex)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
+
 	if unpinErr := aio.Release(vortex); unpinErr != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
 	}
@@ -267,7 +371,7 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 		err = sockErr
 		return
 	}
-	fd = sys.NewFd(network, sock, family, syscall.SOCK_STREAM)
+	fd = sys.NewFd(network, sock, family, syscall.SOCK_STREAM) //
 
 	// ipv6
 	if ipv6only {

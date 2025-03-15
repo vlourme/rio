@@ -4,6 +4,7 @@ package aio
 
 import (
 	"context"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/semaphores"
 	"sync"
@@ -43,17 +44,17 @@ func NewIOURing(options Options) (r IOURing, err error) {
 		err = ringErr
 		return
 	}
-	// register files 65535
-	files := make([]int, 65535)
-	for i := range files {
-		files[i] = -1
-	}
-	_, regFilesErr := ring.RegisterFiles(files)
-	if regFilesErr != nil {
-		_ = ring.Close()
-		err = regFilesErr
-		return
-	}
+	// todo : register files 65535 by options
+	//files := make([]int, 10)
+	//for i := range files {
+	//	files[i] = -1
+	//}
+	//_, regFilesErr := ring.RegisterFiles(files)
+	//if regFilesErr != nil {
+	//	_ = ring.Close()
+	//	err = regFilesErr
+	//	return
+	//}
 	// register buffers
 	buffers := NewQueue[FixedBuffer]()
 	if size, count := options.RegisterFixedBufferSize, options.RegisterFixedBufferCount; count > 0 && size > 0 {
@@ -93,6 +94,7 @@ func NewIOURing(options Options) (r IOURing, err error) {
 		waitAFFCPU:            options.WaitCQEAffCPU,
 		waitCQEBatchSize:      options.WaitCQEBatchSize,
 		waitCQETimeCurve:      options.WaitCQETimeCurve,
+		registeredFiles:       nil,
 	}
 	return
 }
@@ -122,6 +124,8 @@ func (r *Ring) FileFd(index int) int {
 	if index < 0 || index >= len(r.registeredFiles) {
 		return -1
 	}
+
+	fmt.Println(r.registeredFiles)
 	return r.registeredFiles[index]
 }
 
