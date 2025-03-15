@@ -57,7 +57,7 @@ func TestTCP(t *testing.T) {
 		}
 	}(ln, wg)
 
-	conn, connErr := net.Dial("tcp", "127.0.0.1:9000")
+	conn, connErr := rio.Dial("tcp", "127.0.0.1:9000")
 	if connErr != nil {
 		t.Error(connErr)
 		return

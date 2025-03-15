@@ -108,6 +108,23 @@ func (fd *Fd) SetIpv6only(ipv6only bool) error {
 	return nil
 }
 
+func (fd *Fd) SetNonblocking(nonblocking bool) error {
+	if err := syscall.SetNonblock(fd.sock, nonblocking); err != nil {
+		return os.NewSyscallError("setnonblock", err)
+	}
+	return nil
+}
+
+func (fd *Fd) Nonblocking() (ok bool, err error) {
+	flag, getErr := Fcntl(fd.sock, syscall.F_GETFL, 0)
+	if getErr != nil {
+		err = os.NewSyscallError("fcntl", getErr)
+		return
+	}
+	ok = flag&syscall.O_NONBLOCK != 0
+	return
+}
+
 func (fd *Fd) AllowFastOpen(enabled bool) error {
 	if fd.sotype == syscall.SOCK_STREAM {
 		if err := unix.SetsockoptInt(fd.sock, unix.IPPROTO_TCP, unix.TCP_FASTOPEN, boolint(enabled)); err != nil {

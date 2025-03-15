@@ -276,7 +276,12 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 			return
 		}
 	}
-
+	// set non blocking
+	if err = cfd.SetNonblocking(true); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
 	// unix conn
 	cc, cancel := context.WithCancel(ctx)
 	c = &UnixConn{
@@ -325,7 +330,12 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
-
+	// set non blocking
+	if err = cfd.SetNonblocking(true); err != nil {
+		_ = cfd.Close()
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return
+	}
 	// unix conn
 	cc, cancel := context.WithCancel(ctx)
 	c = &UnixConn{
