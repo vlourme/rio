@@ -3,6 +3,7 @@
 package sys
 
 import (
+	"os"
 	"sync/atomic"
 	"syscall"
 )
@@ -57,4 +58,15 @@ func Fcntl(fd int, cmd int, arg int) (int, error) {
 func fcntl(fd, cmd, arg int32) (ret int32, errno int32) {
 	r, _, err := syscall.Syscall6(syscall.SYS_FCNTL, uintptr(fd), uintptr(cmd), uintptr(arg), 0, 0, 0)
 	return int32(r), int32(err)
+}
+
+func GetRLimit() (soft uint64, hard uint64, err error) {
+	var r syscall.Rlimit
+	if err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &r); err != nil {
+		err = os.NewSyscallError("getrlimit", err)
+		return
+	}
+	soft = r.Cur
+	hard = r.Max
+	return
 }
