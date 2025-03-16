@@ -6,11 +6,16 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/sys"
+	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+)
+
+var (
+	ErrFixedFileUnavailable  = errors.New("fixed files unavailable")
+	ErrFixedFileUnregistered = errors.New("fixed files unregistered")
 )
 
 type IOURing interface {
@@ -56,13 +61,14 @@ func NewIOURing(options Options) (r IOURing, err error) {
 	var fixedFiles []int
 	fixedFileIndexes := NewQueue[int]()
 	if files := options.RegisterFixedFiles; files > 0 {
-		soft, _, limitErr := sys.GetRLimit()
-		if limitErr != nil {
-			err = limitErr
+		var limit syscall.Rlimit
+		if err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit); err != nil {
+			_ = ring.Close()
+			err = os.NewSyscallError("getrlimit", err)
 			return
 		}
-		if uint64(files) > soft {
-			files = uint32(soft)
+		if uint64(files) > limit.Cur {
+			files = uint32(limit.Cur)
 		}
 		fixedFiles = make([]int, files)
 		for i := range fixedFiles {
@@ -179,37 +185,46 @@ func (r *Ring) GetRegisterFixedFd(index int) int {
 	return r.fixedFiles[index]
 }
 
-func (r *Ring) RegisterFixedFd(fd int) (index int, err error) {
+func (r *Ring) PopFixedFd() (index int, err error) {
+	if r.fixedFileIndexes.Length() == 0 {
+		return -1, ErrFixedFileUnavailable
+	}
 	r.fixedFileLocker.Lock()
 	defer r.fixedFileLocker.Unlock()
 	if len(r.fixedFiles) == 0 {
-		err = errors.New("files has not been registered yet")
+		index = -1
+		err = ErrFixedFileUnregistered
 		return
 	}
 	index = r.acquireFixedFileIndex()
 	if index < 0 {
-		err = errors.New("no files available")
+		err = ErrFixedFileUnavailable
+		return
+	}
+	return
+}
+
+func (r *Ring) RegisterFixedFd(fd int) (index int, err error) {
+	if r.fixedFileIndexes.Length() == 0 {
+		return -1, ErrFixedFileUnavailable
+	}
+	r.fixedFileLocker.Lock()
+	defer r.fixedFileLocker.Unlock()
+	if len(r.fixedFiles) == 0 {
+		index = -1
+		err = ErrFixedFileUnregistered
+		return
+	}
+	index = r.acquireFixedFileIndex()
+	if index < 0 {
+		err = ErrFixedFileUnavailable
 		return
 	}
 	r.fixedFiles[index] = fd
 	_, err = r.ring.RegisterFilesUpdate(uint(index), r.fixedFiles[index:index+1])
 	if err != nil {
+		r.releaseFixedFileIndex(index)
 		index = -1
-	}
-	return
-}
-
-func (r *Ring) PopFixedFd() (index int, err error) {
-	r.fixedFileLocker.Lock()
-	defer r.fixedFileLocker.Unlock()
-	if len(r.fixedFiles) == 0 {
-		err = errors.New("files has not been registered yet")
-		return
-	}
-	index = r.acquireFixedFileIndex()
-	if index < 0 {
-		err = errors.New("no files available")
-		return
 	}
 	return
 }

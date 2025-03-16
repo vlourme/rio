@@ -128,6 +128,10 @@ func (c *conn) InstallFixedFd() (err error) {
 	return nil
 }
 
+func (c *conn) FixedFdInstalled() bool {
+	return c.fdFixed
+}
+
 func (c *conn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL

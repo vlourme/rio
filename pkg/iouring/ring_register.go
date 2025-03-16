@@ -36,8 +36,8 @@ const (
 	RegisterIOWQAff
 	UnregisterIOWQAff
 	RegisterIOWQMaxWorkers
-	RegisterRingFDs
-	UnregisterRingFDs
+	RegisterRingFds
+	UnregisterRingFds
 	RegisterPbufRing
 	UnregisterPbufRing
 	RegisterSyncCancel
@@ -348,7 +348,7 @@ func (ring *Ring) RegisterRingFd() (uint, error) {
 		Data:   uint64(ring.ringFd),
 		Offset: registerRingFdOffset,
 	}
-	ret, err := ring.doRegister(RegisterRingFDs, unsafe.Pointer(update), 1)
+	ret, err := ring.doRegister(RegisterRingFds, unsafe.Pointer(update), 1)
 	if err != nil {
 		return ret, err
 	}
@@ -372,7 +372,7 @@ func (ring *Ring) UnregisterRingFd() (uint, error) {
 	if (ring.kind & regRing) != 0 {
 		return 0, syscall.EINVAL
 	}
-	ret, err := ring.doRegister(UnregisterRingFDs, unsafe.Pointer(update), 1)
+	ret, err := ring.doRegister(UnregisterRingFds, unsafe.Pointer(update), 1)
 	if err != nil {
 		return ret, err
 	}
@@ -422,13 +422,13 @@ func (ring *Ring) doRegister(opCode uint32, arg unsafe.Pointer, nrArgs uint32) (
 
 func increaseRlimitNoFile(nr uint64) error {
 	limit := syscall.Rlimit{}
-	err := syscall.Getrlimit(unix.RLIMIT_NOFILE, &limit)
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit)
 	if err != nil {
 		return err
 	}
 	if limit.Cur < nr {
 		limit.Cur += nr
-		err = syscall.Setrlimit(unix.RLIMIT_NOFILE, &limit)
+		err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &limit)
 		if err != nil {
 			return err
 		}

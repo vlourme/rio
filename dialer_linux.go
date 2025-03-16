@@ -157,13 +157,16 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
 		sock := fd.Socket()
 		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = fd.Close()
-			_ = aio.Release(vortex)
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = fd.Close()
+				_ = aio.Release(vortex)
+				return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 
 	// send zc
@@ -273,13 +276,16 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
 		sock := fd.Socket()
 		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = fd.Close()
-			_ = aio.Release(vortex)
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = fd.Close()
+				_ = aio.Release(vortex)
+				return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 
 	// send zc
@@ -406,13 +412,16 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
 		sock := fd.Socket()
 		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = fd.Close()
-			_ = aio.Release(vortex)
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = fd.Close()
+				_ = aio.Release(vortex)
+				return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 
 	// send zc

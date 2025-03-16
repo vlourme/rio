@@ -56,22 +56,25 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// install fixed fd
+	autoFixedFdInstall := lc.AutoFixedFdInstall
 	fileIndex := -1
 	sqeFlags := uint8(0)
-	if lc.AutoFixedFdInstall {
-		if vortex.RegisterFixedFdEnabled() {
-			sock := fd.Socket()
-			file, regErr := vortex.RegisterFixedFd(ctx, sock)
-			if regErr != nil {
+	if vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			lc.AutoFixedFdInstall = false
+			autoFixedFdInstall = false
 		}
+	} else {
+		autoFixedFdInstall = false
 	}
 	// send zc
 	useSendZC := false
@@ -84,6 +87,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		ctx:                cc,
 		cancel:             cancel,
 		fd:                 fd,
+		autoFixedFdInstall: autoFixedFdInstall,
 		fdFixed:            fileIndex != -1,
 		fileIndex:          fileIndex,
 		sqeFlags:           sqeFlags,
@@ -94,10 +98,9 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		acceptFuture:       nil,
 		useSendZC:          useSendZC,
 		useMultishotAccept: lc.MultishotAccept,
-		autoFixedFdInstall: lc.AutoFixedFdInstall,
 	}
 	// prepare multishot accept
-	if lc.MultishotAccept {
+	if ln.useMultishotAccept {
 		if err := ln.prepareMultishotAccepting(); err != nil {
 			_ = ln.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -142,19 +145,18 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	// install fixed fd
 	fileIndex := -1
 	sqeFlags := uint8(0)
-	if lc.AutoFixedFdInstall {
-		if vortex.RegisterFixedFdEnabled() {
-			sock := fd.Socket()
-			file, regErr := vortex.RegisterFixedFd(ctx, sock)
-			if regErr != nil {
+	if vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			lc.AutoFixedFdInstall = false
 		}
 	}
 	// send zc
@@ -332,13 +334,16 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 	if ln.autoFixedFdInstall {
 		sock := cfd.Socket()
 		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = cfd.Close()
-			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
-			return
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = cfd.Close()
+				err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
+				return
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 	// unix conn
 	cc, cancel := context.WithCancel(ctx)
@@ -400,13 +405,16 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 	if ln.autoFixedFdInstall {
 		sock := cfd.Socket()
 		file, regErr := ln.vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = cfd.Close()
-			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
-			return
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = cfd.Close()
+				err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
+				return
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 	// unix conn
 	cc, cancel := context.WithCancel(ctx)
@@ -515,6 +523,10 @@ func (ln *UnixListener) InstallFixedFd() error {
 	ln.fileIndex = file
 	ln.sqeFlags |= iouring.SQEFixedFile
 	return nil
+}
+
+func (ln *UnixListener) FixedFdInstalled() bool {
+	return ln.fdFixed
 }
 
 func (ln *UnixListener) Addr() net.Addr {

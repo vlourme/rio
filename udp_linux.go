@@ -61,19 +61,18 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	// install fixed fd
 	fileIndex := -1
 	sqeFlags := uint8(0)
-	if lc.AutoFixedFdInstall {
-		if vortex.RegisterFixedFdEnabled() {
-			sock := fd.Socket()
-			file, regErr := vortex.RegisterFixedFd(ctx, sock)
-			if regErr != nil {
+	if vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			lc.AutoFixedFdInstall = false
 		}
 	}
 	// send zc

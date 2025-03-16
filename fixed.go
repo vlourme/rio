@@ -10,7 +10,6 @@ type FixedReaderWriter interface {
 	ReleaseRegisteredBuffer(buf *aio.FixedBuffer)
 	ReadFixed(buf *aio.FixedBuffer) (n int, err error)
 	WriteFixed(buf *aio.FixedBuffer) (n int, err error)
-	InstallFixedFd() (err error)
 }
 
 // Fixed
@@ -19,5 +18,15 @@ type FixedReaderWriter interface {
 // 如 setenv IOURING_REG_BUFFERS 1024, 1000
 func Fixed(c net.Conn) (fixed FixedReaderWriter, ok bool) {
 	fixed, ok = c.(FixedReaderWriter)
+	return
+}
+
+type FixedFd interface {
+	InstallFixedFd() (err error)
+	FixedFdInstalled() bool
+}
+
+func FixedFdInstaller(v any) (fixed FixedFd, ok bool) {
+	fixed, ok = v.(FixedFd)
 	return
 }

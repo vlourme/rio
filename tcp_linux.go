@@ -64,22 +64,25 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	}
 
 	// install fixed fd
+	autoFixedFdInstall := lc.AutoFixedFdInstall
 	fileIndex := -1
 	sqeFlags := uint8(0)
-	if lc.AutoFixedFdInstall {
-		if vortex.RegisterFixedFdEnabled() {
-			sock := fd.Socket()
-			file, regErr := vortex.RegisterFixedFd(ctx, sock)
-			if regErr != nil {
+	if vortex.RegisterFixedFdEnabled() {
+		sock := fd.Socket()
+		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			lc.AutoFixedFdInstall = false
+			autoFixedFdInstall = false
 		}
+	} else {
+		autoFixedFdInstall = false
 	}
 
 	// send zc
@@ -94,7 +97,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		ctx:                cc,
 		cancel:             cancel,
 		fd:                 fd,
-		autoFixedFdInstall: lc.AutoFixedFdInstall,
+		autoFixedFdInstall: autoFixedFdInstall,
 		fdFixed:            fileIndex != -1,
 		fileIndex:          fileIndex,
 		sqeFlags:           sqeFlags,
@@ -107,7 +110,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		useMultishotAccept: lc.MultishotAccept,
 	}
 	// prepare multishot accept
-	if lc.MultishotAccept {
+	if ln.useMultishotAccept {
 		if err := ln.prepareMultishotAccepting(); err != nil {
 			_ = ln.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -216,13 +219,16 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 	if ln.autoFixedFdInstall {
 		sock := cfd.Socket()
 		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = cfd.Close()
-			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
-			return
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = cfd.Close()
+				err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
+				return
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 
 	// conn
@@ -298,13 +304,16 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 	if ln.autoFixedFdInstall {
 		sock := cfd.Socket()
 		file, regErr := ln.vortex.RegisterFixedFd(ctx, sock)
-		if regErr != nil {
-			_ = cfd.Close()
-			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
-			return
+		if regErr == nil {
+			fileIndex = file
+			sqeFlags = iouring.SQEFixedFile
+		} else {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = cfd.Close()
+				err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: regErr}
+				return
+			}
 		}
-		fileIndex = file
-		sqeFlags = iouring.SQEFixedFile
 	}
 
 	// tcp conn
@@ -407,6 +416,10 @@ func (ln *TCPListener) InstallFixedFd() error {
 	ln.fileIndex = file
 	ln.sqeFlags |= iouring.SQEFixedFile
 	return nil
+}
+
+func (ln *TCPListener) FixedFdInstalled() bool {
+	return ln.fdFixed
 }
 
 func (ln *TCPListener) Addr() net.Addr {
