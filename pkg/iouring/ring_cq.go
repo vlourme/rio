@@ -135,12 +135,12 @@ func (ring *Ring) PeekBatchCQE(cqes []*CompletionQueueEvent) uint32 {
 AGAIN:
 	ready = ring.CQReady()
 	if ready != 0 {
-		head := *ring.cqRing.head
-		mask := *ring.cqRing.ringMask
-		last := head + count
 		if count > ready {
 			count = ready
 		}
+		head := *ring.cqRing.head
+		mask := *ring.cqRing.ringMask
+		last := head + count
 		for i := 0; head != last; head, i = head+1, i+1 {
 			cqes[i] = (*CompletionQueueEvent)(
 				unsafe.Add(
