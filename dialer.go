@@ -41,6 +41,10 @@ func DialContext(ctx context.Context, network string, address string) (net.Conn,
 
 func DialTimeout(network string, address string, timeout time.Duration) (net.Conn, error) {
 	ctx := context.Background()
+	return DialContextTimeout(ctx, network, address, timeout)
+}
+
+func DialContextTimeout(ctx context.Context, network string, address string, timeout time.Duration) (net.Conn, error) {
 	dialer := DefaultDialer
 	dialer.Timeout = timeout
 	if strings.HasPrefix(network, "tcp") {
