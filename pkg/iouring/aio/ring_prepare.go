@@ -24,7 +24,11 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 		}
 		runtime.LockOSThread()
 		if setErr := process.SetCPUAffinity(r.prepAFFCPU); setErr != nil {
-			runtime.UnlockOSThread()
+			if r.ring.Flags()&iouring.SetupSingleIssuer != 0 { // lock os thread is required
+				defer runtime.UnlockOSThread()
+			} else { // no single issuer so unlock
+				runtime.UnlockOSThread()
+			}
 		} else {
 			defer runtime.UnlockOSThread()
 		}
