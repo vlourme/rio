@@ -286,9 +286,10 @@ err := fixed.InstallFixedFd()
 * `RIO_IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本，但程序会自动过滤掉与版本不符的标识，但不解决标识冲突。
   * `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行调试。
   * `IORING_SETUP_SQ_AFF` 激活时，且是容器环境，此时需要注意 CPU 的相关设置。
+  * `IORING_SETUP_SINGLE_ISSUER` 与 `AutoFixedFdInstall` 冲突。
 * `RIO_IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `RIO_IOURING_SETUP_FLAGS` 。
   * `DEFAULT` 为 `IORING_SETUP_COOP_TASKRUN`
-  * `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` `IORING_SETUP_SQ_AFF` 和 `IORING_SETUP_SINGLE_ISSUER`，所以非常吃配置，但是会减少系统调用。
+  * `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` 和 `IORING_SETUP_SQ_AFF` ，所以非常吃配置，但是会减少系统调用。
 * `RIO_IOURING_REG_FIXED_BUFFERS` 为 `rio.FixedReaderWriter` 的前置必要条件，如果使用固定读写，必须设置该变量来注册。
 * `RIO_IOURING_REG_FIXED_FILES` 为 `rio.FixedReaderWriter`、`rio.FixedFd` 和 `AutoFixedFdInstall` 的前置必要条件，如果使用固定文件，必须设置该变量来注册。
 * `RIO_PREP_SQE_BATCH_IDLE_TIME` 是用来处理忙等待问题，所以值会大一点。
