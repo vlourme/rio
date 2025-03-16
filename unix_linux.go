@@ -18,12 +18,18 @@ import (
 	"time"
 )
 
+// ListenUnix acts like [Listen] for Unix networks.
+//
+// The network must be "unix" or "unixpacket".
 func ListenUnix(network string, addr *net.UnixAddr) (*UnixListener, error) {
 	config := ListenConfig{}
 	ctx := context.Background()
 	return config.ListenUnix(ctx, network, addr)
 }
 
+// ListenUnix acts like [Listen] for Unix networks.
+//
+// The network must be "unix" or "unixpacket".
 func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *net.UnixAddr) (*UnixListener, error) {
 	// check multishot accept
 	if lc.MultishotAccept {
@@ -78,7 +84,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	}
 	// send zc
 	useSendZC := false
-	if lc.UseSendZC {
+	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
 	// ln
@@ -109,12 +115,18 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	return ln, nil
 }
 
+// ListenUnixgram acts like [ListenPacket] for Unix networks.
+//
+// The network must be "unixgram".
 func ListenUnixgram(network string, addr *net.UnixAddr) (*UnixConn, error) {
 	config := ListenConfig{}
 	ctx := context.Background()
 	return config.ListenUnixgram(ctx, network, addr)
 }
 
+// ListenUnixgram acts like [ListenPacket] for Unix networks.
+//
+// The network must be "unixgram".
 func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr *net.UnixAddr) (*UnixConn, error) {
 	// network
 	switch network {
@@ -162,7 +174,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
-	if lc.UseSendZC {
+	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
@@ -248,6 +260,9 @@ func newUnixListener(ctx context.Context, network string, addr *net.UnixAddr, co
 	return
 }
 
+// UnixListener is a Unix domain socket listener. Clients should
+// typically use variables of type [net.Listener] instead of assuming Unix
+// domain sockets.
 type UnixListener struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -263,12 +278,17 @@ type UnixListener struct {
 	useSendZC          bool
 	useMultishotAccept bool
 	autoFixedFdInstall bool
+	deadline           time.Time
 }
 
+// Accept implements the Accept method in the [net.Listener] interface.
+// Returned connections will be of type [*UnixConn].
 func (ln *UnixListener) Accept() (net.Conn, error) {
 	return ln.AcceptUnix()
 }
 
+// AcceptUnix accepts the next incoming call and returns the new
+// connection.
 func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
@@ -460,6 +480,8 @@ func (ln *UnixListener) prepareMultishotAccepting() (err error) {
 	return
 }
 
+// Close stops listening on the Unix address. Already accepted
+// connections are not closed.
 func (ln *UnixListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -496,12 +518,13 @@ func (ln *UnixListener) Close() error {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 
-	if unpinErr := aio.Release(vortex); unpinErr != nil {
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
+	if err = aio.Release(vortex); err != nil {
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil
 }
 
+// InstallFixedFd implements the InstallFixedFd method in the [FixedFd] interface.
 func (ln *UnixListener) InstallFixedFd() error {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -525,10 +548,14 @@ func (ln *UnixListener) InstallFixedFd() error {
 	return nil
 }
 
+// FixedFdInstalled implements the FixedFdInstalled method in the [FixedFd] interface.
 func (ln *UnixListener) FixedFdInstalled() bool {
 	return ln.fdFixed
 }
 
+// Addr returns the listener's network address, a [*TCPAddr].
+// The Addr returned is shared by all invocations of Addr, so
+// do not modify it.
 func (ln *UnixListener) Addr() net.Addr {
 	if !ln.ok() {
 		return nil
@@ -536,10 +563,35 @@ func (ln *UnixListener) Addr() net.Addr {
 	return ln.fd.LocalAddr()
 }
 
+// SetDeadline sets the deadline associated with the listener.
+// A zero time value disables the deadline.
+func (ln *UnixListener) SetDeadline(t time.Time) error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	ln.deadline = t
+	return nil
+}
+
+// SetUnlinkOnClose sets whether the underlying socket file should be removed
+// from the file system when the listener is closed.
+//
+// The default behavior is to unlink the socket file only when package net created it.
+// That is, when the listener and the underlying socket file were created by a call to
+// Listen or ListenUnix, then by default closing the listener will remove the socket file.
+// but if the listener was created by a call to FileListener to use an already existing
+// socket file, then by default closing the listener will not remove the socket file.
 func (ln *UnixListener) SetUnlinkOnClose(unlink bool) {
 	ln.unlink = unlink
 }
 
+// File returns a copy of the underlying [os.File].
+// It is the caller's responsibility to close f when finished.
+// Closing l does not affect f, and closing f does not affect l.
+//
+// The returned os.File's file descriptor is different from the
+// connection's. Attempting to change properties of the original
+// using this duplicate may or may not have the desired effect.
 func (ln *UnixListener) File() (f *os.File, err error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
@@ -565,6 +617,11 @@ func (ln *UnixListener) file() (*os.File, error) {
 	return f, nil
 }
 
+// SyscallConn returns a raw network connection.
+// This implements the [syscall.Conn] interface.
+//
+// The returned RawConn only supports calling Control. Read and
+// Write return an error.
 func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
@@ -572,15 +629,19 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 	return newRawConn(ln.fd), nil
 }
 
+// UnixConn is an implementation of the [net.Conn] interface for connections
+// to Unix domain sockets.
 type UnixConn struct {
 	conn
 	useSendMSGZC bool
 }
 
+// ReadFrom implements the [net.PacketConn] ReadFrom method.
 func (c *UnixConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	return c.ReadFromUnix(b)
 }
 
+// ReadFromUnix acts like [UnixConn.ReadFrom] but returns a [net.UnixAddr].
 func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error) {
 	if !c.ok() {
 		return 0, nil, syscall.EINVAL
@@ -627,6 +688,13 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 	return
 }
 
+// ReadMsgUnix reads a message from c, copying the payload into b and
+// the associated out-of-band data into oob. It returns the number of
+// bytes copied into b, the number of bytes copied into oob, the flags
+// that were set on the message and the source address of the message.
+//
+// Note that if len(b) == 0 and len(oob) > 0, this function will still
+// read (and discard) 1 byte from the connection.
 func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *net.UnixAddr, err error) {
 	if !c.ok() {
 		return 0, 0, 0, nil, syscall.EINVAL
@@ -675,6 +743,7 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 	return
 }
 
+// WriteTo implements the [net.PacketConn] WriteTo method.
 func (c *UnixConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -693,6 +762,7 @@ func (c *UnixConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	return c.writeTo(b, sa)
 }
 
+// WriteToUnix acts like [UnixConn.WriteTo] but takes a [net.UnixAddr].
 func (c *UnixConn) WriteToUnix(b []byte, addr *net.UnixAddr) (int, error) {
 	return c.WriteTo(b, addr)
 }
@@ -728,6 +798,12 @@ func (c *UnixConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	return
 }
 
+// WriteMsgUnix writes a message to addr via c, copying the payload
+// from b and the associated out-of-band data from oob. It returns the
+// number of payload and out-of-band bytes written.
+//
+// Note that if len(b) == 0 and len(oob) > 0, this function will still
+// write 1 byte to the connection.
 func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int, oobn int, err error) {
 	if !c.ok() {
 		return 0, 0, syscall.EINVAL

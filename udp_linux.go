@@ -17,22 +17,80 @@ import (
 	"time"
 )
 
+// ListenUDP acts like [ListenPacket] for UDP networks.
+//
+// The network must be a UDP network name; see func [Dial] for details.
+//
+// If the IP field of laddr is nil or an unspecified IP address,
+// ListenUDP listens on all available IP addresses of the local system
+// except multicast IP addresses.
+// If the Port field of laddr is 0, a port number is automatically
+// chosen.
 func ListenUDP(network string, addr *net.UDPAddr) (*UDPConn, error) {
 	config := ListenConfig{}
 	ctx := context.Background()
 	return config.ListenUDP(ctx, network, addr)
 }
 
+// ListenUDP acts like [ListenPacket] for UDP networks.
+//
+// The network must be a UDP network name; see func [Dial] for details.
+//
+// If the IP field of laddr is nil or an unspecified IP address,
+// ListenUDP listens on all available IP addresses of the local system
+// except multicast IP addresses.
+// If the Port field of laddr is 0, a port number is automatically
+// chosen.
 func (lc *ListenConfig) ListenUDP(ctx context.Context, network string, addr *net.UDPAddr) (*UDPConn, error) {
 	return lc.listenUDP(ctx, network, nil, addr)
 }
 
+// ListenMulticastUDP acts like [ListenPacket] for UDP networks but
+// takes a group address on a specific network interface.
+//
+// The network must be a UDP network name; see func [Dial] for details.
+//
+// ListenMulticastUDP listens on all available IP addresses of the
+// local system including the group, multicast IP address.
+// If ifi is nil, ListenMulticastUDP uses the system-assigned
+// multicast interface, although this is not recommended because the
+// assignment depends on platforms and sometimes it might require
+// routing configuration.
+// If the Port field of gaddr is 0, a port number is automatically
+// chosen.
+//
+// ListenMulticastUDP is just for convenience of simple, small
+// applications. There are [golang.org/x/net/ipv4] and
+// [golang.org/x/net/ipv6] packages for general purpose uses.
+//
+// Note that ListenMulticastUDP will set the IP_MULTICAST_LOOP socket option
+// to 0 under IPPROTO_IP, to disable loopback of multicast packets.
 func ListenMulticastUDP(network string, ifi *net.Interface, addr *net.UDPAddr) (*UDPConn, error) {
 	config := ListenConfig{}
 	ctx := context.Background()
 	return config.ListenMulticastUDP(ctx, network, ifi, addr)
 }
 
+// ListenMulticastUDP acts like [ListenPacket] for UDP networks but
+// takes a group address on a specific network interface.
+//
+// The network must be a UDP network name; see func [Dial] for details.
+//
+// ListenMulticastUDP listens on all available IP addresses of the
+// local system including the group, multicast IP address.
+// If ifi is nil, ListenMulticastUDP uses the system-assigned
+// multicast interface, although this is not recommended because the
+// assignment depends on platforms and sometimes it might require
+// routing configuration.
+// If the Port field of gaddr is 0, a port number is automatically
+// chosen.
+//
+// ListenMulticastUDP is just for convenience of simple, small
+// applications. There are [golang.org/x/net/ipv4] and
+// [golang.org/x/net/ipv6] packages for general purpose uses.
+//
+// Note that ListenMulticastUDP will set the IP_MULTICAST_LOOP socket option
+// to 0 under IPPROTO_IP, to disable loopback of multicast packets.
 func (lc *ListenConfig) ListenMulticastUDP(ctx context.Context, network string, ifi *net.Interface, addr *net.UDPAddr) (*UDPConn, error) {
 	return lc.listenUDP(ctx, network, ifi, addr)
 }
@@ -78,7 +136,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
-	if lc.UseSendZC {
+	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
@@ -209,11 +267,14 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 	return
 }
 
+// UDPConn is the implementation of the [net.Conn] and [net.PacketConn] interfaces
+// for UDP network connections.
 type UDPConn struct {
 	conn
 	useSendMSGZC bool
 }
 
+// ReadFromUDP acts like [UDPConn.ReadFrom] but returns a net.UDPAddr.
 func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	if !c.ok() {
 		return 0, nil, syscall.EINVAL
@@ -260,10 +321,16 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	return
 }
 
+// ReadFrom implements the [net.PacketConn] ReadFrom method.
 func (c *UDPConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	return c.ReadFromUDP(b)
 }
 
+// ReadFromUDPAddrPort acts like ReadFrom but returns a [netip.AddrPort].
+//
+// If c is bound to an unspecified address, the returned
+// netip.AddrPort's address might be an IPv4-mapped IPv6 address.
+// Use [netip.Addr.Unmap] to get the address without the IPv6 prefix.
 func (c *UDPConn) ReadFromUDPAddrPort(b []byte) (n int, addr netip.AddrPort, err error) {
 	var udpAddr *net.UDPAddr
 	n, udpAddr, err = c.ReadFromUDP(b)
@@ -274,6 +341,13 @@ func (c *UDPConn) ReadFromUDPAddrPort(b []byte) (n int, addr netip.AddrPort, err
 	return
 }
 
+// ReadMsgUDP reads a message from c, copying the payload into b and
+// the associated out-of-band data into oob. It returns the number of
+// bytes copied into b, the number of bytes copied into oob, the flags
+// that were set on the message and the source address of the message.
+//
+// The packages [golang.org/x/net/ipv4] and [golang.org/x/net/ipv6] can be
+// used to manipulate IP-level socket options in oob.
 func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAddr, err error) {
 	if !c.ok() {
 		return 0, 0, 0, nil, syscall.EINVAL
@@ -322,6 +396,7 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 	return
 }
 
+// ReadMsgUDPAddrPort is like [UDPConn.ReadMsgUDP] but returns an [netip.AddrPort] instead of a [net.UDPAddr].
 func (c *UDPConn) ReadMsgUDPAddrPort(b, oob []byte) (n, oobn, flags int, addr netip.AddrPort, err error) {
 	var udpAddr *net.UDPAddr
 	n, oobn, flags, udpAddr, err = c.ReadMsgUDP(b, oob)
@@ -332,11 +407,13 @@ func (c *UDPConn) ReadMsgUDPAddrPort(b, oob []byte) (n, oobn, flags int, addr ne
 	return
 }
 
+// WriteToUDP acts like [UDPConn.WriteTo] but takes a [UDPAddr].
 func (c *UDPConn) WriteToUDP(b []byte, addr *net.UDPAddr) (n int, err error) {
 	n, err = c.WriteTo(b, addr)
 	return
 }
 
+// WriteToUDPAddrPort acts like [UDPConn.WriteTo] but takes a [netip.AddrPort].
 func (c *UDPConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -352,6 +429,7 @@ func (c *UDPConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (n int, err 
 	return
 }
 
+// WriteTo implements the [net.PacketConn] WriteTo method.
 func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -403,6 +481,14 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	return
 }
 
+// WriteMsgUDP writes a message to addr via c if c isn't connected, or
+// to c's remote address if c is connected (in which case addr must be
+// nil). The payload is copied from b and the associated out-of-band
+// data is copied from oob. It returns the number of payload and
+// out-of-band bytes written.
+//
+// The packages [golang.org/x/net/ipv4] and [golang.org/x/net/ipv6] can be
+// used to manipulate IP-level socket options in oob.
 func (c *UDPConn) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr) (n, oobn int, err error) {
 	if !c.ok() {
 		return 0, 0, syscall.EINVAL
@@ -421,6 +507,7 @@ func (c *UDPConn) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr) (n, oobn int, er
 	return
 }
 
+// WriteMsgUDPAddrPort is like [UDPConn.WriteMsgUDP] but takes a [netip.AddrPort] instead of a [net.UDPAddr].
 func (c *UDPConn) WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPort) (n, oobn int, err error) {
 	if !c.ok() {
 		return 0, 0, syscall.EINVAL

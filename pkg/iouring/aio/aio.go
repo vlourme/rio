@@ -16,21 +16,24 @@ import (
 
 func Acquire() (v *Vortex, err error) {
 	pollOnce.Do(func() {
-		err = pollInit()
+		pollErr = pollInit()
 	})
-	if err != nil {
+	if pollErr != nil {
+		err = pollErr
 		return
 	}
 	if n := pollAcquires.Add(1); n == 1 {
-		if err == nil {
-			err = poll.Start(context.Background())
-		}
+		err = poll.Start(context.Background())
 	}
 	v = poll
 	return
 }
 
 func Release(v *Vortex) (err error) {
+	if pollErr != nil {
+		err = pollErr
+		return
+	}
 	if v == nil {
 		err = errors.New("release vortex is nil")
 		return
@@ -41,13 +44,14 @@ func Release(v *Vortex) (err error) {
 	return
 }
 
-func PrepareInitIOURingOptions(options ...Option) {
+func Presets(options ...Option) {
 	pollOptions = append(pollOptions, options...)
 }
 
 var (
 	pollOnce     sync.Once
 	poll         *Vortex
+	pollErr      error
 	pollAcquires atomic.Int64
 	pollOptions  = make([]Option, 0, 1)
 )
@@ -81,19 +85,19 @@ func pollInit() (err error) {
 		pollOptions = append(pollOptions, WithSQThreadCPU(sqThreadCPU))
 
 		sqThreadIdle := loadEnvSQThreadIdle()
-		pollOptions = append(pollOptions, WithSQThreadIdle(sqThreadIdle))
+		pollOptions = append(pollOptions, WithSQThreadIdle(time.Duration(sqThreadIdle)*time.Millisecond))
 
 		prepareBatchSize := loadEnvPrepareSQEBatchSize()
-		pollOptions = append(pollOptions, WithPrepareSQEBatchSize(prepareBatchSize))
+		pollOptions = append(pollOptions, WithPrepSQEBatchSize(prepareBatchSize))
 
 		prepareBatchTimeWindow := loadEnvPrepareSQETimeWindow()
 		pollOptions = append(pollOptions, WithPrepSQEBatchTimeWindow(prepareBatchTimeWindow))
 
 		prepareIdleTime := loadEnvPrepareSQEIdleTime()
-		pollOptions = append(pollOptions, WithPrepareSQEBatchIdleTime(prepareIdleTime))
+		pollOptions = append(pollOptions, WithPrepSQEBatchIdleTime(prepareIdleTime))
 
 		prepareSQEAffCPU := loadEnvPrepareSQEAFFCPU()
-		pollOptions = append(pollOptions, WithPrepareSQEBatchAFFCPU(prepareSQEAffCPU))
+		pollOptions = append(pollOptions, WithPrepSQEBatchAFFCPU(prepareSQEAffCPU))
 
 		waitCQBatchSize := loadEnvWaitCQEBatchSize()
 		pollOptions = append(pollOptions, WithWaitCQEBatchSize(waitCQBatchSize))

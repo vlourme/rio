@@ -33,10 +33,12 @@ type conn struct {
 	useSendZC     bool
 }
 
+// Context get context of conn.
 func (c *conn) Context() context.Context {
 	return c.ctx
 }
 
+// Read implements the net.Conn Read method.
 func (c *conn) Read(b []byte) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -72,6 +74,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	return
 }
 
+// Write implements the net.Conn Write method.
 func (c *conn) Write(b []byte) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -104,6 +107,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	return
 }
 
+// InstallFixedFd implements the FixedFd InstallFixedFd method.
 func (c *conn) InstallFixedFd() (err error) {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -128,10 +132,12 @@ func (c *conn) InstallFixedFd() (err error) {
 	return nil
 }
 
+// FixedFdInstalled implements the FixedFd FixedFdInstalled method.
 func (c *conn) FixedFdInstalled() bool {
 	return c.fdFixed
 }
 
+// Close implements the net.Conn Close method.
 func (c *conn) Close() error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -152,28 +158,22 @@ func (c *conn) Close() error {
 
 	if err != nil {
 		fd := c.fd.Socket()
-		err = syscall.Close(fd)
+		_ = syscall.Close(fd)
 		if c.pinned {
-			if unpinErr := aio.Release(vortex); unpinErr != nil {
-				if err == nil {
-					err = unpinErr
-				}
-			}
+			_ = aio.Release(vortex)
 		}
-		if err != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-		}
-		return nil
+		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
 
 	if c.pinned {
-		if unpinErr := aio.Release(vortex); unpinErr != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: unpinErr}
+		if err = aio.Release(vortex); err != nil {
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		}
 	}
 	return nil
 }
 
+// LocalAddr implements the net.Conn LocalAddr method.
 func (c *conn) LocalAddr() net.Addr {
 	if !c.ok() {
 		return nil
@@ -181,6 +181,7 @@ func (c *conn) LocalAddr() net.Addr {
 	return c.fd.LocalAddr()
 }
 
+// RemoteAddr implements the net.Conn RemoteAddr method.
 func (c *conn) RemoteAddr() net.Addr {
 	if !c.ok() {
 		return nil
@@ -188,6 +189,7 @@ func (c *conn) RemoteAddr() net.Addr {
 	return c.fd.RemoteAddr()
 }
 
+// SetDeadline implements the net.Conn SetDeadline method.
 func (c *conn) SetDeadline(t time.Time) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -201,6 +203,7 @@ func (c *conn) SetDeadline(t time.Time) error {
 	return nil
 }
 
+// SetReadDeadline implements the net.Conn SetReadDeadline method.
 func (c *conn) SetReadDeadline(t time.Time) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -216,6 +219,7 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+// SetWriteDeadline implements the net.Conn SetWriteDeadline method.
 func (c *conn) SetWriteDeadline(t time.Time) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -231,6 +235,7 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+// ReadBuffer get SO_RCVBUF.
 func (c *conn) ReadBuffer() (int, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -246,6 +251,7 @@ func (c *conn) ReadBuffer() (int, error) {
 	return n, nil
 }
 
+// SetReadBuffer set SO_RCVBUF.
 func (c *conn) SetReadBuffer(bytes int) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -257,6 +263,7 @@ func (c *conn) SetReadBuffer(bytes int) error {
 	return nil
 }
 
+// WriteBuffer get SO_SNDBUF.
 func (c *conn) WriteBuffer() (int, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -272,6 +279,7 @@ func (c *conn) WriteBuffer() (int, error) {
 	return n, nil
 }
 
+// SetWriteBuffer set SO_SNDBUF.
 func (c *conn) SetWriteBuffer(bytes int) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -283,6 +291,13 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	return nil
 }
 
+// File returns a copy of the underlying [os.File].
+// It is the caller's responsibility to close f when finished.
+// Closing c does not affect f, and closing f does not affect c.
+//
+// The returned os.File's file descriptor is different from the connection's.
+// Attempting to change properties of the original using this duplicate
+// may or may not have the desired effect.
 func (c *conn) File() (f *os.File, err error) {
 	if !c.ok() {
 		return nil, syscall.EINVAL
@@ -317,6 +332,8 @@ func (c *conn) deadline(ctx context.Context, deadline time.Time) time.Time {
 	return deadline
 }
 
+// SyscallConn returns a raw network connection.
+// This implements the [syscall.Conn] interface.
 func (c *conn) SyscallConn() (syscall.RawConn, error) {
 	if !c.ok() {
 		return nil, syscall.EINVAL
@@ -326,6 +343,7 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
 
+// AcquireRegisteredBuffer implements the FixedReaderWriter AcquireRegisteredBuffer method.
 func (c *conn) AcquireRegisteredBuffer() *aio.FixedBuffer {
 	if !c.ok() {
 		return nil
@@ -333,6 +351,7 @@ func (c *conn) AcquireRegisteredBuffer() *aio.FixedBuffer {
 	return c.vortex.AcquireBuffer()
 }
 
+// ReleaseRegisteredBuffer implements the FixedReaderWriter ReleaseRegisteredBuffer method.
 func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
 	if !c.ok() {
 		return
@@ -340,6 +359,7 @@ func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
 	c.vortex.ReleaseBuffer(buf)
 }
 
+// ReadFixed implements the FixedReaderWriter ReadFixed method.
 func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -377,6 +397,7 @@ func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
 	return
 }
 
+// WriteFixed implements the FixedReaderWriter WriteFixed method.
 func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL

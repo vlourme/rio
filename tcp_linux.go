@@ -17,6 +17,15 @@ import (
 	"time"
 )
 
+// ListenTCP acts like [Listen] for TCP networks.
+//
+// The network must be a TCP network name; see func Dial for details.
+//
+// If the IP field of laddr is nil or an unspecified IP address,
+// ListenTCP listens on all available unicast and anycast IP addresses
+// of the local system.
+// If the Port field of laddr is 0, a port number is automatically
+// chosen.
 func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 	config := ListenConfig{
 		Control:         nil,
@@ -31,6 +40,15 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 	return config.ListenTCP(ctx, network, addr)
 }
 
+// ListenTCP acts like [Listen] for TCP networks.
+//
+// The network must be a TCP network name; see func Dial for details.
+//
+// If the IP field of laddr is nil or an unspecified IP address,
+// ListenTCP listens on all available unicast and anycast IP addresses
+// of the local system.
+// If the Port field of laddr is 0, a port number is automatically
+// chosen.
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
 	// check multishot accept
 	if lc.MultishotAccept {
@@ -87,7 +105,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 
 	// send zc
 	useSendZC := false
-	if lc.UseSendZC {
+	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
 
@@ -120,6 +138,8 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	return ln, nil
 }
 
+// TCPListener is a TCP network listener. Clients should typically
+// use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -135,12 +155,17 @@ type TCPListener struct {
 	keepAliveConfig    net.KeepAliveConfig
 	useSendZC          bool
 	useMultishotAccept bool
+	deadline           time.Time
 }
 
+// Accept implements the Accept method in the [net.Listener] interface; it
+// waits for the next call and returns a generic [net.Conn].
 func (ln *TCPListener) Accept() (net.Conn, error) {
 	return ln.AcceptTCP()
 }
 
+// AcceptTCP accepts the next incoming call and returns the new
+// connection.
 func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
@@ -249,6 +274,7 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
+		0,
 	}
 	return
 }
@@ -334,6 +360,7 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
+		0,
 	}
 	return
 }
@@ -359,6 +386,8 @@ func (ln *TCPListener) prepareMultishotAccepting() (err error) {
 	return
 }
 
+// Close stops listening on the TCP address.
+// Already Accepted connections are not closed.
 func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -389,12 +418,13 @@ func (ln *TCPListener) Close() error {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 
-	if unpinErr := aio.Release(vortex); unpinErr != nil {
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: unpinErr}
+	if err = aio.Release(vortex); err != nil {
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil
 }
 
+// InstallFixedFd implements the InstallFixedFd method in the [FixedFd] interface.
 func (ln *TCPListener) InstallFixedFd() error {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -418,10 +448,14 @@ func (ln *TCPListener) InstallFixedFd() error {
 	return nil
 }
 
+// FixedFdInstalled implements the FixedFdInstalled method in the [FixedFd] interface.
 func (ln *TCPListener) FixedFdInstalled() bool {
 	return ln.fdFixed
 }
 
+// Addr returns the listener's network address, a [*TCPAddr].
+// The Addr returned is shared by all invocations of Addr, so
+// do not modify it.
 func (ln *TCPListener) Addr() net.Addr {
 	if !ln.ok() {
 		return nil
@@ -429,6 +463,21 @@ func (ln *TCPListener) Addr() net.Addr {
 	return ln.fd.LocalAddr()
 }
 
+// SetDeadline sets the deadline associated with the listener.
+// A zero time value disables the deadline.
+func (ln *TCPListener) SetDeadline(t time.Time) error {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	ln.deadline = t
+	return nil
+}
+
+// SyscallConn returns a raw network connection.
+// This implements the [syscall.Conn] interface.
+//
+// The returned RawConn only supports calling Control. Read and
+// Write return an error.
 func (ln *TCPListener) SyscallConn() (syscall.RawConn, error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
@@ -436,6 +485,13 @@ func (ln *TCPListener) SyscallConn() (syscall.RawConn, error) {
 	return newRawConn(ln.fd), nil
 }
 
+// File returns a copy of the underlying [os.File].
+// It is the caller's responsibility to close f when finished.
+// Closing l does not affect f, and closing f does not affect l.
+//
+// The returned os.File's file descriptor is different from the
+// connection's. Attempting to change properties of the original
+// using this duplicate may or may not have the desired effect.
 func (ln *TCPListener) File() (f *os.File, err error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
@@ -591,8 +647,11 @@ func genericWriteTo(c *TCPConn, w io.Writer) (n int64, err error) {
 	return io.Copy(w, tcpConnWithoutWriteTo{TCPConn: c})
 }
 
+// TCPConn is an implementation of the [net.Conn] interface for TCP network
+// connections.
 type TCPConn struct {
 	conn
+	readFromFilePolicy int32
 }
 
 const (
@@ -600,15 +659,17 @@ const (
 	ReadFromFileUseMixPolicy
 )
 
-var readFromFilePolicy atomic.Int32
-
-func UseReadFromFilePolicy(policy int32) {
-	if policy < 0 || policy > 1 {
-		policy = ReadFromFileUseMMapPolicy
+func (c *TCPConn) SetReadFromFilePolicy(policy int32) {
+	switch policy {
+	case ReadFromFileUseMMapPolicy, ReadFromFileUseMixPolicy:
+		c.readFromFilePolicy = policy
+		break
+	default:
+		break
 	}
-	readFromFilePolicy.Store(policy)
 }
 
+// ReadFrom implements the [io.ReaderFrom] ReadFrom method.
 func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -644,8 +705,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		sendMode = 1
 		break
 	case *os.File:
-		policy := readFromFilePolicy.Load()
-		if policy == ReadFromFileUseMixPolicy {
+		if c.readFromFilePolicy == ReadFromFileUseMixPolicy {
 			if remain == 1<<63-1 {
 				info, infoErr := v.Stat()
 				if infoErr != nil {
@@ -711,6 +771,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	}
 }
 
+// WriteTo implements the io.WriterTo WriteTo method.
 func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -741,6 +802,8 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 	return written, writeToErr
 }
 
+// CloseRead shuts down the reading side of the TCP connection.
+// Most callers should just use Close.
 func (c *TCPConn) CloseRead() error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -751,6 +814,8 @@ func (c *TCPConn) CloseRead() error {
 	return nil
 }
 
+// CloseWrite shuts down the writing side of the TCP connection.
+// Most callers should just use Close.
 func (c *TCPConn) CloseWrite() error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -761,6 +826,20 @@ func (c *TCPConn) CloseWrite() error {
 	return nil
 }
 
+// SetLinger sets the behavior of Close on a connection which still
+// has data waiting to be sent or to be acknowledged.
+//
+// If sec < 0 (the default), the operating system finishes sending the
+// data in the background.
+//
+// If sec == 0, the operating system discards any unsent or
+// unacknowledged data.
+//
+// If sec > 0, the data is sent in the background as with sec < 0.
+// On some operating systems including Linux, this may cause Close to block
+// until all data has been sent or discarded.
+// On some operating systems after sec seconds have elapsed any remaining
+// unsent data may be discarded.
 func (c *TCPConn) SetLinger(sec int) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -771,6 +850,10 @@ func (c *TCPConn) SetLinger(sec int) error {
 	return nil
 }
 
+// SetNoDelay controls whether the operating system should delay
+// packet transmission in hopes of sending fewer packets (Nagle's
+// algorithm).  The default is true (no delay), meaning that data is
+// sent as soon as possible after a Write.
 func (c *TCPConn) SetNoDelay(noDelay bool) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -781,6 +864,8 @@ func (c *TCPConn) SetNoDelay(noDelay bool) error {
 	return nil
 }
 
+// SetKeepAlive sets whether the operating system should send
+// keep-alive messages on the connection.
 func (c *TCPConn) SetKeepAlive(keepalive bool) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -791,6 +876,11 @@ func (c *TCPConn) SetKeepAlive(keepalive bool) error {
 	return nil
 }
 
+// SetKeepAlivePeriod sets the duration the connection needs to
+// remain idle before TCP starts sending keepalive probes.
+//
+// Note that calling this method on Windows prior to Windows 10 version 1709
+// will reset the KeepAliveInterval to the default system value, which is normally 1 second.
 func (c *TCPConn) SetKeepAlivePeriod(period time.Duration) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -801,6 +891,7 @@ func (c *TCPConn) SetKeepAlivePeriod(period time.Duration) error {
 	return nil
 }
 
+// SetKeepAliveConfig configures keep-alive messages sent by the operating system.
 func (c *TCPConn) SetKeepAliveConfig(config net.KeepAliveConfig) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -811,6 +902,15 @@ func (c *TCPConn) SetKeepAliveConfig(config net.KeepAliveConfig) error {
 	return nil
 }
 
+// MultipathTCP reports whether the ongoing connection is using MPTCP.
+//
+// If Multipath TCP is not supported by the host, by the other peer or
+// intentionally / accidentally filtered out by a device in between, a
+// fallback to TCP will be done. This method does its best to check if
+// MPTCP is still being used or not.
+//
+// On Linux, more conditions are verified on kernels >= v5.16, improving
+// the results.
 func (c *TCPConn) MultipathTCP() (bool, error) {
 	if !c.ok() {
 		return false, syscall.EINVAL
