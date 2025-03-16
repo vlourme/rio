@@ -19,13 +19,13 @@
 
 ## 性能
 
-<img src="benchmark/bench_echo.png" width="336" height="144" alt="echo benchmark">
+<img src="benchmark/bench_c50t10s.png" width="336" height="144" alt="echo benchmark">
+<img src="benchmark/bench_c50r5k.png" width="336" height="144" alt="echo benchmark">
 
 <details>
 <summary>详细信息</summary>
 
 使用 `tcpkali` 进行压力测试，[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
-
 
 
 环境：
@@ -36,33 +36,36 @@
 | 服务端 | Hyper-V | 192.168.100.120 | Ubuntu24.10（6.11.0-8-generic）                  | 4C 8G  |
 
 
+### C50 T10s
+50链接10秒。
+
 ```shell
 tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 ```
 结果：
 
-| 种类           | 速率 （pps） | 说明       | 性能    |
-|--------------|----------|----------|-------|
-| RIO(DEFAULT) | 35599.0  | 稳定在35000 | 100 % |
-| EVIO         | 18568.5  | 稳定在18000 | 52 %  |
-| GNET         | 17832.6  | 稳定在17000 | 50 %  |
-| NET          | 14937.1  | 稳定在14000 | 42 %  |
+| 种类   | 速率 （pps） | 说明       | 性能    |
+|------|----------|----------|-------|
+| RIO  | 24043.6  | 稳定在23000 | 100 % |
+| EVIO | 19010.4  | 稳定在19000 | 79 %  |
+| GNET | 18598.8  | 稳定在18000 | 77 %  |
+| NET  | 14586.9  | 稳定在14000 | 60 %  |
 
 <details>
 <summary>明细输出</summary>
 
 ```text
------- RIO(DEFAULT) ------
+------ RIO ------
 Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     368.5 MiB (386415368 bytes)
-Total data received: 366.7 MiB (384519186 bytes)
-Bandwidth per channel: 12.325⇅ Mbps (1540.7 kBps)
-Aggregate bandwidth: 307.375↓, 308.891↑ Mbps
-Packet rate estimate: 35599.0↓, 26694.1↑ (3↓, 26↑ TCP MSS/op)
-Test duration: 10.0078 s.
+Total data sent:     245.0 MiB (256897392 bytes)
+Total data received: 244.2 MiB (256063278 bytes)
+Bandwidth per channel: 8.202⇅ Mbps (1025.3 kBps)
+Aggregate bandwidth: 204.723↓, 205.390↑ Mbps
+Packet rate estimate: 24043.6↓, 17801.4↑ (3↓, 25↑ TCP MSS/op)
+Test duration: 10.0062 s.
 ```
 
 ```text
@@ -71,12 +74,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     177.4 MiB (185991168 bytes)
-Total data received: 176.0 MiB (184593536 bytes)
-Bandwidth per channel: 5.925⇅ Mbps (740.6 kBps)
-Aggregate bandwidth: 147.555↓, 148.673↑ Mbps
-Packet rate estimate: 18568.5↓, 12776.1↑ (3↓, 44↑ TCP MSS/op)
-Test duration: 10.0081 s.
+Total data sent:     182.6 MiB (191496192 bytes)
+Total data received: 181.1 MiB (189878896 bytes)
+Bandwidth per channel: 6.100⇅ Mbps (762.5 kBps)
+Aggregate bandwidth: 151.862↓, 153.156↑ Mbps
+Packet rate estimate: 19010.4↓, 13192.0↑ (3↓, 44↑ TCP MSS/op)
+Test duration: 10.0027 s.
 ```
 
 ```text
@@ -85,12 +88,12 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     176.8 MiB (185401344 bytes)
-Total data received: 175.4 MiB (183927028 bytes)
-Bandwidth per channel: 5.908⇅ Mbps (738.4 kBps)
-Aggregate bandwidth: 147.099↓, 148.278↑ Mbps
-Packet rate estimate: 17832.6↓, 12716.7↑ (3↓, 44↑ TCP MSS/op)
-Test duration: 10.0029 s.
+Total data sent:     183.8 MiB (192741376 bytes)
+Total data received: 182.3 MiB (191161224 bytes)
+Bandwidth per channel: 6.136⇅ Mbps (767.0 kBps)
+Aggregate bandwidth: 152.776↓, 154.039↑ Mbps
+Packet rate estimate: 18598.8↓, 13340.6↑ (3↓, 44↑ TCP MSS/op)
+Test duration: 10.01 s.
 ```
 
 ```text
@@ -99,12 +102,90 @@ Destination: [192.168.100.120]:9000
 Interface eth0 address [192.168.100.1]:0
 Using interface eth0 to connect to [192.168.100.120]:9000
 Ramped up to 50 connections.
-Total data sent:     198.3 MiB (207945728 bytes)
-Total data received: 196.6 MiB (206165284 bytes)
-Bandwidth per channel: 6.623⇅ Mbps (827.9 kBps)
-Aggregate bandwidth: 164.859↓, 166.282↑ Mbps
-Packet rate estimate: 14937.1↓, 14506.0↑ (2↓, 45↑ TCP MSS/op)
-Test duration: 10.0045 s.
+Total data sent:     183.4 MiB (192282624 bytes)
+Total data received: 181.7 MiB (190500400 bytes)
+Bandwidth per channel: 6.119⇅ Mbps (764.9 kBps)
+Aggregate bandwidth: 152.274↓, 153.698↑ Mbps
+Packet rate estimate: 14586.9↓, 13171.4↑ (2↓, 44↑ TCP MSS/op)
+Test duration: 10.0083 s.
+```
+
+</details>
+
+
+
+### C50 R5k
+50链接重复5000次。
+
+```shell
+tcpkali --workers 1 -c 50 -r 5k -m "PING" 192.168.100.120:9000
+```
+结果：
+
+| 种类   | 速率 （pps） | 说明       | 性能    |
+|------|----------|----------|-------|
+| RIO  | 44138.9  | 稳定在44000 | 100 % |
+| EVIO | 29327.7  | 稳定在29000 | 66 %  |
+| GNET | 28936.6  | 稳定在29000 | 65 %  |
+| NET  | 28394.5  | 稳定在28000 | 64 %  |
+
+<details>
+<summary>明细输出</summary>
+
+```text
+------ RIO ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     9.6 MiB (10019512 bytes)
+Total data received: 9.6 MiB (10019132 bytes)
+Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
+Aggregate bandwidth: 8.010↓, 8.010↑ Mbps
+Packet rate estimate: 44138.9↓, 44153.1↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0069 s.
+```
+
+```text
+------ EVIO ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     9.5 MiB (10011756 bytes)
+Total data received: 9.5 MiB (10011756 bytes)
+Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
+Aggregate bandwidth: 8.009↓, 8.009↑ Mbps
+Packet rate estimate: 29327.7↓, 29375.9↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0011 s.
+```
+
+```text
+------ GNET ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     9.5 MiB (10011192 bytes)
+Total data received: 9.5 MiB (10011192 bytes)
+Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
+Aggregate bandwidth: 8.008↓, 8.008↑ Mbps
+Packet rate estimate: 28936.6↓, 28957.4↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0007 s.
+```
+
+```text
+------ NET ------
+Destination: [192.168.100.120]:9000
+Interface eth0 address [192.168.100.1]:0
+Using interface eth0 to connect to [192.168.100.120]:9000
+Ramped up to 50 connections.
+Total data sent:     9.5 MiB (10011720 bytes)
+Total data received: 9.5 MiB (10011720 bytes)
+Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
+Aggregate bandwidth: 8.009↓, 8.009↑ Mbps
+Packet rate estimate: 28394.5↓, 28431.6↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0008 s.
 ```
 
 </details>
