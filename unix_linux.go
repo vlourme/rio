@@ -315,7 +315,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
-	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, ln.sqeFlags)
+	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, ln.deadline, ln.sqeFlags)
 	if acceptErr != nil {
 		if errors.Is(acceptErr, context.Canceled) {
 			acceptErr = net.ErrClosed
@@ -565,6 +565,7 @@ func (ln *UnixListener) Addr() net.Addr {
 
 // SetDeadline sets the deadline associated with the listener.
 // A zero time value disables the deadline.
+// Only valid when not multishot accept mode.
 func (ln *UnixListener) SetDeadline(t time.Time) error {
 	if !ln.ok() {
 		return syscall.EINVAL

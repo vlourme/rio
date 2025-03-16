@@ -18,15 +18,15 @@ func (vortex *Vortex) Connect(ctx context.Context, fd int, addr *syscall.RawSock
 	return
 }
 
-func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8) (n int, err error) {
+func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithSQEFlags(sqeFlags).PrepareAccept(fd, addr, addrLen)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) AcceptDirect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8, fileIndex uint32) (n int, err error) {
+func (vortex *Vortex) AcceptDirect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8, fileIndex uint32) (n int, err error) {
 	op := vortex.acquireOperation()
 	op.WithSQEFlags(sqeFlags).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
 	n, _, err = vortex.submitAndWait(ctx, op)

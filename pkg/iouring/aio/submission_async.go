@@ -21,9 +21,9 @@ func (vortex *Vortex) ConnectAsync(fd int, addr *syscall.RawSockaddrAny, addrLen
 	}
 }
 
-func (vortex *Vortex) AcceptAsync(fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8) Future {
+func (vortex *Vortex) AcceptAsync(fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) Future {
 	op := vortex.acquireOperation()
-	op.WithSQEFlags(sqeFlags).PrepareAccept(fd, addr, addrLen)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
 		err = ErrUncompleted
