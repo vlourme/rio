@@ -210,7 +210,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 
 	// send zc
 	useSendZC := false
-	if d.UseSendZC {
+	if d.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
 	// conn
@@ -345,7 +345,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
-	if d.UseSendZC {
+	if d.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
@@ -493,7 +493,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
-	if d.UseSendZC {
+	if d.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}

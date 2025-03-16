@@ -18,7 +18,7 @@ var (
 		MultipathTCP:       false,
 		FastOpen:           false,
 		QuickAck:           false,
-		UseSendZC:          false,
+		SendZC:             false,
 		AutoFixedFdInstall: false,
 		Control:            nil,
 		ControlContext:     nil,
@@ -123,7 +123,7 @@ type Dialer struct {
 	MultipathTCP       bool
 	FastOpen           bool
 	QuickAck           bool
-	UseSendZC          bool
+	SendZC             bool
 	AutoFixedFdInstall bool
 	Control            func(network, address string, c syscall.RawConn) error
 	ControlContext     func(ctx context.Context, network, address string, c syscall.RawConn) error
@@ -148,7 +148,7 @@ func (d *Dialer) SetMultipathTCP(use bool) {
 //
 // available after 6.0
 func (d *Dialer) SetSendZC(use bool) {
-	d.UseSendZC = use
+	d.SendZC = use
 }
 
 // SetAutoFixedFdInstall set auto install fixed fd.
