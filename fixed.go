@@ -12,11 +12,11 @@ type FixedReaderWriter interface {
 	WriteFixed(buf *aio.FixedBuffer) (n int, err error)
 }
 
-// Fixed
+// ConvertToFixedReaderWriter
 // 转为固定读写。
 // 必须设定 IOURING_REG_BUFFERS (大小, 个数)。
 // 如 setenv IOURING_REG_BUFFERS 1024, 1000
-func Fixed(c net.Conn) (fixed FixedReaderWriter, ok bool) {
+func ConvertToFixedReaderWriter(c net.Conn) (fixed FixedReaderWriter, ok bool) {
 	fixed, ok = c.(FixedReaderWriter)
 	return
 }
@@ -26,7 +26,7 @@ type FixedFd interface {
 	FixedFdInstalled() bool
 }
 
-func FixedFdInstaller(v any) (fixed FixedFd, ok bool) {
+func ConvertToFixedFd(v any) (fixed FixedFd, ok bool) {
 	fixed, ok = v.(FixedFd)
 	return
 }

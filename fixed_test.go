@@ -17,7 +17,7 @@ func TestFixed(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	ff, _ := rio.FixedFdInstaller(ln)
+	ff, _ := rio.ConvertToFixedFd(ln)
 	t.Log(ff.FixedFdInstalled())
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
@@ -41,7 +41,7 @@ func TestFixed(t *testing.T) {
 				return
 			}
 			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
-			frw, _ := rio.Fixed(conn)
+			frw, _ := rio.ConvertToFixedReaderWriter(conn)
 			buf := frw.AcquireRegisteredBuffer()
 			rn, rErr := frw.ReadFixed(buf)
 			_, _ = buf.Read(b[:rn])

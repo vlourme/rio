@@ -109,17 +109,21 @@ conn, dialErr := rio.Dial("tcp", "127.0.0.1:9000")
 ```
 
 TLS场景：
+
 ```go
-// server("github.com/brickingsoft/rio/tls")
-ln, _ = tls.Listen("tcp", "127.0.0.1:9000", tls.ConfigFrom(config))
-// server(use wrap)
+// 内置模式
+// server("github.com/brickingsoft/rio/security")
+ln, _ = security.Listen("tcp", ":9000", config)
+
+// client("github.com/brickingsoft/rio/security")
+conn, _ = security.Dial("tcp", "127.0.0.1:9000", config)
+
+// 包裹模式
+// server(use crypto/tls wrap)
 ln, _ := rio.Listen("tcp", ":9000")
 ln, _ := tls.NewListener(ln, config)
 
-// client("github.com/brickingsoft/rio/tls")
-conn, _ = tls.Dial("tcp", "127.0.0.1:9000", tls.ConfigFrom(config))
-
-// client(use wrap)
+// client(use crypto/tls wrap)
 rawConn, dialErr := rio.Dial("tcp", "127.0.0.1:9000")
 conn := tls.Client(rawConn, config)
 if err := conn.HandshakeContext(ctx); err != nil {
@@ -193,7 +197,11 @@ if !ok {
 }
 
 b := make([]byte, 1024)
-buf := frw.AcquireRegisteredBuffer()
+buf := frw.AcquireRegisteredBuffer() // acquire buffer
+
+if buf == nil { // means not registered or no buffer remains
+	// handle no buf
+}
 
 // read
 rn, rErr := frw.ReadFixed(buf)
@@ -207,11 +215,26 @@ _, _ = buf.Write(b[:rn]) // write into buffer
 wn, wErr := frw.WriteFixed(buf)
 // check err
 
-frw.ReleaseRegisteredBuffer(buf)
+frw.ReleaseRegisteredBuffer(buf) // must release buffer 
 
 ```
 
-## 进阶调参
+## 进阶使用
+
+### TLS
+
+
+### Zero-copy
+
+### TCP
+
+
+### Fixed Buffer
+
+
+### Fixed Fd
+
+### 参数设置
 通过设置环境变量进行调控，具体详见 [IOURING](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)。
 
 | 名称                             | 值  | 说明                                                 |
@@ -221,7 +244,7 @@ frw.ReleaseRegisteredBuffer(buf)
 | RIO_IOURING_SETUP_FLAGS_SCHEMA | 文本 | 标识方案，`DEFAULT` 或 `PERFORMANCE`。                    |
 | RIO_IOURING_SQ_THREAD_CPU      | 数字 | 设置 SQ 环锁亲和的 CPU。                                   |
 | RIO_IOURING_SQ_THREAD_IDLE     | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 10 秒。 |
-| RIO_IOURING_REG_FIXED_BUFFERS  | 文本 | 设置注册字节，格式为 `单个大小, 个数`， 如`1024, 100`。               |
+| RIO_IOURING_REG_FIXED_BUFFERS  | 文本 | 设置注册字节，格式为 `单个大小, 个数`， 如`4096, 100`。               |
 | RIO_IOURING_REG_FIXED_FILES    | 数字 | 设置注册描述符，当大于软上限时，会使用软上线值。                           |
 | RIO_PREP_SQE_BATCH_SIZE        | 数字 | 准备 SQE 的缓冲大小，默认为 1024 的大小。                         |
 | RIO_PREP_SQE_BATCH_TIME_WINDOW | 数字 | 准备 SQE 批处理时长，默认 500 纳秒。                            |
@@ -236,7 +259,9 @@ frw.ReleaseRegisteredBuffer(buf)
 * `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行调试。
 * `IOURING_SETUP_FLAGS_SCHEMA` 优先级低于 `IOURING_SETUP_FLAGS` 。
 * `DEFAULT` 为 `IORING_SETUP_COOP_TASKRUN`
-* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` 和 `IORING_SETUP_SQ_AFF`，所以非常吃配置。
-
+* `PERFORMANCE` 为 `IORING_SETUP_SQPOLL` 和 `IORING_SETUP_SQ_AFF`，所以非常吃配置，但是会减少系统调用。
+* `RIO_IOURING_REG_FIXED_BUFFERS` 为 `rio.FixedReaderWriter` 的前置必要条件，如果使用固定读写，必须设置该变量来注册。
+* `RIO_IOURING_REG_FIXED_FILES` 为 `rio.FixedReaderWriter`、`rio.FixedFd` 和 `AutoFixedFdInstall` 的前置必要条件，如果使用固定文件，必须设置该变量来注册。
+* `RIO_WAIT_CQE_BATCH_TIME_CURVE` 的第一个节点的时长建议大一些，太小会引发忙等待。
 
 
