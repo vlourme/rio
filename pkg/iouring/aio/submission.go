@@ -190,6 +190,15 @@ func (vortex *Vortex) SendMsgZC(ctx context.Context, fd int, b []byte, oob []byt
 	return
 }
 
+func (vortex *Vortex) Cancel(ctx context.Context, target *Operation) (ok bool) {
+	op := vortex.acquireOperation()
+	op.PrepareCancel(target)
+	_, _, err := vortex.submitAndWait(ctx, op)
+	ok = err == nil
+	vortex.releaseOperation(op)
+	return
+}
+
 func (vortex *Vortex) FixedFdInstall(ctx context.Context, fd int) (n int, err error) {
 	op := vortex.acquireOperation()
 	op.PrepareFixedFdInstall(fd)
@@ -202,14 +211,14 @@ func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, 
 	deadline := op.deadline
 RETRY:
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 		return
 	}
 	n, cqeFlags, err = vortex.awaitOperation(ctx, op)
 	if err != nil {
 		if errors.Is(err, syscall.EBUSY) {
 			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = Timeout
+				err = ErrTimeout
 				return
 			}
 			goto RETRY
@@ -222,58 +231,72 @@ RETRY:
 func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
 	var (
 		done                    = ctx.Done()
-		timer  *time.Timer      = nil
 		timerC <-chan time.Time = nil
 	)
 	timeout := op.Timeout()
 	if timeout > 0 {
-		timer = vortex.acquireTimer(timeout)
+		timer := vortex.acquireTimer(timeout)
+		defer vortex.releaseTimer(timer)
 		timerC = timer.C
 	} else if timeout < 0 {
-		if vortex.Cancel(op) {
-			err = Timeout
+		vortex.Cancel(ctx, op)
+		r, ok := <-op.resultCh
+		if !ok {
+			err = ErrUncompleted
 			return
 		}
+		n, cqeFlags, err = r.N, r.Flags, r.Err
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrTimeout
+		}
+		return
 	}
 	select {
 	case r, ok := <-op.resultCh:
 		if !ok {
-			err = Uncompleted
+			err = ErrUncompleted
 			break
 		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		break
-	case <-done:
-		if vortex.Cancel(op) {
-			err = ctx.Err()
-			if errors.Is(err, context.DeadlineExceeded) {
-				err = Timeout
-			}
-			break
-		}
-		r, ok := <-op.resultCh
-		if !ok {
-			err = Uncompleted
-			break
-		}
-		op.Close()
 		n, cqeFlags, err = r.N, r.Flags, r.Err
 		break
 	case <-timerC:
-		if vortex.Cancel(op) {
-			err = Timeout
-			break
-		}
+		vortex.Cancel(ctx, op)
 		r, ok := <-op.resultCh
-		if !ok {
-			err = Uncompleted
-			break
+		if ok {
+			n, cqeFlags, err = r.N, r.Flags, r.Err
+			if errors.Is(err, syscall.ECANCELED) {
+				err = ErrTimeout
+			}
+		} else {
+			err = ErrUncompleted
 		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
+		break
+	case <-done:
+		err = ctx.Err()
+		if errors.Is(err, context.DeadlineExceeded) { // deadline so can cancel
+			vortex.Cancel(ctx, op)
+			r, ok := <-op.resultCh
+			if !ok {
+				err = ErrUncompleted
+				return
+			}
+			n, cqeFlags, err = r.N, r.Flags, r.Err
+			if errors.Is(err, syscall.ECANCELED) {
+				err = ErrTimeout
+			}
+		} else { // ctx canceled so try cancel and close op
+			if op.canCancel() {
+				vortex.Cancel(ctx, op)
+			}
+			op.Close()
+			if err == nil {
+				err = ErrUncompleted
+			}
+		}
 		break
 	}
-	if timer != nil {
-		vortex.releaseTimer(timer)
-	}
+	//if timer != nil {
+	//	vortex.releaseTimer(timer)
+	//}
 	return
 }

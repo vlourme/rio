@@ -263,6 +263,7 @@ func (r *Ring) prepareSQE(op *Operation) error {
 	case iouring.OpAsyncCancel:
 		sqe.PrepareCancel(uintptr(op.ptr), 0)
 		sqe.SetFlags(op.sqeFlags)
+		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OPFixedFdInstall:
 		sqe.PrepareFixedFdInstall(op.fd, 0)
@@ -271,7 +272,7 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		break
 	default:
 		sqe.PrepareNop()
-		return UnsupportedOp
+		return ErrUnsupportedOp
 	}
 	runtime.KeepAlive(sqe)
 	return nil

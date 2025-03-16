@@ -79,7 +79,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		_ = aio.Release(vortex)
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.Timeout}
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
 	var control ctrlCtxFn = d.ControlContext
@@ -219,7 +219,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		_ = aio.Release(vortex)
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.Timeout}
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
 	var control ctrlCtxFn = d.ControlContext
@@ -355,7 +355,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		_ = aio.Release(vortex)
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.Timeout}
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
 	var control ctrlCtxFn = d.ControlContext

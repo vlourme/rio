@@ -371,7 +371,7 @@ func (ln *TCPListener) Close() error {
 
 	if ln.useMultishotAccept {
 		op := ln.acceptFuture.Operation()
-		vortex.Cancel(op)
+		vortex.Cancel(ctx, op)
 	}
 
 	var err error

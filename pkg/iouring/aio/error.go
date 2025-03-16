@@ -6,9 +6,9 @@ import (
 )
 
 var (
-	Uncompleted   = errors.New("uncompleted")
-	Timeout       = &TimeoutError{}
-	UnsupportedOp = errors.New("unsupported op")
+	ErrUncompleted   = errors.New("uncompleted")
+	ErrTimeout       = &TimeoutError{}
+	ErrUnsupportedOp = errors.New("unsupported op")
 )
 
 type TimeoutError struct{}
@@ -22,13 +22,13 @@ func (e *TimeoutError) Is(err error) bool {
 }
 
 func IsUncompleted(err error) bool {
-	return errors.Is(err, Uncompleted)
+	return errors.Is(err, ErrUncompleted)
 }
 
 func IsTimeout(err error) bool {
-	return errors.Is(err, Timeout) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func IsUnsupported(err error) bool {
-	return errors.Is(err, UnsupportedOp)
+	return errors.Is(err, ErrUnsupportedOp)
 }

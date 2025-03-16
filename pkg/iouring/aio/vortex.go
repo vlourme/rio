@@ -102,18 +102,6 @@ func (vortex *Vortex) submit(op *Operation) (ok bool) {
 	return
 }
 
-func (vortex *Vortex) Cancel(target *Operation) (ok bool) {
-	if vortex.ok() && target.canCancel() {
-		op := &Operation{} // do not make ch cause no userdata
-		op.PrepareCancel(target)
-		if ok = vortex.submit(op); !ok {
-			target.setResult(0, 0, context.Canceled)
-		}
-		return
-	}
-	return
-}
-
 func (vortex *Vortex) AcquireBuffer() *FixedBuffer {
 	if vortex.ok() {
 		return vortex.ring.AcquireBuffer()

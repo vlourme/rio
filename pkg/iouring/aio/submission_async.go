@@ -12,7 +12,7 @@ func (vortex *Vortex) ConnectAsync(fd int, addr *syscall.RawSockaddrAny, addrLen
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -26,7 +26,7 @@ func (vortex *Vortex) AcceptAsync(fd int, addr *syscall.RawSockaddrAny, addrLen 
 	op.WithSQEFlags(sqeFlags).PrepareAccept(fd, addr, addrLen)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -40,7 +40,7 @@ func (vortex *Vortex) AcceptDirectAsync(fd int, addr *syscall.RawSockaddrAny, ad
 	op.WithSQEFlags(sqeFlags).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -55,7 +55,7 @@ func (vortex *Vortex) AcceptMultishotAsync(fd int, addr *syscall.RawSockaddrAny,
 	op.WithSQEFlags(sqeFlags).PrepareAcceptMultishot(fd, addr, addrLen)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -70,7 +70,7 @@ func (vortex *Vortex) AcceptMultishotDirectAsync(fd int, addr *syscall.RawSockad
 	op.WithSQEFlags(sqeFlags).WithDirect(true).PrepareAcceptMultishot(fd, addr, addrLen)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -84,7 +84,7 @@ func (vortex *Vortex) CloseAsync(fd int) Future {
 	op.PrepareClose(fd)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -98,7 +98,7 @@ func (vortex *Vortex) CloseDirectAsync(fd int) Future {
 	op.WithDirect(true).PrepareClose(fd)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -112,7 +112,7 @@ func (vortex *Vortex) ReadFixedAsync(fd int, buf *FixedBuffer, deadline time.Tim
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReadFixed(fd, buf)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -126,7 +126,7 @@ func (vortex *Vortex) WriteFixedAsync(fd int, buf *FixedBuffer, deadline time.Ti
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareWriteFixed(fd, buf)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -140,7 +140,7 @@ func (vortex *Vortex) ReceiveAsync(fd int, b []byte, deadline time.Time, sqeFlag
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReceive(fd, b)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -154,7 +154,7 @@ func (vortex *Vortex) SendAsync(fd int, b []byte, deadline time.Time, sqeFlags u
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSend(fd, b)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -168,7 +168,7 @@ func (vortex *Vortex) SendZCAsync(fd int, b []byte, deadline time.Time, sqeFlags
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendZC(fd, b)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -182,7 +182,7 @@ func (vortex *Vortex) ReceiveMsgAsync(fd int, b []byte, oob []byte, addr *syscal
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, addr, addrLen, flags)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -196,7 +196,7 @@ func (vortex *Vortex) SendMsgAsync(fd int, b []byte, oob []byte, addr *syscall.R
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendMsg(fd, b, oob, addr, addrLen, flags)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -210,7 +210,7 @@ func (vortex *Vortex) SendMsgZCAsync(fd int, b []byte, oob []byte, addr *syscall
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, addr, addrLen, flags)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -224,7 +224,7 @@ func (vortex *Vortex) SpliceAsync(fdIn int, offIn int64, fdOut int, offOut int64
 	op.WithSQEFlags(sqeFlags).PrepareSplice(fdIn, offIn, fdOut, offOut, nbytes, flags)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -238,7 +238,21 @@ func (vortex *Vortex) TeeAsync(fdIn int, fdOut int, nbytes uint32, flags uint32,
 	op.WithSQEFlags(sqeFlags).PrepareTee(fdIn, fdOut, nbytes, flags)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
+	}
+	return Future{
+		vortex: vortex,
+		op:     op,
+		err:    err,
+	}
+}
+
+func (vortex *Vortex) CancelAsync(target *Operation) Future {
+	op := vortex.acquireOperation()
+	op.PrepareCancel(target)
+	var err error
+	if submitted := vortex.submit(op); !submitted {
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,
@@ -252,7 +266,7 @@ func (vortex *Vortex) FixedFdInstallAsync(fd int) Future {
 	op.PrepareFixedFdInstall(fd)
 	var err error
 	if submitted := vortex.submit(op); !submitted {
-		err = Uncompleted
+		err = ErrUncompleted
 	}
 	return Future{
 		vortex: vortex,

@@ -472,7 +472,7 @@ func (ln *UnixListener) Close() error {
 
 	if ln.useMultishotAccept {
 		op := ln.acceptFuture.Operation()
-		vortex.Cancel(op)
+		vortex.Cancel(ctx, op)
 	}
 
 	ln.unlinkOnce.Do(func() {
