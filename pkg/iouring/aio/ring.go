@@ -18,6 +18,7 @@ type IOURing interface {
 	Submit(op *Operation) (ok bool)
 	RegisterFixedFdEnabled() bool
 	GetRegisterFixedFd(index int) int
+	PopFixedFd() (index int, err error)
 	RegisterFixedFd(fd int) (index int, err error)
 	UnregisterFixedFd(index int) (err error)
 	AcquireBuffer() *FixedBuffer
@@ -54,7 +55,6 @@ func NewIOURing(options Options) (r IOURing, err error) {
 	// register files
 	var fixedFiles []int
 	fixedFileIndexes := NewQueue[int]()
-	options.RegisterFixedFiles = 10
 	if files := options.RegisterFixedFiles; files > 0 {
 		soft, _, limitErr := sys.GetRLimit()
 		if limitErr != nil {
@@ -195,6 +195,21 @@ func (r *Ring) RegisterFixedFd(fd int) (index int, err error) {
 	_, err = r.ring.RegisterFilesUpdate(uint(index), r.fixedFiles[index:index+1])
 	if err != nil {
 		index = -1
+	}
+	return
+}
+
+func (r *Ring) PopFixedFd() (index int, err error) {
+	r.fixedFileLocker.Lock()
+	defer r.fixedFileLocker.Unlock()
+	if len(r.fixedFiles) == 0 {
+		err = errors.New("files has not been registered yet")
+		return
+	}
+	index = r.acquireFixedFileIndex()
+	if index < 0 {
+		err = errors.New("no files available")
+		return
 	}
 	return
 }

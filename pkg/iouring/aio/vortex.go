@@ -134,6 +134,20 @@ func (vortex *Vortex) RegisterFixedFdEnabled() bool {
 	return false
 }
 
+func (vortex *Vortex) GetRegisterFixedFd(index int) int {
+	if vortex.ok() {
+		return vortex.ring.GetRegisterFixedFd(index)
+	}
+	return -1
+}
+
+func (vortex *Vortex) PopFixedFd() (index int, err error) {
+	if vortex.ok() {
+		return vortex.ring.PopFixedFd()
+	}
+	return -1, errors.New("vortex is not running")
+}
+
 func (vortex *Vortex) RegisterFixedFd(ctx context.Context, fd int) (index int, err error) {
 	if !vortex.ok() {
 		index = -1
@@ -148,11 +162,11 @@ func (vortex *Vortex) RegisterFixedFd(ctx context.Context, fd int) (index int, e
 	return
 }
 
-func (vortex *Vortex) GetRegisterFixedFd(index int) int {
+func (vortex *Vortex) UnregisterFixedFd(index int) (err error) {
 	if vortex.ok() {
-		return vortex.ring.GetRegisterFixedFd(index)
+		return vortex.ring.UnregisterFixedFd(index)
 	}
-	return -1
+	return errors.New("vortex is not running")
 }
 
 func (vortex *Vortex) Shutdown() (err error) {

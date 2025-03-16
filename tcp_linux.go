@@ -368,6 +368,7 @@ func (ln *TCPListener) Close() error {
 	var err error
 	if ln.fdFixed {
 		err = vortex.CloseDirect(ctx, ln.fileIndex)
+		_ = vortex.UnregisterFixedFd(ln.fileIndex)
 	} else {
 		fd := ln.fd.Socket()
 		err = vortex.Close(ctx, fd)

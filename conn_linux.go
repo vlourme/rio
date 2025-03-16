@@ -140,6 +140,7 @@ func (c *conn) Close() error {
 	var err error
 	if c.fdFixed {
 		err = vortex.CloseDirect(ctx, c.fileIndex)
+		_ = vortex.UnregisterFixedFd(c.fileIndex)
 	} else {
 		fd := c.fd.Socket()
 		err = vortex.Close(ctx, fd)
