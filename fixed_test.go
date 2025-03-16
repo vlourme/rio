@@ -9,13 +9,16 @@ import (
 )
 
 func TestFixed(t *testing.T) {
-	os.Setenv("IOURING_REG_FIXED_BUFFERS", "1024,10")
+	os.Setenv("RIO_IOURING_REG_FIXED_BUFFERS", "1024,10")
+	os.Setenv("RIO_IOURING_REG_FIXED_FILES", "10")
 
 	ln, lnErr := rio.Listen("tcp", ":9000")
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
 	}
+	ff, _ := rio.FixedFdInstaller(ln)
+	t.Log(ff.FixedFdInstalled())
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
