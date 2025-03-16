@@ -15,9 +15,9 @@ func UseProcessPriority(level process.PriorityLevel) {
 	_ = process.SetCurrentProcessPriority(level)
 }
 
-// PrepareIOURingSetupOptions
+// Presets
 // 准备 IOURING 的设置选项，必须在 Pin、 Dial 、 Listen 之前。
-func PrepareIOURingSetupOptions(options ...aio.Option) {
+func Presets(options ...aio.Option) {
 	aio.PrepareInitIOURingOptions(options...)
 }
 
