@@ -154,11 +154,16 @@ func (vortex *Vortex) RegisterFixedFd(ctx context.Context, fd int) (index int, e
 		err = errors.New("vortex is not running")
 		return
 	}
+	/* todo install fd
+	因为不知道 OpFixedFdInstall 的返回值是什么，如果是 index，那可以用，反之不能用。
 	if vortex.supportOpFixedFdInstall {
 		index, err = vortex.FixedFdInstall(ctx, fd)
 	} else {
 		index, err = vortex.ring.RegisterFixedFd(fd)
 	}
+	*/
+	index, err = vortex.ring.RegisterFixedFd(fd)
+
 	return
 }
 
