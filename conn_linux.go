@@ -430,6 +430,18 @@ func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
 	return
 }
 
+// UseSendZC try to enable send_zc.
+func (c *conn) UseSendZC(use bool) bool {
+	if !c.ok() {
+		return false
+	}
+	if use {
+		use = aio.CheckSendZCEnable()
+	}
+	c.useSendZC = use
+	return use
+}
+
 func newRawConn(fd *sys.Fd) syscall.RawConn {
 	return &rawConn{fd: fd}
 }

@@ -637,6 +637,18 @@ type UnixConn struct {
 	useSendMSGZC bool
 }
 
+// UseSendMSGZC try to enable sendmsg_zc.
+func (c *UnixConn) UseSendMSGZC(use bool) bool {
+	if !c.ok() {
+		return false
+	}
+	if use {
+		use = aio.CheckSendMsdZCEnable()
+	}
+	c.useSendMSGZC = use
+	return use
+}
+
 // ReadFrom implements the [net.PacketConn] ReadFrom method.
 func (c *UnixConn) ReadFrom(b []byte) (int, net.Addr, error) {
 	return c.ReadFromUnix(b)

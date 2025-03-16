@@ -274,6 +274,18 @@ type UDPConn struct {
 	useSendMSGZC bool
 }
 
+// UseSendMSGZC try to enable sendmsg_zc.
+func (c *UDPConn) UseSendMSGZC(use bool) bool {
+	if !c.ok() {
+		return false
+	}
+	if use {
+		use = aio.CheckSendMsdZCEnable()
+	}
+	c.useSendMSGZC = use
+	return use
+}
+
 // ReadFromUDP acts like [UDPConn.ReadFrom] but returns a net.UDPAddr.
 func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	if !c.ok() {
