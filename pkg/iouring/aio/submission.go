@@ -265,6 +265,9 @@ func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int,
 			break
 		}
 		n, cqeFlags, err = r.N, r.Flags, r.Err
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrCanceled
+		}
 		break
 	case <-timerC:
 		n, cqeFlags, err = vortex.cancelOperation(ctx, op)

@@ -320,7 +320,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 	addrLen := syscall.SizeofSockaddrAny
 	accepted, acceptErr := vortex.Accept(ctx, fd, addr, addrLen, ln.deadline, ln.sqeFlags)
 	if acceptErr != nil {
-		if errors.Is(acceptErr, context.Canceled) {
+		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
 		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
@@ -395,7 +395,7 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 
 	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
 	if acceptErr != nil {
-		if errors.Is(acceptErr, context.Canceled) {
+		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
 		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}

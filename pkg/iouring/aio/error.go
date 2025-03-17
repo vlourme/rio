@@ -3,6 +3,7 @@ package aio
 import (
 	"context"
 	"errors"
+	"syscall"
 )
 
 var (
@@ -29,7 +30,13 @@ func (e *CanceledError) Error() string   { return "i/o canceled" }
 func (e *CanceledError) Timeout() bool   { return false }
 func (e *CanceledError) Temporary() bool { return true }
 func (e *CanceledError) Is(err error) bool {
-	return err == context.Canceled
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if errors.Is(err, syscall.ECANCELED) {
+		return true
+	}
+	return false
 }
 
 type TimeoutError struct{}
