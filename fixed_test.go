@@ -17,8 +17,6 @@ func TestFixed(t *testing.T) {
 		t.Error(lnErr)
 		return
 	}
-	ff, _ := rio.ConvertToFixedFd(ln)
-	t.Log(ff.FixedFdInstalled())
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
