@@ -493,10 +493,16 @@ func (ln *UnixListener) Close() error {
 	ctx := ln.ctx
 	vortex := ln.vortex
 
-	if ln.useMultishotAccept {
-		op := ln.acceptFuture.Operation()
-		vortex.Cancel(ctx, op)
+	fd := ln.fd.Socket()
+	_ = vortex.CancelFd(ctx, fd)
+
+	if ln.fdFixed {
+		_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
+		_ = vortex.CloseDirect(ctx, ln.fileIndex)
+		_ = vortex.UnregisterFixedFd(ln.fileIndex)
 	}
+
+	err := vortex.Close(ctx, fd)
 
 	ln.unlinkOnce.Do(func() {
 		if ln.path[0] != '@' && ln.unlink {
@@ -504,23 +510,9 @@ func (ln *UnixListener) Close() error {
 		}
 	})
 
-	if ln.fdFixed {
-		_ = vortex.CloseDirect(ctx, ln.fileIndex)
-	}
-	fd := ln.fd.Socket()
-	err := vortex.Close(ctx, fd)
 	if err != nil {
-		if ln.fdFixed {
-			_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
-			_ = vortex.UnregisterFixedFd(ln.fileIndex)
-		} else {
-			_ = vortex.CancelFd(ctx, fd)
-		}
 		_ = syscall.Close(fd)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-	}
-	if ln.fdFixed {
-		_ = vortex.UnregisterFixedFd(ln.fileIndex)
 	}
 	return nil
 }

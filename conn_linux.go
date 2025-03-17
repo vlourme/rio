@@ -146,24 +146,19 @@ func (c *conn) Close() error {
 	ctx := c.ctx
 	vortex := c.vortex
 
+	fd := c.fd.Socket()
+	_ = vortex.CancelFd(ctx, fd)
+
 	if c.fdFixed {
+		_ = vortex.CancelFixedFd(ctx, c.fileIndex)
 		_ = vortex.CloseDirect(ctx, c.fileIndex)
+		_ = vortex.UnregisterFixedFd(c.fileIndex)
 	}
 
-	fd := c.fd.Socket()
 	err := vortex.Close(ctx, fd)
 	if err != nil {
-		if c.fdFixed {
-			_ = vortex.CancelFixedFd(ctx, c.fileIndex)
-			_ = vortex.UnregisterFixedFd(c.fileIndex)
-		} else {
-			_ = vortex.CancelFd(ctx, fd)
-		}
 		_ = syscall.Close(fd)
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-	}
-	if c.fdFixed {
-		_ = vortex.UnregisterFixedFd(c.fileIndex)
 	}
 	return nil
 }
