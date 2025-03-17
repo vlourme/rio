@@ -1,6 +1,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"strings"
 	"time"
 )
@@ -20,9 +21,28 @@ type Options struct {
 	WaitCQEBatchSize         uint32
 	WaitCQEBatchTimeCurve    Curve
 	WaitCQEBatchAffCPU       int
+	AttachRingFd             int
 }
 
 type Option func(*Options)
+
+// WithAttach
+// attach ring, see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html#IORING_SETUP_ATTACH_WQ.
+func WithAttach(v *Vortex) Option {
+	return func(o *Options) {
+		if v == nil {
+			return
+		}
+		fd := v.Fd()
+		if fd < 1 {
+			return
+		}
+		o.AttachRingFd = fd
+		if o.Flags&iouring.SetupAttachWQ == 0 {
+			o.Flags |= iouring.SetupAttachWQ
+		}
+	}
+}
 
 // WithEntries
 // setup iouring's entries.
@@ -36,7 +56,7 @@ func WithEntries(entries uint32) Option {
 // setup iouring's flags.
 func WithFlags(flags uint32) Option {
 	return func(opts *Options) {
-		opts.Flags = flags
+		opts.Flags |= flags
 	}
 }
 

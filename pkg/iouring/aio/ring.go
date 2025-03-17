@@ -8,7 +8,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"os"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -19,8 +18,8 @@ var (
 )
 
 type IOURing interface {
-	Start(ctx context.Context)
-	Submit(op *Operation) (ok bool)
+	Fd() int
+	Submit(op *Operation)
 	RegisterFixedFdEnabled() bool
 	GetRegisterFixedFd(index int) int
 	PopFixedFd() (index int, err error)
@@ -32,7 +31,7 @@ type IOURing interface {
 	Close() (err error)
 }
 
-func NewIOURing(options Options) (r IOURing, err error) {
+func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 	// ring
 	if options.Flags&iouring.SetupSQPoll != 0 && options.SQThreadIdle == 0 {
 		options.SQThreadIdle = 10000
@@ -42,6 +41,9 @@ func NewIOURing(options Options) (r IOURing, err error) {
 	opts = append(opts, iouring.WithFlags(options.Flags))
 	opts = append(opts, iouring.WithSQThreadIdle(options.SQThreadIdle))
 	opts = append(opts, iouring.WithSQThreadCPU(options.SQThreadCPU))
+	if options.AttachRingFd > -1 && options.Flags&iouring.SetupAttachWQ != 0 {
+		opts = append(opts, iouring.WithAttachWQFd(uint32(options.AttachRingFd)))
+	}
 	ring, ringErr := iouring.New(opts...)
 
 	if ringErr != nil {
@@ -109,8 +111,7 @@ func NewIOURing(options Options) (r IOURing, err error) {
 		}
 	}
 
-	r = &Ring{
-		serving:                atomic.Bool{},
+	r := &Ring{
 		ring:                   ring,
 		probe:                  probe,
 		requestCh:              make(chan *Operation, ring.SQEntries()),
@@ -129,11 +130,13 @@ func NewIOURing(options Options) (r IOURing, err error) {
 		fixedFileIndexes:       fixedFileIndexes,
 		fixedFiles:             fixedFiles,
 	}
+	r.start(ctx)
+
+	v = r
 	return
 }
 
 type Ring struct {
-	serving                atomic.Bool
 	ring                   *iouring.Ring
 	probe                  *iouring.Probe
 	requestCh              chan *Operation
@@ -261,31 +264,25 @@ func (r *Ring) OpSupported(op uint8) bool {
 	return r.probe.IsSupported(op)
 }
 
-func (r *Ring) Submit(op *Operation) (ok bool) {
-	if ok = r.serving.Load(); ok {
-		r.requestCh <- op
-	}
+func (r *Ring) Submit(op *Operation) {
+	r.requestCh <- op
 	return
 }
 
-func (r *Ring) Start(ctx context.Context) {
-	if r.serving.CompareAndSwap(false, true) {
-		cc, cancel := context.WithCancel(ctx)
-		r.cancel = cancel
+func (r *Ring) start(ctx context.Context) {
+	cc, cancel := context.WithCancel(ctx)
+	r.cancel = cancel
 
-		r.wg.Add(2)
-		go r.preparingSQE(cc)
-		go r.waitingCQE(cc)
-	}
+	r.wg.Add(2)
+	go r.preparingSQE(cc)
+	go r.waitingCQE(cc)
 	return
 }
 
 func (r *Ring) Close() (err error) {
-	if r.serving.CompareAndSwap(true, false) {
-		r.cancel()
-		r.cancel = nil
-		r.wg.Wait()
-	}
+	r.cancel()
+	r.cancel = nil
+	r.wg.Wait()
 	if r.fixedBufferRegistered {
 		_, _ = r.ring.UnregisterBuffers()
 		for {

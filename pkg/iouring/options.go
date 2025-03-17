@@ -37,7 +37,7 @@ func WithEntries(entries uint32) Option {
 // see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
 func WithFlags(flags uint32) Option {
 	return func(o *Options) error {
-		o.Flags = flags
+		o.Flags |= flags
 		return nil
 	}
 }
@@ -62,7 +62,9 @@ func WithAttachWQFd(fd uint32) Option {
 			return errors.New("invalid wqfd")
 		}
 		o.WQFd = fd
-		o.Flags |= SetupAttachWQ
+		if o.Flags&SetupAttachWQ == 0 {
+			o.Flags |= SetupAttachWQ
+		}
 		return nil
 	}
 }
