@@ -46,12 +46,11 @@ type Operation struct {
 	status     atomic.Int64
 	kind       uint8
 	borrowed   bool
-	closed     atomic.Bool
 	resultCh   chan Result
 	deadline   time.Time
 	multishot  bool
 	directMode bool
-	filedIndex uint32
+	filedIndex int
 	sqeFlags   uint8
 	fd         int
 	msg        syscall.Msghdr
@@ -60,10 +59,8 @@ type Operation struct {
 }
 
 func (op *Operation) Close() {
-	if op.closed.CompareAndSwap(false, true) {
-		op.borrowed = false
-		close(op.resultCh)
-	}
+	op.status.Store(CompletedOperationStatus)
+	op.borrowed = false
 }
 
 func (op *Operation) Hijack() {
@@ -101,7 +98,7 @@ func (op *Operation) WithDirect(direct bool) *Operation {
 }
 
 func (op *Operation) WithFiledIndex(index uint32) *Operation {
-	op.filedIndex = index
+	op.filedIndex = int(index)
 	return op
 }
 
@@ -226,6 +223,16 @@ func (op *Operation) PrepareCancel(target *Operation) {
 	op.ptr = unsafe.Pointer(target)
 }
 
+func (op *Operation) PrepareCancelFd(fd int) {
+	op.kind = iouring.OpAsyncCancel
+	op.fd = fd
+}
+
+func (op *Operation) PrepareCancelFixedFd(fileIndex int) {
+	op.kind = iouring.OpAsyncCancel
+	op.filedIndex = fileIndex
+}
+
 func (op *Operation) PrepareFixedFdInstall(fd int) {
 	op.kind = iouring.OPFixedFdInstall
 	op.fd = fd
@@ -241,7 +248,7 @@ func (op *Operation) reset() {
 	// direct
 	op.directMode = false
 	// file index
-	op.filedIndex = 0
+	op.filedIndex = -1
 	// sqe flags
 	op.sqeFlags = 0
 	// fd
@@ -356,9 +363,6 @@ func (op *Operation) canSetResult() bool {
 
 func (op *Operation) canRelease() bool {
 	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
-		return false
-	}
-	if op.closed.Load() {
 		return false
 	}
 	return op.borrowed

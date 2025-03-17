@@ -382,6 +382,11 @@ func (entry *SubmissionQueueEntry) PrepareCancelFd(fd int, flags uint32) {
 	entry.OpcodeFlags = flags | AsyncCancelFd
 }
 
+func (entry *SubmissionQueueEntry) PrepareCancelFdFixed(fileIndex int, flags uint32) {
+	entry.prepareRW(OpAsyncCancel, fileIndex, 0, 0, 0)
+	entry.OpcodeFlags = flags | AsyncCancelFdFixed
+}
+
 func (entry *SubmissionQueueEntry) PrepareCancelALL() {
 	entry.prepareRW(OpAsyncCancel, 0, 0, 0, 0)
 	entry.OpcodeFlags = AsyncCancelAll

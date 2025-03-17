@@ -185,7 +185,7 @@ func (r *Ring) prepareSQE(op *Operation) error {
 			}
 		} else {
 			if op.directMode {
-				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, 0, op.filedIndex)
+				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, 0, uint32(op.filedIndex))
 			} else {
 				sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
 			}
@@ -265,9 +265,22 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	case iouring.OpAsyncCancel:
-		sqe.PrepareCancel(uintptr(op.ptr), 0)
-		sqe.SetFlags(op.sqeFlags)
-		sqe.SetData(unsafe.Pointer(op))
+		if op.ptr != nil {
+			sqe.PrepareCancel(uintptr(op.ptr), 0)
+			sqe.SetFlags(op.sqeFlags)
+			sqe.SetData(unsafe.Pointer(op))
+		} else if op.fd != -1 {
+			sqe.PrepareCancelFd(op.fd, 0)
+			sqe.SetFlags(op.sqeFlags)
+			sqe.SetData(unsafe.Pointer(op))
+		} else if op.filedIndex != -1 {
+			sqe.PrepareCancelFdFixed(op.filedIndex, 0)
+			sqe.SetFlags(op.sqeFlags)
+			sqe.SetData(unsafe.Pointer(op))
+		} else {
+			sqe.PrepareNop()
+			return ErrUnsupportedOp
+		}
 		break
 	case iouring.OPFixedFdInstall:
 		sqe.PrepareFixedFdInstall(op.fd, 0)
