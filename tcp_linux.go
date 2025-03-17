@@ -64,9 +64,13 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		addr = &net.TCPAddr{}
 	}
 	// vortex
-	vortex, vortexErr := aio.Acquire()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	vortex := lc.Vortex
+	if vortex == nil {
+		var vortexErr error
+		vortex, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+		}
 	}
 	// fd
 	var control ctrlCtxFn = nil
@@ -77,7 +81,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	}
 	fd, fdErr := newTCPListenerFd(ctx, network, addr, lc.FastOpen, lc.QuickAck, lc.MultipathTCP, lc.ReusePort, control)
 	if fdErr != nil {
-		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
@@ -94,7 +97,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		} else {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
-				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 			autoFixedFdInstall = false
@@ -271,7 +273,6 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 			writeDeadline: time.Time{},
 			readBuffer:    atomic.Int64{},
 			writeBuffer:   atomic.Int64{},
-			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
 		0,
@@ -357,7 +358,6 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 			writeDeadline: time.Time{},
 			readBuffer:    atomic.Int64{},
 			writeBuffer:   atomic.Int64{},
-			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
 		0,
@@ -406,20 +406,23 @@ func (ln *TCPListener) Close() error {
 	var err error
 	if ln.fdFixed {
 		err = vortex.CloseDirect(ctx, ln.fileIndex)
-		_ = vortex.UnregisterFixedFd(ln.fileIndex)
 	} else {
 		fd := ln.fd.Socket()
 		err = vortex.Close(ctx, fd)
 	}
 	if err != nil {
 		fd := ln.fd.Socket()
+		if ln.fdFixed {
+			_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
+			_ = vortex.UnregisterFixedFd(ln.fileIndex)
+		} else {
+			_ = vortex.CancelFd(ctx, fd)
+		}
 		_ = syscall.Close(fd)
-		_ = aio.Release(vortex)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
-
-	if err = aio.Release(vortex); err != nil {
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+	if ln.fdFixed {
+		_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
 	}
 	return nil
 }

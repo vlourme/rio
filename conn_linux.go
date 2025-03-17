@@ -29,7 +29,6 @@ type conn struct {
 	writeDeadline time.Time
 	readBuffer    atomic.Int64
 	writeBuffer   atomic.Int64
-	pinned        bool
 	useSendZC     bool
 }
 
@@ -150,7 +149,6 @@ func (c *conn) Close() error {
 	var err error
 	if c.fdFixed {
 		err = vortex.CloseDirect(ctx, c.fileIndex)
-		_ = vortex.UnregisterFixedFd(c.fileIndex)
 	} else {
 		fd := c.fd.Socket()
 		err = vortex.Close(ctx, fd)
@@ -158,17 +156,17 @@ func (c *conn) Close() error {
 
 	if err != nil {
 		fd := c.fd.Socket()
-		_ = syscall.Close(fd)
-		if c.pinned {
-			_ = aio.Release(vortex)
+		if c.fdFixed {
+			_ = vortex.CancelFixedFd(ctx, c.fileIndex)
+			_ = vortex.UnregisterFixedFd(c.fileIndex)
+		} else {
+			_ = vortex.CancelFd(ctx, fd)
 		}
+		_ = syscall.Close(fd)
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
-
-	if c.pinned {
-		if err = aio.Release(vortex); err != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-		}
+	if c.fdFixed {
+		_ = vortex.CancelFixedFd(ctx, c.fileIndex)
 	}
 	return nil
 }

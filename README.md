@@ -249,23 +249,6 @@ unixConn, ok := conn.(*rio.UnixConn)
 ```
 
 
-### Pin 与 Unpin
-
-一般用于只有 `Dial` 场景。或者有多个 `Listen` 的场景。
-
-因为单一 `Listen` 的生命周期往往和程序是一致的，所以 `IOURING` 实例的生命周期是与程序是一致的。
-
-而 `Dial` 的生命周期是短的，往往是频繁 `Dial` ，多个 `Listen` 意味着生命周期是与程序是不一致的。
-
-所以需要 `Pin` 和 `Unpin `来 `IOURING` 实例，而不是频繁启停。
-
-```go
-// 程序启动位置
-err := rio.Pin()
-// 程序退出位置
-err := rio.Unpin()
-```
-
 ### Config <a id="config"></a>
 
 `rio.ListenConfig` 与 `net.ListenConfig` 是类似的，通过配置来监听。
@@ -282,6 +265,7 @@ config := rio.ListenConfig{
     SendZC:             false,                   // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
     MultishotAccept:    false,                   // 是否单投多发模式来接受链接
     AutoFixedFdInstall: false,                   // 是否启用接受到的链接进行自动安装描述符（超出后会退回到非注册模式）
+    Vortex:             nil,                     // 自定义 iouring
 }
 ln, lnErr := config.Listen(context.Background(), "tcp", ":9000")
 ```
@@ -301,6 +285,7 @@ dialer := rio.Dialer{
     AutoFixedFdInstall: false,                      // 是否启用接受到的链接进行自动安装描述符（超出后会退回到非注册模式）
     Control:            nil,                        // 设置控制器
     ControlContext:     nil,                        // 设置带上下文的控制器
+    Vortex:             nil,                        // 自定义 iouring
 }
 conn, dialErr := dialer.DialContext(context.Background(), "tcp", "127.0.0.1:9000")
 ```

@@ -45,9 +45,13 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
 	// vortex
-	vortex, vortexErr := aio.Acquire()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	vortex := lc.Vortex
+	if vortex == nil {
+		var vortexErr error
+		vortex, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+		}
 	}
 	// fd
 	var control ctrlCtxFn = nil
@@ -58,7 +62,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	}
 	fd, fdErr := newUnixListener(ctx, network, addr, control)
 	if fdErr != nil {
-		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// install fixed fd
@@ -74,7 +77,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		} else {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
-				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 			autoFixedFdInstall = false
@@ -138,9 +140,13 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
 	// vortex
-	vortex, vortexErr := aio.Acquire()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	vortex := lc.Vortex
+	if vortex == nil {
+		var vortexErr error
+		vortex, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+		}
 	}
 	// fd
 	var control ctrlCtxFn = nil
@@ -151,7 +157,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	}
 	fd, fdErr := newUnixListener(ctx, network, addr, control)
 	if fdErr != nil {
-		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// install fixed fd
@@ -166,7 +171,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		} else {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
-				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 		}
@@ -193,7 +197,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 			writeDeadline: time.Time{},
 			readBuffer:    atomic.Int64{},
 			writeBuffer:   atomic.Int64{},
-			pinned:        true,
 			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,
@@ -380,7 +383,6 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 			writeDeadline: time.Time{},
 			readBuffer:    atomic.Int64{},
 			writeBuffer:   atomic.Int64{},
-			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
 		false,
@@ -451,7 +453,6 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 			writeDeadline: time.Time{},
 			readBuffer:    atomic.Int64{},
 			writeBuffer:   atomic.Int64{},
-			pinned:        false,
 			useSendZC:     ln.useSendZC,
 		},
 		false,
@@ -506,20 +507,23 @@ func (ln *UnixListener) Close() error {
 	var err error
 	if ln.fdFixed {
 		err = vortex.CloseDirect(ctx, ln.fileIndex)
-		_ = vortex.UnregisterFixedFd(ln.fileIndex)
 	} else {
 		fd := ln.fd.Socket()
 		err = vortex.Close(ctx, fd)
 	}
 	if err != nil {
 		fd := ln.fd.Socket()
+		if ln.fdFixed {
+			_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
+			_ = vortex.UnregisterFixedFd(ln.fileIndex)
+		} else {
+			_ = vortex.CancelFd(ctx, fd)
+		}
 		_ = syscall.Close(fd)
-		_ = aio.Release(vortex)
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
-
-	if err = aio.Release(vortex); err != nil {
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+	if ln.fdFixed {
+		_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
 	}
 	return nil
 }

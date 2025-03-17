@@ -106,14 +106,17 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		addr = &net.UDPAddr{}
 	}
 	// vortex
-	vortex, vortexErr := aio.Acquire()
-	if vortexErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	vortex := lc.Vortex
+	if vortex == nil {
+		var vortexErr error
+		vortex, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+		}
 	}
 	// fd
 	fd, fdErr := newUDPListenerFd(network, ifi, addr)
 	if fdErr != nil {
-		_ = aio.Release(vortex)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// install fixed fd
@@ -128,7 +131,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		} else {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
-				_ = aio.Release(vortex)
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 		}
@@ -155,7 +157,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			writeDeadline: time.Time{},
 			readBuffer:    atomic.Int64{},
 			writeBuffer:   atomic.Int64{},
-			pinned:        true,
 			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,

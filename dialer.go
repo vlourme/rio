@@ -2,6 +2,7 @@ package rio
 
 import (
 	"context"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
 	"strings"
 	"syscall"
@@ -115,18 +116,85 @@ func DialContextTimeout(ctx context.Context, network string, address string, tim
 }
 
 type Dialer struct {
-	Timeout            time.Duration
-	Deadline           time.Time
-	KeepAlive          time.Duration
-	KeepAliveConfig    net.KeepAliveConfig
-	LocalAddr          net.Addr
-	MultipathTCP       bool
-	FastOpen           bool
-	QuickAck           bool
-	SendZC             bool
+	net.Dialer
+	// Timeout is the maximum amount of time a dial will wait for
+	// a connect to complete. If Deadline is also set, it may fail
+	// earlier.
+	//
+	// The default is no timeout.
+	//
+	// When using TCP and dialing a host name with multiple IP
+	// addresses, the timeout may be divided between them.
+	//
+	// With or without a timeout, the operating system may impose
+	// its own earlier timeout. For instance, TCP timeouts are
+	// often around 3 minutes.
+	Timeout time.Duration
+	// Deadline is the absolute point in time after which dials
+	// will fail. If Timeout is set, it may fail earlier.
+	// Zero means no deadline, or dependent on the operating system
+	// as with the Timeout option.
+	Deadline time.Time
+	// KeepAlive specifies the interval between keep-alive
+	// probes for an active network connection.
+	//
+	// KeepAlive is ignored if KeepAliveConfig.Enable is true.
+	//
+	// If zero, keep-alive probes are sent with a default value
+	// (currently 15 seconds), if supported by the protocol and operating
+	// system. Network protocols or operating systems that do
+	// not support keep-alive ignore this field.
+	// If negative, keep-alive probes are disabled.
+	KeepAlive time.Duration
+	// KeepAliveConfig specifies the keep-alive probe configuration
+	// for an active network connection, when supported by the
+	// protocol and operating system.
+	//
+	// If KeepAliveConfig.Enable is true, keep-alive probes are enabled.
+	// If KeepAliveConfig.Enable is false and KeepAlive is negative,
+	// keep-alive probes are disabled.
+	KeepAliveConfig net.KeepAliveConfig
+	// LocalAddr is the local address to use when dialing an
+	// address. The address must be of a compatible type for the
+	// network being dialed.
+	// If nil, a local address is automatically chosen.
+	LocalAddr net.Addr
+	// If MultipathTCP is set to a value allowing Multipath TCP (MPTCP) to be
+	// used, any call to Dial with "tcp(4|6)" as network will use MPTCP if
+	// supported by the operating system.
+	MultipathTCP bool
+	// FastOpen is set TCP_FASTOPEN
+	FastOpen bool
+	// QuickAck is set TCP_QUICKACK
+	QuickAck bool
+	// SendZC is set IOURING.OP_SENDZC
+	SendZC bool
+	// AutoFixedFdInstall is set install conn fd into iouring after accepted.
 	AutoFixedFdInstall bool
-	Control            func(network, address string, c syscall.RawConn) error
-	ControlContext     func(ctx context.Context, network, address string, c syscall.RawConn) error
+	// If Control is not nil, it is called after creating the network
+	// connection but before actually dialing.
+	//
+	// Network and address parameters passed to Control function are not
+	// necessarily the ones passed to Dial. Calling Dial with TCP networks
+	// will cause the Control function to be called with "tcp4" or "tcp6",
+	// UDP networks become "udp4" or "udp6", IP networks become "ip4" or "ip6",
+	// and other known networks are passed as-is.
+	//
+	// Control is ignored if ControlContext is not nil.
+	Control func(network, address string, c syscall.RawConn) error
+	// If ControlContext is not nil, it is called after creating the network
+	// connection but before actually dialing.
+	//
+	// Network and address parameters passed to ControlContext function are not
+	// necessarily the ones passed to Dial. Calling Dial with TCP networks
+	// will cause the ControlContext function to be called with "tcp4" or "tcp6",
+	// UDP networks become "udp4" or "udp6", IP networks become "ip4" or "ip6",
+	// and other known networks are passed as-is.
+	//
+	// If ControlContext is not nil, Control is ignored.
+	ControlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
+	// Vortex customize [aio.Vortex]
+	Vortex *aio.Vortex
 }
 
 // SetFastOpen set fast open.
@@ -157,6 +225,11 @@ func (d *Dialer) SetSendZC(use bool) {
 // available after [RIO_IOURING_REG_FIXED_FILES] set.
 func (d *Dialer) SetAutoFixedFdInstall(auto bool) {
 	d.AutoFixedFdInstall = auto
+}
+
+// SetVortex set customize [aio.Vortex].
+func (d *Dialer) SetVortex(v *aio.Vortex) {
+	d.Vortex = v
 }
 
 func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {

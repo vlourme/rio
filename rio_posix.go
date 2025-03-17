@@ -16,16 +16,3 @@ func UseProcessPriority(level process.PriorityLevel) {
 // Presets
 // preset aio options, must be called before Pin, Dial and Listen.
 func Presets(_ ...aio.Option) {}
-
-// Pin
-// usually used during program startup.
-// such as only use Dial case, Pin before Dial and Unpin when program exit.
-func Pin() error {
-	return nil
-}
-
-// Unpin
-// usually used during program exit.
-func Unpin() error {
-	return nil
-}

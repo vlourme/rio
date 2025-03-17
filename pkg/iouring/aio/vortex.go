@@ -8,11 +8,11 @@ import (
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/kernel"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-func New(options ...Option) (v *Vortex, err error) {
+func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
+	// check kernel version
 	version := kernel.Get()
 	if version.Invalidate() {
 		err = errors.New("get kernel version failed")
@@ -22,7 +22,7 @@ func New(options ...Option) (v *Vortex, err error) {
 		err = errors.New("kernel version must greater than or equal to 5.19")
 		return
 	}
-
+	// options
 	opt := Options{
 		Entries:                  0,
 		Flags:                    0,
@@ -40,9 +40,16 @@ func New(options ...Option) (v *Vortex, err error) {
 	for _, option := range options {
 		option(&opt)
 	}
-
+	// ring
+	ring, ringErr := OpenIOURing(ctx, opt)
+	if ringErr != nil {
+		err = ringErr
+		return
+	}
+	// check op_fixed_fd_install
+	supportOpFixedFdInstall := ring.OpSupported(iouring.OPFixedFdInstall)
+	// vortex
 	v = &Vortex{
-		running: atomic.Bool{},
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
@@ -57,17 +64,15 @@ func New(options ...Option) (v *Vortex, err error) {
 				return time.NewTimer(0)
 			},
 		},
-		options: opt,
-		ring:    nil,
+		ring:                    ring,
+		supportOpFixedFdInstall: supportOpFixedFdInstall,
 	}
 	return
 }
 
 type Vortex struct {
-	running                 atomic.Bool
 	operations              sync.Pool
 	timers                  sync.Pool
-	options                 Options
 	ring                    IOURing
 	supportOpFixedFdInstall bool
 }
@@ -93,55 +98,39 @@ func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
 func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	timer.Stop()
 	vortex.timers.Put(timer)
-}
-
-func (vortex *Vortex) submit(op *Operation) (ok bool) {
-	if vortex.ok() {
-		ok = vortex.ring.Submit(op)
-	}
 	return
 }
 
+func (vortex *Vortex) submit(op *Operation) {
+	vortex.ring.Submit(op)
+	return
+}
+
+func (vortex *Vortex) Fd() int {
+	return vortex.ring.Fd()
+}
+
 func (vortex *Vortex) AcquireBuffer() *FixedBuffer {
-	if vortex.ok() {
-		return vortex.ring.AcquireBuffer()
-	}
-	return nil
+	return vortex.ring.AcquireBuffer()
 }
 
 func (vortex *Vortex) ReleaseBuffer(buf *FixedBuffer) {
-	if vortex.ok() {
-		vortex.ring.ReleaseBuffer(buf)
-	}
+	vortex.ring.ReleaseBuffer(buf)
 }
 
 func (vortex *Vortex) RegisterFixedFdEnabled() bool {
-	if vortex.ok() {
-		return vortex.ring.RegisterFixedFdEnabled()
-	}
-	return false
+	return vortex.ring.RegisterFixedFdEnabled()
 }
 
 func (vortex *Vortex) GetRegisterFixedFd(index int) int {
-	if vortex.ok() {
-		return vortex.ring.GetRegisterFixedFd(index)
-	}
-	return -1
+	return vortex.ring.GetRegisterFixedFd(index)
 }
 
 func (vortex *Vortex) PopFixedFd() (index int, err error) {
-	if vortex.ok() {
-		return vortex.ring.PopFixedFd()
-	}
-	return -1, errors.New("vortex is not running")
+	return vortex.ring.PopFixedFd()
 }
 
-func (vortex *Vortex) RegisterFixedFd(ctx context.Context, fd int) (index int, err error) {
-	if !vortex.ok() {
-		index = -1
-		err = errors.New("vortex is not running")
-		return
-	}
+func (vortex *Vortex) RegisterFixedFd(_ context.Context, fd int) (index int, err error) {
 	/* todo install fd
 	因为不知道 OpFixedFdInstall 的返回值是什么，如果是 index，那可以用，反之不能用。
 	if vortex.supportOpFixedFdInstall {
@@ -151,47 +140,14 @@ func (vortex *Vortex) RegisterFixedFd(ctx context.Context, fd int) (index int, e
 	}
 	*/
 	index, err = vortex.ring.RegisterFixedFd(fd)
-
 	return
 }
 
 func (vortex *Vortex) UnregisterFixedFd(index int) (err error) {
-	if vortex.ok() {
-		return vortex.ring.UnregisterFixedFd(index)
-	}
-	return errors.New("vortex is not running")
+	return vortex.ring.UnregisterFixedFd(index)
 }
 
 func (vortex *Vortex) Shutdown() (err error) {
-	if vortex.running.CompareAndSwap(true, false) {
-		ring := vortex.ring
-		vortex.ring = nil
-		err = ring.Close()
-	}
+	err = vortex.ring.Close()
 	return
-}
-
-func (vortex *Vortex) Start(ctx context.Context) (err error) {
-	if !vortex.running.CompareAndSwap(false, true) {
-		err = errors.New("vortex already running")
-		return
-	}
-
-	options := vortex.options
-	ring, ringErr := NewIOURing(options)
-	if ringErr != nil {
-		return ringErr
-	}
-
-	vortex.supportOpFixedFdInstall = ring.OpSupported(iouring.OPFixedFdInstall)
-
-	vortex.ring = ring
-
-	ring.Start(ctx)
-
-	return
-}
-
-func (vortex *Vortex) ok() bool {
-	return vortex.running.Load() && vortex.ring != nil
 }

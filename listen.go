@@ -2,6 +2,7 @@ package rio
 
 import (
 	"context"
+	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
 	"syscall"
 	"time"
@@ -40,6 +41,7 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 		SendZC:             false,
 		MultishotAccept:    false,
 		AutoFixedFdInstall: false,
+		Vortex:             nil,
 	}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
@@ -123,6 +125,8 @@ type ListenConfig struct {
 	MultishotAccept bool
 	// AutoFixedFdInstall is set install conn fd into iouring after accepted.
 	AutoFixedFdInstall bool
+	// Vortex customize [aio.Vortex]
+	Vortex *aio.Vortex
 }
 
 func (lc *ListenConfig) SetFastOpen(use bool) {
@@ -152,4 +156,9 @@ func (lc *ListenConfig) SetMultishotAccept(multi bool) {
 
 func (lc *ListenConfig) SetAutoFixedFdInstall(auto bool) {
 	lc.AutoFixedFdInstall = auto
+}
+
+// SetVortex set customize [aio.Vortex].
+func (lc *ListenConfig) SetVortex(v *aio.Vortex) {
+	lc.Vortex = v
 }
