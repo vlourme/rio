@@ -46,8 +46,6 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 		err = ringErr
 		return
 	}
-	// check op_fixed_fd_install
-	supportOpFixedFdInstall := ring.OpSupported(iouring.OPFixedFdInstall)
 	// vortex
 	v = &Vortex{
 		operations: sync.Pool{
@@ -64,17 +62,15 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 				return time.NewTimer(0)
 			},
 		},
-		ring:                    ring,
-		supportOpFixedFdInstall: supportOpFixedFdInstall,
+		ring: ring,
 	}
 	return
 }
 
 type Vortex struct {
-	operations              sync.Pool
-	timers                  sync.Pool
-	ring                    IOURing
-	supportOpFixedFdInstall bool
+	operations sync.Pool
+	timers     sync.Pool
+	ring       IOURing
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -133,6 +129,10 @@ func (vortex *Vortex) PopFixedFd() (index int, err error) {
 func (vortex *Vortex) RegisterFixedFd(_ context.Context, fd int) (index int, err error) {
 	/* todo install fd
 	因为不知道 OpFixedFdInstall 的返回值是什么，如果是 index，那可以用，反之不能用。
+	答：
+	OpFixedFdInstall 貌似是一个是sqe的fd是file index，但是这个sqe没有指定sqe_fixed_file，
+	所以用 install 来关联。
+	并不是往注册表里加。
 	if vortex.supportOpFixedFdInstall {
 		index, err = vortex.FixedFdInstall(ctx, fd)
 	} else {
