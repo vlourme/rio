@@ -1,7 +1,6 @@
 package aio
 
 import (
-	"github.com/brickingsoft/rio/pkg/iouring"
 	"strings"
 	"time"
 )
@@ -27,7 +26,8 @@ type Options struct {
 type Option func(*Options)
 
 // WithAttach
-// attach ring, see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html#IORING_SETUP_ATTACH_WQ.
+// attach ring.
+// see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html#IORING_SETUP_ATTACH_WQ.
 func WithAttach(v *Vortex) Option {
 	return func(o *Options) {
 		if v == nil {
@@ -38,9 +38,6 @@ func WithAttach(v *Vortex) Option {
 			return
 		}
 		o.AttachRingFd = fd
-		if o.Flags&iouring.SetupAttachWQ == 0 {
-			o.Flags |= iouring.SetupAttachWQ
-		}
 	}
 }
 
