@@ -504,15 +504,12 @@ func (ln *UnixListener) Close() error {
 		}
 	})
 
-	var err error
 	if ln.fdFixed {
-		err = vortex.CloseDirect(ctx, ln.fileIndex)
-	} else {
-		fd := ln.fd.Socket()
-		err = vortex.Close(ctx, fd)
+		_ = vortex.CloseDirect(ctx, ln.fileIndex)
 	}
+	fd := ln.fd.Socket()
+	err := vortex.Close(ctx, fd)
 	if err != nil {
-		fd := ln.fd.Socket()
 		if ln.fdFixed {
 			_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
 			_ = vortex.UnregisterFixedFd(ln.fileIndex)
@@ -523,7 +520,7 @@ func (ln *UnixListener) Close() error {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	if ln.fdFixed {
-		_ = vortex.CancelFixedFd(ctx, ln.fileIndex)
+		_ = vortex.UnregisterFixedFd(ln.fileIndex)
 	}
 	return nil
 }
