@@ -6,23 +6,13 @@ import (
 )
 
 var (
-	ErrUncompleted   = errors.New("uncompleted")
+	ErrCanceled      = &CanceledError{}
 	ErrTimeout       = &TimeoutError{}
 	ErrUnsupportedOp = errors.New("unsupported op")
 )
 
-type TimeoutError struct{}
-
-func (e *TimeoutError) Error() string   { return "i/o timeout" }
-func (e *TimeoutError) Timeout() bool   { return true }
-func (e *TimeoutError) Temporary() bool { return true }
-
-func (e *TimeoutError) Is(err error) bool {
-	return err == context.DeadlineExceeded
-}
-
-func IsUncompleted(err error) bool {
-	return errors.Is(err, ErrUncompleted)
+func IsCanceled(err error) bool {
+	return errors.Is(err, ErrCanceled)
 }
 
 func IsTimeout(err error) bool {
@@ -31,4 +21,22 @@ func IsTimeout(err error) bool {
 
 func IsUnsupported(err error) bool {
 	return errors.Is(err, ErrUnsupportedOp)
+}
+
+type CanceledError struct{}
+
+func (e *CanceledError) Error() string   { return "i/o canceled" }
+func (e *CanceledError) Timeout() bool   { return false }
+func (e *CanceledError) Temporary() bool { return true }
+func (e *CanceledError) Is(err error) bool {
+	return err == context.Canceled
+}
+
+type TimeoutError struct{}
+
+func (e *TimeoutError) Error() string   { return "i/o timeout" }
+func (e *TimeoutError) Timeout() bool   { return true }
+func (e *TimeoutError) Temporary() bool { return true }
+func (e *TimeoutError) Is(err error) bool {
+	return err == context.DeadlineExceeded
 }
