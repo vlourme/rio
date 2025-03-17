@@ -1,0 +1,28 @@
+------RIO------
+Total data sent: 5.1M (5336116 bytes)
+Total data received: 5.1M (5336112 bytes)
+sent/sec: 533443.60
+recv/sec: 533443.20
+duration: 10.003149404s
+
+------EVIO------
+Total data sent: 3.5M (3650128 bytes)
+Total data received: 3.5M (3650044 bytes)
+sent/sec: 364840.75
+recv/sec: 364832.36
+duration: 10.004715646s
+
+------GNET------
+Total data sent: 3.3M (3460976 bytes)
+Total data received: 3.3M (3460836 bytes)
+sent/sec: 346049.12
+recv/sec: 346035.12
+duration: 10.001400958s
+
+------NET------
+Total data sent: 3.5M (3649032 bytes)
+Total data received: 3.5M (3648860 bytes)
+sent/sec: 364845.89
+recv/sec: 364828.70
+duration: 10.001570705s
+

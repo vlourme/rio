@@ -15,12 +15,14 @@
 * 支持 `TLS`
 * 支持 `FIXED BUFFER` 和 `FIXED FILE`
 * 支持 `SEND_ZC` 和 `SENDMSG_ZC`
+* 支持动态调整 `WAIT_CQE_TIME_CURVE` 控制不同场景的性能
 
 
 ## 性能
 
-<img src="benchmark/bench_c50t10s.png" width="336" height="144" alt="echo benchmark">
-<img src="benchmark/bench_c50r5k.png" width="336" height="144" alt="echo benchmark">
+<img src="benchmark/benchmark_tcpkali_C50T10s.png" width="336" height="144" alt="echo benchmark">
+<img src="benchmark/benchmark_tcpkali_C50R5K.png" width="336" height="144" alt="echo benchmark">
+<img src="benchmark/benchmark_local.png" width="336" height="144" alt="echo benchmark">
 
 <details>
 <summary>详细信息</summary>
@@ -46,72 +48,10 @@ tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
 
 | 种类   | 速率 （pps） | 说明       | 性能    |
 |------|----------|----------|-------|
-| RIO  | 24043.6  | 稳定在23000 | 100 % |
-| EVIO | 19010.4  | 稳定在19000 | 79 %  |
-| GNET | 18598.8  | 稳定在18000 | 77 %  |
-| NET  | 14586.9  | 稳定在14000 | 60 %  |
-
-<details>
-<summary>明细输出</summary>
-
-```text
------- RIO ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     245.0 MiB (256897392 bytes)
-Total data received: 244.2 MiB (256063278 bytes)
-Bandwidth per channel: 8.202⇅ Mbps (1025.3 kBps)
-Aggregate bandwidth: 204.723↓, 205.390↑ Mbps
-Packet rate estimate: 24043.6↓, 17801.4↑ (3↓, 25↑ TCP MSS/op)
-Test duration: 10.0062 s.
-```
-
-```text
------- EVIO ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     182.6 MiB (191496192 bytes)
-Total data received: 181.1 MiB (189878896 bytes)
-Bandwidth per channel: 6.100⇅ Mbps (762.5 kBps)
-Aggregate bandwidth: 151.862↓, 153.156↑ Mbps
-Packet rate estimate: 19010.4↓, 13192.0↑ (3↓, 44↑ TCP MSS/op)
-Test duration: 10.0027 s.
-```
-
-```text
------- GNET ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     183.8 MiB (192741376 bytes)
-Total data received: 182.3 MiB (191161224 bytes)
-Bandwidth per channel: 6.136⇅ Mbps (767.0 kBps)
-Aggregate bandwidth: 152.776↓, 154.039↑ Mbps
-Packet rate estimate: 18598.8↓, 13340.6↑ (3↓, 44↑ TCP MSS/op)
-Test duration: 10.01 s.
-```
-
-```text
------- NET ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     183.4 MiB (192282624 bytes)
-Total data received: 181.7 MiB (190500400 bytes)
-Bandwidth per channel: 6.119⇅ Mbps (764.9 kBps)
-Aggregate bandwidth: 152.274↓, 153.698↑ Mbps
-Packet rate estimate: 14586.9↓, 13171.4↑ (2↓, 44↑ TCP MSS/op)
-Test duration: 10.0083 s.
-```
-
-</details>
-
+| RIO  | 23263.3  | 稳定在23000 | 100 % |
+| EVIO | 18855.5  | 稳定在18000 | 81 %  |
+| GNET | 18284.7  | 稳定在18000 | 79 %  |
+| NET  | 14638.6  | 稳定在14000 | 63 %  |
 
 
 ### C50 R5k
@@ -124,71 +64,11 @@ tcpkali --workers 1 -c 50 -r 5k -m "PING" 192.168.100.120:9000
 
 | 种类   | 速率 （pps） | 说明       | 性能    |
 |------|----------|----------|-------|
-| RIO  | 44138.9  | 稳定在44000 | 100 % |
-| EVIO | 29327.7  | 稳定在29000 | 66 %  |
-| GNET | 28936.6  | 稳定在29000 | 65 %  |
-| NET  | 28394.5  | 稳定在28000 | 64 %  |
+| RIO  | 44031.1  | 稳定在44000 | 100 % |
+| EVIO | 27997.6  | 稳定在28000 | 64 %  |
+| GNET | 28817.2  | 稳定在28000 | 65 %  |
+| NET  | 27874.5  | 稳定在28000 | 63 %  |
 
-<details>
-<summary>明细输出</summary>
-
-```text
------- RIO ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     9.6 MiB (10019512 bytes)
-Total data received: 9.6 MiB (10019132 bytes)
-Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
-Aggregate bandwidth: 8.010↓, 8.010↑ Mbps
-Packet rate estimate: 44138.9↓, 44153.1↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0069 s.
-```
-
-```text
------- EVIO ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     9.5 MiB (10011756 bytes)
-Total data received: 9.5 MiB (10011756 bytes)
-Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
-Aggregate bandwidth: 8.009↓, 8.009↑ Mbps
-Packet rate estimate: 29327.7↓, 29375.9↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0011 s.
-```
-
-```text
------- GNET ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     9.5 MiB (10011192 bytes)
-Total data received: 9.5 MiB (10011192 bytes)
-Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
-Aggregate bandwidth: 8.008↓, 8.008↑ Mbps
-Packet rate estimate: 28936.6↓, 28957.4↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0007 s.
-```
-
-```text
------- NET ------
-Destination: [192.168.100.120]:9000
-Interface eth0 address [192.168.100.1]:0
-Using interface eth0 to connect to [192.168.100.120]:9000
-Ramped up to 50 connections.
-Total data sent:     9.5 MiB (10011720 bytes)
-Total data received: 9.5 MiB (10011720 bytes)
-Bandwidth per channel: 0.320⇅ Mbps (40.0 kBps)
-Aggregate bandwidth: 8.009↓, 8.009↑ Mbps
-Packet rate estimate: 28394.5↓, 28431.6↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0008 s.
-```
-
-</details>
 
 </details>
 
@@ -363,4 +243,8 @@ err := fixed.InstallFixedFd()
 * `RIO_WAIT_CQE_BATCH_TIME_CURVE` 的第一个节点的时长建议大一些，太小会引发忙等待，后续节点会具体影响性能。
 
 
-
+通过编程方式：
+```go
+// 使用 Presets 函数进行预设参数
+rio.Presets(aio.WithFlagsSchema(aio.DefaultFlagsSchema))
+```
