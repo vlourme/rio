@@ -259,8 +259,8 @@ config := rio.ListenConfig{
     KeepAlive:          0,                       // 设置 KeepAlive 时长
     KeepAliveConfig:    net.KeepAliveConfig{},   // 设置 KeepAlive 详细配置
     MultipathTCP:       false,                   // 是否多路TCP模式
-    FastOpen:           false,                   // 是否快速打开
-    QuickAck:           false,                   // 是否快速应答
+    FastOpen:           false,                   // 是否快速打开（tcp自动开启）
+    QuickAck:           false,                   // 是否快速应答（tcp自动开启）
     ReusePort:          false,                   // 是否重用端口（同时开启cBPF）
     SendZC:             false,                   // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
     MultishotAccept:    false,                   // 是否单投多发模式来接受链接
@@ -279,8 +279,8 @@ dialer := rio.Dialer{
     KeepAliveConfig:    net.KeepAliveConfig{},      // 设置 KeepAlive 详细配置
     LocalAddr:          nil,                        // 本地地址
     MultipathTCP:       false,                      // 是否多路TCP模式
-    FastOpen:           false,                      // 是否快速打开
-    QuickAck:           false,                      // 是否快速应答
+    FastOpen:           false,                      // 是否快速打开（tcp自动开启）
+    QuickAck:           false,                      // 是否快速应答（tcp自动开启）
     SendZC:             false,                      // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
     AutoFixedFdInstall: false,                      // 是否启用接受到的链接进行自动安装描述符（超出后会退回到非注册模式）
     Control:            nil,                        // 设置控制器
@@ -339,7 +339,7 @@ err := fixed.InstallFixedFd()
 | RIO_IOURING_SQ_THREAD_CPU      | 数字 | 设置 SQ 环锁亲和的 CPU。                                   |
 | RIO_IOURING_SQ_THREAD_IDLE     | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 10 秒。 |
 | RIO_IOURING_REG_FIXED_BUFFERS  | 文本 | 设置注册固定字节缓存，格式为 `单个大小, 个数`， 如`4096, 1024`。          |
-| RIO_IOURING_REG_FIXED_FILES    | 数字 | 设置注册固定描述符，当大于软上限时，会使用软上线值。                         |
+| RIO_IOURING_REG_FIXED_FILES    | 数字 | 设置注册固定描述符，当大于软上限时，会使用软上线值。 默认是 4096。               |
 | RIO_PREP_SQE_BATCH_SIZE        | 数字 | 准备 SQE 的缓冲大小，默认为 1024 的大小。                         |
 | RIO_PREP_SQE_BATCH_TIME_WINDOW | 数字 | 准备 SQE 批处理时长，默认 500 纳秒。                            |
 | RIO_PREP_SQE_BATCH_IDLE_TIME   | 数字 | 准备 SQE 空闲时长，默认 15 秒。                               |
