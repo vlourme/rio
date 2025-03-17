@@ -30,19 +30,7 @@ import (
 // Listen uses context.Background internally; to specify the context, use
 // [ListenConfig.Listen].
 func Listen(network string, addr string) (ln net.Listener, err error) {
-	config := ListenConfig{
-		Control:            nil,
-		KeepAlive:          0,
-		KeepAliveConfig:    net.KeepAliveConfig{},
-		MultipathTCP:       false,
-		FastOpen:           false,
-		QuickAck:           false,
-		ReusePort:          false,
-		SendZC:             false,
-		MultishotAccept:    false,
-		AutoFixedFdInstall: false,
-		Vortex:             nil,
-	}
+	config := ListenConfig{}
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
 	return
@@ -129,31 +117,43 @@ type ListenConfig struct {
 	Vortex *aio.Vortex
 }
 
+// SetFastOpen set fast open.
 func (lc *ListenConfig) SetFastOpen(use bool) {
 	lc.FastOpen = use
 	return
 }
 
-func (lc *ListenConfig) SetMultipathTCP(use bool) {
-	lc.MultipathTCP = use
-}
-
+// SetQuickAck set quick ack.
 func (lc *ListenConfig) SetQuickAck(use bool) {
 	lc.QuickAck = use
 }
 
+// SetReusePort set reuse port.
 func (lc *ListenConfig) SetReusePort(use bool) {
 	lc.ReusePort = use
 }
 
+// SetMultipathTCP set multi-path tcp.
+func (lc *ListenConfig) SetMultipathTCP(use bool) {
+	lc.MultipathTCP = use
+}
+
+// SetSendZC set send zero-copy.
+//
+// available after 6.0
 func (lc *ListenConfig) SetSendZC(use bool) {
 	lc.SendZC = use
 }
 
+// SetMultishotAccept set multishot accept mode.
 func (lc *ListenConfig) SetMultishotAccept(multi bool) {
 	lc.MultishotAccept = multi
 }
 
+// SetAutoFixedFdInstall set auto install fixed fd.
+//
+// auto install fixed fd when connected.
+// available after [RIO_IOURING_REG_FIXED_FILES] set.
 func (lc *ListenConfig) SetAutoFixedFdInstall(auto bool) {
 	lc.AutoFixedFdInstall = auto
 }
