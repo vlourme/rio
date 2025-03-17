@@ -41,7 +41,7 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 	opts = append(opts, iouring.WithFlags(options.Flags))
 	opts = append(opts, iouring.WithSQThreadIdle(options.SQThreadIdle))
 	opts = append(opts, iouring.WithSQThreadCPU(options.SQThreadCPU))
-	if options.AttachRingFd > -1 && options.Flags&iouring.SetupAttachWQ != 0 {
+	if options.AttachRingFd > 0 {
 		opts = append(opts, iouring.WithAttachWQFd(uint32(options.AttachRingFd)))
 	}
 	ring, ringErr := iouring.New(opts...)
