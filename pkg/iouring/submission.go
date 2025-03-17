@@ -149,6 +149,10 @@ const (
 	SQECQESkipSuccess
 )
 
+const (
+	FixedFdNoCloexec uint32 = 1 << iota
+)
+
 type SubmissionQueueEntry struct {
 	OpCode      uint8
 	Flags       uint8
