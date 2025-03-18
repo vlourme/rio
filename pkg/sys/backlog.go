@@ -94,19 +94,10 @@ func MaxListenerBacklog() int {
 }
 
 func maxAckBacklog(n int) int {
-	var (
-		major = 0
-		minor = 0
-	)
-	version := kernel.Get()
-	if version.Validate() {
-		major, minor = version.Major, version.Minor
-	}
 	size := 16
-	if major > 4 || (major == 4 && minor >= 1) {
+	if kernel.Enable(4, 1, 0) {
 		size = 32
 	}
-
 	var maxAck uint = 1<<size - 1
 	if uint(n) > maxAck {
 		n = int(maxAck)

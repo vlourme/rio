@@ -34,16 +34,9 @@ func NewSocket(family int, sotype int, protocol int) (sock int, err error) {
 			return
 		}
 	}
-	var (
-		major = 0
-		minor = 0
-	)
-	version := kernel.Get()
-	if version.Validate() {
-		major, minor = version.Major, version.Minor
-	}
-	if major >= 4 && minor >= 14 {
-		_ = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, 1)
+	// try set SO_ZEROCOPY
+	if kernel.Enable(4, 14, 0) {
+		err = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, 1)
 	}
 	return
 }

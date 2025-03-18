@@ -44,15 +44,7 @@ func initMPTCPavailable() {
 	default:
 		mptcpAvailable = true
 	}
-	var (
-		major = 0
-		minor = 0
-	)
-	version := kernel.Get()
-	if version.Validate() {
-		major, minor = version.Major, version.Minor
-	}
-	hasSOLMPTCP = major > 5 || (major == 5 && minor >= 16)
+	hasSOLMPTCP = kernel.Enable(5, 16, 0)
 }
 
 func hasFallenBack(fd *Fd) bool {

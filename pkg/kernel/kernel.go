@@ -63,7 +63,7 @@ func Enable(major, minor, patch int) bool {
 		Flavor:   "",
 		validate: true,
 	}
-	if v.Compare(target) <= 0 {
+	if v.Compare(target) < 0 {
 		return false
 	}
 	return true
