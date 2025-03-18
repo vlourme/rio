@@ -89,7 +89,7 @@ func WithPrepSQEBatchSize(size uint32) Option {
 }
 
 const (
-	defaultPrepSQEBatchTimeWindow = 10 * time.Microsecond
+	defaultPrepSQEBatchTimeWindow = 1 * time.Microsecond
 )
 
 // WithPrepSQEBatchTimeWindow
