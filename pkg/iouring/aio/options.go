@@ -104,7 +104,7 @@ func WithPrepSQEBatchTimeWindow(window time.Duration) Option {
 }
 
 const (
-	defaultPrepSQEBatchIdleTime = 15 * time.Second
+	defaultPrepSQEBatchIdleTime = 30 * time.Second
 )
 
 // WithPrepSQEBatchIdleTime

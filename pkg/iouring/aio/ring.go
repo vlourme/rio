@@ -61,7 +61,7 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 
 	// register files
 	if options.RegisterFixedFiles == 0 {
-		options.RegisterFixedFiles = 4096
+		options.RegisterFixedFiles = 1024
 	}
 	var fixedFiles []int
 	fixedFileIndexes := NewQueue[int]()
