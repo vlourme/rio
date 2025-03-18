@@ -24,9 +24,22 @@ func IsUnsupported(err error) bool {
 	return errors.Is(err, ErrUnsupportedOp)
 }
 
+// MapErr maps from the context errors to the historical internal net
+// error values.
+func MapErr(err error) error {
+	switch err {
+	case context.Canceled:
+		return ErrCanceled
+	case context.DeadlineExceeded:
+		return ErrTimeout
+	default:
+		return err
+	}
+}
+
 type CanceledError struct{}
 
-func (e *CanceledError) Error() string   { return "i/o canceled" }
+func (e *CanceledError) Error() string   { return "operation was canceled" }
 func (e *CanceledError) Timeout() bool   { return false }
 func (e *CanceledError) Temporary() bool { return true }
 func (e *CanceledError) Is(err error) bool {
