@@ -34,35 +34,26 @@ import (
 // See func [Dial] for a description of the network and address
 // parameters.
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (c net.Conn, err error) {
-	addr, _, _, addrErr := sys.ResolveAddr(network, address)
-	if addrErr != nil {
-		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: addrErr}
+	addrs, addrsErr := sys.ResolveAddresses(network, address)
+	if addrsErr != nil {
+		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: addrsErr}
 		return
 	}
 	la := d.LocalAddr
-	switch a := addr.(type) {
-	case *net.TCPAddr:
-		d.SetFastOpen(true)
-		d.SetQuickAck(true)
-		la, _ := la.(*net.TCPAddr)
-		c, err = d.DialTCP(ctx, network, la, a)
-		break
-	case *net.UDPAddr:
-		la, _ := la.(*net.UDPAddr)
-		c, err = d.DialUDP(ctx, network, la, a)
-		break
-	case *net.UnixAddr:
-		la, _ := la.(*net.UnixAddr)
-		c, err = d.DialUnix(ctx, network, la, a)
-		break
-	case *net.IPAddr:
-		la, _ := la.(*net.IPAddr)
-		c, err = d.DialIP(ctx, network, la, a)
-		break
-	default:
-		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: addr, Err: &net.AddrError{Err: "unexpected address type", Addr: address}}
-		break
+	addrs = sys.FilterAddresses(addrs, la)
+	addrsLen := len(addrs)
+	if addrsLen == 0 {
+		err = &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: errors.New("no addresses")}
+		return
 	}
+	if addrsLen == 1 {
+		c, err = d.dial(ctx, network, la, addrs[0])
+		return
+	}
+	c, err = d.dialParallel(ctx, network, la, addrs)
+	cc := c.(*conn)
+	cc.ctx = ctx
+	c = cc
 	return
 }
 
@@ -542,15 +533,9 @@ func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.
 		err = errors.New("missing address")
 		return
 	}
-	addr := raddr
-	if reflect.ValueOf(raddr).IsNil() {
-		addr = laddr
-	}
-	_, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
-	if addrErr != nil {
-		err = addrErr
-		return
-	}
+
+	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, "dial")
+
 	// fd
 	sock, sockErr := sys.NewSocket(family, sotype, proto)
 	if sockErr != nil {

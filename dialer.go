@@ -159,6 +159,15 @@ type Dialer struct {
 	// network being dialed.
 	// If nil, a local address is automatically chosen.
 	LocalAddr net.Addr
+	// FallbackDelay specifies the length of time to wait before
+	// spawning a RFC 6555 Fast Fallback connection. That is, this
+	// is the amount of time to wait for IPv6 to succeed before
+	// assuming that IPv6 is misconfigured and falling back to
+	// IPv4.
+	//
+	// If zero, a default delay of 300ms is used.
+	// A negative value disables Fast Fallback support.
+	FallbackDelay time.Duration
 	// If MultipathTCP is set to a value allowing Multipath TCP (MPTCP) to be
 	// used, any call to Dial with "tcp(4|6)" as network will use MPTCP if
 	// supported by the operating system.
@@ -240,6 +249,16 @@ func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Tim
 		earliest = minNonzeroTime(earliest, deadline)
 	}
 	return minNonzeroTime(earliest, d.Deadline)
+}
+
+func (d *Dialer) dualStack() bool { return d.FallbackDelay >= 0 }
+
+func (d *Dialer) fallbackDelay() time.Duration {
+	if d.FallbackDelay > 0 {
+		return d.FallbackDelay
+	} else {
+		return 300 * time.Millisecond
+	}
 }
 
 func minNonzeroTime(a, b time.Time) time.Time {
