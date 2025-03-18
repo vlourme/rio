@@ -345,12 +345,6 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 			return
 		}
 	}
-	// set non blocking
-	if err = cfd.SetNonblocking(true); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
 	// fixed fd
 	fileIndex := -1
 	sqeFlags := uint8(0)
@@ -411,12 +405,6 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 	}
 	// remote addr
 	if err = cfd.LoadRemoteAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-	// set non blocking
-	if err = cfd.SetNonblocking(true); err != nil {
 		_ = cfd.Close()
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return

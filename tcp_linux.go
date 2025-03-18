@@ -221,12 +221,6 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 			return
 		}
 	}
-	// set non blocking
-	if err = cfd.SetNonblocking(true); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
 	// no delay
 	_ = cfd.SetNoDelay(true)
 	// keepalive
@@ -301,12 +295,6 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 	}
 	// remote addr
 	if err = cfd.LoadRemoteAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-	// set non blocking
-	if err = cfd.SetNonblocking(true); err != nil {
 		_ = cfd.Close()
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return

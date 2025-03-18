@@ -179,15 +179,15 @@ func (r *Ring) prepareSQE(op *Operation) error {
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
 		if op.multishot {
 			if op.directMode {
-				sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, 0)
+				sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 			} else {
-				sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, 0)
+				sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 			}
 		} else {
 			if op.directMode {
-				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, 0, uint32(op.filedIndex))
+				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, uint32(op.filedIndex))
 			} else {
-				sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, 0)
+				sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 			}
 		}
 		sqe.SetFlags(op.sqeFlags)
