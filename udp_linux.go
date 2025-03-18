@@ -165,11 +165,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 }
 
 func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd *sys.Fd, err error) {
-	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
-	if addrErr != nil {
-		err = addrErr
-		return
-	}
+	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
 	// fd
 	sock, sockErr := sys.NewSocket(family, syscall.SOCK_DGRAM, 0)
 	if sockErr != nil {
@@ -260,10 +256,10 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
-			fd.SetLocalAddr(resolveAddr)
+			fd.SetLocalAddr(addr)
 		}
 	} else {
-		fd.SetLocalAddr(resolveAddr)
+		fd.SetLocalAddr(addr)
 	}
 	return
 }

@@ -16,7 +16,7 @@ import (
 // The ctx argument is used while resolving the address on which to listen;
 // it does not affect the returned Listener.
 func (lc *ListenConfig) Listen(ctx context.Context, network string, address string) (ln net.Listener, err error) {
-	addr, _, _, addrErr := sys.ResolveAddr(network, address)
+	addr, addrErr := sys.ParseAddr(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
 		return
@@ -45,7 +45,7 @@ func (lc *ListenConfig) Listen(ctx context.Context, network string, address stri
 // The ctx argument is used while resolving the address on which to listen;
 // it does not affect the returned Listener.
 func (lc *ListenConfig) ListenPacket(ctx context.Context, network, address string) (c net.PacketConn, err error) {
-	addr, _, _, addrErr := sys.ResolveAddr(network, address)
+	addr, addrErr := sys.ParseAddr(network, address)
 	if addrErr != nil {
 		err = &net.OpError{Op: "listen", Net: network, Source: nil, Addr: nil, Err: addrErr}
 		return

@@ -510,11 +510,7 @@ func (ln *TCPListener) file() (*os.File, error) {
 func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
 
 func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fastOpen bool, quickAck bool, multipathTCP bool, reusePort bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
-	resolveAddr, family, ipv6only, addrErr := sys.ResolveAddr(network, addr.String())
-	if addrErr != nil {
-		err = addrErr
-		return
-	}
+	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if multipathTCP {
@@ -584,7 +580,7 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 		}
 	}
 	// bind
-	if err = fd.Bind(resolveAddr); err != nil {
+	if err = fd.Bind(addr); err != nil {
 		_ = fd.Close()
 		return
 	}
@@ -600,10 +596,10 @@ func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fa
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
-			fd.SetLocalAddr(resolveAddr)
+			fd.SetLocalAddr(addr)
 		}
 	} else {
-		fd.SetLocalAddr(resolveAddr)
+		fd.SetLocalAddr(addr)
 	}
 	return
 }
