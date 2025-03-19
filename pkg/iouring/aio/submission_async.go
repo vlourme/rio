@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"syscall"
 	"time"
 )
@@ -30,6 +31,16 @@ func (vortex *Vortex) AcceptAsync(fd int, addr *syscall.RawSockaddrAny, addrLen 
 func (vortex *Vortex) AcceptDirectAsync(fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8, fileIndex uint32) Future {
 	op := vortex.acquireOperation()
 	op.WithSQEFlags(sqeFlags).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
+	vortex.submit(op)
+	return Future{
+		vortex: vortex,
+		op:     op,
+	}
+}
+
+func (vortex *Vortex) AcceptDirectAllocAsync(fd int, addr *syscall.RawSockaddrAny, addrLen int, sqeFlags uint8) Future {
+	op := vortex.acquireOperation()
+	op.WithSQEFlags(sqeFlags).WithFiledIndex(iouring.FileIndexAlloc).WithDirect(true).PrepareAccept(fd, addr, addrLen)
 	vortex.submit(op)
 	return Future{
 		vortex: vortex,
@@ -69,9 +80,9 @@ func (vortex *Vortex) CloseAsync(fd int) Future {
 	}
 }
 
-func (vortex *Vortex) CloseDirectAsync(fd int) Future {
+func (vortex *Vortex) CloseDirectAsync(fileIndex int) Future {
 	op := vortex.acquireOperation()
-	op.WithDirect(true).PrepareClose(fd)
+	op.PrepareCloseDirect(fileIndex)
 	vortex.submit(op)
 	return Future{
 		vortex: vortex,

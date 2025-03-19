@@ -5,7 +5,6 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/sys"
 	"net"
@@ -108,6 +107,10 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
 		}
 	}
+	// directAlloc
+	if d.DirectAlloc {
+		d.DirectAlloc = vortex.DirectAllocEnabled()
+	}
 
 	// fd
 	now := time.Now()
@@ -130,7 +133,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 
-	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.FastOpen, control)
+	fd, directFd, fdErr := newDialerFd(ctx, vortex, d.DirectAlloc, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.FastOpen, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -180,23 +183,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = fd.SetKeepAliveConfig(keepAliveConfig)
 	}
 
-	// install fixed fd
-	fileIndex := -1
-	sqeFlags := uint8(0)
-	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
-		sock := fd.Socket()
-		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr == nil {
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
-			}
-		}
-	}
-
 	// send zc
 	useSendZC := false
 	if d.SendZC {
@@ -206,18 +192,17 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	cc, cancel := context.WithCancel(ctx)
 	c := &TCPConn{
 		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            fd,
-			fdFixed:       fileIndex != -1,
-			fileIndex:     fileIndex,
-			sqeFlags:      sqeFlags,
-			vortex:        vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			readBuffer:    atomic.Int64{},
-			writeBuffer:   atomic.Int64{},
-			useSendZC:     useSendZC,
+			ctx:             cc,
+			cancel:          cancel,
+			fd:              fd,
+			directFd:        directFd,
+			directAllocated: directFd != -1,
+			vortex:          vortex,
+			readDeadline:    time.Time{},
+			writeDeadline:   time.Time{},
+			readBuffer:      atomic.Int64{},
+			writeBuffer:     atomic.Int64{},
+			useSendZC:       useSendZC,
 		},
 		0,
 	}
@@ -260,6 +245,10 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
 		}
 	}
+	// directAlloc
+	if d.DirectAlloc {
+		d.DirectAlloc = vortex.DirectAllocEnabled()
+	}
 	// fd
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
@@ -273,7 +262,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			return d.Control(network, address, raw)
 		}
 	}
-	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, syscall.SOCK_DGRAM, 0, false, control)
+	fd, directFd, fdErr := newDialerFd(ctx, vortex, d.DirectAlloc, network, laddr, raddr, syscall.SOCK_DGRAM, 0, false, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -310,23 +299,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		fd.SetRemoteAddr(raddr)
 	}
 
-	// install fixed fd
-	fileIndex := -1
-	sqeFlags := uint8(0)
-	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
-		sock := fd.Socket()
-		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr == nil {
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
-			}
-		}
-	}
-
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -338,18 +310,17 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
 		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            fd,
-			fdFixed:       fileIndex != -1,
-			fileIndex:     fileIndex,
-			sqeFlags:      sqeFlags,
-			vortex:        vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			readBuffer:    atomic.Int64{},
-			writeBuffer:   atomic.Int64{},
-			useSendZC:     useSendZC,
+			ctx:             cc,
+			cancel:          cancel,
+			fd:              fd,
+			directFd:        directFd,
+			directAllocated: directFd != -1,
+			vortex:          vortex,
+			readDeadline:    time.Time{},
+			writeDeadline:   time.Time{},
+			readBuffer:      atomic.Int64{},
+			writeBuffer:     atomic.Int64{},
+			useSendZC:       useSendZC,
 		},
 		useSendMSGZC,
 	}
@@ -404,6 +375,10 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
 		}
 	}
+	// directAlloc
+	if d.DirectAlloc {
+		d.DirectAlloc = vortex.DirectAllocEnabled()
+	}
 	// fd
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
@@ -417,7 +392,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			return d.Control(network, address, raw)
 		}
 	}
-	fd, fdErr := newDialerFd(ctx, network, laddr, raddr, sotype, 0, false, control)
+	fd, directFd, fdErr := newDialerFd(ctx, vortex, d.DirectAlloc, network, laddr, raddr, sotype, 0, false, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -454,23 +429,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		fd.SetRemoteAddr(raddr)
 	}
 
-	// install fixed fd
-	fileIndex := -1
-	sqeFlags := uint8(0)
-	if d.AutoFixedFdInstall && vortex.RegisterFixedFdEnabled() {
-		sock := fd.Socket()
-		file, regErr := vortex.RegisterFixedFd(ctx, sock)
-		if regErr == nil {
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
-		} else {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: regErr}
-			}
-		}
-	}
-
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -482,18 +440,17 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	cc, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
 		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            fd,
-			fdFixed:       fileIndex != -1,
-			fileIndex:     fileIndex,
-			sqeFlags:      sqeFlags,
-			vortex:        vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			readBuffer:    atomic.Int64{},
-			writeBuffer:   atomic.Int64{},
-			useSendZC:     useSendZC,
+			ctx:             cc,
+			cancel:          cancel,
+			fd:              fd,
+			directFd:        directFd,
+			directAllocated: directFd != -1,
+			vortex:          vortex,
+			readDeadline:    time.Time{},
+			writeDeadline:   time.Time{},
+			readBuffer:      atomic.Int64{},
+			writeBuffer:     atomic.Int64{},
+			useSendZC:       useSendZC,
 		},
 		useSendMSGZC,
 	}
@@ -528,7 +485,7 @@ func (d *Dialer) DialIP(_ context.Context, network string, laddr, raddr *net.IPA
 	return &IPConn{c}, nil
 }
 
-func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
+func newDialerFd(ctx context.Context, vortex *aio.Vortex, directAlloc bool, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen bool, control ctrlCtxFn) (fd *sys.Fd, directFd int, err error) {
 	if reflect.ValueOf(laddr).IsNil() && reflect.ValueOf(raddr).IsNil() {
 		err = errors.New("missing address")
 		return
@@ -537,8 +494,21 @@ func newDialerFd(ctx context.Context, network string, laddr net.Addr, raddr net.
 	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, "dial")
 
 	// fd
-	sock, sockErr := sys.NewSocket(family, sotype, proto)
+	var (
+		sock    int
+		sockErr error
+	)
+	if directAlloc {
+		directFd, sockErr = vortex.SocketDirect(ctx, family, sotype, proto)
+		if sockErr == nil {
+			sock, sockErr = vortex.FixedFdInstall(ctx, directFd)
+		}
+	} else {
+		directFd = -1
+		sock, sockErr = sys.NewSocket(family, sotype, proto)
+	}
 	if sockErr != nil {
+		directFd = -1
 		err = sockErr
 		return
 	}

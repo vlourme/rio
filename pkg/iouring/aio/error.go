@@ -24,8 +24,6 @@ func IsUnsupported(err error) bool {
 	return errors.Is(err, ErrUnsupportedOp)
 }
 
-// MapErr maps from the context errors to the historical internal net
-// error values.
 func MapErr(err error) error {
 	switch err {
 	case context.Canceled:
@@ -59,4 +57,17 @@ func (e *TimeoutError) Timeout() bool   { return true }
 func (e *TimeoutError) Temporary() bool { return true }
 func (e *TimeoutError) Is(err error) bool {
 	return err == context.DeadlineExceeded
+}
+
+func NewRingErr(err error) error {
+	return &RingError{err}
+}
+
+type RingError struct {
+	Err error
+}
+
+func (e *RingError) Error() string { return "create iouring failed: " + e.Err.Error() }
+func (e *RingError) Is(err error) bool {
+	return errors.Is(err, e.Err)
 }

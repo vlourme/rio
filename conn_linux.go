@@ -18,18 +18,17 @@ import (
 )
 
 type conn struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	fd            *sys.Fd
-	fdFixed       bool
-	fileIndex     int
-	sqeFlags      uint8
-	vortex        *aio.Vortex
-	readDeadline  time.Time
-	writeDeadline time.Time
-	readBuffer    atomic.Int64
-	writeBuffer   atomic.Int64
-	useSendZC     bool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	fd              *sys.Fd
+	directFd        int
+	directAllocated bool
+	vortex          *aio.Vortex
+	readDeadline    time.Time
+	writeDeadline   time.Time
+	readBuffer      atomic.Int64
+	writeBuffer     atomic.Int64
+	useSendZC       bool
 }
 
 // Context get context of conn.
@@ -47,17 +46,21 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
+	var (
+		ctx      = c.ctx
+		fd       int
+		sqeFlags uint8
+	)
+	if c.directFd > -1 {
+		fd = c.directFd
+		sqeFlags = iouring.SQEFixedFile
 	} else {
 		fd = c.fd.Socket()
 	}
 	vortex := c.vortex
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, err = vortex.Receive(ctx, fd, b, deadline, c.sqeFlags)
+	n, err = vortex.Receive(ctx, fd, b, deadline, sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -81,10 +84,14 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
+	var (
+		ctx      = c.ctx
+		fd       int
+		sqeFlags uint8
+	)
+	if c.directFd > -1 {
+		fd = c.directFd
+		sqeFlags = iouring.SQEFixedFile
 	} else {
 		fd = c.fd.Socket()
 	}
@@ -92,9 +99,9 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	deadline := c.deadline(ctx, c.writeDeadline)
 
 	if c.useSendZC {
-		n, err = vortex.SendZC(ctx, fd, b, deadline, c.sqeFlags)
+		n, err = vortex.SendZC(ctx, fd, b, deadline, sqeFlags)
 	} else {
-		n, err = vortex.Send(ctx, fd, b, deadline, c.sqeFlags)
+		n, err = vortex.Send(ctx, fd, b, deadline, sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -104,36 +111,6 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return
 	}
 	return
-}
-
-// InstallFixedFd implements the FixedFd InstallFixedFd method.
-func (c *conn) InstallFixedFd() (err error) {
-	if !c.ok() {
-		return syscall.EINVAL
-	}
-
-	if c.fdFixed {
-		return nil
-	}
-	ctx := c.ctx
-	vortex := c.vortex
-
-	sock := c.fd.Socket()
-
-	file, regErr := vortex.RegisterFixedFd(ctx, sock)
-	if regErr != nil {
-		return &net.OpError{Op: "install_fixed_file", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: regErr}
-	}
-
-	c.fdFixed = true
-	c.fileIndex = file
-	c.sqeFlags |= iouring.SQEFixedFile
-	return nil
-}
-
-// FixedFdInstalled implements the FixedFd FixedFdInstalled method.
-func (c *conn) FixedFdInstalled() bool {
-	return c.fdFixed
 }
 
 // Close implements the net.Conn Close method.
@@ -146,21 +123,23 @@ func (c *conn) Close() error {
 	ctx := c.ctx
 	vortex := c.vortex
 
+	if c.directFd > -1 {
+		_ = vortex.CancelFixedFd(ctx, c.directFd)
+		err := vortex.CloseDirect(ctx, c.directFd)
+		if !c.directAllocated {
+			_ = vortex.UnregisterFixedFd(c.directFd)
+		}
+		if err == nil {
+			return nil
+		}
+	}
 	fd := c.fd.Socket()
 	_ = vortex.CancelFd(ctx, fd)
-
-	if c.fdFixed {
-		_ = vortex.CancelFixedFd(ctx, c.fileIndex)
-		_ = vortex.CloseDirect(ctx, c.fileIndex)
-		_ = vortex.UnregisterFixedFd(c.fileIndex)
-	}
-
-	err := vortex.Close(ctx, fd)
-	if err != nil {
+	if err := vortex.Close(ctx, fd); err != nil {
 		_ = syscall.Close(fd)
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
-	return nil
+	return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 }
 
 // LocalAddr implements the net.Conn LocalAddr method.
@@ -233,6 +212,7 @@ func (c *conn) ReadBuffer() (int, error) {
 	if n := c.readBuffer.Load(); n != 0 {
 		return int(n), nil
 	}
+
 	n, err := c.fd.ReadBuffer()
 	if err != nil {
 		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
@@ -261,6 +241,7 @@ func (c *conn) WriteBuffer() (int, error) {
 	if n := c.writeBuffer.Load(); n != 0 {
 		return int(n), nil
 	}
+
 	n, err := c.fd.WriteBuffer()
 	if err != nil {
 		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
@@ -274,6 +255,7 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	if !c.ok() {
 		return syscall.EINVAL
 	}
+
 	if err := c.fd.SetWriteBuffer(bytes); err != nil {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
@@ -332,93 +314,6 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
-
-// AcquireRegisteredBuffer implements the FixedReaderWriter AcquireRegisteredBuffer method.
-func (c *conn) AcquireRegisteredBuffer() *aio.FixedBuffer {
-	if !c.ok() {
-		return nil
-	}
-	return c.vortex.AcquireBuffer()
-}
-
-// ReleaseRegisteredBuffer implements the FixedReaderWriter ReleaseRegisteredBuffer method.
-func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
-	if !c.ok() {
-		return
-	}
-	c.vortex.ReleaseBuffer(buf)
-}
-
-// ReadFixed implements the FixedReaderWriter ReadFixed method.
-func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
-	if !c.ok() {
-		return 0, syscall.EINVAL
-	}
-	if buf == nil {
-		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-	if !buf.Validate() {
-		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
-	} else {
-		fd = c.fd.Socket()
-	}
-	vortex := c.vortex
-	deadline := c.deadline(ctx, c.readDeadline)
-
-	n, err = vortex.ReadFixed(ctx, fd, buf, deadline, c.sqeFlags)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			err = net.ErrClosed
-		}
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-		return
-	}
-
-	if n == 0 && c.fd.ZeroReadIsEOF() {
-		err = io.EOF
-		return
-	}
-	return
-}
-
-// WriteFixed implements the FixedReaderWriter WriteFixed method.
-func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
-	if !c.ok() {
-		return 0, syscall.EINVAL
-	}
-	if buf == nil {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-	if !buf.Validate() {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
-	} else {
-		fd = c.fd.Socket()
-	}
-	vortex := c.vortex
-	deadline := c.deadline(ctx, c.writeDeadline)
-
-	n, err = vortex.WriteFixed(ctx, fd, buf, deadline, c.sqeFlags)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			err = net.ErrClosed
-		}
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-		return
-	}
-	return
-}
 
 // UseSendZC try to enable send_zc.
 func (c *conn) UseSendZC(use bool) bool {

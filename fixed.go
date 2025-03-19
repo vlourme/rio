@@ -30,20 +30,18 @@ func ConvertToFixedReaderWriter(c net.Conn) (fixed FixedReaderWriter, ok bool) {
 	return
 }
 
-// FixedFd
-// it is used to install fd into iouring.
-type FixedFd interface {
-	// InstallFixedFd
-	// install fixed fd into iouring.
-	InstallFixedFd() (err error)
-	// FixedFdInstalled
-	// check installed.
-	FixedFdInstalled() bool
+// FixedConn
+// use to register fixed file into iouring.
+type FixedConn interface {
+	// RegisterDirectFd register fd into iouring and get a direct fd
+	RegisterDirectFd() error
+	// DirectFd get direct fd
+	DirectFd() int
 }
 
-// ConvertToFixedFd
-// convert net.Conn, rio.TCPListener or rio.UnixListener to FixedFd.
-func ConvertToFixedFd(v any) (fixed FixedFd, ok bool) {
-	fixed, ok = v.(FixedFd)
+// ConvertToFixedConn
+// convert net.Conn to FixedConn.
+func ConvertToFixedConn(c net.Conn) (fixed FixedConn, ok bool) {
+	fixed, ok = c.(FixedConn)
 	return
 }

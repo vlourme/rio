@@ -8,6 +8,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"github.com/brickingsoft/rio/pkg/process"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,16 +43,14 @@ func getVortex() (*aio.Vortex, error) {
 			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithEntries(entries))
 
 			flags, hasFlags := loadEnvFlags()
-			schema := loadEnvFlagsSchema()
-			if schema == "" {
-				if hasFlags {
-					vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(flags))
-				} else {
-					vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlagsSchema(aio.DefaultFlagsSchema))
+			if !hasFlags {
+				if cpus := runtime.NumCPU(); cpus > 3 { // use sq_poll and sq_aff
+					flags = iouring.SetupSQPoll | iouring.SetupSQAff
+				} else { // use coop task run
+					flags = iouring.SetupCoopTaskRun
 				}
-			} else {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlagsSchema(schema))
 			}
+			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(flags))
 
 			sqThreadCPU := loadEnvSQThreadCPU()
 			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadCPU(sqThreadCPU))
@@ -85,6 +84,10 @@ func getVortex() (*aio.Vortex, error) {
 
 			files := loadEnvRegFixedFiles()
 			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(files))
+
+			reservedFiles := loadEnvRegReservedFixedFiles()
+			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterReservedFixedFiles(reservedFiles))
+
 		}
 		// open
 		vortexInstance, vortexInstanceErr = aio.Open(context.Background(), vortexInstanceOptions...)
@@ -93,20 +96,20 @@ func getVortex() (*aio.Vortex, error) {
 }
 
 const (
-	envEntries                = "RIO_IOURING_ENTRIES"
-	envFlags                  = "RIO_IOURING_SETUP_FLAGS"
-	envFlagsSchema            = "RIO_IOURING_SETUP_FLAGS_SCHEMA"
-	envSQThreadCPU            = "RIO_IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle           = "RIO_IOURING_SQ_THREAD_IDLE"
-	envRegisterFixedBuffers   = "RIO_IOURING_REG_FIXED_BUFFERS"
-	envRegisterFixedFiles     = "RIO_IOURING_REG_FIXED_FILES"
-	envPrepSQEBatchSize       = "RIO_PREP_SQE_BATCH_SIZE"
-	envPrepSQEBatchTimeWindow = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
-	envPrepSQEBatchIdleTime   = "RIO_PREP_SQE_BATCH_IDLE_TIME"
-	envPrepSQEBatchAffCPU     = "RIO_PREP_SQE_BATCH_AFF_CPU"
-	envWaitCQEBatchSize       = "RIO_WAIT_CQE_BATCH_SIZE"
-	envWaitCQEBatchTimeCurve  = "RIO_WAIT_CQE_BATCH_TIME_CURVE"
-	envWaitCQEBatchAffCPU     = "RIO_WAIT_CQE_BATCH_AFF_CPU"
+	envEntries                    = "RIO_IOURING_ENTRIES"
+	envFlags                      = "RIO_IOURING_SETUP_FLAGS"
+	envSQThreadCPU                = "RIO_IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle               = "RIO_IOURING_SQ_THREAD_IDLE"
+	envRegisterFixedBuffers       = "RIO_IOURING_REG_FIXED_BUFFERS"
+	envRegisterFixedFiles         = "RIO_IOURING_REG_FIXED_FILES"
+	envRegisterReservedFixedFiles = "RIO_IOURING_REG_RESERVED_FIXED_FILES"
+	envPrepSQEBatchSize           = "RIO_PREP_SQE_BATCH_SIZE"
+	envPrepSQEBatchTimeWindow     = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
+	envPrepSQEBatchIdleTime       = "RIO_PREP_SQE_BATCH_IDLE_TIME"
+	envPrepSQEBatchAffCPU         = "RIO_PREP_SQE_BATCH_AFF_CPU"
+	envWaitCQEBatchSize           = "RIO_WAIT_CQE_BATCH_SIZE"
+	envWaitCQEBatchTimeCurve      = "RIO_WAIT_CQE_BATCH_TIME_CURVE"
+	envWaitCQEBatchAffCPU         = "RIO_WAIT_CQE_BATCH_AFF_CPU"
 )
 
 func loadEnvEntries() uint32 {
@@ -135,14 +138,6 @@ func loadEnvFlags() (uint32, bool) {
 		}
 	}
 	return flags, true
-}
-
-func loadEnvFlagsSchema() string {
-	s, has := os.LookupEnv(envFlagsSchema)
-	if !has {
-		return ""
-	}
-	return strings.ToUpper(strings.TrimSpace(s))
 }
 
 func loadEnvSQThreadCPU() uint32 {
@@ -301,6 +296,18 @@ func loadEnvRegFixedBuffers() (size uint32, count uint32) {
 
 func loadEnvRegFixedFiles() uint32 {
 	s, has := os.LookupEnv(envRegisterFixedFiles)
+	if !has {
+		return 0
+	}
+	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
+	if parseErr != nil {
+		return 0
+	}
+	return uint32(u)
+}
+
+func loadEnvRegReservedFixedFiles() uint32 {
+	s, has := os.LookupEnv(envRegisterReservedFixedFiles)
 	if !has {
 		return 0
 	}

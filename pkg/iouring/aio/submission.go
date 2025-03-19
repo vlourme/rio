@@ -10,6 +10,40 @@ import (
 	"time"
 )
 
+func (vortex *Vortex) Socket(ctx context.Context, family int, sotype int, proto int) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.PrepareSocket(family, sotype, proto)
+	n, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) SocketDirect(ctx context.Context, family int, sotype int, proto int) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.WithDirect(true).PrepareSocket(family, sotype, proto)
+	n, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) SetSocketoptInt(ctx context.Context, fd int, level int, optName int, optValue int, sqeFlags uint8) (err error) {
+	op := vortex.acquireOperation()
+	op.WithSQEFlags(sqeFlags).PrepareSetSocketoptInt(fd, level, optName, optValue)
+	_, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) GetSocketoptInt(ctx context.Context, fd int, level int, optName int, sqeFlags uint8) (n int, err error) {
+	var optValue int
+	op := vortex.acquireOperation()
+	op.WithSQEFlags(sqeFlags).PrepareGetSocketoptInt(fd, level, optName, &optValue)
+	_, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	n = optValue
+	return
+}
+
 func (vortex *Vortex) Connect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
 	op := vortex.acquireOperation()
 	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
@@ -28,7 +62,15 @@ func (vortex *Vortex) Accept(ctx context.Context, fd int, addr *syscall.RawSocka
 
 func (vortex *Vortex) AcceptDirect(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8, fileIndex uint32) (n int, err error) {
 	op := vortex.acquireOperation()
-	op.WithSQEFlags(sqeFlags).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
+	n, _, err = vortex.submitAndWait(ctx, op)
+	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) AcceptDirectAlloc(ctx context.Context, fd int, addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, sqeFlags uint8) (n int, err error) {
+	op := vortex.acquireOperation()
+	op.WithSQEFlags(sqeFlags).WithDeadline(deadline).WithFiledIndex(iouring.FileIndexAlloc).WithDirect(true).PrepareAccept(fd, addr, addrLen)
 	n, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return
@@ -42,9 +84,9 @@ func (vortex *Vortex) Close(ctx context.Context, fd int) (err error) {
 	return
 }
 
-func (vortex *Vortex) CloseDirect(ctx context.Context, fd int) (err error) {
+func (vortex *Vortex) CloseDirect(ctx context.Context, fileIndex int) (err error) {
 	op := vortex.acquireOperation()
-	op.WithDirect(true).PrepareClose(fd)
+	op.PrepareCloseDirect(fileIndex)
 	_, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
 	return

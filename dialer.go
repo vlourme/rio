@@ -11,18 +11,18 @@ import (
 
 var (
 	DefaultDialer = Dialer{
-		Timeout:            15 * time.Second,
-		Deadline:           time.Time{},
-		LocalAddr:          nil,
-		KeepAlive:          0,
-		KeepAliveConfig:    net.KeepAliveConfig{Enable: true},
-		MultipathTCP:       false,
-		FastOpen:           false,
-		QuickAck:           false,
-		SendZC:             false,
-		AutoFixedFdInstall: false,
-		Control:            nil,
-		ControlContext:     nil,
+		Timeout:         15 * time.Second,
+		Deadline:        time.Time{},
+		LocalAddr:       nil,
+		KeepAlive:       0,
+		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
+		MultipathTCP:    false,
+		FastOpen:        false,
+		QuickAck:        false,
+		SendZC:          false,
+		DirectAlloc:     false,
+		Control:         nil,
+		ControlContext:  nil,
 	}
 )
 
@@ -178,8 +178,9 @@ type Dialer struct {
 	QuickAck bool
 	// SendZC is set IOURING.OP_SENDZC
 	SendZC bool
-	// AutoFixedFdInstall is set install conn fd into iouring after accepted.
-	AutoFixedFdInstall bool
+	// DirectAlloc is use iouring direct allocated socket to dial.
+	// and kernel version must greater than 6.8 .
+	DirectAlloc bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//
@@ -228,12 +229,10 @@ func (d *Dialer) SetSendZC(use bool) {
 	d.SendZC = use
 }
 
-// SetAutoFixedFdInstall set auto install fixed fd.
-//
-// auto install fixed fd when connected.
-// available after [RIO_IOURING_REG_FIXED_FILES] set.
-func (d *Dialer) SetAutoFixedFdInstall(auto bool) {
-	d.AutoFixedFdInstall = auto
+// SetDirectAlloc is set to use iouring direct allocated socket to dial.
+// kernel version must greater than 6.8 .
+func (d *Dialer) SetDirectAlloc(directAlloc bool) {
+	d.DirectAlloc = directAlloc
 }
 
 // SetVortex set customize [aio.Vortex].

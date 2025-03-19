@@ -1,26 +1,26 @@
 package aio
 
 import (
-	"strings"
 	"time"
 )
 
 type Options struct {
-	Entries                  uint32
-	Flags                    uint32
-	SQThreadCPU              uint32
-	SQThreadIdle             uint32
-	RegisterFixedBufferSize  uint32
-	RegisterFixedBufferCount uint32
-	RegisterFixedFiles       uint32
-	PrepSQEBatchSize         uint32
-	PrepSQEBatchTimeWindow   time.Duration
-	PrepSQEBatchIdleTime     time.Duration
-	PrepSQEBatchAffCPU       int
-	WaitCQEBatchSize         uint32
-	WaitCQEBatchTimeCurve    Curve
-	WaitCQEBatchAffCPU       int
-	AttachRingFd             int
+	Entries                    uint32
+	Flags                      uint32
+	SQThreadCPU                uint32
+	SQThreadIdle               uint32
+	RegisterFixedBufferSize    uint32
+	RegisterFixedBufferCount   uint32
+	RegisterFixedFiles         uint32
+	RegisterReservedFixedFiles uint32
+	PrepSQEBatchSize           uint32
+	PrepSQEBatchTimeWindow     time.Duration
+	PrepSQEBatchIdleTime       time.Duration
+	PrepSQEBatchAffCPU         int
+	WaitCQEBatchSize           uint32
+	WaitCQEBatchTimeCurve      Curve
+	WaitCQEBatchAffCPU         int
+	AttachRingFd               int
 }
 
 type Option func(*Options)
@@ -170,32 +170,10 @@ func WithRegisterFixedFiles(files uint32) Option {
 	}
 }
 
-const (
-	DefaultFlagsSchema     = "DEFAULT"
-	PerformanceFlagsSchema = "PERFORMANCE"
-)
-
-// WithFlagsSchema
-// setup schema of iouring's flags.
-func WithFlagsSchema(schema string) Option {
+// WithRegisterReservedFixedFiles
+// setup  register reserved fixed fd of iouring.
+func WithRegisterReservedFixedFiles(files uint32) Option {
 	return func(opts *Options) {
-		if opts.Flags != 0 {
-			return
-		}
-		schema = strings.TrimSpace(schema)
-		schema = strings.ToUpper(schema)
-		flags := uint32(0)
-		switch schema {
-		case DefaultFlagsSchema:
-			flags = defaultIOURingSetupFlags()
-			break
-		case PerformanceFlagsSchema:
-			flags = performanceIOURingSetupFlags()
-			break
-		default:
-			flags = defaultIOURingSetupFlags()
-			break
-		}
-		opts.Flags = flags
+		opts.RegisterReservedFixedFiles = files
 	}
 }

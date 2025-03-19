@@ -45,6 +45,7 @@ func NewOperation(resultChanBuffer int) *Operation {
 type Operation struct {
 	status     atomic.Int64
 	kind       uint8
+	subKind    int64
 	borrowed   bool
 	resultCh   chan Result
 	deadline   time.Time
@@ -107,6 +108,34 @@ func (op *Operation) PrepareNop() (err error) {
 	return
 }
 
+func (op *Operation) PrepareSetSocketoptInt(fd int, level int, optName int, optValue int) {
+	op.kind = iouring.OpUringCmd
+	op.subKind = iouring.SocketOpSetsockopt
+	op.fd = fd
+	op.pipe.fdIn = level
+	op.pipe.fdOut = optName
+	op.pipe.offIn = int64(optValue)
+	return
+}
+
+func (op *Operation) PrepareGetSocketoptInt(fd int, level int, optName int, optValue *int) {
+	op.kind = iouring.OpUringCmd
+	op.subKind = iouring.SocketOpGetsockopt
+	op.fd = fd
+	op.pipe.fdIn = level
+	op.pipe.fdOut = optName
+	op.ptr = unsafe.Pointer(optValue)
+	return
+}
+
+func (op *Operation) PrepareSocket(family int, sotype int, proto int) {
+	op.kind = iouring.OpSocket
+	op.pipe.fdIn = family
+	op.pipe.fdOut = sotype
+	op.pipe.offIn = int64(proto)
+	return
+}
+
 func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
 	op.kind = iouring.OpConnect
 	op.fd = fd
@@ -135,6 +164,12 @@ func (op *Operation) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen
 func (op *Operation) PrepareClose(fd int) {
 	op.kind = iouring.OpClose
 	op.fd = fd
+}
+
+func (op *Operation) PrepareCloseDirect(filedIndex int) {
+	op.kind = iouring.OpClose
+	op.filedIndex = filedIndex
+	op.directMode = true
 }
 
 func (op *Operation) PrepareReadFixed(fd int, buf *FixedBuffer) {
@@ -231,6 +266,7 @@ func (op *Operation) PrepareCancelFd(fd int) {
 func (op *Operation) PrepareCancelFixedFd(fileIndex int) {
 	op.kind = iouring.OpAsyncCancel
 	op.filedIndex = fileIndex
+	op.directMode = true
 }
 
 func (op *Operation) PrepareFixedFdInstall(fd int) {
@@ -241,6 +277,7 @@ func (op *Operation) PrepareFixedFdInstall(fd int) {
 func (op *Operation) reset() {
 	// kind
 	op.kind = iouring.OpLast
+	op.subKind = -1
 	// status
 	op.status.Store(ReadyOperationStatus)
 	// multishot

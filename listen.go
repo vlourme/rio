@@ -111,8 +111,9 @@ type ListenConfig struct {
 	SendZC bool
 	// MultishotAccept is set use IOURING.OP_MULTISHOT_ACCEPT
 	MultishotAccept bool
-	// AutoFixedFdInstall is set install conn fd into iouring after accepted.
-	AutoFixedFdInstall bool
+	// DirectAlloc is use iouring direct allocated socket to accept.
+	// and kernel version must greater than 6.8 .
+	DirectAlloc bool
 	// Vortex customize [aio.Vortex]
 	Vortex *aio.Vortex
 }
@@ -150,12 +151,10 @@ func (lc *ListenConfig) SetMultishotAccept(multi bool) {
 	lc.MultishotAccept = multi
 }
 
-// SetAutoFixedFdInstall set auto install fixed fd.
-//
-// auto install fixed fd when connected.
-// available after [RIO_IOURING_REG_FIXED_FILES] set.
-func (lc *ListenConfig) SetAutoFixedFdInstall(auto bool) {
-	lc.AutoFixedFdInstall = auto
+// SetDirectAlloc is set to use iouring direct allocated socket to accept.
+// kernel version must greater than 6.8 .
+func (lc *ListenConfig) SetDirectAlloc(directAlloc bool) {
+	lc.DirectAlloc = directAlloc
 }
 
 // SetVortex set customize [aio.Vortex].

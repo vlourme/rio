@@ -135,8 +135,10 @@ const (
 const FileIndexAlloc uint32 = 4294967295
 
 const (
-	SocketUringOpSiocinq = iota
-	SocketUringOpSiocoutq
+	SocketOpSIOCInQ = iota
+	SocketOpSIOCOutQ
+	SocketOpGetsockopt
+	SocketOpSetsockopt
 )
 
 const (
@@ -152,6 +154,17 @@ const (
 const (
 	FixedFdNoCloexec uint32 = 1 << iota
 )
+
+type union64_2 struct {
+	n1 uint32
+	n2 uint32
+}
+
+func mergeUint32ToUint64(n1 uint32, n2 uint32) uint64 {
+	n := union64_2{n1, n2}
+	np := unsafe.Pointer(&n)
+	return uint64(*(*uint64)(np))
+}
 
 type SubmissionQueueEntry struct {
 	OpCode      uint8
@@ -190,6 +203,23 @@ func (entry *SubmissionQueueEntry) PrepareNop() {
 
 // [Net] ***************************************************************************************************************
 
+func (entry *SubmissionQueueEntry) PrepareSetsockoptInt(fd int, level int, optName int, optValue *int) {
+	entry.prepareRW(OpUringCmd, fd, 0, 0, 0)
+	entry.Addr3 = uint64(uintptr(unsafe.Pointer(optValue)))          // optval
+	entry.Addr = mergeUint32ToUint64(uint32(level), uint32(optName)) // level, optname
+	entry.SpliceFdIn = int32(unsafe.Sizeof(optValue))                // optlen
+	entry.Off = SocketOpSetsockopt                                   // cmd_op
+}
+
+func (entry *SubmissionQueueEntry) PrepareGetsockoptInt(fd int, level int, optName int, optValue *int) {
+	entry.prepareRW(OpUringCmd, fd, 0, 0, 0)
+	entry.Addr3 = uint64(uintptr(unsafe.Pointer(optValue)))          // optval
+	entry.Addr = mergeUint32ToUint64(uint32(level), uint32(optName)) // level, optname
+	optValueLen := unsafe.Sizeof(optValue)
+	entry.SpliceFdIn = int32(unsafe.Sizeof(unsafe.Pointer(&optValueLen))) // optlen
+	entry.Off = SocketOpGetsockopt                                        // cmd_op
+}
+
 func (entry *SubmissionQueueEntry) PrepareBind(fd int, addr *syscall.RawSockaddrAny, addrLen uint64) {
 	entry.prepareRW(OpBind, fd, uintptr(unsafe.Pointer(addr)), 0, addrLen)
 }
@@ -209,6 +239,11 @@ func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr *syscall.Raw
 		fileIndex--
 	}
 	entry.setTargetFixedFile(fileIndex)
+}
+
+func (entry *SubmissionQueueEntry) PrepareAcceptDirectAlloc(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32) {
+	entry.PrepareAccept(fd, addr, addrLen, flags)
+	entry.setTargetFixedFile(FileIndexAlloc - 1)
 }
 
 func (entry *SubmissionQueueEntry) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
@@ -386,9 +421,9 @@ func (entry *SubmissionQueueEntry) PrepareCancelFd(fd int, flags uint32) {
 	entry.OpcodeFlags = flags | AsyncCancelFd
 }
 
-func (entry *SubmissionQueueEntry) PrepareCancelFdFixed(fileIndex int, flags uint32) {
-	entry.prepareRW(OpAsyncCancel, fileIndex, 0, 0, 0)
-	entry.OpcodeFlags = flags | AsyncCancelFdFixed
+func (entry *SubmissionQueueEntry) PrepareCancelFdFixed(fileIndex uint32, flags uint32) {
+	entry.prepareRW(OpAsyncCancel, int(fileIndex), 0, 0, 0)
+	entry.OpcodeFlags = flags | AsyncCancelFd | AsyncCancelFdFixed
 }
 
 func (entry *SubmissionQueueEntry) PrepareCancelALL() {

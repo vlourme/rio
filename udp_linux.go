@@ -120,14 +120,12 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 	// install fixed fd
-	fileIndex := -1
-	sqeFlags := uint8(0)
+	directFd := -1
 	if vortex.RegisterFixedFdEnabled() {
 		sock := fd.Socket()
-		file, regErr := vortex.RegisterFixedFd(ctx, sock)
+		file, regErr := vortex.RegisterFixedFd(sock)
 		if regErr == nil {
-			fileIndex = file
-			sqeFlags = iouring.SQEFixedFile
+			directFd = file
 		} else {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
@@ -146,18 +144,17 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
 		conn{
-			ctx:           cc,
-			cancel:        cancel,
-			fd:            fd,
-			fdFixed:       fileIndex != -1,
-			fileIndex:     fileIndex,
-			sqeFlags:      sqeFlags,
-			vortex:        vortex,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			readBuffer:    atomic.Int64{},
-			writeBuffer:   atomic.Int64{},
-			useSendZC:     useSendZC,
+			ctx:             cc,
+			cancel:          cancel,
+			fd:              fd,
+			directFd:        directFd,
+			directAllocated: false,
+			vortex:          vortex,
+			readDeadline:    time.Time{},
+			writeDeadline:   time.Time{},
+			readBuffer:      atomic.Int64{},
+			writeBuffer:     atomic.Int64{},
+			useSendZC:       useSendZC,
 		},
 		useSendMSGZC,
 	}
@@ -291,11 +288,14 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	if len(b) == 0 {
 		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
+	var (
+		ctx      = c.ctx
+		fd       int
+		sqeFlags uint8
+	)
+	if c.directFd > -1 {
+		fd = c.directFd
+		sqeFlags = iouring.SQEFixedFile
 	} else {
 		fd = c.fd.Socket()
 	}
@@ -306,7 +306,7 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline, c.sqeFlags)
+	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline, sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -367,10 +367,14 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
+	var (
+		ctx      = c.ctx
+		fd       int
+		sqeFlags uint8
+	)
+	if c.directFd > -1 {
+		fd = c.directFd
+		sqeFlags = iouring.SQEFixedFile
 	} else {
 		fd = c.fd.Socket()
 	}
@@ -381,7 +385,7 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 
 	deadline := c.deadline(ctx, c.readDeadline)
 
-	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline, c.sqeFlags)
+	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline, sqeFlags)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -464,10 +468,14 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
 	}
 
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
+	var (
+		ctx      = c.ctx
+		fd       int
+		sqeFlags uint8
+	)
+	if c.directFd > -1 {
+		fd = c.directFd
+		sqeFlags = iouring.SQEFixedFile
 	} else {
 		fd = c.fd.Socket()
 	}
@@ -476,9 +484,9 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 	deadline := c.deadline(ctx, c.writeDeadline)
 
 	if c.useSendMSGZC {
-		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline, c.sqeFlags)
+		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline, sqeFlags)
 	} else {
-		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline, c.sqeFlags)
+		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline, sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -546,10 +554,14 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 		b = []byte{0}
 	}
 
-	ctx := c.ctx
-	fd := 0
-	if c.fdFixed {
-		fd = c.fileIndex
+	var (
+		ctx      = c.ctx
+		fd       int
+		sqeFlags uint8
+	)
+	if c.directFd > -1 {
+		fd = c.directFd
+		sqeFlags = iouring.SQEFixedFile
 	} else {
 		fd = c.fd.Socket()
 	}
@@ -557,9 +569,9 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 
 	deadline := c.deadline(ctx, c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline, c.sqeFlags)
+		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline, sqeFlags)
 	} else {
-		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline, c.sqeFlags)
+		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline, sqeFlags)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
