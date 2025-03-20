@@ -3,16 +3,19 @@ package rio_test
 import (
 	"fmt"
 	"github.com/brickingsoft/rio"
-	"math/rand"
 	"net"
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestUnix(t *testing.T) {
-	addr := fmt.Sprintf("%s/rio_unix_%d.sock", os.TempDir(), rand.Intn(100))
+	addr := fmt.Sprintf("%s/rio_unix_%d.sock", os.TempDir(), time.Now().Unix())
 	t.Log("addr:", addr)
+	defer func() {
+		t.Log("rm addr:", os.Remove(addr))
+	}()
 
 	ln, lnErr := rio.Listen("unix", addr)
 	if lnErr != nil {
@@ -79,11 +82,15 @@ func TestUnix(t *testing.T) {
 }
 
 func TestUnixgram(t *testing.T) {
-	raddr := fmt.Sprintf("%s/rio_unix_%d.sock", os.TempDir(), rand.Intn(100))
-	laddr := fmt.Sprintf("%s/rio_unix_%d.sock", os.TempDir(), rand.Intn(100))
+	raddr := fmt.Sprintf("%s/rio_unixgram_r_%d.sock", os.TempDir(), time.Now().Unix())
+	laddr := fmt.Sprintf("%s/rio_unixgram_l_%d.sock", os.TempDir(), time.Now().Unix())
 	t.Log("srv addr:", raddr, "cli addr:", laddr)
-	defer os.Remove(raddr)
-	defer os.Remove(laddr)
+	defer func() {
+		t.Log("rm raddr:", os.Remove(raddr))
+	}()
+	defer func() {
+		t.Log("rm laddr:", os.Remove(laddr))
+	}()
 
 	srv, srvErr := rio.ListenPacket("unixgram", raddr)
 	if srvErr != nil {
