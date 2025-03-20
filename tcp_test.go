@@ -17,7 +17,14 @@ import (
 )
 
 func TestTCP(t *testing.T) {
-	ln, lnErr := rio.Listen("tcp", ":9000")
+	ctx := context.Background()
+	config := rio.ListenConfig{
+		MultipathTCP:       false,
+		ReusePort:          false,
+		MultishotAccept:    false,
+		DisableDirectAlloc: true,
+	}
+	ln, lnErr := config.Listen(ctx, "tcp", ":9000")
 	if lnErr != nil {
 		t.Error(lnErr)
 		return
@@ -60,7 +67,10 @@ func TestTCP(t *testing.T) {
 		}
 	}(ln, wg)
 
-	conn, connErr := rio.Dial("tcp", "127.0.0.1:9000")
+	dialer := rio.DefaultDialer
+	dialer.DisableDirectAlloc = true
+
+	conn, connErr := dialer.Dial("tcp", "127.0.0.1:9000")
 	if connErr != nil {
 		t.Error(connErr)
 		return

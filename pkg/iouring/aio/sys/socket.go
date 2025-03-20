@@ -4,7 +4,7 @@ package sys
 
 import (
 	"errors"
-	"github.com/brickingsoft/rio/pkg/kernel"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"golang.org/x/sys/unix"
 	"os"
 	"syscall"
@@ -35,8 +35,10 @@ func NewSocket(family int, sotype int, protocol int) (sock int, err error) {
 		}
 	}
 	// try set SO_ZEROCOPY
-	if kernel.Enable(4, 14, 0) {
-		err = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, 1)
+	if family == syscall.AF_INET || family == syscall.AF_INET6 {
+		if iouring.VersionEnable(4, 14, 0) {
+			err = syscall.SetsockoptInt(sock, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, 1)
+		}
 	}
 	return
 }

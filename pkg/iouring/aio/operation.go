@@ -108,7 +108,14 @@ func (op *Operation) PrepareNop() (err error) {
 	return
 }
 
-func (op *Operation) PrepareSetSocketoptInt(fd int, level int, optName int, optValue int) {
+func (op *Operation) PrepareSetSocketoptInt(nfd *NetFd, level int, optName int, optValue int) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpUringCmd
 	op.subKind = iouring.SocketOpSetsockopt
 	op.fd = fd
@@ -118,13 +125,48 @@ func (op *Operation) PrepareSetSocketoptInt(fd int, level int, optName int, optV
 	return
 }
 
-func (op *Operation) PrepareGetSocketoptInt(fd int, level int, optName int, optValue *int) {
+func (op *Operation) PrepareGetSocketoptInt(nfd *NetFd, level int, optName int, optValue *int) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpUringCmd
 	op.subKind = iouring.SocketOpGetsockopt
 	op.fd = fd
 	op.pipe.fdIn = level
 	op.pipe.fdOut = optName
 	op.ptr = unsafe.Pointer(optValue)
+	return
+}
+
+func (op *Operation) PrepareCloseRead(nfd *NetFd) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
+	op.kind = iouring.OpShutdown
+	op.fd = fd
+	op.pipe.fdIn = syscall.SHUT_RD
+	return
+}
+
+func (op *Operation) PrepareCloseWrite(nfd *NetFd) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
+	op.kind = iouring.OpShutdown
+	op.fd = fd
+	op.pipe.fdIn = syscall.SHUT_WR
 	return
 }
 
@@ -136,7 +178,14 @@ func (op *Operation) PrepareSocket(family int, sotype int, proto int) {
 	return
 }
 
-func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) PrepareConnect(nfd *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpConnect
 	op.fd = fd
 	op.msg.Name = (*byte)(unsafe.Pointer(addr))
@@ -144,7 +193,15 @@ func (op *Operation) PrepareConnect(fd int, addr *syscall.RawSockaddrAny, addrLe
 	return
 }
 
-func (op *Operation) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
+	fd, direct := ln.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if ln.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
+	op.pipe.fdIn = syscall.SOCK_NONBLOCK
 	op.kind = iouring.OpAccept
 	op.multishot = true
 	op.fd = fd
@@ -153,7 +210,14 @@ func (op *Operation) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny
 	return
 }
 
-func (op *Operation) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
+	fd, direct := ln.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if ln.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpAccept
 	op.fd = fd
 	op.msg.Name = (*byte)(unsafe.Pointer(addr))
@@ -172,7 +236,14 @@ func (op *Operation) PrepareCloseDirect(filedIndex int) {
 	op.directMode = true
 }
 
-func (op *Operation) PrepareReadFixed(fd int, buf *FixedBuffer) {
+func (op *Operation) PrepareReadFixed(nfd *NetFd, buf *FixedBuffer) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpReadFixed
 	op.fd = fd
 	op.msg.Name = &buf.value[buf.rPos]
@@ -181,7 +252,14 @@ func (op *Operation) PrepareReadFixed(fd int, buf *FixedBuffer) {
 	return
 }
 
-func (op *Operation) PrepareWriteFixed(fd int, buf *FixedBuffer) {
+func (op *Operation) PrepareWriteFixed(nfd *NetFd, buf *FixedBuffer) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpWriteFixed
 	op.fd = fd
 	op.msg.Name = &buf.value[buf.rPos]
@@ -190,7 +268,14 @@ func (op *Operation) PrepareWriteFixed(fd int, buf *FixedBuffer) {
 	return
 }
 
-func (op *Operation) PrepareReceive(fd int, b []byte) {
+func (op *Operation) PrepareReceive(nfd *NetFd, b []byte) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpRecv
 	op.fd = fd
 	op.msg.Name = &b[0]
@@ -198,7 +283,14 @@ func (op *Operation) PrepareReceive(fd int, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareSend(fd int, b []byte) {
+func (op *Operation) PrepareSend(nfd *NetFd, b []byte) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpSend
 	op.fd = fd
 	op.msg.Name = &b[0]
@@ -206,7 +298,14 @@ func (op *Operation) PrepareSend(fd int, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareSendZC(fd int, b []byte) {
+func (op *Operation) PrepareSendZC(nfd *NetFd, b []byte) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpSendZC
 	op.fd = fd
 	op.msg.Name = &b[0]
@@ -214,21 +313,42 @@ func (op *Operation) PrepareSendZC(fd int, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) PrepareReceiveMsg(nfd *NetFd, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpRecvmsg
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)
 	return
 }
 
-func (op *Operation) PrepareSendMsg(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) PrepareSendMsg(nfd *NetFd, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpSendmsg
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)
 	return
 }
 
-func (op *Operation) PrepareSendMsgZC(fd int, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) PrepareSendMsgZC(nfd *NetFd, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+	fd, direct := nfd.Socket()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
 	op.kind = iouring.OpSendMsgZC
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)

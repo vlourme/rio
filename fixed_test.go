@@ -39,7 +39,7 @@ func TestFixed(t *testing.T) {
 				return
 			}
 			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
-			frw, _ := rio.ConvertToFixedReaderWriter(conn)
+			frw, _ := conn.(rio.Conn)
 			buf := frw.AcquireRegisteredBuffer()
 			rn, rErr := frw.ReadFixed(buf)
 			_, _ = buf.Read(b[:rn])

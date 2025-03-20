@@ -299,7 +299,7 @@ func SockaddrToRawSockaddrAny(sa syscall.Sockaddr) (name *syscall.RawSockaddrAny
 	}
 }
 
-func interfaceToIPv4Addr(ifi *net.Interface) (net.IP, error) {
+func InterfaceToIPv4Addr(ifi *net.Interface) (net.IP, error) {
 	if ifi == nil {
 		return net.IPv4zero, nil
 	}
@@ -322,7 +322,7 @@ func interfaceToIPv4Addr(ifi *net.Interface) (net.IP, error) {
 	return nil, errors.New("no such network interface")
 }
 
-func setIPv4MreqToInterface(mreq *syscall.IPMreq, ifi *net.Interface) error {
+func SetIPv4MreqToInterface(mreq *syscall.IPMreq, ifi *net.Interface) error {
 	if ifi == nil {
 		return nil
 	}

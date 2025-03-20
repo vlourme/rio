@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
-	"github.com/brickingsoft/rio/pkg/sys"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"net"
 	"time"
 )
@@ -14,8 +14,6 @@ import (
 func (d *Dialer) dial(ctx context.Context, network string, laddr, raddr net.Addr) (c net.Conn, err error) {
 	switch a := raddr.(type) {
 	case *net.TCPAddr:
-		d.SetFastOpen(true)
-		d.SetQuickAck(true)
 		la, _ := laddr.(*net.TCPAddr)
 		c, err = d.DialTCP(ctx, network, la, a)
 		break

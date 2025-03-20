@@ -61,13 +61,13 @@ func (op *Operation) makeSQE(r *Ring) error {
 		addrLenPtr := uint64(uintptr(unsafe.Pointer(&op.msg.Namelen)))
 		if op.multishot {
 			if op.directMode {
-				sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
+				sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK)
 			} else {
 				sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 			}
 		} else {
 			if op.directMode && op.filedIndex > -1 {
-				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, uint32(op.filedIndex))
+				sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK, uint32(op.filedIndex))
 			} else {
 				sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 			}
@@ -165,6 +165,11 @@ func (op *Operation) makeSQE(r *Ring) error {
 		break
 	case iouring.OPFixedFdInstall:
 		sqe.PrepareFixedFdInstall(op.fd, 0)
+		sqe.SetData(unsafe.Pointer(op))
+		break
+	case iouring.OpShutdown:
+		sqe.PrepareShutdown(op.fd, op.pipe.fdIn)
+		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
 	default:

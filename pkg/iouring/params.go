@@ -4,7 +4,6 @@ package iouring
 
 import (
 	"errors"
-	"github.com/brickingsoft/rio/pkg/kernel"
 )
 
 type Params struct {
@@ -21,7 +20,7 @@ type Params struct {
 }
 
 func (params *Params) Validate() error {
-	version := kernel.Get()
+	version := GetVersion()
 	if version.Invalidate() {
 		return errors.New("get kernel version failed")
 	}

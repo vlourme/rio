@@ -4,25 +4,22 @@ import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"net"
-	"strings"
 	"syscall"
 	"time"
 )
 
 var (
 	DefaultDialer = Dialer{
-		Timeout:         15 * time.Second,
-		Deadline:        time.Time{},
-		LocalAddr:       nil,
-		KeepAlive:       0,
-		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
-		MultipathTCP:    false,
-		FastOpen:        false,
-		QuickAck:        false,
-		SendZC:          false,
-		DirectAlloc:     false,
-		Control:         nil,
-		ControlContext:  nil,
+		Timeout:            15 * time.Second,
+		Deadline:           time.Time{},
+		LocalAddr:          nil,
+		KeepAlive:          0,
+		KeepAliveConfig:    net.KeepAliveConfig{Enable: true},
+		MultipathTCP:       false,
+		SendZC:             false,
+		DisableDirectAlloc: false,
+		Control:            nil,
+		ControlContext:     nil,
 	}
 )
 
@@ -82,10 +79,6 @@ func Dial(network string, address string) (net.Conn, error) {
 // DialContext same as [Dial] but takes a context.
 func DialContext(ctx context.Context, network string, address string) (net.Conn, error) {
 	dialer := DefaultDialer
-	if strings.HasPrefix(network, "tcp") {
-		dialer.SetFastOpen(true)
-		dialer.SetQuickAck(true)
-	}
 	return dialer.DialContext(ctx, network, address)
 }
 
@@ -108,10 +101,6 @@ func DialTimeout(network string, address string, timeout time.Duration) (net.Con
 func DialContextTimeout(ctx context.Context, network string, address string, timeout time.Duration) (net.Conn, error) {
 	dialer := DefaultDialer
 	dialer.Timeout = timeout
-	if strings.HasPrefix(network, "tcp") {
-		dialer.SetFastOpen(true)
-		dialer.SetQuickAck(true)
-	}
 	return dialer.DialContext(ctx, network, address)
 }
 
@@ -172,15 +161,10 @@ type Dialer struct {
 	// used, any call to Dial with "tcp(4|6)" as network will use MPTCP if
 	// supported by the operating system.
 	MultipathTCP bool
-	// FastOpen is set TCP_FASTOPEN
-	FastOpen bool
-	// QuickAck is set TCP_QUICKACK
-	QuickAck bool
 	// SendZC is set IOURING.OP_SENDZC
 	SendZC bool
-	// DirectAlloc is use iouring direct allocated socket to dial.
-	// and kernel version must greater than 6.8 .
-	DirectAlloc bool
+	// DisableDirectAlloc disable using iouring direct allocated socket to dial.
+	DisableDirectAlloc bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//
@@ -207,16 +191,6 @@ type Dialer struct {
 	Vortex *aio.Vortex
 }
 
-// SetFastOpen set fast open.
-func (d *Dialer) SetFastOpen(use bool) {
-	d.FastOpen = use
-}
-
-// SetQuickAck set quick ack.
-func (d *Dialer) SetQuickAck(use bool) {
-	d.QuickAck = use
-}
-
 // SetMultipathTCP set multi-path tcp.
 func (d *Dialer) SetMultipathTCP(use bool) {
 	d.MultipathTCP = use
@@ -229,10 +203,9 @@ func (d *Dialer) SetSendZC(use bool) {
 	d.SendZC = use
 }
 
-// SetDirectAlloc is set to use iouring direct allocated socket to dial.
-// kernel version must greater than 6.8 .
-func (d *Dialer) SetDirectAlloc(directAlloc bool) {
-	d.DirectAlloc = directAlloc
+// SetDisableDirectAlloc disable using iouring direct allocated socket to dial.
+func (d *Dialer) SetDisableDirectAlloc(disable bool) {
+	d.DisableDirectAlloc = disable
 }
 
 // SetVortex set customize [aio.Vortex].

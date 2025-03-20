@@ -4,15 +4,14 @@ package sys
 
 import (
 	"errors"
-	"github.com/brickingsoft/rio/pkg/kernel"
+	"github.com/brickingsoft/rio/pkg/iouring"
+	"golang.org/x/sys/unix"
 	"sync"
 	"syscall"
 )
 
 const (
-	_IPPROTO_MPTCP = 0x106
-	_SOL_MPTCP     = 0x11c
-	_MPTCP_INFO    = 0x1
+	_MPTCP_INFO = 0x1
 )
 
 var (
@@ -23,7 +22,7 @@ var (
 
 func TryGetMultipathTCPProto() (int, bool) {
 	if supportsMultipathTCP() {
-		return _IPPROTO_MPTCP, true
+		return unix.IPPROTO_MPTCP, true
 	}
 	return 0, false
 }
@@ -34,7 +33,11 @@ func supportsMultipathTCP() bool {
 }
 
 func initMPTCPavailable() {
-	s, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, _IPPROTO_MPTCP)
+	family := syscall.AF_INET
+	if !supportsIPv4() {
+		family = syscall.AF_INET6
+	}
+	s, err := syscall.Socket(family, syscall.SOCK_STREAM, unix.IPPROTO_MPTCP)
 	switch {
 	case errors.Is(err, syscall.EPROTONOSUPPORT):
 	case errors.Is(err, syscall.EINVAL):
@@ -44,23 +47,22 @@ func initMPTCPavailable() {
 	default:
 		mptcpAvailable = true
 	}
-	hasSOLMPTCP = kernel.Enable(5, 16, 0)
+	hasSOLMPTCP = iouring.VersionEnable(5, 16, 0)
 }
 
-func hasFallenBack(fd *Fd) bool {
-	_, err := syscall.GetsockoptInt(fd.sock, _SOL_MPTCP, _MPTCP_INFO)
+func hasFallenBack(fd int) bool {
+	_, err := syscall.GetsockoptInt(fd, unix.SOL_MPTCP, _MPTCP_INFO)
 	return err == syscall.EOPNOTSUPP || err == syscall.ENOPROTOOPT
 }
 
-func isUsingMPTCPProto(fd *Fd) bool {
-	proto, _ := syscall.GetsockoptInt(fd.sock, syscall.SOL_SOCKET, syscall.SO_PROTOCOL)
-	return proto == _IPPROTO_MPTCP
+func isUsingMPTCPProto(fd int) bool {
+	proto, _ := syscall.GetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_PROTOCOL)
+	return proto == unix.IPPROTO_MPTCP
 }
 
-func IsUsingMultipathTCP(fd *Fd) bool {
+func IsUsingMultipathTCP(fd int) bool {
 	if hasSOLMPTCP {
 		return !hasFallenBack(fd)
 	}
-
 	return isUsingMPTCPProto(fd)
 }

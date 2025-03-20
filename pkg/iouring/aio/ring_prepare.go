@@ -49,7 +49,7 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 	if batchSize < 1 {
 		batchSize = 1024
 	}
-	batch := make([]*Operation, batchSize)
+	batch := make([]*Operation, batchSize) // todo delete batch
 
 	requestCh := r.requestCh
 
@@ -123,7 +123,7 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 				}
 			}
 
-			if prepared > 0 || needToSubmit > 0 { // submit
+			if prepared > 0 || needToSubmit > 0 { // Submit
 				submitted, _ := ring.Submit()
 				needToSubmit += prepared - int(submitted)
 				if needToSubmit < 0 {

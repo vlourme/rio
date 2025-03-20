@@ -1,6 +1,6 @@
 //go:build linux
 
-package sys
+package cbpf
 
 import (
 	"fmt"

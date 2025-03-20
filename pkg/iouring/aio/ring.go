@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/kernel"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"os"
 	"runtime"
 	"strconv"
@@ -58,8 +58,8 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 
 	// register files
 	var (
-		registerFiledEnabled = kernel.Enable(6, 0, 0)                                                // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
-		directAllocEnabled   = kernel.Enable(6, 7, 0) && probe.IsSupported(iouring.OPFixedFdInstall) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
+		registerFiledEnabled = iouring.VersionEnable(6, 0, 0)                                                // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
+		directAllocEnabled   = iouring.VersionEnable(6, 7, 0) && probe.IsSupported(iouring.OPFixedFdInstall) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
 		files                []int
 		fileIndexes          *Queue[int]
 	)
@@ -70,15 +70,15 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 				options.RegisterFixedFiles = 65535
 			}
 			if options.RegisterFixedFiles > 65535 {
-				var limit syscall.Rlimit
-				if err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit); err != nil {
+				soft, _, limitErr := sys.GetRLimit()
+				if limitErr != nil {
 					_ = ring.Close()
 					err = NewRingErr(os.NewSyscallError("getrlimit", err))
 					return
 				}
-				if limit.Cur < uint64(options.RegisterFixedFiles) {
+				if soft < uint64(options.RegisterFixedFiles) {
 					_ = ring.Close()
-					err = NewRingErr(errors.New("register fixed files too big, must smaller than " + strconv.FormatUint(limit.Cur, 10)))
+					err = NewRingErr(errors.New("register fixed files too big, must smaller than " + strconv.FormatUint(soft, 10)))
 					return
 				}
 			}
@@ -261,7 +261,7 @@ func (r *Ring) DirectAllocEnabled() bool {
 }
 
 func (r *Ring) RegisterFixedFd(fd int) (index int, err error) {
-	if r.fileIndexes.Length() == 0 {
+	if r.fileIndexes == nil || r.fileIndexes.Length() == 0 {
 		return -1, ErrFixedFileUnavailable
 	}
 	r.fixedFileLocker.Lock()

@@ -5,14 +5,12 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
-	"github.com/brickingsoft/rio/pkg/sys"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"net"
 	"net/netip"
 	"os"
 	"reflect"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -115,85 +113,24 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 	}
 	// fd
-	fd, fdErr := newUDPListenerFd(network, ifi, addr)
+	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	// install fixed fd
-	directFd := -1
-	if vortex.RegisterFixedFdEnabled() {
-		sock := fd.Socket()
-		file, regErr := vortex.RegisterFixedFd(sock)
-		if regErr == nil {
-			directFd = file
-		} else {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
-			}
-		}
-	}
-	// send zc
-	useSendZC := false
-	useSendMSGZC := false
-	if lc.SendZC {
-		useSendZC = aio.CheckSendZCEnable()
-		useSendMSGZC = aio.CheckSendMsdZCEnable()
-	}
-	// conn
-	cc, cancel := context.WithCancel(ctx)
-	c := &UDPConn{
-		conn{
-			ctx:             cc,
-			cancel:          cancel,
-			fd:              fd,
-			directFd:        directFd,
-			directAllocated: false,
-			vortex:          vortex,
-			readDeadline:    time.Time{},
-			writeDeadline:   time.Time{},
-			readBuffer:      atomic.Int64{},
-			writeBuffer:     atomic.Int64{},
-			useSendZC:       useSendZC,
-		},
-		useSendMSGZC,
-	}
-	return c, nil
-}
-
-func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd *sys.Fd, err error) {
-	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
-	// fd
-	sock, sockErr := sys.NewSocket(family, syscall.SOCK_DGRAM, 0)
-	if sockErr != nil {
-		err = sockErr
-		return
-	}
-	fd = sys.NewFd(network, sock, family, syscall.SOCK_DGRAM)
-	// ipv6
-	if ipv6only {
-		if err = fd.SetIpv6only(true); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
 	// broadcast
-	if err = fd.AllowBroadcast(); err != nil {
+	if err := fd.SetBroadcast(true); err != nil {
 		_ = fd.Close()
-		return
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
+
 	// multicast
-	isListenMulticastUDP := false
-	var gaddr *net.UDPAddr
 	if addr.IP != nil && addr.IP.IsMulticast() {
-		if err = fd.AllowReuseAddr(); err != nil {
+		if err := fd.SetReuseAddr(true); err != nil {
 			_ = fd.Close()
-			return
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
-		isListenMulticastUDP = true
-		gaddr = addr
 		localUdpAddr := *addr
-		switch family {
+		switch fd.Family() {
 		case syscall.AF_INET:
 			localUdpAddr.IP = net.IPv4zero.To4()
 		case syscall.AF_INET6:
@@ -201,55 +138,55 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 		}
 		addr = &localUdpAddr
 	}
-	if isListenMulticastUDP {
-		if ip4 := gaddr.IP.To4(); ip4 != nil {
-			if ifi != nil {
-				if err = fd.SetIPv4MulticastInterface(ifi); err != nil {
-					_ = fd.Close()
-					return
-				}
-			}
-			if err = fd.SetIPv4MulticastLoopback(false); err != nil {
+	if ifi != nil {
+		if ip4 := addr.IP.To4(); ip4 != nil {
+			if err := fd.SetIPv4MulticastInterface(ifi); err != nil {
 				_ = fd.Close()
-				return
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 			}
-			if err = fd.JoinIPv4Group(ifi, ip4); err != nil {
+			if err := fd.SetIPv4MulticastLoopback(false); err != nil {
 				_ = fd.Close()
-				return
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+			}
+			if err := fd.JoinIPv4Group(ifi, ip4); err != nil {
+				_ = fd.Close()
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 			}
 		} else {
-			if ifi != nil {
-				if err = fd.SetIPv6MulticastInterface(ifi); err != nil {
-					_ = fd.Close()
-					return
-				}
-			}
-			if err = fd.SetIPv6MulticastLoopback(false); err != nil {
+			if err := fd.SetIPv6MulticastInterface(ifi); err != nil {
 				_ = fd.Close()
-				return
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 			}
-			if err = fd.JoinIPv6Group(ifi, gaddr.IP); err != nil {
+			if err := fd.SetIPv6MulticastLoopback(false); err != nil {
 				_ = fd.Close()
-				return
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+			}
+			if err := fd.JoinIPv6Group(ifi, addr.IP); err != nil {
+				_ = fd.Close()
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 			}
 		}
 	}
-	// bind
-	sa, saErr := sys.AddrToSockaddr(addr)
-	if saErr != nil {
-		_ = fd.Close()
-		err = saErr
-		return
+	// control
+	if lc.Control != nil {
+		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return lc.Control(network, address, raw)
+		}
+		raw := sys.NewRawConn(fd.RegularSocket())
+		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
 	}
-	bindErr := syscall.Bind(sock, sa)
+	// bind
+	bindErr := fd.Bind(addr)
 	if bindErr != nil {
 		_ = fd.Close()
-		err = os.NewSyscallError("bind", bindErr)
-		return
+		bindErr = os.NewSyscallError("bind", bindErr)
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: bindErr}
 	}
-
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(sock); getSockNameErr == nil {
+	if sn, getSockNameErr := syscall.Getsockname(fd.RegularSocket()); getSockNameErr == nil {
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
@@ -258,7 +195,34 @@ func newUDPListenerFd(network string, ifi *net.Interface, addr *net.UDPAddr) (fd
 	} else {
 		fd.SetLocalAddr(addr)
 	}
-	return
+	// install fixed fd
+	if vortex.RegisterFixedFdEnabled() {
+		if regErr := fd.Register(); regErr != nil {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = fd.Close()
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
+			}
+		}
+	}
+
+	// send zc
+	useSendZC := false
+	useSendMSGZC := false
+	if lc.SendZC {
+		useSendZC = aio.CheckSendZCEnable()
+		useSendMSGZC = aio.CheckSendMsdZCEnable()
+	}
+	// conn
+	c := &UDPConn{
+		conn{
+			fd:            fd,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useSendZC:     useSendZC,
+		},
+		useSendMSGZC,
+	}
+	return c, nil
 }
 
 // UDPConn is the implementation of the [net.Conn] and [net.PacketConn] interfaces
@@ -288,25 +252,13 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	if len(b) == 0 {
 		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	var (
-		ctx      = c.ctx
-		fd       int
-		sqeFlags uint8
-	)
-	if c.directFd > -1 {
-		fd = c.directFd
-		sqeFlags = iouring.SQEFixedFile
-	} else {
-		fd = c.fd.Socket()
-	}
-	vortex := c.vortex
 
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	deadline := c.deadline(ctx, c.readDeadline)
+	deadline := c.deadline(c.fd.Context(), c.readDeadline)
 
-	n, err = vortex.ReceiveFrom(ctx, fd, b, rsa, rsaLen, deadline, sqeFlags)
+	n, err = c.fd.ReceiveFrom(b, rsa, rsaLen, deadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -367,25 +319,12 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	var (
-		ctx      = c.ctx
-		fd       int
-		sqeFlags uint8
-	)
-	if c.directFd > -1 {
-		fd = c.directFd
-		sqeFlags = iouring.SQEFixedFile
-	} else {
-		fd = c.fd.Socket()
-	}
-	vortex := c.vortex
-
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	deadline := c.deadline(ctx, c.readDeadline)
+	deadline := c.deadline(c.fd.Context(), c.readDeadline)
 
-	n, oobn, flags, err = vortex.ReceiveMsg(ctx, fd, b, oob, rsa, rsaLen, 0, deadline, sqeFlags)
+	n, oobn, flags, err = c.fd.ReceiveMsg(b, oob, rsa, rsaLen, 0, deadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -468,25 +407,12 @@ func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
 	}
 
-	var (
-		ctx      = c.ctx
-		fd       int
-		sqeFlags uint8
-	)
-	if c.directFd > -1 {
-		fd = c.directFd
-		sqeFlags = iouring.SQEFixedFile
-	} else {
-		fd = c.fd.Socket()
-	}
-	vortex := c.vortex
-
-	deadline := c.deadline(ctx, c.writeDeadline)
+	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 
 	if c.useSendMSGZC {
-		n, err = vortex.SendToZC(ctx, fd, b, rsa, int(rsaLen), deadline, sqeFlags)
+		n, err = c.fd.SendToZC(b, rsa, int(rsaLen), deadline)
 	} else {
-		n, err = vortex.SendTo(ctx, fd, b, rsa, int(rsaLen), deadline, sqeFlags)
+		n, err = c.fd.SendTo(b, rsa, int(rsaLen), deadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -554,24 +480,11 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, e
 		b = []byte{0}
 	}
 
-	var (
-		ctx      = c.ctx
-		fd       int
-		sqeFlags uint8
-	)
-	if c.directFd > -1 {
-		fd = c.directFd
-		sqeFlags = iouring.SQEFixedFile
-	} else {
-		fd = c.fd.Socket()
-	}
-	vortex := c.vortex
-
-	deadline := c.deadline(ctx, c.writeDeadline)
+	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = vortex.SendMsgZC(ctx, fd, b, oob, rsa, int(rsaLen), deadline, sqeFlags)
+		n, oobn, err = c.fd.SendMsgZC(b, oob, rsa, int(rsaLen), deadline)
 	} else {
-		n, oobn, err = vortex.SendMsg(ctx, fd, b, oob, rsa, int(rsaLen), deadline, sqeFlags)
+		n, oobn, err = c.fd.SendMsg(b, oob, rsa, int(rsaLen), deadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

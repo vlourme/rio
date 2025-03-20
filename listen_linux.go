@@ -4,7 +4,7 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/sys"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"net"
 )
 
@@ -23,8 +23,6 @@ func (lc *ListenConfig) Listen(ctx context.Context, network string, address stri
 	}
 	switch a := addr.(type) {
 	case *net.TCPAddr:
-		lc.SetFastOpen(true)
-		lc.SetQuickAck(true)
 		ln, err = lc.ListenTCP(ctx, network, a)
 		break
 	case *net.UnixAddr:

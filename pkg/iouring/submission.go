@@ -228,12 +228,12 @@ func (entry *SubmissionQueueEntry) PrepareListen(fd int, backlog uint32) {
 	entry.prepareRW(OpListen, fd, 0, backlog, 0)
 }
 
-func (entry *SubmissionQueueEntry) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32) {
+func (entry *SubmissionQueueEntry) PrepareAccept(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
 	entry.prepareRW(OpAccept, fd, uintptr(unsafe.Pointer(addr)), 0, addrLen)
-	entry.OpcodeFlags = flags
+	entry.OpcodeFlags = uint32(flags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32, fileIndex uint32) {
+func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int, fileIndex uint32) {
 	entry.PrepareAccept(fd, addr, addrLen, flags)
 	if fileIndex == FileIndexAlloc {
 		fileIndex--
@@ -241,13 +241,13 @@ func (entry *SubmissionQueueEntry) PrepareAcceptDirect(fd int, addr *syscall.Raw
 	entry.setTargetFixedFile(fileIndex)
 }
 
-func (entry *SubmissionQueueEntry) PrepareAcceptDirectAlloc(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags uint32) {
+func (entry *SubmissionQueueEntry) PrepareAcceptDirectAlloc(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
 	entry.PrepareAccept(fd, addr, addrLen, flags)
 	entry.setTargetFixedFile(FileIndexAlloc - 1)
 }
 
 func (entry *SubmissionQueueEntry) PrepareAcceptMultishot(fd int, addr *syscall.RawSockaddrAny, addrLen uint64, flags int) {
-	entry.PrepareAccept(fd, addr, addrLen, uint32(flags))
+	entry.PrepareAccept(fd, addr, addrLen, flags)
 	entry.IoPrio |= AcceptMultishot
 }
 
@@ -404,7 +404,7 @@ func cmsgAlign(length uint64) uint64 {
 	return (length + uint64(unsafe.Sizeof(uintptr(0))) - 1) & ^(uint64(unsafe.Sizeof(uintptr(0))) - 1)
 }
 
-// [Cancel] ************************************************************************************************************
+// [CancelOperation] ************************************************************************************************************
 
 func (entry *SubmissionQueueEntry) PrepareCancel(userData uintptr, flags uint32) {
 	entry.PrepareCancel64(uint64(userData), flags)

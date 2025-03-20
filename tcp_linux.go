@@ -5,14 +5,13 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/cbpf"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
-	"github.com/brickingsoft/rio/pkg/sys"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"io"
 	"net"
 	"os"
 	"runtime"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -32,8 +31,6 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 		KeepAlive:       0,
 		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
 		MultipathTCP:    false,
-		FastOpen:        true,
-		QuickAck:        true,
 		ReusePort:       true,
 	}
 	ctx := context.Background()
@@ -73,39 +70,89 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 	}
 	// fd
-	var control ctrlCtxFn = nil
-	if lc.Control != nil {
-		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
-			return lc.Control(network, address, raw)
+	proto := syscall.IPPROTO_TCP
+	if lc.MultipathTCP {
+		if mp, ok := sys.TryGetMultipathTCPProto(); ok {
+			proto = mp
 		}
 	}
-	fd, fdErr := newTCPListenerFd(ctx, network, addr, lc.FastOpen, lc.QuickAck, lc.MultipathTCP, lc.ReusePort, control)
+	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// install fixed fd
-	directMode := lc.DirectAlloc
-	if directMode {
-		directMode = vortex.DirectAllocEnabled()
+	// control
+	if lc.Control != nil {
+		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return lc.Control(network, address, raw)
+		}
+		raw := sys.NewRawConn(fd.RegularSocket())
+		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
 	}
-	directFd := -1
-	if vortex.RegisterFixedFdEnabled() {
-		sock := fd.Socket()
-		file, regErr := vortex.RegisterFixedFd(sock)
-		if regErr == nil {
-			directFd = file
+	// reuse addr
+	if err := fd.SetReuseAddr(true); err != nil {
+		_ = fd.Close()
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	}
+	// reuse port
+	if lc.ReusePort {
+		if err := fd.SetReusePort(addr.Port); err != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
+		// cbpf (dep reuse port)
+		filter := cbpf.NewFilter(uint32(runtime.NumCPU()))
+		if err := filter.ApplyTo(fd.RegularSocket()); err != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		}
+	}
+	// defer accept
+	if err := syscall.SetsockoptInt(fd.RegularSocket(), syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
+		_ = fd.Close()
+		err = os.NewSyscallError("setsockopt", err)
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	}
+
+	// bind
+	if err := fd.Bind(addr); err != nil {
+		_ = fd.Close()
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	}
+	// listen
+	backlog := sys.MaxListenerBacklog()
+	if err := syscall.Listen(fd.RegularSocket(), backlog); err != nil {
+		_ = fd.Close()
+		err = os.NewSyscallError("listen", err)
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	}
+	// set socket addr
+	if sn, getSockNameErr := syscall.Getsockname(fd.RegularSocket()); getSockNameErr == nil {
+		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
+			fd.SetLocalAddr(sockname)
 		} else {
+			fd.SetLocalAddr(addr)
+		}
+	} else {
+		fd.SetLocalAddr(addr)
+	}
+
+	// install fixed fd
+	directMode := !lc.DisableDirectAlloc
+	if vortex.RegisterFixedFdEnabled() {
+		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 			directMode = false
-			directFd = -1
 		}
-	} else {
-		directMode = false
-		directFd = -1
+	}
+	if directMode {
+		directMode = vortex.DirectAllocEnabled()
 	}
 
 	// send zc
@@ -115,12 +162,8 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	}
 
 	// ln
-	cc, cancel := context.WithCancel(ctx)
 	ln := &TCPListener{
-		ctx:                cc,
-		cancel:             cancel,
 		fd:                 fd,
-		directFd:           directFd,
 		directMode:         directMode,
 		vortex:             vortex,
 		acceptFuture:       nil,
@@ -145,13 +188,10 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 // TCPListener is a TCP network listener. Clients should typically
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
-	ctx                context.Context
-	cancel             context.CancelFunc
-	fd                 *sys.Fd
-	directFd           int
+	fd                 *aio.NetFd
 	directMode         bool
 	vortex             *aio.Vortex
-	acceptFuture       *aio.Future
+	acceptFuture       *aio.AcceptFuture
 	multipathTCP       bool
 	keepAlive          time.Duration
 	keepAliveConfig    net.KeepAliveConfig
@@ -182,32 +222,16 @@ func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
 }
 
 func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
-	var (
-		ctx      = ln.ctx
-		vortex   = ln.vortex
-		fd       int
-		sqeFlags uint8
-	)
-	if ln.directFd != -1 {
-		fd = ln.directFd
-		sqeFlags = iouring.SQEFixedFile
-	} else {
-		fd = ln.fd.Socket()
-	}
 	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
 	var (
-		accepted int
-		directFd int = -1
+		cfd *aio.NetFd
 	)
 	if ln.directMode {
-		directFd, err = vortex.AcceptDirectAlloc(ctx, fd, addr, addrLen, ln.deadline, sqeFlags)
-		if err == nil {
-			accepted, err = vortex.FixedFdInstall(ctx, directFd)
-		}
+		cfd, err = ln.fd.AcceptDirectAlloc(addr, addrLen, ln.deadline)
 	} else {
-		accepted, err = vortex.Accept(ctx, fd, addr, addrLen, ln.deadline, sqeFlags)
+		cfd, err = ln.fd.Accept(addr, addrLen, ln.deadline)
 	}
 	if err != nil {
 		if aio.IsCanceled(err) {
@@ -216,25 +240,7 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
-	// fd
-	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
-	// local addr
-	if err = cfd.LoadLocalAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-	// remote addr
-	if sa, saErr := sys.RawSockaddrAnyToSockaddr(addr); saErr == nil {
-		remoteAddr := sys.SockaddrToAddr(ln.fd.Net(), sa)
-		cfd.SetRemoteAddr(remoteAddr)
-	} else {
-		if err = cfd.LoadRemoteAddr(); err != nil {
-			_ = cfd.Close()
-			err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-			return
-		}
-	}
+
 	// no delay
 	_ = cfd.SetNoDelay(true)
 	// keepalive
@@ -248,22 +254,13 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 	if keepAliveConfig.Enable {
 		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
 	}
-
 	// conn
-	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
 		conn{
-			ctx:             cc,
-			cancel:          cancel,
-			fd:              cfd,
-			directFd:        directFd,
-			directAllocated: directFd != -1,
-			vortex:          vortex,
-			readDeadline:    time.Time{},
-			writeDeadline:   time.Time{},
-			readBuffer:      atomic.Int64{},
-			writeBuffer:     atomic.Int64{},
-			useSendZC:       ln.useSendZC,
+			fd:            cfd,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useSendZC:     ln.useSendZC,
 		},
 		0,
 	}
@@ -271,37 +268,13 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 }
 
 func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
-	ctx := ln.ctx
-
-	accepted, _, acceptErr := ln.acceptFuture.Await(ctx)
+	ctx := ln.fd.Context()
+	cfd, _, acceptErr := ln.acceptFuture.Await(ctx)
 	if acceptErr != nil {
 		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
 		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
-		return
-	}
-
-	var (
-		directFd = -1
-	)
-	if ln.directMode {
-		directFd = accepted
-		accepted, err = ln.vortex.FixedFdInstall(ctx, directFd)
-	}
-
-	// fd
-	cfd := sys.NewFd(ln.fd.Net(), accepted, ln.fd.Family(), ln.fd.SocketType())
-	// local addr
-	if err = cfd.LoadLocalAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-	// remote addr
-	if err = cfd.LoadRemoteAddr(); err != nil {
-		_ = cfd.Close()
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
 	// no delay
@@ -319,20 +292,12 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 	}
 
 	// tcp conn
-	cc, cancel := context.WithCancel(ctx)
 	tc = &TCPConn{
 		conn{
-			ctx:             cc,
-			cancel:          cancel,
-			fd:              cfd,
-			directFd:        directFd,
-			directAllocated: directFd != -1,
-			vortex:          ln.vortex,
-			readDeadline:    time.Time{},
-			writeDeadline:   time.Time{},
-			readBuffer:      atomic.Int64{},
-			writeBuffer:     atomic.Int64{},
-			useSendZC:       ln.useSendZC,
+			fd:            cfd,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useSendZC:     ln.useSendZC,
 		},
 		0,
 	}
@@ -346,22 +311,11 @@ func (ln *TCPListener) prepareMultishotAccepting() (err error) {
 	if backlog < 1024 {
 		backlog = 1024
 	}
-	var (
-		fd       int
-		sqeFlags uint8
-	)
-	if ln.directFd != -1 {
-		fd = ln.directFd
-		sqeFlags = iouring.SQEFixedFile
-	} else {
-		fd = ln.fd.Socket()
-	}
-	vortex := ln.vortex
 	if ln.directMode {
-		future := vortex.AcceptMultishotDirectAsync(fd, addr, addrLen, backlog, sqeFlags)
+		future := ln.fd.AcceptMultishotDirectAsync(addr, addrLen, backlog)
 		ln.acceptFuture = &future
 	} else {
-		future := vortex.AcceptMultishotAsync(fd, addr, addrLen, backlog, sqeFlags)
+		future := ln.fd.AcceptMultishotAsync(addr, addrLen, backlog)
 		ln.acceptFuture = &future
 	}
 	return
@@ -373,27 +327,7 @@ func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-
-	defer ln.cancel()
-
-	ctx := ln.ctx
-	vortex := ln.vortex
-
-	if ln.directFd > -1 {
-		_ = vortex.CancelFixedFd(ctx, ln.directFd)
-		err := vortex.CloseDirect(ctx, ln.directFd)
-		_ = vortex.UnregisterFixedFd(ln.directFd)
-		if err == nil {
-			return nil
-		}
-	}
-
-	fd := ln.fd.Socket()
-	_ = vortex.CancelFd(ctx, fd)
-
-	err := vortex.Close(ctx, fd)
-	if err != nil {
-		_ = syscall.Close(fd)
+	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil
@@ -429,7 +363,7 @@ func (ln *TCPListener) SyscallConn() (syscall.RawConn, error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
 	}
-	return newRawConn(ln.fd), nil
+	return sys.NewRawConn(ln.fd.RegularSocket()), nil
 }
 
 // File returns a copy of the underlying [os.File].
@@ -463,102 +397,6 @@ func (ln *TCPListener) file() (*os.File, error) {
 }
 
 func (ln *TCPListener) ok() bool { return ln != nil && ln.fd != nil }
-
-func newTCPListenerFd(ctx context.Context, network string, addr *net.TCPAddr, fastOpen bool, quickAck bool, multipathTCP bool, reusePort bool, control ctrlCtxFn) (fd *sys.Fd, err error) {
-	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
-	// proto
-	proto := syscall.IPPROTO_TCP
-	if multipathTCP {
-		if mp, ok := sys.TryGetMultipathTCPProto(); ok {
-			proto = mp
-		}
-	}
-
-	// fd
-	sock, sockErr := sys.NewSocket(family, syscall.SOCK_STREAM, proto)
-	if sockErr != nil {
-		err = sockErr
-		return
-	}
-	fd = sys.NewFd(network, sock, family, syscall.SOCK_STREAM) //
-
-	// ipv6
-	if ipv6only {
-		if err = fd.SetIpv6only(true); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// reuse addr
-	if err = fd.AllowReuseAddr(); err != nil {
-		_ = fd.Close()
-		return
-	}
-	// reuse port
-	if reusePort {
-		if err = fd.AllowReusePort(addr.Port); err != nil {
-			_ = fd.Close()
-			return
-		}
-		// cbpf (dep reuse port)
-		filter := sys.NewFilter(uint32(runtime.NumCPU()))
-		if err = filter.ApplyTo(fd.Socket()); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// fast open
-	if fastOpen {
-		if err = fd.AllowFastOpen(fastOpen); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// quick ack
-	if quickAck {
-		if err = fd.AllowQuickAck(quickAck); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// defer accept
-	if err = syscall.SetsockoptInt(sock, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
-		_ = fd.Close()
-		err = os.NewSyscallError("setsockopt", err)
-		return
-	}
-	// control
-	if control != nil {
-		raw := newRawConn(fd)
-		if err = control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// bind
-	if err = fd.Bind(addr); err != nil {
-		_ = fd.Close()
-		return
-	}
-	// listen
-	backlog := sys.MaxListenerBacklog()
-	if err = syscall.Listen(sock, backlog); err != nil {
-		_ = fd.Close()
-		err = os.NewSyscallError("listen", err)
-		return
-	}
-	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(sock); getSockNameErr == nil {
-		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
-			fd.SetLocalAddr(sockname)
-		} else {
-			fd.SetLocalAddr(addr)
-		}
-	} else {
-		fd.SetLocalAddr(addr)
-	}
-	return
-}
 
 type noReadFrom struct{}
 
@@ -634,18 +472,18 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	var srcFd int
 	switch v := r.(type) {
 	case *TCPConn:
-		srcFd = v.fd.Socket()
+		srcFd = v.fd.RegularSocket()
 		sendMode = 1
 		break
 	case tcpConnWithoutWriteTo:
-		srcFd = v.fd.Socket()
+		srcFd = v.fd.RegularSocket()
 		sendMode = 1
 		break
 	case *UnixConn:
 		if v.fd.Net() != "unix" {
 			break
 		}
-		srcFd = v.fd.Socket()
+		srcFd = v.fd.RegularSocket()
 		sendMode = 1
 		break
 	case *os.File:
@@ -677,10 +515,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		if srcFd < 1 {
 			return 0, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("no file descriptor found in reader")}
 		}
-		ctx := c.ctx
-		fd := c.fd.Socket()
-		vortex := c.vortex
-		written, spliceErr := vortex.Splice(ctx, fd, srcFd, remain)
+		written, spliceErr := c.fd.Splice(srcFd, remain)
 		if lr != nil {
 			lr.N -= written
 		}
@@ -692,10 +527,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		}
 		return written, nil
 	case 2: // sendfile(mmap+send)
-		ctx := c.ctx
-		fd := c.fd.Socket()
-		vortex := c.vortex
-		written, sendfileErr := vortex.Sendfile(ctx, fd, r, c.useSendZC)
+		written, sendfileErr := c.fd.Sendfile(r, c.useSendZC)
 		if lr != nil {
 			lr.N -= written
 		}
@@ -725,10 +557,8 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 	}
 	uc, ok := w.(*UnixConn)
 	if ok && uc.fd.Net() == "unix" {
-		ctx := c.ctx
-		fd := c.fd.Socket()
-		vortex := c.vortex
-		written, spliceErr := vortex.Splice(ctx, uc.fd.Socket(), fd, 1<<63-1)
+		fd := c.fd.RegularSocket()
+		written, spliceErr := uc.fd.Splice(fd, 1<<63-1)
 		if spliceErr != nil {
 			if errors.Is(spliceErr, context.Canceled) {
 				spliceErr = net.ErrClosed
@@ -859,6 +689,6 @@ func (c *TCPConn) MultipathTCP() (bool, error) {
 	if !c.ok() {
 		return false, syscall.EINVAL
 	}
-	ok := sys.IsUsingMultipathTCP(c.fd)
+	ok := sys.IsUsingMultipathTCP(c.fd.RegularSocket())
 	return ok, nil
 }

@@ -3,8 +3,8 @@
 package aio
 
 import (
-	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"io"
 	"os"
 	"syscall"
@@ -20,7 +20,7 @@ var (
 	pagesize = os.Getpagesize()
 )
 
-func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useSendZC bool) (written int64, err error) {
+func (fd *NetFd) Sendfile(r io.Reader, useSendZC bool) (written int64, err error) {
 	var remain int64 = 0
 	lr, ok := r.(*io.LimitedReader)
 	if ok {
@@ -46,24 +46,24 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useSen
 	srcFd := int(file.Fd())
 
 	if remain > int64(maxMMapSize) {
-		return vortex.sendfileChunk(ctx, dst, srcFd, remain, useSendZC)
+		return fd.sendfileChunk(srcFd, remain, useSendZC)
 	}
 	// mmap
-	b, mmapErr := mmap(srcFd, 0, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
+	b, mmapErr := sys.Mmap(srcFd, 0, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
 	if mmapErr != nil {
 		err = os.NewSyscallError("mmap", mmapErr)
 		return
 	}
 	defer func(b []byte) {
-		_ = munmap(b)
+		_ = sys.Munmap(b)
 	}(b)
 	// madvise
-	if advErr := madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL); advErr != nil {
+	if advErr := sys.Madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL); advErr != nil {
 		err = os.NewSyscallError("madvise", mmapErr)
 		return
 	}
 
-	chunk, chunkErr := syscall.GetsockoptInt(dst, syscall.SOL_SOCKET, syscall.SO_SNDBUF)
+	chunk, chunkErr := syscall.GetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_SNDBUF)
 	if chunkErr != nil {
 		chunk = maxSendfileSize
 	}
@@ -77,9 +77,9 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useSen
 			wErr error
 		)
 		if useSendZC {
-			n, wErr = vortex.SendZC(ctx, dst, b[written:written+int64(chunk)], time.Time{}, 0)
+			n, wErr = fd.SendZC(b[written:written+int64(chunk)], time.Time{})
 		} else {
-			n, wErr = vortex.Send(ctx, dst, b[written:written+int64(chunk)], time.Time{}, 0)
+			n, wErr = fd.Send(b[written:written+int64(chunk)], time.Time{})
 		}
 		if n > 0 {
 			written += int64(n)
@@ -95,27 +95,27 @@ func (vortex *Vortex) Sendfile(ctx context.Context, dst int, r io.Reader, useSen
 	return
 }
 
-func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remain int64, useSendZC bool) (written int64, err error) {
+func (fd *NetFd) sendfileChunk(src int, remain int64, useSendZC bool) (written int64, err error) {
 	chunk := int64(pagesize)
 	for err == nil && remain > 0 {
 		if chunk > remain {
 			chunk = remain
 		}
-		b, mmapErr := mmap(src, written, int(chunk), syscall.PROT_READ, syscall.MAP_SHARED)
+		b, mmapErr := sys.Mmap(src, written, int(chunk), syscall.PROT_READ, syscall.MAP_SHARED)
 		if mmapErr != nil {
 			err = os.NewSyscallError("mmap", mmapErr)
 			break
 		}
-		_ = madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL)
+		_ = sys.Madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL)
 
 		var (
 			n    int
 			wErr error
 		)
 		if useSendZC {
-			n, wErr = vortex.SendZC(ctx, dst, b, time.Time{}, 0)
+			n, wErr = fd.SendZC(b, time.Time{})
 		} else {
-			n, wErr = vortex.Send(ctx, dst, b, time.Time{}, 0)
+			n, wErr = fd.Send(b, time.Time{})
 		}
 		if n > 0 {
 			written += int64(n)
@@ -123,7 +123,7 @@ func (vortex *Vortex) sendfileChunk(ctx context.Context, dst int, src int, remai
 		}
 		err = wErr
 
-		if munmapErr := munmap(b); munmapErr != nil {
+		if munmapErr := sys.Munmap(b); munmapErr != nil {
 			err = os.NewSyscallError("munmap", munmapErr)
 			break
 		}

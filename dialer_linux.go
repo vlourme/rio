@@ -6,10 +6,9 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
-	"github.com/brickingsoft/rio/pkg/sys"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"net"
 	"reflect"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -50,9 +49,6 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (c ne
 		return
 	}
 	c, err = d.dialParallel(ctx, network, la, addrs)
-	cc := c.(*conn)
-	cc.ctx = ctx
-	c = cc
 	return
 }
 
@@ -107,33 +103,29 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
 		}
 	}
-	// directAlloc
-	if d.DirectAlloc {
-		d.DirectAlloc = vortex.DirectAllocEnabled()
-	}
-
-	// fd
+	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	var control ctrlCtxFn = d.ControlContext
+	// control
+	var control sys.ControlContextFn = d.ControlContext
 	if control == nil && d.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return d.Control(network, address, raw)
 		}
 	}
-
+	// proto
 	proto := syscall.IPPROTO_TCP
 	if d.MultipathTCP {
 		if mp, ok := sys.TryGetMultipathTCPProto(); ok {
 			proto = mp
 		}
 	}
-
-	fd, directFd, fdErr := newDialerFd(ctx, vortex, d.DirectAlloc, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.FastOpen, control)
+	// fd
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -149,25 +141,17 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
-	_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline, 0)
+	_, err := fd.Connect(rsa, int(rsaLen), deadline)
 	if err != nil {
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 	}
 
-	// local addr
+	// addr
 	if laddr != nil {
 		fd.SetLocalAddr(laddr)
-	} else {
-		if laddrErr := fd.LoadLocalAddr(); laddrErr != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: laddrErr}
-		}
 	}
-	// remote addr
-	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
-		fd.SetRemoteAddr(raddr)
-	}
+	fd.SetRemoteAddr(raddr)
 
 	// no delay
 	_ = fd.SetNoDelay(true)
@@ -189,20 +173,12 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		useSendZC = aio.CheckSendZCEnable()
 	}
 	// conn
-	cc, cancel := context.WithCancel(ctx)
 	c := &TCPConn{
 		conn{
-			ctx:             cc,
-			cancel:          cancel,
-			fd:              fd,
-			directFd:        directFd,
-			directAllocated: directFd != -1,
-			vortex:          vortex,
-			readDeadline:    time.Time{},
-			writeDeadline:   time.Time{},
-			readBuffer:      atomic.Int64{},
-			writeBuffer:     atomic.Int64{},
-			useSendZC:       useSendZC,
+			fd:            fd,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useSendZC:     useSendZC,
 		},
 		0,
 	}
@@ -245,24 +221,22 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
 		}
 	}
-	// directAlloc
-	if d.DirectAlloc {
-		d.DirectAlloc = vortex.DirectAllocEnabled()
-	}
-	// fd
+	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	var control ctrlCtxFn = d.ControlContext
+	// control
+	var control sys.ControlContextFn = d.ControlContext
 	if control == nil && d.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return d.Control(network, address, raw)
 		}
 	}
-	fd, directFd, fdErr := newDialerFd(ctx, vortex, d.DirectAlloc, network, laddr, raddr, syscall.SOCK_DGRAM, 0, false, control)
+	// fd
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -278,26 +252,18 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline, 0)
+		_, err := fd.Connect(rsa, int(rsaLen), deadline)
 		if err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 		}
 	}
 
-	// local addr
+	// addr
 	if laddr != nil {
 		fd.SetLocalAddr(laddr)
-	} else {
-		if laddrErr := fd.LoadLocalAddr(); laddrErr != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: laddrErr}
-		}
 	}
-	// remote addr
-	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
-		fd.SetRemoteAddr(raddr)
-	}
+	fd.SetRemoteAddr(raddr)
 
 	// send zc
 	useSendZC := false
@@ -307,20 +273,12 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
 	// conn
-	cc, cancel := context.WithCancel(ctx)
 	c := &UDPConn{
 		conn{
-			ctx:             cc,
-			cancel:          cancel,
-			fd:              fd,
-			directFd:        directFd,
-			directAllocated: directFd != -1,
-			vortex:          vortex,
-			readDeadline:    time.Time{},
-			writeDeadline:   time.Time{},
-			readBuffer:      atomic.Int64{},
-			writeBuffer:     atomic.Int64{},
-			useSendZC:       useSendZC,
+			fd:            fd,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,
 	}
@@ -348,9 +306,11 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	// network
 	sotype := 0
 	switch network {
-	case "unix", "unixpacket":
+	case "unix":
 		sotype = syscall.SOCK_STREAM
 		break
+	case "unixpacket":
+		sotype = syscall.SOCK_PACKET
 	case "unixgram":
 		sotype = syscall.SOCK_DGRAM
 		break
@@ -375,24 +335,22 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
 		}
 	}
-	// directAlloc
-	if d.DirectAlloc {
-		d.DirectAlloc = vortex.DirectAllocEnabled()
-	}
-	// fd
+	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	var control ctrlCtxFn = d.ControlContext
+	// control
+	var control sys.ControlContextFn = d.ControlContext
 	if control == nil && d.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return d.Control(network, address, raw)
 		}
 	}
-	fd, directFd, fdErr := newDialerFd(ctx, vortex, d.DirectAlloc, network, laddr, raddr, sotype, 0, false, control)
+	// fd
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -408,26 +366,18 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
-		_, err := vortex.Connect(ctx, fd.Socket(), rsa, int(rsaLen), deadline, 0)
+		_, err := fd.Connect(rsa, int(rsaLen), deadline)
 		if err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 		}
 	}
 
-	// local addr
+	// addr
 	if laddr != nil {
 		fd.SetLocalAddr(laddr)
-	} else {
-		if laddrErr := fd.LoadLocalAddr(); laddrErr != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: laddrErr}
-		}
 	}
-	// remote addr
-	if raddrErr := fd.LoadRemoteAddr(); raddrErr != nil {
-		fd.SetRemoteAddr(raddr)
-	}
+	fd.SetRemoteAddr(raddr)
 
 	// send zc
 	useSendZC := false
@@ -437,20 +387,12 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
 	// conn
-	cc, cancel := context.WithCancel(ctx)
 	c := &UnixConn{
 		conn{
-			ctx:             cc,
-			cancel:          cancel,
-			fd:              fd,
-			directFd:        directFd,
-			directAllocated: directFd != -1,
-			vortex:          vortex,
-			readDeadline:    time.Time{},
-			writeDeadline:   time.Time{},
-			readBuffer:      atomic.Int64{},
-			writeBuffer:     atomic.Int64{},
-			useSendZC:       useSendZC,
+			fd:            fd,
+			readDeadline:  time.Time{},
+			writeDeadline: time.Time{},
+			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,
 	}
@@ -485,58 +427,34 @@ func (d *Dialer) DialIP(_ context.Context, network string, laddr, raddr *net.IPA
 	return &IPConn{c}, nil
 }
 
-func newDialerFd(ctx context.Context, vortex *aio.Vortex, directAlloc bool, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, fastOpen bool, control ctrlCtxFn) (fd *sys.Fd, directFd int, err error) {
-	if reflect.ValueOf(laddr).IsNil() && reflect.ValueOf(raddr).IsNil() {
+func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, disableDirectAlloc bool, control sys.ControlContextFn) (fd *aio.NetFd, err error) {
+	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
+		laddr = nil
+	}
+	if raddr != nil && reflect.ValueOf(raddr).IsNil() {
+		raddr = nil
+	}
+	if laddr == nil && raddr == nil {
 		err = errors.New("missing address")
 		return
 	}
 
-	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, "dial")
-
-	// fd
-	var (
-		sock    int
-		sockErr error
-	)
-	if directAlloc {
-		directFd, sockErr = vortex.SocketDirect(ctx, family, sotype, proto)
-		if sockErr == nil {
-			sock, sockErr = vortex.FixedFdInstall(ctx, directFd)
-		}
-	} else {
-		directFd = -1
-		sock, sockErr = sys.NewSocket(family, sotype, proto)
-	}
-	if sockErr != nil {
-		directFd = -1
-		err = sockErr
+	fd, err = aio.OpenNetFd(ctx, vortex, aio.DialMode, network, sotype, proto, laddr, raddr, !disableDirectAlloc)
+	if err != nil {
 		return
 	}
-	fd = sys.NewFd(network, sock, family, sotype)
-	// ipv6
-	if ipv6only {
-		if err = fd.SetIpv6only(true); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
+
 	// broadcast
-	if err = fd.AllowBroadcast(); err != nil {
+	if err = fd.SetBroadcast(true); err != nil {
 		_ = fd.Close()
 		return
 	}
-	// fast open
-	if fastOpen {
-		if err = fd.AllowFastOpen(fastOpen); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
+
 	// control
 	if control != nil {
-		raw := newRawConn(fd)
+		raw := sys.NewRawConn(fd.RegularSocket())
 		address := ""
-		if !reflect.ValueOf(raddr).IsNil() {
+		if raddr != nil {
 			address = raddr.String()
 		}
 		if err = control(ctx, network, address, raw); err != nil {
@@ -545,11 +463,12 @@ func newDialerFd(ctx context.Context, vortex *aio.Vortex, directAlloc bool, netw
 		}
 	}
 	// bind
-	if !reflect.ValueOf(laddr).IsNil() {
+	if laddr != nil {
 		if err = fd.Bind(laddr); err != nil {
 			_ = fd.Close()
 			return
 		}
+		fd.SetLocalAddr(laddr)
 	}
 	return
 }

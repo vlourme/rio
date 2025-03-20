@@ -101,32 +101,16 @@ type ListenConfig struct {
 	// used, any call to Listen with "tcp(4|6)" as network will use MPTCP if
 	// supported by the operating system.
 	MultipathTCP bool
-	// FastOpen is set TCP_FASTOPEN
-	FastOpen bool
-	// QuickAck is set TCP_QUICKACK
-	QuickAck bool
 	// ReusePort is set SO_REUSEPORT
 	ReusePort bool
 	// SendZC is set IOURING.OP_SENDZC
 	SendZC bool
 	// MultishotAccept is set use IOURING.OP_MULTISHOT_ACCEPT
 	MultishotAccept bool
-	// DirectAlloc is use iouring direct allocated socket to accept.
-	// and kernel version must greater than 6.8 .
-	DirectAlloc bool
+	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
+	DisableDirectAlloc bool
 	// Vortex customize [aio.Vortex]
 	Vortex *aio.Vortex
-}
-
-// SetFastOpen set fast open.
-func (lc *ListenConfig) SetFastOpen(use bool) {
-	lc.FastOpen = use
-	return
-}
-
-// SetQuickAck set quick ack.
-func (lc *ListenConfig) SetQuickAck(use bool) {
-	lc.QuickAck = use
 }
 
 // SetReusePort set reuse port.
@@ -151,10 +135,9 @@ func (lc *ListenConfig) SetMultishotAccept(multi bool) {
 	lc.MultishotAccept = multi
 }
 
-// SetDirectAlloc is set to use iouring direct allocated socket to accept.
-// kernel version must greater than 6.8 .
-func (lc *ListenConfig) SetDirectAlloc(directAlloc bool) {
-	lc.DirectAlloc = directAlloc
+// SetDisableDirectAlloc disable using iouring direct allocated socket to accept.
+func (lc *ListenConfig) SetDisableDirectAlloc(disable bool) {
+	lc.DisableDirectAlloc = disable
 }
 
 // SetVortex set customize [aio.Vortex].

@@ -4,7 +4,7 @@ package sys
 
 import (
 	"bufio"
-	"github.com/brickingsoft/rio/pkg/kernel"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"os"
 	"strings"
 	"sync"
@@ -95,7 +95,7 @@ func MaxListenerBacklog() int {
 
 func maxAckBacklog(n int) int {
 	size := 16
-	if kernel.Enable(4, 1, 0) {
+	if iouring.VersionEnable(4, 1, 0) {
 		size = 32
 	}
 	var maxAck uint = 1<<size - 1
