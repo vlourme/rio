@@ -109,6 +109,8 @@ type ListenConfig struct {
 	MultishotAccept bool
 	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
 	DisableDirectAlloc bool
+	// AsyncIO is set use IOURING.IOSQE_ASYNC
+	AsyncIO bool
 	// Vortex customize [aio.Vortex]
 	Vortex *aio.Vortex
 }
@@ -138,6 +140,11 @@ func (lc *ListenConfig) SetMultishotAccept(multi bool) {
 // SetDisableDirectAlloc disable using iouring direct allocated socket to accept.
 func (lc *ListenConfig) SetDisableDirectAlloc(disable bool) {
 	lc.DisableDirectAlloc = disable
+}
+
+// SetAsyncIO is set use IOURING.IOSQE_ASYNC.
+func (lc *ListenConfig) SetAsyncIO(async bool) {
+	lc.AsyncIO = async
 }
 
 // SetVortex set customize [aio.Vortex].

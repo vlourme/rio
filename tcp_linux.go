@@ -160,6 +160,10 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
+	// async
+	if lc.AsyncIO {
+		fd.SetAsync(lc.AsyncIO)
+	}
 
 	// ln
 	ln := &TCPListener{
@@ -167,6 +171,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		directMode:         directMode,
 		vortex:             vortex,
 		acceptFuture:       nil,
+		asyncIO:            lc.AsyncIO,
 		multipathTCP:       lc.MultipathTCP,
 		keepAlive:          lc.KeepAlive,
 		keepAliveConfig:    lc.KeepAliveConfig,
@@ -192,6 +197,7 @@ type TCPListener struct {
 	directMode         bool
 	vortex             *aio.Vortex
 	acceptFuture       *aio.AcceptFuture
+	asyncIO            bool
 	multipathTCP       bool
 	keepAlive          time.Duration
 	keepAliveConfig    net.KeepAliveConfig
@@ -208,20 +214,24 @@ func (ln *TCPListener) Accept() (net.Conn, error) {
 
 // AcceptTCP accepts the next incoming call and returns the new
 // connection.
-func (ln *TCPListener) AcceptTCP() (tc *TCPConn, err error) {
+func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
 	}
 
 	if ln.useMultishotAccept {
-		tc, err = ln.acceptMultishot()
+		c, err = ln.acceptMultishot()
 	} else {
-		tc, err = ln.acceptOneshot()
+		c, err = ln.acceptOneshot()
+	}
+	// async io
+	if c != nil && ln.asyncIO {
+		_ = c.SetAsync(ln.asyncIO)
 	}
 	return
 }
 
-func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
+func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 	// accept
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
@@ -255,7 +265,7 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
 	}
 	// conn
-	tc = &TCPConn{
+	c = &TCPConn{
 		conn{
 			fd:            cfd,
 			readDeadline:  time.Time{},
@@ -267,7 +277,7 @@ func (ln *TCPListener) acceptOneshot() (tc *TCPConn, err error) {
 	return
 }
 
-func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
+func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 	ctx := ln.fd.Context()
 	cfd, _, acceptErr := ln.acceptFuture.Await(ctx)
 	if acceptErr != nil {
@@ -292,7 +302,7 @@ func (ln *TCPListener) acceptMultishot() (tc *TCPConn, err error) {
 	}
 
 	// tcp conn
-	tc = &TCPConn{
+	c = &TCPConn{
 		conn{
 			fd:            cfd,
 			readDeadline:  time.Time{},

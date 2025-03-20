@@ -212,6 +212,10 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
+	// async
+	if lc.AsyncIO {
+		fd.SetAsync(lc.AsyncIO)
+	}
 	// conn
 	c := &UDPConn{
 		conn{

@@ -101,6 +101,10 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
+	// async
+	if lc.AsyncIO {
+		fd.SetAsync(lc.AsyncIO)
+	}
 	// ln
 	ln := &UnixListener{
 		fd:                 fd,
@@ -110,6 +114,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		vortex:             vortex,
 		acceptFuture:       nil,
 		useSendZC:          useSendZC,
+		asyncIO:            lc.AsyncIO,
 		useMultishotAccept: lc.MultishotAccept,
 		deadline:           time.Time{},
 	}
@@ -186,13 +191,16 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	} else {
 		fd.SetLocalAddr(addr)
 	}
-
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
+	}
+	// async
+	if lc.AsyncIO {
+		fd.SetAsync(lc.AsyncIO)
 	}
 	// conn
 	c := &UnixConn{
@@ -219,6 +227,7 @@ type UnixListener struct {
 	acceptFuture       *aio.AcceptFuture
 	useSendZC          bool
 	useMultishotAccept bool
+	asyncIO            bool
 	deadline           time.Time
 }
 
@@ -239,6 +248,12 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		c, err = ln.acceptMultishot()
 	} else {
 		c, err = ln.acceptOneshot()
+	}
+	if err != nil {
+		return
+	}
+	if c != nil && ln.asyncIO {
+		_ = c.SetAsync(ln.asyncIO)
 	}
 	return
 }
