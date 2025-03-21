@@ -105,7 +105,6 @@ func DialContextTimeout(ctx context.Context, network string, address string, tim
 }
 
 type Dialer struct {
-	net.Dialer
 	// Timeout is the maximum amount of time a dial will wait for
 	// a connect to complete. If Deadline is also set, it may fail
 	// earlier.
