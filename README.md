@@ -198,7 +198,7 @@ wn, wErr := fixed.WriteFixed(buf)
 
 
 ### 参数设置
-通过设置环境变量进行调控，具体详见 [IOURING](https://man7.org/linux/man-pages/man2/io_uring_setup.2.html)。
+通过设置环境变量进行调控，具体详见 [IOURING](https://man.archlinux.org/man/extra/liburing/io_uring_setup.2.en)。
 
 | 名称                                   | 值  | 说明                                                 |
 |--------------------------------------|----|----------------------------------------------------|
