@@ -390,9 +390,9 @@ func (r *Ring) start(ctx context.Context) {
 	}
 
 	if r.waitCQEMode == WaitCQEPullMode {
-		go r.waitingCQEWithBatchMode(cc)
+		go r.waitingCQEWithPullMode(cc)
 	} else {
-		go r.waitingCQEWithEventMode(cc)
+		go r.waitingCQEWithPushMode(cc)
 	}
 	return
 }

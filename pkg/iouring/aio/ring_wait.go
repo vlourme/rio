@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func (r *Ring) waitingCQEWithEventMode(ctx context.Context) {
+func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 	defer r.wg.Done()
 
 	eventFd := r.eventFd
@@ -22,7 +22,11 @@ func (r *Ring) waitingCQEWithEventMode(ctx context.Context) {
 	b := make([]byte, 8)
 
 	ring := r.ring
-	transmission := NewCurveTransmission(r.waitCQETimeCurve)
+	curve := r.waitCQETimeCurve
+	if len(curve) == 0 {
+		curve = defaultPushCurve
+	}
+	transmission := NewCurveTransmission(curve)
 	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
 	cqes := make([]*iouring.CompletionQueueEvent, 1024)
 	cqesLen := uint32(len(cqes))
@@ -109,7 +113,7 @@ func (r *Ring) waitingCQEWithEventMode(ctx context.Context) {
 	}
 }
 
-func (r *Ring) waitingCQEWithBatchMode(ctx context.Context) {
+func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 	defer r.wg.Done()
 
 	ring := r.ring
@@ -118,8 +122,11 @@ func (r *Ring) waitingCQEWithBatchMode(ctx context.Context) {
 	}
 	idleTime := syscall.NsecToTimespec(r.waitCQEPullIdleTime.Nanoseconds())
 	needToIdle := false
-
-	transmission := NewCurveTransmission(r.waitCQETimeCurve)
+	curve := r.waitCQETimeCurve
+	if len(curve) == 0 {
+		curve = defaultPullCurve
+	}
+	transmission := NewCurveTransmission(curve)
 	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
 	cqes := make([]*iouring.CompletionQueueEvent, 1024)
 	cqesLen := uint32(len(cqes))
