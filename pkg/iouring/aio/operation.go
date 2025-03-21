@@ -43,10 +43,10 @@ func NewOperation(resultChanBuffer int) *Operation {
 }
 
 type Operation struct {
-	status     atomic.Int64
 	kind       uint8
-	subKind    int64
+	subKind    int
 	borrowed   bool
+	status     atomic.Int64
 	resultCh   chan Result
 	deadline   time.Time
 	multishot  bool
@@ -54,9 +54,9 @@ type Operation struct {
 	filedIndex int
 	sqeFlags   uint8
 	fd         int
-	msg        syscall.Msghdr
-	pipe       pipeRequest
 	ptr        unsafe.Pointer
+	pipe       pipeRequest
+	msg        syscall.Msghdr
 }
 
 func (op *Operation) Close() {
@@ -86,11 +86,6 @@ func (op *Operation) Timeout() time.Duration {
 		return time.Until(deadline)
 	}
 	return 0
-}
-
-func (op *Operation) WithSQEFlags(flags uint8) *Operation {
-	op.sqeFlags |= flags
-	return op
 }
 
 func (op *Operation) WithDirect(direct bool) *Operation {
