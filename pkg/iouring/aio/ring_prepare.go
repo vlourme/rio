@@ -5,31 +5,64 @@ package aio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/process"
 	"runtime"
 	"syscall"
 	"time"
 )
 
-func (r *Ring) preparingSQE(ctx context.Context) {
+func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
 	defer r.wg.Done()
 
 	// cpu affinity
-	if r.ring.Flags()&iouring.SetupSingleIssuer != 0 || r.prepAFFCPU > -1 {
-		if r.prepAFFCPU == -1 {
-			r.prepAFFCPU = 0
-		}
+	if r.prepSQEAFFCPU > -1 {
 		runtime.LockOSThread()
-		if setErr := process.SetCPUAffinity(r.prepAFFCPU); setErr != nil {
-			if r.ring.Flags()&iouring.SetupSingleIssuer != 0 { // lock os thread is required
-				defer runtime.UnlockOSThread()
-			} else { // no single issuer so unlock
-				runtime.UnlockOSThread()
+		_ = process.SetCPUAffinity(r.prepSQEAFFCPU)
+		defer runtime.UnlockOSThread()
+	}
+
+	ring := r.ring
+	requestCh := r.requestCh
+	stopped := false
+	for {
+		select {
+		case <-ctx.Done():
+			stopped = true
+			break
+		case op, ok := <-requestCh:
+			if !ok {
+				stopped = true
+				break
 			}
-		} else {
-			defer runtime.UnlockOSThread()
+			if op == nil {
+				break
+			}
+			if op.canPrepare() {
+				if prepErr := op.makeSQE(r); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
+					op.setResult(0, 0, prepErr)
+					if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
+						break
+					}
+					continue
+				}
+				_, _ = ring.Submit()
+			}
 		}
+		if stopped {
+			break
+		}
+	}
+
+}
+
+func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
+	defer r.wg.Done()
+
+	// cpu affinity
+	if r.prepSQEAFFCPU > -1 {
+		runtime.LockOSThread()
+		_ = process.SetCPUAffinity(r.prepSQEAFFCPU)
+		defer runtime.UnlockOSThread()
 	}
 
 	ring := r.ring
@@ -49,7 +82,7 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 	if batchSize < 1 {
 		batchSize = 1024
 	}
-	batch := make([]*Operation, batchSize) // todo delete batch
+	batch := make([]*Operation, batchSize)
 
 	requestCh := r.requestCh
 
@@ -134,23 +167,5 @@ func (r *Ring) preparingSQE(ctx context.Context) {
 			// reset batch time window
 			batchTimer.Reset(batchTimeWindow)
 		}
-
-	}
-	// prepare noop to wakeup cq waiter
-	for {
-		sqe := ring.GetSQE()
-		if sqe == nil {
-			time.Sleep(1 * time.Millisecond)
-			continue
-		}
-		sqe.PrepareNop()
-		for {
-			if _, subErr := ring.Submit(); subErr != nil {
-				time.Sleep(1 * time.Millisecond)
-				continue
-			}
-			break
-		}
-		break
 	}
 }

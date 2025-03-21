@@ -35,7 +35,6 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 		PrepSQEBatchAffCPU:       -1,
 		WaitCQEBatchSize:         0,
 		WaitCQEBatchTimeCurve:    nil,
-		WaitCQEBatchAffCPU:       -1,
 	}
 	for _, option := range options {
 		option(&opt)

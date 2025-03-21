@@ -1,6 +1,7 @@
 package aio
 
 import (
+	"strings"
 	"time"
 )
 
@@ -17,9 +18,9 @@ type Options struct {
 	PrepSQEBatchTimeWindow     time.Duration
 	PrepSQEBatchIdleTime       time.Duration
 	PrepSQEBatchAffCPU         int
+	WaitCQEMode                string
 	WaitCQEBatchSize           uint32
 	WaitCQEBatchTimeCurve      Curve
-	WaitCQEBatchAffCPU         int
 	AttachRingFd               int
 }
 
@@ -89,7 +90,23 @@ func WithPrepSQEBatchSize(size uint32) Option {
 }
 
 const (
-	defaultPrepSQEBatchTimeWindow = 1 * time.Microsecond
+	WaitCQEEventMode = "EVENT"
+	WaitCQEBatchMode = "BATCH"
+)
+
+// WithWaitCQEMode
+// setup mode of wait cqe, default is [WaitCQEEventMode]
+func WithWaitCQEMode(mode string) Option {
+	return func(opts *Options) {
+		mode = strings.ToUpper(strings.TrimSpace(mode))
+		if mode == WaitCQEEventMode || mode == WaitCQEBatchMode {
+			opts.WaitCQEMode = mode
+		}
+	}
+}
+
+const (
+	defaultPrepSQEBatchTimeWindow = 100 * time.Microsecond
 )
 
 // WithPrepSQEBatchTimeWindow
@@ -139,14 +156,6 @@ func WithWaitCQEBatchSize(size uint32) Option {
 func WithWaitCQEBatchTimeCurve(curve Curve) Option {
 	return func(opts *Options) {
 		opts.WaitCQEBatchTimeCurve = curve
-	}
-}
-
-// WithWaitCQEBatchAFFCPU
-// setup affinity cpu of waiting cqe.
-func WithWaitCQEBatchAFFCPU(cpu int) Option {
-	return func(opts *Options) {
-		opts.WaitCQEBatchAffCPU = cpu
 	}
 }
 

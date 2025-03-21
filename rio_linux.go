@@ -6,7 +6,6 @@ import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
-	"github.com/brickingsoft/rio/pkg/process"
 	"os"
 	"runtime"
 	"strconv"
@@ -14,12 +13,6 @@ import (
 	"sync"
 	"time"
 )
-
-// UseProcessPriority
-// set process priority
-func UseProcessPriority(level process.PriorityLevel) {
-	_ = process.SetCurrentProcessPriority(level)
-}
 
 // Presets
 // preset aio options, must be called before Pin, Dial and Listen.
@@ -76,8 +69,8 @@ func getVortex() (*aio.Vortex, error) {
 			curve := loadEnvWaitCQETimeCurve()
 			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEBatchTimeCurve(curve))
 
-			waitCQEAffCPU := loadEnvWaitCQEAFFCPU()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEBatchAFFCPU(waitCQEAffCPU))
+			waitCQEMode := loadEnvWaitCQEMode()
+			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEMode(waitCQEMode))
 
 			bufs, bufc := loadEnvRegFixedBuffers()
 			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedBuffer(bufs, bufc))
@@ -107,9 +100,9 @@ const (
 	envPrepSQEBatchTimeWindow     = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
 	envPrepSQEBatchIdleTime       = "RIO_PREP_SQE_BATCH_IDLE_TIME"
 	envPrepSQEBatchAffCPU         = "RIO_PREP_SQE_BATCH_AFF_CPU"
+	envWaitCQEMode                = "RIO_WAIT_CQE_MODE"
 	envWaitCQEBatchSize           = "RIO_WAIT_CQE_BATCH_SIZE"
 	envWaitCQEBatchTimeCurve      = "RIO_WAIT_CQE_BATCH_TIME_CURVE"
-	envWaitCQEBatchAffCPU         = "RIO_WAIT_CQE_BATCH_AFF_CPU"
 )
 
 func loadEnvEntries() uint32 {
@@ -212,6 +205,14 @@ func loadEnvPrepareSQEAFFCPU() int {
 	return n
 }
 
+func loadEnvWaitCQEMode() string {
+	s, has := os.LookupEnv(envWaitCQEMode)
+	if !has {
+		return aio.WaitCQEEventMode
+	}
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
 func loadEnvWaitCQEBatchSize() uint32 {
 	s, has := os.LookupEnv(envWaitCQEBatchSize)
 	if !has {
@@ -254,18 +255,6 @@ func loadEnvWaitCQETimeCurve() aio.Curve {
 		}{N: uint32(n), Timeout: t})
 	}
 	return curve
-}
-
-func loadEnvWaitCQEAFFCPU() int {
-	s, has := os.LookupEnv(envWaitCQEBatchAffCPU)
-	if !has {
-		return -1
-	}
-	n, parseErr := strconv.Atoi(strings.TrimSpace(s))
-	if parseErr != nil {
-		return -1
-	}
-	return n
 }
 
 func loadEnvRegFixedBuffers() (size uint32, count uint32) {

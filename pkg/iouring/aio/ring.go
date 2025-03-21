@@ -7,12 +7,14 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
+	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 var (
@@ -170,34 +172,84 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 
 	// affinity cpu
 	var (
-		sqThreadCPU = options.SQThreadCPU
-		prepAFFCPU  = options.PrepSQEBatchAffCPU
-		waitAFFCPU  = options.PrepSQEBatchAffCPU
+		sqThreadCPU   = options.SQThreadCPU
+		prepSQEAFFCPU = options.PrepSQEBatchAffCPU
 	)
-
-	if cpus := runtime.NumCPU(); cpus > 3 {
-		if prepAFFCPU == -1 {
-			if ring.Flags()&iouring.SetupSQPoll != 0 {
-				prepAFFCPU = int(sqThreadCPU) + 1
+	if ring.Flags()&iouring.SetupSingleIssuer != 0 || runtime.NumCPU() > 3 {
+		if prepSQEAFFCPU == -1 {
+			if ring.Flags()&iouring.SetupSingleIssuer != 0 {
+				prepSQEAFFCPU = int(sqThreadCPU) + 1
+			} else {
+				prepSQEAFFCPU = 0
 			}
 		}
-		if waitAFFCPU == -1 {
-			if ring.Flags()&iouring.SetupSQPoll != 0 {
-				waitAFFCPU = int(sqThreadCPU) + 2
-			}
+	}
+
+	var (
+		exitFd   int
+		eventFd  int
+		epollFd  int
+		eventErr error
+	)
+	if options.WaitCQEMode == "" || options.WaitCQEMode == WaitCQEEventMode {
+		exitFd, eventErr = unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
+		if eventErr != nil {
+			_ = ring.Close()
+			err = NewRingErr(os.NewSyscallError("eventfd", eventErr))
+			return
+		}
+		eventFd, eventErr = unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
+		if eventErr != nil {
+			_ = ring.Close()
+			_ = unix.Close(exitFd)
+			err = NewRingErr(os.NewSyscallError("eventfd", eventErr))
+			return
+		}
+		epollFd, eventErr = unix.EpollCreate1(0)
+		if eventErr != nil {
+			_ = ring.Close()
+			_ = unix.Close(exitFd)
+			_ = unix.Close(eventFd)
+			err = NewRingErr(os.NewSyscallError("epoll_create1", eventErr))
+			return
+		}
+
+		eventErr = unix.EpollCtl(
+			epollFd,
+			unix.EPOLL_CTL_ADD, eventFd,
+			&unix.EpollEvent{Fd: int32(eventFd), Events: unix.EPOLLIN | unix.EPOLLET},
+		)
+		if eventErr != nil {
+			_ = ring.Close()
+			_ = unix.Close(exitFd)
+			_ = unix.Close(eventFd)
+			_ = unix.Close(epollFd)
+			err = NewRingErr(os.NewSyscallError("epoll_ctl", eventErr))
+			return
+		}
+		_, regEventFdErr := ring.RegisterEventFd(eventFd)
+		if regEventFdErr != nil {
+			_ = ring.Close()
+			_ = unix.Close(exitFd)
+			_ = unix.Close(eventFd)
+			_ = unix.Close(epollFd)
+			err = NewRingErr(os.NewSyscallError("epoll_ctl", regEventFdErr))
+			return
 		}
 	}
 
 	r := &Ring{
 		ring:                   ring,
+		eventFd:                eventFd,
+		exitFd:                 exitFd,
+		epollFd:                epollFd,
 		requestCh:              make(chan *Operation, ring.SQEntries()),
 		cancel:                 nil,
 		wg:                     sync.WaitGroup{},
-		prepAFFCPU:             prepAFFCPU,
+		prepSQEAFFCPU:          prepSQEAFFCPU,
 		prepSQEBatchSize:       options.PrepSQEBatchSize,
 		prepSQEBatchTimeWindow: options.PrepSQEBatchTimeWindow,
 		prepSQEIdleTime:        options.PrepSQEBatchIdleTime,
-		waitAFFCPU:             waitAFFCPU,
 		waitCQEBatchSize:       options.WaitCQEBatchSize,
 		waitCQETimeCurve:       options.WaitCQEBatchTimeCurve,
 		bufferRegistered:       buffers.Length() > 0,
@@ -215,14 +267,17 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 
 type Ring struct {
 	ring                   *iouring.Ring
+	eventFd                int
+	exitFd                 int
+	epollFd                int
 	requestCh              chan *Operation
 	cancel                 context.CancelFunc
 	wg                     sync.WaitGroup
-	prepAFFCPU             int
+	prepSQEAFFCPU          int
 	prepSQEBatchSize       uint32
 	prepSQEBatchTimeWindow time.Duration
 	prepSQEIdleTime        time.Duration
-	waitAFFCPU             int
+	waitCQEMode            string
 	waitCQEBatchSize       uint32
 	waitCQETimeCurve       Curve
 	bufferRegistered       bool
@@ -324,12 +379,41 @@ func (r *Ring) start(ctx context.Context) {
 	r.cancel = cancel
 
 	r.wg.Add(2)
-	go r.preparingSQE(cc)
-	go r.waitingCQE(cc)
+	if r.ring.Flags()&iouring.SetupSQPoll != 0 {
+		go r.preparingSQEWithSQPollMode(cc)
+	} else {
+		go r.preparingSQEWithBatchMode(cc)
+	}
+	if r.waitCQEMode == WaitCQEBatchMode {
+		go r.waitingCQEWithBatchMode(cc)
+	} else {
+		go r.waitingCQEWithEventMode(cc)
+	}
 	return
 }
 
+var (
+	waitExit = new(time.Time)
+)
+
 func (r *Ring) Close() (err error) {
+	// exit epoll
+	if _, writeExitErr := unix.Write(r.exitFd, []byte{1}); writeExitErr != nil {
+		// use nop
+		for i := 0; i < 10; i++ {
+			sqe := r.ring.GetSQE()
+			if sqe == nil {
+				_, _ = r.ring.Submit()
+				continue
+			}
+			sqe.PrepareNop()
+			sqe.SetData(unsafe.Pointer(waitExit))
+			_, _ = r.ring.Submit()
+			time.Sleep(500 * time.Millisecond)
+			break
+		}
+	}
+	_ = unix.Close(r.exitFd)
 	// cancel prep and wait go
 	r.cancel()
 	r.cancel = nil
@@ -347,6 +431,10 @@ func (r *Ring) Close() (err error) {
 	if r.RegisterFixedFdEnabled() {
 		_, _ = r.ring.UnregisterFiles()
 	}
+	// unregister eventFd
+	_, _ = r.ring.UnregisterEventFd(r.eventFd)
+	_ = unix.Close(r.eventFd)
+	_ = unix.Close(r.epollFd)
 	// close
 	err = r.ring.Close()
 	return

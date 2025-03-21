@@ -3,7 +3,6 @@
 package sys
 
 import (
-	"errors"
 	"os"
 	"sync/atomic"
 	"syscall"
@@ -30,18 +29,6 @@ func errnoErr(e syscall.Errno) error {
 		return errENOENT
 	}
 	return e
-}
-
-func IgnoringEINTRIO(fn func(fd int, p []byte) (int, error), fd int, p []byte) (int, error) {
-	for {
-		n, err := fn(fd, p)
-		if err == nil {
-			return n, nil
-		}
-		if !errors.Is(err, syscall.EINTR) {
-			return n, err
-		}
-	}
 }
 
 var dupCloexecUnsupported atomic.Bool
