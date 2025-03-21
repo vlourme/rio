@@ -164,8 +164,6 @@ type Dialer struct {
 	SendZC bool
 	// DisableDirectAlloc disable using iouring direct allocated socket to dial.
 	DisableDirectAlloc bool
-	// AsyncIO is set use IOURING.IOSQE_ASYNC
-	AsyncIO bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//
@@ -207,11 +205,6 @@ func (d *Dialer) SetSendZC(use bool) {
 // SetDisableDirectAlloc disable using iouring direct allocated socket to dial.
 func (d *Dialer) SetDisableDirectAlloc(disable bool) {
 	d.DisableDirectAlloc = disable
-}
-
-// SetAsyncIO is set use IOURING.IOSQE_ASYNC.
-func (d *Dialer) SetAsyncIO(async bool) {
-	d.AsyncIO = async
 }
 
 // SetVortex set customize [aio.Vortex].

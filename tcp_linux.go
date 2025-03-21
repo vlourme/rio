@@ -160,10 +160,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
-	// async
-	if lc.AsyncIO {
-		fd.SetAsync(lc.AsyncIO)
-	}
 
 	// ln
 	ln := &TCPListener{
@@ -171,7 +167,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		directMode:         directMode,
 		vortex:             vortex,
 		acceptFuture:       nil,
-		asyncIO:            lc.AsyncIO,
 		multipathTCP:       lc.MultipathTCP,
 		keepAlive:          lc.KeepAlive,
 		keepAliveConfig:    lc.KeepAliveConfig,
@@ -197,7 +192,6 @@ type TCPListener struct {
 	directMode         bool
 	vortex             *aio.Vortex
 	acceptFuture       *aio.AcceptFuture
-	asyncIO            bool
 	multipathTCP       bool
 	keepAlive          time.Duration
 	keepAliveConfig    net.KeepAliveConfig
@@ -223,10 +217,6 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 		c, err = ln.acceptMultishot()
 	} else {
 		c, err = ln.acceptOneshot()
-	}
-	// async io
-	if c != nil && ln.asyncIO {
-		_ = c.SetAsync(ln.asyncIO)
 	}
 	return
 }

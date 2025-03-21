@@ -101,10 +101,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
-	// async
-	if lc.AsyncIO {
-		fd.SetAsync(lc.AsyncIO)
-	}
 	// ln
 	ln := &UnixListener{
 		fd:                 fd,
@@ -114,7 +110,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		vortex:             vortex,
 		acceptFuture:       nil,
 		useSendZC:          useSendZC,
-		asyncIO:            lc.AsyncIO,
 		useMultishotAccept: lc.MultishotAccept,
 		deadline:           time.Time{},
 	}
@@ -197,10 +192,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
-	}
-	// async
-	if lc.AsyncIO {
-		fd.SetAsync(lc.AsyncIO)
 	}
 	// conn
 	c := &UnixConn{
