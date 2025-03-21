@@ -141,8 +141,6 @@ config := rio.ListenConfig{
     KeepAlive:          0,                       // 设置 KeepAlive 时长
     KeepAliveConfig:    net.KeepAliveConfig{},   // 设置 KeepAlive 详细配置
     MultipathTCP:       false,                   // 是否多路TCP模式
-    FastOpen:           false,                   // 是否快速打开（tcp自动开启）
-    QuickAck:           false,                   // 是否快速应答（tcp自动开启）
     ReusePort:          false,                   // 是否重用端口（同时开启cBPF）
     SendZC:             false,                   // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
     MultishotAccept:    false,                   // 是否单投多发模式来接受链接
@@ -162,8 +160,6 @@ dialer := rio.Dialer{
     LocalAddr:          nil,                        // 本地地址
     FallbackDelay:      0,                          // 并行回退延时   
     MultipathTCP:       false,                      // 是否多路TCP模式
-    FastOpen:           false,                      // 是否快速打开（tcp自动开启）
-    QuickAck:           false,                      // 是否快速应答（tcp自动开启）
     SendZC:             false,                      // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
     DisableDirectAlloc: false,                      // 禁止自动注册（6.7后有效）
     Control:            nil,                        // 设置控制器
