@@ -1,13 +1,12 @@
 package aio
 
 import (
-	"syscall"
 	"time"
 )
 
 type Transmission interface {
-	Up() (uint32, *syscall.Timespec)
-	Down() (uint32, *syscall.Timespec)
+	Up() (uint32, time.Duration)
+	Down() (uint32, time.Duration)
 }
 
 type Curve []struct {
@@ -17,7 +16,6 @@ type Curve []struct {
 
 var (
 	defaultCurve = Curve{
-		{1, 15 * time.Second},
 		{8, 1 * time.Microsecond},
 		{16, 10 * time.Microsecond},
 		{32, 100 * time.Microsecond},
@@ -42,7 +40,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 		}
 		times[i] = WaitNTime{
 			n:    n,
-			time: syscall.NsecToTimespec(timeout.Nanoseconds()),
+			time: timeout,
 		}
 	}
 	return &CurveTransmission{
@@ -54,7 +52,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 
 type WaitNTime struct {
 	n    uint32
-	time syscall.Timespec
+	time time.Duration
 }
 
 type CurveTransmission struct {
@@ -63,18 +61,18 @@ type CurveTransmission struct {
 	idx   int
 }
 
-func (tran *CurveTransmission) Up() (uint32, *syscall.Timespec) {
+func (tran *CurveTransmission) Up() (uint32, time.Duration) {
 	if tran.idx == tran.size-1 {
-		return tran.curve[tran.idx].n, &tran.curve[tran.idx].time
+		return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 	}
 	tran.idx++
-	return tran.curve[tran.idx].n, &tran.curve[tran.idx].time
+	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 }
 
-func (tran *CurveTransmission) Down() (uint32, *syscall.Timespec) {
+func (tran *CurveTransmission) Down() (uint32, time.Duration) {
 	if tran.idx == 0 {
-		return tran.curve[0].n, &tran.curve[0].time
+		return tran.curve[0].n, tran.curve[0].time
 	}
 	tran.idx--
-	return tran.curve[tran.idx].n, &tran.curve[tran.idx].time
+	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 }

@@ -173,7 +173,7 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 	// affinity cpu
 	var (
 		sqThreadCPU   = options.SQThreadCPU
-		prepSQEAFFCPU = options.PrepSQEBatchAffCPU
+		prepSQEAFFCPU = options.PrepSQEAffCPU
 	)
 	if ring.Flags()&iouring.SetupSingleIssuer != 0 || runtime.NumCPU() > 3 {
 		if prepSQEAFFCPU == -1 {
@@ -185,13 +185,17 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 		}
 	}
 
+	if ring.Flags()&iouring.SetupSQPoll == 0 {
+		options.WaitCQEMode = WaitCQEPushMode
+	}
+
 	var (
 		exitFd   int
 		eventFd  int
 		epollFd  int
 		eventErr error
 	)
-	if options.WaitCQEMode == "" || options.WaitCQEMode == WaitCQEEventMode {
+	if options.WaitCQEMode == "" || options.WaitCQEMode == WaitCQEPushMode {
 		exitFd, eventErr = unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
 		if eventErr != nil {
 			_ = ring.Close()
@@ -239,25 +243,25 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 	}
 
 	r := &Ring{
-		ring:                   ring,
-		eventFd:                eventFd,
-		exitFd:                 exitFd,
-		epollFd:                epollFd,
-		requestCh:              make(chan *Operation, ring.SQEntries()),
-		cancel:                 nil,
-		wg:                     sync.WaitGroup{},
-		prepSQEAFFCPU:          prepSQEAFFCPU,
-		prepSQEBatchSize:       options.PrepSQEBatchSize,
-		prepSQEBatchTimeWindow: options.PrepSQEBatchTimeWindow,
-		prepSQEIdleTime:        options.PrepSQEBatchIdleTime,
-		waitCQEBatchSize:       options.WaitCQEBatchSize,
-		waitCQETimeCurve:       options.WaitCQEBatchTimeCurve,
-		bufferRegistered:       buffers.Length() > 0,
-		buffers:                buffers,
-		directAllocEnabled:     directAllocEnabled,
-		fixedFileLocker:        new(sync.Mutex),
-		files:                  files,
-		fileIndexes:            fileIndexes,
+		ring:               ring,
+		eventFd:            eventFd,
+		exitFd:             exitFd,
+		epollFd:            epollFd,
+		requestCh:          make(chan *Operation, ring.SQEntries()),
+		cancel:             nil,
+		wg:                 sync.WaitGroup{},
+		prepSQEAFFCPU:      prepSQEAFFCPU,
+		prepSQEMinBatch:    options.PrepSQEBatchMinSize,
+		prepSQETimeWindow:  options.PrepSQEBatchTimeWindow,
+		prepSQEIdleTime:    options.PrepSQEBatchIdleTime,
+		waitCQETimeCurve:   options.WaitCQETimeCurve,
+		waitCQEMode:        options.WaitCQEMode,
+		bufferRegistered:   buffers.Length() > 0,
+		buffers:            buffers,
+		directAllocEnabled: directAllocEnabled,
+		fixedFileLocker:    new(sync.Mutex),
+		files:              files,
+		fileIndexes:        fileIndexes,
 	}
 	r.start(ctx)
 
@@ -266,26 +270,26 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 }
 
 type Ring struct {
-	ring                   *iouring.Ring
-	eventFd                int
-	exitFd                 int
-	epollFd                int
-	requestCh              chan *Operation
-	cancel                 context.CancelFunc
-	wg                     sync.WaitGroup
-	prepSQEAFFCPU          int
-	prepSQEBatchSize       uint32
-	prepSQEBatchTimeWindow time.Duration
-	prepSQEIdleTime        time.Duration
-	waitCQEMode            string
-	waitCQEBatchSize       uint32
-	waitCQETimeCurve       Curve
-	bufferRegistered       bool
-	buffers                *Queue[FixedBuffer]
-	directAllocEnabled     bool
-	fixedFileLocker        sync.Locker
-	files                  []int
-	fileIndexes            *Queue[int]
+	ring                *iouring.Ring
+	eventFd             int
+	exitFd              int
+	epollFd             int
+	requestCh           chan *Operation
+	cancel              context.CancelFunc
+	wg                  sync.WaitGroup
+	prepSQEAFFCPU       int
+	prepSQEMinBatch     uint32
+	prepSQETimeWindow   time.Duration
+	prepSQEIdleTime     time.Duration
+	waitCQEMode         string
+	waitCQETimeCurve    Curve
+	waitCQEPullIdleTime time.Duration
+	bufferRegistered    bool
+	buffers             *Queue[FixedBuffer]
+	directAllocEnabled  bool
+	fixedFileLocker     sync.Locker
+	files               []int
+	fileIndexes         *Queue[int]
 }
 
 func (r *Ring) Fd() int {
@@ -384,7 +388,8 @@ func (r *Ring) start(ctx context.Context) {
 	} else {
 		go r.preparingSQEWithBatchMode(cc)
 	}
-	if r.waitCQEMode == WaitCQEBatchMode {
+
+	if r.waitCQEMode == WaitCQEPullMode {
 		go r.waitingCQEWithBatchMode(cc)
 	} else {
 		go r.waitingCQEWithEventMode(cc)

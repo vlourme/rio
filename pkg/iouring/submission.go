@@ -4,6 +4,7 @@ package iouring
 
 import (
 	"golang.org/x/sys/unix"
+	"math"
 	"syscall"
 	"time"
 	"unsafe"
@@ -72,7 +73,8 @@ const (
 	OpEpollWait
 	OpReadvFixed
 	OpWritevFixed
-	OpLast
+
+	OpLast = math.MaxUint8
 )
 
 const UringCmdFixed uint32 = 1 << 0

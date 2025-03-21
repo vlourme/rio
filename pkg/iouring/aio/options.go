@@ -14,13 +14,13 @@ type Options struct {
 	RegisterFixedBufferCount   uint32
 	RegisterFixedFiles         uint32
 	RegisterReservedFixedFiles uint32
-	PrepSQEBatchSize           uint32
+	PrepSQEAffCPU              int
+	PrepSQEBatchMinSize        uint32
 	PrepSQEBatchTimeWindow     time.Duration
 	PrepSQEBatchIdleTime       time.Duration
-	PrepSQEBatchAffCPU         int
 	WaitCQEMode                string
-	WaitCQEBatchSize           uint32
-	WaitCQEBatchTimeCurve      Curve
+	WaitCQETimeCurve           Curve
+	waitCQEPullIdleTime        time.Duration
 	AttachRingFd               int
 }
 
@@ -28,7 +28,7 @@ type Option func(*Options)
 
 // WithAttach
 // attach ring.
-// see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html#IORING_SETUP_ATTACH_WQ.
+// see https://man.archlinux.org/man/extra/liburing/io_uring_setup.2.en#IORING_SETUP_ATTACH_WQ.
 func WithAttach(v *Vortex) Option {
 	return func(o *Options) {
 		if v == nil {
@@ -52,6 +52,7 @@ func WithEntries(entries uint32) Option {
 
 // WithFlags
 // setup iouring's flags.
+// see https://man.archlinux.org/listing/extra/liburing/
 func WithFlags(flags uint32) Option {
 	return func(opts *Options) {
 		opts.Flags |= flags
@@ -81,27 +82,22 @@ func WithSQThreadIdle(idle time.Duration) Option {
 	}
 }
 
-// WithPrepSQEBatchSize
-// setup size of batch preparing sqe.
-func WithPrepSQEBatchSize(size uint32) Option {
+// WithPrepSQEAFFCPU
+// setup affinity cpu of preparing sqe.
+func WithPrepSQEAFFCPU(cpu int) Option {
 	return func(opts *Options) {
-		opts.PrepSQEBatchSize = size
+		opts.PrepSQEAffCPU = cpu
 	}
 }
 
-const (
-	WaitCQEEventMode = "EVENT"
-	WaitCQEBatchMode = "BATCH"
-)
-
-// WithWaitCQEMode
-// setup mode of wait cqe, default is [WaitCQEEventMode]
-func WithWaitCQEMode(mode string) Option {
+// WithPrepSQEBatchMinSize
+// setup min batch for preparing sqe.
+func WithPrepSQEBatchMinSize(size uint32) Option {
 	return func(opts *Options) {
-		mode = strings.ToUpper(strings.TrimSpace(mode))
-		if mode == WaitCQEEventMode || mode == WaitCQEBatchMode {
-			opts.WaitCQEMode = mode
+		if size < 1 {
+			size = 64
 		}
+		opts.PrepSQEBatchMinSize = size
 	}
 }
 
@@ -110,7 +106,7 @@ const (
 )
 
 // WithPrepSQEBatchTimeWindow
-// setup time window of batch preparing sqe.
+// setup time window of batch for preparing sqe without SQ_POLL.
 func WithPrepSQEBatchTimeWindow(window time.Duration) Option {
 	return func(opts *Options) {
 		if window < 1 {
@@ -125,7 +121,7 @@ const (
 )
 
 // WithPrepSQEBatchIdleTime
-// setup idle time of batch preparing sqe.
+// setup idle time for preparing sqe without SQ_POLL.
 func WithPrepSQEBatchIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
 		if d < 1 {
@@ -135,27 +131,42 @@ func WithPrepSQEBatchIdleTime(d time.Duration) Option {
 	}
 }
 
-// WithPrepSQEBatchAFFCPU
-// setup affinity cpu of preparing sqe.
-func WithPrepSQEBatchAFFCPU(cpu int) Option {
+const (
+	WaitCQEPushMode = "PUSH"
+	WaitCQEPullMode = "PULL"
+)
+
+// WithWaitCQEMode
+// setup mode of wait cqe, default is [WaitCQEPushMode]
+func WithWaitCQEMode(mode string) Option {
 	return func(opts *Options) {
-		opts.PrepSQEBatchAffCPU = cpu
+		mode = strings.ToUpper(strings.TrimSpace(mode))
+		if mode == WaitCQEPushMode || mode == WaitCQEPullMode {
+			opts.WaitCQEMode = mode
+		}
 	}
 }
 
-// WithWaitCQEBatchSize
-// setup size of batch waiting cqe.
-func WithWaitCQEBatchSize(size uint32) Option {
+// WithWaitCQETimeCurve
+// setup time curve for waiting cqe.
+func WithWaitCQETimeCurve(curve Curve) Option {
 	return func(opts *Options) {
-		opts.WaitCQEBatchSize = size
+		opts.WaitCQETimeCurve = curve
 	}
 }
 
-// WithWaitCQEBatchTimeCurve
-// setup time curve of batch waiting cqe.
-func WithWaitCQEBatchTimeCurve(curve Curve) Option {
+const (
+	defaultWaitCQEPullIdleTime = 15 * time.Second
+)
+
+// WithWaitCQEPullIdleTime
+// setup idle time for pull wait mode.
+func WithWaitCQEPullIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
-		opts.WaitCQEBatchTimeCurve = curve
+		if d < 1 {
+			d = defaultWaitCQEPullIdleTime
+		}
+		opts.waitCQEPullIdleTime = d
 	}
 }
 

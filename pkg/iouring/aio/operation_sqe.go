@@ -4,17 +4,12 @@ package aio
 
 import (
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"os"
 	"runtime"
 	"syscall"
 	"unsafe"
 )
 
-func (op *Operation) makeSQE(r *Ring) error {
-	sqe := r.ring.GetSQE()
-	if sqe == nil {
-		return os.NewSyscallError("ring_getsqe", syscall.EBUSY)
-	}
+func (op *Operation) makeSQE(sqe *iouring.SubmissionQueueEntry) error {
 	switch op.kind {
 	case iouring.OpNop:
 		sqe.PrepareNop()

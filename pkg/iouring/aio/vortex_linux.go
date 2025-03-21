@@ -24,17 +24,8 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 	}
 	// options
 	opt := Options{
-		Entries:                  0,
-		Flags:                    0,
-		SQThreadCPU:              0,
-		SQThreadIdle:             0,
-		RegisterFixedBufferSize:  0,
-		RegisterFixedBufferCount: 0,
-		PrepSQEBatchSize:         0,
-		PrepSQEBatchIdleTime:     0,
-		PrepSQEBatchAffCPU:       -1,
-		WaitCQEBatchSize:         0,
-		WaitCQEBatchTimeCurve:    nil,
+		PrepSQEAffCPU: -1,
+		WaitCQEMode:   WaitCQEPushMode,
 	}
 	for _, option := range options {
 		option(&opt)

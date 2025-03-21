@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 	"os"
 	"syscall"
+	"time"
 )
 
 func (r *Ring) waitingCQEWithEventMode(ctx context.Context) {
@@ -21,11 +22,10 @@ func (r *Ring) waitingCQEWithEventMode(ctx context.Context) {
 	b := make([]byte, 8)
 
 	ring := r.ring
-	waitCQBatchSize := r.waitCQEBatchSize
-	if waitCQBatchSize < 1 {
-		waitCQBatchSize = 1024
-	}
-	cqes := make([]*iouring.CompletionQueueEvent, waitCQBatchSize)
+	transmission := NewCurveTransmission(r.waitCQETimeCurve)
+	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
+	cqes := make([]*iouring.CompletionQueueEvent, 1024)
+	cqesLen := uint32(len(cqes))
 	stopped := false
 	for {
 		n, waitErr := unix.EpollWait(epollFd, events, -1)
@@ -44,6 +44,17 @@ func (r *Ring) waitingCQEWithEventMode(ctx context.Context) {
 				stopped = true
 				break
 			case int32(eventFd):
+				time.Sleep(cqeWaitTimeout)
+				ready := ring.CQReady()
+				if ready > cqeWaitMaxCount {
+					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
+				} else {
+					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
+				}
+				if ready > cqesLen {
+					cqesLen = iouring.RoundupPow2(ready)
+					cqes = make([]*iouring.CompletionQueueEvent, cqesLen)
+				}
 				if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
 					for i := uint32(0); i < peeked; i++ {
 						cqe := cqes[i]
@@ -102,13 +113,17 @@ func (r *Ring) waitingCQEWithBatchMode(ctx context.Context) {
 	defer r.wg.Done()
 
 	ring := r.ring
+	if r.waitCQEPullIdleTime < 1 {
+		r.waitCQEPullIdleTime = defaultWaitCQEPullIdleTime
+	}
+	idleTime := syscall.NsecToTimespec(r.waitCQEPullIdleTime.Nanoseconds())
+	needToIdle := false
+
 	transmission := NewCurveTransmission(r.waitCQETimeCurve)
 	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
-	waitCQBatchSize := r.waitCQEBatchSize
-	if waitCQBatchSize < 1 {
-		waitCQBatchSize = 1024
-	}
-	cq := make([]*iouring.CompletionQueueEvent, waitCQBatchSize)
+	cqes := make([]*iouring.CompletionQueueEvent, 1024)
+	cqesLen := uint32(len(cqes))
+	waitZeroTimes := 5
 	stopped := false
 	for {
 		select {
@@ -116,10 +131,15 @@ func (r *Ring) waitingCQEWithBatchMode(ctx context.Context) {
 			stopped = true
 			break
 		default:
-			if completed := ring.PeekBatchCQE(cq); completed > 0 {
+			ready := ring.CQReady()
+			if ready > cqesLen {
+				cqesLen = iouring.RoundupPow2(ready)
+				cqes = make([]*iouring.CompletionQueueEvent, cqesLen)
+			}
+			if completed := ring.PeekBatchCQE(cqes); completed > 0 {
 				for i := uint32(0); i < completed; i++ {
-					cqe := cq[i]
-					cq[i] = nil
+					cqe := cqes[i]
+					cqes[i] = nil
 
 					if cqe.UserData == 0 { // no userdata means no op
 						continue
@@ -150,15 +170,33 @@ func (r *Ring) waitingCQEWithBatchMode(ctx context.Context) {
 				// CQAdvance
 				ring.CQAdvance(completed)
 			} else {
-				if _, waitErr := ring.WaitCQEs(cqeWaitMaxCount, cqeWaitTimeout, nil); waitErr != nil {
+				if needToIdle {
+					if _, waitErr := ring.WaitCQETimeout(&idleTime); waitErr != nil {
+						if ctx.Err() != nil { // done
+							break
+						}
+						break
+					} else { // reset idle
+						needToIdle = false
+						waitZeroTimes = 10
+					}
+				}
+				ns := syscall.NsecToTimespec(cqeWaitTimeout.Nanoseconds())
+				if _, waitErr := ring.WaitCQEs(cqeWaitMaxCount, &ns, nil); waitErr != nil {
+					if ctx.Err() != nil { // done
+						break
+					}
 					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
+					waitZeroTimes--
+					if waitZeroTimes < 1 {
+						needToIdle = true
+					}
 				} else {
 					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
 				}
 			}
 			break
 		}
-
 		if stopped {
 			break
 		}

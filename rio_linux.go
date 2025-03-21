@@ -27,59 +27,91 @@ var (
 	vortexInstanceOnce    sync.Once
 )
 
+const (
+	envEntries                    = "RIO_IOURING_ENTRIES"
+	envFlags                      = "RIO_IOURING_SETUP_FLAGS"
+	envSQThreadCPU                = "RIO_IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle               = "RIO_IOURING_SQ_THREAD_IDLE"
+	envRegisterFixedBuffers       = "RIO_IOURING_REG_FIXED_BUFFERS"
+	envRegisterFixedFiles         = "RIO_IOURING_REG_FIXED_FILES"
+	envRegisterReservedFixedFiles = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
+	envPrepSQEAffCPU              = "RIO_PREP_SQE_AFF_CPU"
+	envPrepSQEBatchMinSize        = "RIO_PREP_SQE_BATCH_MIN_SIZE"
+	envPrepSQEBatchTimeWindow     = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
+	envPrepSQEBatchIdleTime       = "RIO_PREP_SQE_BATCH_IDLE_TIME"
+	envWaitCQEMode                = "RIO_WAIT_CQE_MODE"
+	envWaitCQETimeCurve           = "RIO_WAIT_CQE_TIME_CURVE"
+	envWaitCQEPullIdleTime        = "RIO_WAIT_CQE_PULL_IDLE_TIME"
+)
+
 func getVortex() (*aio.Vortex, error) {
 	vortexInstanceOnce.Do(func() {
 		if len(vortexInstanceOptions) == 0 { // use env
 			vortexInstanceOptions = make([]aio.Option, 0, 1)
 
-			entries := loadEnvEntries()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithEntries(entries))
-
-			flags, hasFlags := loadEnvFlags()
-			if !hasFlags {
-				if cpus := runtime.NumCPU(); cpus > 3 { // use sq_poll and sq_aff
-					flags = iouring.SetupSQPoll | iouring.SetupSQAff
-				} else { // use coop task run
-					flags = iouring.SetupCoopTaskRun
-				}
+			// ring >>>
+			if v, has := envLoadUint32(envEntries); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithEntries(v))
 			}
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(flags))
 
-			sqThreadCPU := loadEnvSQThreadCPU()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadCPU(sqThreadCPU))
+			if v, has := envLoadFlags(envFlags); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
+			} else {
+				if cpus := runtime.NumCPU(); cpus > 3 { // use sq_poll and sq_aff
+					v = iouring.SetupSQPoll | iouring.SetupSingleIssuer
+				} else { // use coop task run
+					v = iouring.SetupCoopTaskRun | iouring.SetupDeferTaskRun
+				}
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
+			}
 
-			sqThreadIdle := loadEnvSQThreadIdle()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadIdle(time.Duration(sqThreadIdle)*time.Millisecond))
+			if v, has := envLoadUint32(envSQThreadCPU); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadCPU(v))
+			}
+			if v, has := envLoadDuration(envSQThreadIdle); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadIdle(v))
+			}
+			// ring <<<
 
-			prepareBatchSize := loadEnvPrepareSQEBatchSize()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchSize(prepareBatchSize))
+			// fixed >>>
+			if v0, v1, has := envLoadUint32Coop(envRegisterFixedBuffers); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedBuffer(v0, v1))
+			}
+			if v, has := envLoadUint32(envRegisterFixedFiles); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(v))
+			}
+			if v, has := envLoadUint32(envRegisterReservedFixedFiles); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterReservedFixedFiles(v))
+			}
+			// fixed <<<
 
-			prepareBatchTimeWindow := loadEnvPrepareSQETimeWindow()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchTimeWindow(prepareBatchTimeWindow))
+			// prep >>>
+			if v, has := envLoadUint32(envPrepSQEAffCPU); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEAFFCPU(int(v)))
+			}
+			if v, has := envLoadUint32(envPrepSQEBatchMinSize); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchMinSize(v))
+			}
+			if v, has := envLoadDuration(envPrepSQEBatchTimeWindow); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchTimeWindow(v))
+			}
+			if v, has := envLoadDuration(envPrepSQEBatchIdleTime); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchIdleTime(v))
+			}
+			// prep <<<
 
-			prepareIdleTime := loadEnvPrepareSQEIdleTime()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchIdleTime(prepareIdleTime))
+			// wait >>>
+			if v, has := envLoadString(envWaitCQEMode); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEMode(v))
+			}
+			if v, has := envLoadCurve(envWaitCQETimeCurve); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQETimeCurve(v))
+			}
+			if v, has := envLoadDuration(envWaitCQEPullIdleTime); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEPullIdleTime(v))
+			}
 
-			prepareSQEAffCPU := loadEnvPrepareSQEAFFCPU()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchAFFCPU(prepareSQEAffCPU))
-
-			waitCQBatchSize := loadEnvWaitCQEBatchSize()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEBatchSize(waitCQBatchSize))
-
-			curve := loadEnvWaitCQETimeCurve()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEBatchTimeCurve(curve))
-
-			waitCQEMode := loadEnvWaitCQEMode()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEMode(waitCQEMode))
-
-			bufs, bufc := loadEnvRegFixedBuffers()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedBuffer(bufs, bufc))
-
-			files := loadEnvRegFixedFiles()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(files))
-
-			reservedFiles := loadEnvRegReservedFixedFiles()
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterReservedFixedFiles(reservedFiles))
+			// wait <<<
 
 		}
 		// open
@@ -88,37 +120,51 @@ func getVortex() (*aio.Vortex, error) {
 	return vortexInstance, vortexInstanceErr
 }
 
-const (
-	envEntries                    = "RIO_IOURING_ENTRIES"
-	envFlags                      = "RIO_IOURING_SETUP_FLAGS"
-	envSQThreadCPU                = "RIO_IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle               = "RIO_IOURING_SQ_THREAD_IDLE"
-	envRegisterFixedBuffers       = "RIO_IOURING_REG_FIXED_BUFFERS"
-	envRegisterFixedFiles         = "RIO_IOURING_REG_FIXED_FILES"
-	envRegisterReservedFixedFiles = "RIO_IOURING_REG_RESERVED_FIXED_FILES"
-	envPrepSQEBatchSize           = "RIO_PREP_SQE_BATCH_SIZE"
-	envPrepSQEBatchTimeWindow     = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
-	envPrepSQEBatchIdleTime       = "RIO_PREP_SQE_BATCH_IDLE_TIME"
-	envPrepSQEBatchAffCPU         = "RIO_PREP_SQE_BATCH_AFF_CPU"
-	envWaitCQEMode                = "RIO_WAIT_CQE_MODE"
-	envWaitCQEBatchSize           = "RIO_WAIT_CQE_BATCH_SIZE"
-	envWaitCQEBatchTimeCurve      = "RIO_WAIT_CQE_BATCH_TIME_CURVE"
-)
-
-func loadEnvEntries() uint32 {
-	s, has := os.LookupEnv(envEntries)
+func envLoadString(name string) (string, bool) {
+	s, has := os.LookupEnv(name)
 	if !has {
-		return 0
+		return "", false
+	}
+	return strings.TrimSpace(s), true
+}
+
+func envLoadUint32(name string) (uint32, bool) {
+	s, has := os.LookupEnv(name)
+	if !has {
+		return 0, false
 	}
 	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
 	if parseErr != nil {
-		return 0
+		return 0, false
 	}
-	return uint32(u)
+	return uint32(u), true
 }
 
-func loadEnvFlags() (uint32, bool) {
-	s, has := os.LookupEnv(envFlags)
+func envLoadUint32Coop(name string) (uint32, uint32, bool) {
+	s, has := os.LookupEnv(name)
+	if !has {
+		return 0, 0, false
+	}
+	idx := strings.IndexByte(s, ',')
+	if idx < 1 {
+		return 0, 0, false
+	}
+	ss := strings.TrimSpace(s[:idx])
+	u0, parseSizeErr := strconv.ParseUint(ss, 10, 32)
+	if parseSizeErr != nil {
+		return 0, 0, false
+	}
+
+	cs := strings.TrimSpace(s[idx+1:])
+	u1, parseCountErr := strconv.ParseUint(cs, 10, 32)
+	if parseCountErr != nil {
+		return 0, 0, false
+	}
+	return uint32(u0), uint32(u1), true
+}
+
+func envLoadFlags(name string) (uint32, bool) {
+	s, has := os.LookupEnv(name)
 	if !has {
 		return 0, false
 	}
@@ -133,102 +179,22 @@ func loadEnvFlags() (uint32, bool) {
 	return flags, true
 }
 
-func loadEnvSQThreadCPU() uint32 {
-	s, has := os.LookupEnv(envSQThreadCPU)
+func envLoadDuration(name string) (time.Duration, bool) {
+	s, has := os.LookupEnv(name)
 	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
-func loadEnvSQThreadIdle() uint32 {
-	s, has := os.LookupEnv(envSQThreadIdle)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
-func loadEnvPrepareSQEBatchSize() uint32 {
-	s, has := os.LookupEnv(envPrepSQEBatchSize)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
-func loadEnvPrepareSQETimeWindow() time.Duration {
-	s, has := os.LookupEnv(envPrepSQEBatchTimeWindow)
-	if !has {
-		return 0
+		return 0, false
 	}
 	d, parseErr := time.ParseDuration(strings.TrimSpace(s))
 	if parseErr != nil {
-		return 0
+		return 0, false
 	}
-	return d
+	return d, true
 }
 
-func loadEnvPrepareSQEIdleTime() time.Duration {
-	s, has := os.LookupEnv(envPrepSQEBatchIdleTime)
+func envLoadCurve(name string) (aio.Curve, bool) {
+	s, has := os.LookupEnv(name)
 	if !has {
-		return 0
-	}
-	d, parseErr := time.ParseDuration(strings.TrimSpace(s))
-	if parseErr != nil {
-		return 0
-	}
-	return d
-}
-
-func loadEnvPrepareSQEAFFCPU() int {
-	s, has := os.LookupEnv(envPrepSQEBatchAffCPU)
-	if !has {
-		return -1
-	}
-	n, parseErr := strconv.Atoi(strings.TrimSpace(s))
-	if parseErr != nil {
-		return -1
-	}
-	return n
-}
-
-func loadEnvWaitCQEMode() string {
-	s, has := os.LookupEnv(envWaitCQEMode)
-	if !has {
-		return aio.WaitCQEEventMode
-	}
-	return strings.ToUpper(strings.TrimSpace(s))
-}
-
-func loadEnvWaitCQEBatchSize() uint32 {
-	s, has := os.LookupEnv(envWaitCQEBatchSize)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
-func loadEnvWaitCQETimeCurve() aio.Curve {
-	s, has := os.LookupEnv(envWaitCQEBatchTimeCurve)
-	if !has {
-		return nil
+		return nil, false
 	}
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
@@ -237,72 +203,22 @@ func loadEnvWaitCQETimeCurve() aio.Curve {
 	for _, s0 := range ss {
 		i := strings.Index(s0, ":")
 		if i == -1 {
-			return nil
+			return nil, false
 		}
 		ns := strings.TrimSpace(s0[:i])
 		n, nErr := strconv.ParseUint(ns, 10, 32)
 		if nErr != nil {
-			return nil
+			return nil, false
 		}
 		ts := strings.TrimSpace(s0[i+1:])
 		t, tErr := time.ParseDuration(ts)
 		if tErr != nil {
-			return nil
+			return nil, false
 		}
 		curve = append(curve, struct {
 			N       uint32
 			Timeout time.Duration
 		}{N: uint32(n), Timeout: t})
 	}
-	return curve
-}
-
-func loadEnvRegFixedBuffers() (size uint32, count uint32) {
-	s, has := os.LookupEnv(envRegisterFixedBuffers)
-	if !has {
-		return
-	}
-	idx := strings.IndexByte(s, ',')
-	if idx < 1 {
-		return
-	}
-	ss := strings.TrimSpace(s[:idx])
-	us, parseSizeErr := strconv.ParseUint(ss, 10, 32)
-	if parseSizeErr != nil {
-		return
-	}
-
-	cs := strings.TrimSpace(s[idx+1:])
-	uc, parseCountErr := strconv.ParseUint(cs, 10, 32)
-	if parseCountErr != nil {
-		return
-	}
-
-	size = uint32(us)
-	count = uint32(uc)
-	return
-}
-
-func loadEnvRegFixedFiles() uint32 {
-	s, has := os.LookupEnv(envRegisterFixedFiles)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
-}
-
-func loadEnvRegReservedFixedFiles() uint32 {
-	s, has := os.LookupEnv(envRegisterReservedFixedFiles)
-	if !has {
-		return 0
-	}
-	u, parseErr := strconv.ParseUint(strings.TrimSpace(s), 10, 32)
-	if parseErr != nil {
-		return 0
-	}
-	return uint32(u)
+	return curve, true
 }

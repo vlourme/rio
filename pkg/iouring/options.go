@@ -34,7 +34,7 @@ func WithEntries(entries uint32) Option {
 }
 
 // WithFlags
-// see https://manpages.debian.org/unstable/liburing-dev/io_uring_setup.2.en.html
+// see https://man.archlinux.org/listing/extra/liburing/
 func WithFlags(flags uint32) Option {
 	return func(o *Options) error {
 		o.Flags |= flags

@@ -4,8 +4,9 @@ package aio
 
 import (
 	"context"
-	"errors"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/process"
+	"os"
 	"runtime"
 	"syscall"
 	"time"
@@ -38,12 +39,13 @@ func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
 				break
 			}
 			if op.canPrepare() {
-				if prepErr := op.makeSQE(r); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
-					op.setResult(0, 0, prepErr)
-					if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
-						break
-					}
-					continue
+				sqe := ring.GetSQE()
+				if sqe == nil {
+					op.setResult(0, 0, os.NewSyscallError("ring_getsqe", syscall.EBUSY)) // when prep err occur, means invalid op kind or no sqe left
+					break
+				}
+				if makeErr := op.makeSQE(sqe); makeErr != nil { // make err but prep_nop, so need to submit
+					op.setResult(0, 0, makeErr)
 				}
 				_, _ = ring.Submit()
 			}
@@ -52,7 +54,6 @@ func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
 			break
 		}
 	}
-
 }
 
 func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
@@ -70,7 +71,7 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 	if idleTime < 1 {
 		idleTime = defaultPrepSQEBatchIdleTime
 	}
-	batchTimeWindow := r.prepSQEBatchTimeWindow
+	batchTimeWindow := r.prepSQETimeWindow
 	if batchTimeWindow < 1 {
 		batchTimeWindow = defaultPrepSQEBatchTimeWindow
 	}
@@ -78,11 +79,11 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 	batchTimer := time.NewTimer(batchTimeWindow)
 	defer batchTimer.Stop()
 
-	batchSize := r.prepSQEBatchSize
-	if batchSize < 1 {
-		batchSize = 1024
+	minBatch := r.prepSQEMinBatch
+	if minBatch < 1 {
+		minBatch = 64
 	}
-	batch := make([]*Operation, batchSize)
+	batch := make([]*iouring.SubmissionQueueEntry, minBatch)
 
 	requestCh := r.requestCh
 
@@ -114,10 +115,22 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 				idle = false
 				batchTimer.Reset(batchTimeWindow)
 			}
-			batchIdx++
-			batch[batchIdx] = op
-			if uint32(batchIdx+1) == batchSize { // full so flush
-				needToPrepare = true
+			if op.canPrepare() {
+				sqe := ring.GetSQE()
+				if sqe == nil {
+					op.setResult(0, 0, os.NewSyscallError("ring_getsqe", syscall.EBUSY))
+					break
+				}
+				if makeErr := op.makeSQE(sqe); makeErr != nil { //
+					op.setResult(0, 0, makeErr)
+				}
+				batchIdx++
+				batch[batchIdx] = sqe
+				runtime.KeepAlive(sqe)
+				if uint32(batchIdx+1) == minBatch { // full so flush
+					needToPrepare = true
+				}
+				break
 			}
 			break
 		}
@@ -132,37 +145,18 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 
 		if needToPrepare { // go to prepare
 			needToPrepare = false
-			prepared := 0
 			received := batchIdx + 1
-			for i := 0; i < received; i++ {
-				op := batch[i]
-				batchIdx--
-				batch[i] = nil
-				if op.canPrepare() {
-					if prepErr := op.makeSQE(r); prepErr != nil { // when prep err occur, means invalid op kind or no sqe left
-						op.setResult(0, 0, prepErr)
-						if errors.Is(prepErr, syscall.EBUSY) { // no sqe left
-							if next := i + 1; next < received { // not last, so keep unprepared
-								tmp := make([]*Operation, batchSize)
-								copy(tmp, batch[next:])
-								batch = tmp
-							}
-							break
-						}
-						prepared++ // prepareSQE nop whit out userdata, so prepared++
-						continue
-					}
-					prepared++
-				}
+
+			submitted, _ := ring.Submit()
+			needToSubmit += received - int(submitted)
+			if needToSubmit < 0 {
+				needToSubmit = 0
 			}
 
-			if prepared > 0 || needToSubmit > 0 { // Submit
-				submitted, _ := ring.Submit()
-				needToSubmit += prepared - int(submitted)
-				if needToSubmit < 0 {
-					needToSubmit = 0
-				}
+			for i := 0; i < received; i++ {
+				batch[i] = nil
 			}
+			batchIdx = -1
 
 			// reset batch time window
 			batchTimer.Reset(batchTimeWindow)
