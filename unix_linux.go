@@ -445,12 +445,12 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	rsa := &syscall.RawSockaddrAny{}
-	rsaLen := syscall.SizeofSockaddrAny
+	var (
+		uaddr    net.Addr
+		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+	)
 
-	deadline := c.deadline(c.fd.Context(), c.readDeadline)
-
-	n, err = c.fd.ReceiveFrom(b, rsa, rsaLen, deadline)
+	n, uaddr, err = c.fd.ReceiveFrom(b, deadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -459,14 +459,8 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 		return
 	}
 
-	sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
-	if saErr != nil {
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
-		return
-	}
-	a := sys.SockaddrToAddr(c.fd.Net(), sa)
 	ok := false
-	addr, ok = a.(*net.UnixAddr)
+	addr, ok = uaddr.(*net.UnixAddr)
 	if !ok {
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("wrong address type")}
 		return
@@ -491,12 +485,12 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	rsa := &syscall.RawSockaddrAny{}
-	rsaLen := syscall.SizeofSockaddrAny
+	var (
+		uaddr    net.Addr
+		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+	)
 
-	deadline := c.deadline(c.fd.Context(), c.readDeadline)
-
-	n, oobn, flags, err = c.fd.ReceiveMsg(b, oob, rsa, rsaLen, unix.MSG_CMSG_CLOEXEC, deadline)
+	n, oobn, flags, uaddr, err = c.fd.ReceiveMsg(b, oob, unix.MSG_CMSG_CLOEXEC, deadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -504,15 +498,8 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
-
-	sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
-	if saErr != nil {
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
-		return
-	}
-	a := sys.SockaddrToAddr(c.fd.Net(), sa)
 	ok := false
-	addr, ok = a.(*net.UnixAddr)
+	addr, ok = uaddr.(*net.UnixAddr)
 	if !ok {
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: net.InvalidAddrError("wrong address type")}
 		return
@@ -525,7 +512,7 @@ func (c *UnixConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
 	}
-	if len(b) == 0 || reflect.ValueOf(addr).IsNil() {
+	if len(b) == 0 || addr == nil || reflect.ValueOf(addr).IsNil() {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 	uAddr, isUnixAddr := addr.(*net.UnixAddr)
@@ -535,8 +522,7 @@ func (c *UnixConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	if uAddr.Net != c.fd.Net() {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	sa := &syscall.SockaddrUnix{Name: uAddr.Name}
-	return c.writeTo(b, sa)
+	return c.writeTo(b, uAddr)
 }
 
 // WriteToUnix acts like [UnixConn.WriteTo] but takes a [net.UnixAddr].
@@ -544,17 +530,12 @@ func (c *UnixConn) WriteToUnix(b []byte, addr *net.UnixAddr) (int, error) {
 	return c.WriteTo(b, addr)
 }
 
-func (c *UnixConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
-	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(addr)
-	if rsaErr != nil {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
-	}
-
+func (c *UnixConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
 	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, err = c.fd.SendToZC(b, rsa, int(rsaLen), deadline)
+		n, err = c.fd.SendToZC(b, addr, deadline)
 	} else {
-		n, err = c.fd.SendTo(b, rsa, int(rsaLen), deadline)
+		n, err = c.fd.SendTo(b, addr, deadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -585,12 +566,6 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 	if addr.Net != c.fd.Net() {
 		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	sa := &syscall.SockaddrUnix{Name: addr.Name}
-	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-	if rsaErr != nil {
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
-		return
-	}
 
 	if len(b) == 0 && c.fd.SocketType() != syscall.SOCK_DGRAM {
 		b = []byte{0}
@@ -598,9 +573,9 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 
 	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = c.fd.SendMsgZC(b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, deadline)
 	} else {
-		n, oobn, err = c.fd.SendMsg(b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = c.fd.SendMsg(b, oob, addr, deadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

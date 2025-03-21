@@ -3,10 +3,49 @@
 package aio
 
 import (
+	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"syscall"
 	"time"
 )
+
+func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd, err error) {
+	ctx, cancel := context.WithCancel(ln.ctx)
+	vortex := ln.vortex
+	fd = &NetFd{
+		ctx:         ctx,
+		cancel:      cancel,
+		regular:     -1,
+		direct:      -1,
+		allocated:   directAllocated,
+		family:      ln.family,
+		sotype:      ln.sotype,
+		net:         ln.net,
+		async:       ln.async,
+		nonBlocking: false,
+		laddr:       nil,
+		raddr:       nil,
+		vortex:      vortex,
+	}
+	if directAllocated {
+		fd.direct = accepted
+		fd.nonBlocking = true
+
+		regular, installErr := vortex.FixedFdInstall(ctx, fd.direct)
+		if installErr != nil {
+			_ = fd.Close()
+			err = installErr
+			return
+		}
+		fd.regular = regular
+	} else {
+		fd.regular = accepted
+		flag, _ := sys.Fcntl(fd.regular, syscall.F_GETFL, 0)
+		fd.nonBlocking = flag&syscall.O_NONBLOCK != 0
+	}
+	return
+}
 
 func (fd *NetFd) Accept(addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (conn *NetFd, err error) {
 	op := fd.vortex.acquireOperation()

@@ -21,8 +21,8 @@ func TestTCP(t *testing.T) {
 	config := rio.ListenConfig{
 		MultipathTCP:       false,
 		ReusePort:          false,
-		MultishotAccept:    false,
-		DisableDirectAlloc: false,
+		MultishotAccept:    true,
+		DisableDirectAlloc: true,
 		AsyncIO:            true,
 	}
 	ln, lnErr := config.Listen(ctx, "tcp", ":9000")

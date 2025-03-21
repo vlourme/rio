@@ -21,6 +21,8 @@ const (
 	DialMode   OpenNetFdMode = "dial"
 )
 
+const maxRW = 1 << 30
+
 func OpenNetFd(
 	ctx context.Context, vortex *Vortex,
 	mode OpenNetFdMode,
@@ -41,9 +43,10 @@ func OpenNetFd(
 	// sock
 	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, string(mode))
 	var (
-		regular = -1
-		direct  = -1
-		sockErr error
+		regular     = -1
+		direct      = -1
+		nonblocking = sotype&syscall.SOCK_NONBLOCK != 0
+		sockErr     error
 	)
 	if directAlloc {
 		op := vortex.acquireOperation()
@@ -63,18 +66,19 @@ func OpenNetFd(
 	// fd
 	cc, cancel := context.WithCancel(ctx)
 	fd = &NetFd{
-		ctx:       cc,
-		cancel:    cancel,
-		regular:   regular,
-		direct:    direct,
-		allocated: directAlloc,
-		family:    family,
-		sotype:    sotype,
-		net:       network,
-		async:     false,
-		laddr:     laddr,
-		raddr:     raddr,
-		vortex:    vortex,
+		ctx:         cc,
+		cancel:      cancel,
+		regular:     regular,
+		direct:      direct,
+		allocated:   directAlloc,
+		family:      family,
+		sotype:      sotype,
+		net:         network,
+		async:       false,
+		nonBlocking: nonblocking,
+		laddr:       laddr,
+		raddr:       raddr,
+		vortex:      vortex,
 	}
 	// ipv6
 	if ipv6only {
@@ -86,52 +90,20 @@ func OpenNetFd(
 	return
 }
 
-func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd, err error) {
-	ctx, cancel := context.WithCancel(ln.ctx)
-	vortex := ln.vortex
-	fd = &NetFd{
-		ctx:       ctx,
-		cancel:    cancel,
-		regular:   -1,
-		direct:    -1,
-		allocated: directAllocated,
-		family:    ln.family,
-		sotype:    ln.sotype,
-		net:       ln.net,
-		async:     ln.async,
-		laddr:     nil,
-		raddr:     nil,
-		vortex:    vortex,
-	}
-	if directAllocated {
-		fd.direct = accepted
-		regular, installErr := vortex.FixedFdInstall(ctx, fd.direct)
-		if installErr != nil {
-			_ = fd.Close()
-			err = installErr
-			return
-		}
-		fd.regular = regular
-		//fd.SetCloseOnExec()
-	} else {
-		fd.regular = accepted
-	}
-	return
-}
-
 type NetFd struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	regular   int
-	direct    int
-	allocated bool
-	family    int
-	sotype    int
-	net       string
-	async     bool
-	laddr     net.Addr
-	raddr     net.Addr
-	vortex    *Vortex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	regular     int
+	direct      int
+	allocated   bool
+	family      int
+	sotype      int
+	net         string
+	async       bool
+	nonBlocking bool
+	laddr       net.Addr
+	raddr       net.Addr
+	vortex      *Vortex
 }
 
 func (fd *NetFd) Name() string {
@@ -147,6 +119,10 @@ func (fd *NetFd) Name() string {
 
 func (fd *NetFd) Context() context.Context {
 	return fd.ctx
+}
+
+func (fd *NetFd) IsStream() bool {
+	return fd.sotype&syscall.SOCK_STREAM != 0
 }
 
 func (fd *NetFd) Async() bool {
@@ -400,14 +376,8 @@ func (fd *NetFd) SetNonblocking(nonblocking bool) error {
 	return nil
 }
 
-func (fd *NetFd) Nonblocking() (ok bool, err error) {
-	flag, getErr := sys.Fcntl(fd.regular, syscall.F_GETFL, 0)
-	if getErr != nil {
-		err = os.NewSyscallError("fcntl", getErr)
-		return
-	}
-	ok = flag&syscall.O_NONBLOCK != 0
-	return
+func (fd *NetFd) Nonblocking() bool {
+	return fd.nonBlocking
 }
 
 func (fd *NetFd) SetCloseOnExec() {

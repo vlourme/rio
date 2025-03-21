@@ -257,12 +257,12 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	rsa := &syscall.RawSockaddrAny{}
-	rsaLen := syscall.SizeofSockaddrAny
+	var (
+		uaddr    net.Addr
+		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+	)
 
-	deadline := c.deadline(c.fd.Context(), c.readDeadline)
-
-	n, err = c.fd.ReceiveFrom(b, rsa, rsaLen, deadline)
+	n, uaddr, err = c.fd.ReceiveFrom(b, deadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -271,14 +271,8 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 		return
 	}
 
-	sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
-	if saErr != nil {
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
-		return
-	}
-	a := sys.SockaddrToAddr(c.fd.Net(), sa)
 	ok := false
-	addr, ok = a.(*net.UDPAddr)
+	addr, ok = uaddr.(*net.UDPAddr)
 	if !ok {
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("wrong address type")}
 		return
@@ -323,12 +317,12 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	rsa := &syscall.RawSockaddrAny{}
-	rsaLen := syscall.SizeofSockaddrAny
+	var (
+		uaddr    net.Addr
+		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+	)
 
-	deadline := c.deadline(c.fd.Context(), c.readDeadline)
-
-	n, oobn, flags, err = c.fd.ReceiveMsg(b, oob, rsa, rsaLen, 0, deadline)
+	n, oobn, flags, uaddr, err = c.fd.ReceiveMsg(b, oob, 0, deadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -337,14 +331,8 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 		return
 	}
 
-	sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
-	if saErr != nil {
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
-		return
-	}
-	a := sys.SockaddrToAddr(c.fd.Net(), sa)
 	ok := false
-	addr, ok = a.(*net.UDPAddr)
+	addr, ok = uaddr.(*net.UDPAddr)
 	if !ok {
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: net.InvalidAddrError("wrong address type")}
 		return
@@ -381,7 +369,9 @@ func (c *UDPConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (n int, err 
 	if saErr != nil {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
 	}
-	n, err = c.writeTo(b, sa)
+	uaddr := sys.SockaddrToAddr(c.fd.Net(), sa)
+
+	n, err = c.writeTo(b, uaddr)
 	return
 }
 
@@ -397,26 +387,16 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 	if !addrOk {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	sa, saErr := sys.AddrToSockaddr(uAddr)
-	if saErr != nil {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
-	}
-	n, err = c.writeTo(b, sa)
+	n, err = c.writeTo(b, uAddr)
 	return
 }
 
-func (c *UDPConn) writeTo(b []byte, addr syscall.Sockaddr) (n int, err error) {
-	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(addr)
-	if rsaErr != nil {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
-	}
-
+func (c *UDPConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
 	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
-
 	if c.useSendMSGZC {
-		n, err = c.fd.SendToZC(b, rsa, int(rsaLen), deadline)
+		n, err = c.fd.SendToZC(b, addr, deadline)
 	} else {
-		n, err = c.fd.SendTo(b, rsa, int(rsaLen), deadline)
+		n, err = c.fd.SendTo(b, addr, deadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -446,11 +426,7 @@ func (c *UDPConn) WriteMsgUDP(b, oob []byte, addr *net.UDPAddr) (n, oobn int, er
 	if addr == nil {
 		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
-	sa, saErr := sys.AddrToSockaddr(addr)
-	if saErr != nil {
-		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
-	}
-	n, oobn, err = c.writeMsg(b, oob, sa)
+	n, oobn, err = c.writeMsg(b, oob, addr)
 	return
 }
 
@@ -469,26 +445,21 @@ func (c *UDPConn) WriteMsgUDPAddrPort(b, oob []byte, addr netip.AddrPort) (n, oo
 	if saErr != nil {
 		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: saErr}
 	}
-	n, oobn, err = c.writeMsg(b, oob, sa)
+	uaddr := sys.SockaddrToAddr(c.fd.Net(), sa)
+	n, oobn, err = c.writeMsg(b, oob, uaddr)
 	return
 }
 
-func (c *UDPConn) writeMsg(b, oob []byte, addr syscall.Sockaddr) (n, oobn int, err error) {
-	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(addr)
-	if rsaErr != nil {
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: rsaErr}
-		return
-	}
-
+func (c *UDPConn) writeMsg(b, oob []byte, addr net.Addr) (n, oobn int, err error) {
 	if len(b) == 0 && c.fd.SocketType() != syscall.SOCK_DGRAM {
 		b = []byte{0}
 	}
 
 	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = c.fd.SendMsgZC(b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, deadline)
 	} else {
-		n, oobn, err = c.fd.SendMsg(b, oob, rsa, int(rsaLen), deadline)
+		n, oobn, err = c.fd.SendMsg(b, oob, addr, deadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

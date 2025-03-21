@@ -54,11 +54,6 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		return
 	}
-
-	if n == 0 && c.fd.ZeroReadIsEOF() {
-		err = io.EOF
-		return
-	}
 	return
 }
 

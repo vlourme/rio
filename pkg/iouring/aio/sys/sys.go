@@ -3,6 +3,7 @@
 package sys
 
 import (
+	"errors"
 	"os"
 	"sync/atomic"
 	"syscall"
@@ -29,6 +30,18 @@ func errnoErr(e syscall.Errno) error {
 		return errENOENT
 	}
 	return e
+}
+
+func IgnoringEINTRIO(fn func(fd int, p []byte) (int, error), fd int, p []byte) (int, error) {
+	for {
+		n, err := fn(fd, p)
+		if err == nil {
+			return n, nil
+		}
+		if !errors.Is(err, syscall.EINTR) {
+			return n, err
+		}
+	}
 }
 
 var dupCloexecUnsupported atomic.Bool
@@ -85,6 +98,14 @@ func GetRLimit() (soft uint64, hard uint64, err error) {
 	soft = r.Cur
 	hard = r.Max
 	return
+}
+
+func IsCloseOnExec(fd int) bool {
+	r, err := fcntl(int32(fd), syscall.F_GETFD, syscall.FD_CLOEXEC)
+	if err < 0 {
+		return false
+	}
+	return r == 1
 }
 
 func Mmap(fd int, offset int64, length int, prot int, flags int) (b []byte, err error) {

@@ -125,7 +125,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, proto, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -240,7 +240,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -358,7 +358,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype|syscall.SOCK_NONBLOCK, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
