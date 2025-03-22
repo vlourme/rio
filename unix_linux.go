@@ -101,6 +101,10 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
+	// disable in advance io
+	if lc.DisableInAdvanceIO {
+		fd.DisableInAdvance()
+	}
 	// ln
 	ln := &UnixListener{
 		fd:                 fd,
@@ -193,6 +197,10 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
+	// disable in advance io
+	if lc.DisableInAdvanceIO {
+		fd.DisableInAdvance()
+	}
 	// conn
 	c := &UnixConn{
 		conn{
@@ -218,7 +226,6 @@ type UnixListener struct {
 	acceptFuture       *aio.AcceptFuture
 	useSendZC          bool
 	useMultishotAccept bool
-	asyncIO            bool
 	deadline           time.Time
 }
 
@@ -242,9 +249,6 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	}
 	if err != nil {
 		return
-	}
-	if c != nil && ln.asyncIO {
-		_ = c.SetAsync(ln.asyncIO)
 	}
 	return
 }

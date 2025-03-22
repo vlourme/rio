@@ -109,38 +109,13 @@ type ListenConfig struct {
 	MultishotAccept bool
 	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
 	DisableDirectAlloc bool
+	// DisableInAdvanceIO is to disable nonblocking fd for pre-reading or pre-writing before delivery operation.
+	DisableInAdvanceIO bool
 	// Vortex customize [aio.Vortex]
 	Vortex *aio.Vortex
-}
-
-// SetReusePort set reuse port.
-func (lc *ListenConfig) SetReusePort(use bool) {
-	lc.ReusePort = use
 }
 
 // SetMultipathTCP set multi-path tcp.
 func (lc *ListenConfig) SetMultipathTCP(use bool) {
 	lc.MultipathTCP = use
-}
-
-// SetSendZC set send zero-copy.
-//
-// available after 6.0
-func (lc *ListenConfig) SetSendZC(use bool) {
-	lc.SendZC = use
-}
-
-// SetMultishotAccept set multishot accept mode.
-func (lc *ListenConfig) SetMultishotAccept(multi bool) {
-	lc.MultishotAccept = multi
-}
-
-// SetDisableDirectAlloc disable using iouring direct allocated socket to accept.
-func (lc *ListenConfig) SetDisableDirectAlloc(disable bool) {
-	lc.DisableDirectAlloc = disable
-}
-
-// SetVortex set customize [aio.Vortex].
-func (lc *ListenConfig) SetVortex(v *aio.Vortex) {
-	lc.Vortex = v
 }

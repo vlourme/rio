@@ -160,7 +160,10 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
-
+	// disable in advance io
+	if lc.DisableInAdvanceIO {
+		fd.DisableInAdvance()
+	}
 	// ln
 	ln := &TCPListener{
 		fd:                 fd,

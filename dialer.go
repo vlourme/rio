@@ -12,14 +12,17 @@ var (
 	DefaultDialer = Dialer{
 		Timeout:            15 * time.Second,
 		Deadline:           time.Time{},
-		LocalAddr:          nil,
 		KeepAlive:          0,
 		KeepAliveConfig:    net.KeepAliveConfig{Enable: true},
+		LocalAddr:          nil,
+		FallbackDelay:      0,
 		MultipathTCP:       false,
 		SendZC:             false,
 		DisableDirectAlloc: false,
+		DisableInAdvanceIO: false,
 		Control:            nil,
 		ControlContext:     nil,
+		Vortex:             nil,
 	}
 )
 
@@ -164,6 +167,8 @@ type Dialer struct {
 	SendZC bool
 	// DisableDirectAlloc disable using iouring direct allocated socket to dial.
 	DisableDirectAlloc bool
+	// DisableInAdvanceIO is to disable nonblocking fd for pre-reading or pre-writing before delivery operation.
+	DisableInAdvanceIO bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//
@@ -193,23 +198,6 @@ type Dialer struct {
 // SetMultipathTCP set multi-path tcp.
 func (d *Dialer) SetMultipathTCP(use bool) {
 	d.MultipathTCP = use
-}
-
-// SetSendZC set send zero-copy.
-//
-// available after 6.0
-func (d *Dialer) SetSendZC(use bool) {
-	d.SendZC = use
-}
-
-// SetDisableDirectAlloc disable using iouring direct allocated socket to dial.
-func (d *Dialer) SetDisableDirectAlloc(disable bool) {
-	d.DisableDirectAlloc = disable
-}
-
-// SetVortex set customize [aio.Vortex].
-func (d *Dialer) SetVortex(v *aio.Vortex) {
-	d.Vortex = v
 }
 
 func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {
