@@ -7,6 +7,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"net"
+	"os"
 	"syscall"
 	"time"
 )
@@ -16,7 +17,7 @@ func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
 		b = b[:maxRW]
 	}
 	nn := 0
-	if fd.regular != -1 && fd.nonBlocking {
+	if fd.canInAdvance() {
 		n, err = syscall.Write(fd.regular, b)
 		if err == nil {
 			return
@@ -24,6 +25,11 @@ func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
 		nn += n
 		n = 0
 		if !errors.Is(err, syscall.EAGAIN) {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = net.ErrClosed
+			} else {
+				err = os.NewSyscallError("write", err)
+			}
 			return
 		}
 	}
@@ -79,7 +85,7 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err
 		return
 	}
 
-	if fd.regular != -1 && fd.nonBlocking {
+	if fd.canInAdvance() {
 		err = syscall.Sendto(fd.regular, b, 0, sa)
 		if err == nil {
 			n = len(b)
@@ -87,6 +93,11 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err
 		}
 		n = 0
 		if !errors.Is(err, syscall.EAGAIN) {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = net.ErrClosed
+			} else {
+				err = os.NewSyscallError("sendto", err)
+			}
 			return
 		}
 	}
@@ -115,7 +126,7 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 		return
 	}
 
-	if fd.regular != -1 && fd.nonBlocking {
+	if fd.canInAdvance() {
 		n, err = syscall.SendmsgN(fd.regular, b, oob, sa, 0)
 		if err == nil {
 			oobn = len(oob)
@@ -123,6 +134,11 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 		}
 		n = 0
 		if !errors.Is(err, syscall.EAGAIN) {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = net.ErrClosed
+			} else {
+				err = os.NewSyscallError("sendmsgn", err)
+			}
 			return
 		}
 	}

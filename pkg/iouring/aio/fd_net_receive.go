@@ -7,6 +7,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"io"
 	"net"
+	"os"
 	"syscall"
 	"time"
 )
@@ -15,7 +16,7 @@ func (fd *NetFd) Receive(b []byte, deadline time.Time) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	if fd.regular != -1 && fd.nonBlocking {
+	if fd.canInAdvance() {
 		n, err = syscall.Read(fd.regular, b)
 		if err == nil {
 			if n == 0 && fd.ZeroReadIsEOF() {
@@ -25,6 +26,11 @@ func (fd *NetFd) Receive(b []byte, deadline time.Time) (n int, err error) {
 		}
 		n = 0
 		if !errors.Is(err, syscall.EAGAIN) {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = net.ErrClosed
+			} else {
+				err = os.NewSyscallError("read", err)
+			}
 			return
 		}
 	}
@@ -37,11 +43,20 @@ func (fd *NetFd) Receive(b []byte, deadline time.Time) (n int, err error) {
 }
 
 func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr, err error) {
-	if fd.regular != -1 && fd.nonBlocking {
+	if fd.canInAdvance() {
 		var sa syscall.Sockaddr
 		n, sa, err = syscall.Recvfrom(fd.regular, b, 0)
 		if err == nil {
 			addr = sys.SockaddrToAddr(fd.Net(), sa)
+			return
+		}
+		n = 0
+		if !errors.Is(err, syscall.EAGAIN) {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = net.ErrClosed
+			} else {
+				err = os.NewSyscallError("recvfrom", err)
+			}
 			return
 		}
 	}
@@ -66,11 +81,20 @@ func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr
 }
 
 func (fd *NetFd) ReceiveMsg(b []byte, oob []byte, flags int, deadline time.Time) (n int, oobn int, flag int, addr net.Addr, err error) {
-	if fd.regular != -1 && fd.nonBlocking {
+	if fd.canInAdvance() {
 		var sa syscall.Sockaddr
 		n, oobn, flag, sa, err = syscall.Recvmsg(fd.regular, b, oob, flags)
 		if err == nil {
 			addr = sys.SockaddrToAddr(fd.Net(), sa)
+			return
+		}
+		n = 0
+		if !errors.Is(err, syscall.EAGAIN) {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = net.ErrClosed
+			} else {
+				err = os.NewSyscallError("recvmsg", err)
+			}
 			return
 		}
 	}

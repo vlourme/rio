@@ -14,19 +14,24 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 	ctx, cancel := context.WithCancel(ln.ctx)
 	vortex := ln.vortex
 	fd = &NetFd{
-		ctx:         ctx,
-		cancel:      cancel,
-		regular:     -1,
-		direct:      -1,
-		allocated:   directAllocated,
-		family:      ln.family,
-		sotype:      ln.sotype,
-		net:         ln.net,
-		async:       ln.async,
-		nonBlocking: false,
-		laddr:       nil,
-		raddr:       nil,
-		vortex:      vortex,
+		Fd: Fd{
+			ctx:              ctx,
+			cancel:           cancel,
+			regular:          -1,
+			direct:           -1,
+			allocated:        directAllocated,
+			isStream:         ln.sotype&syscall.SOCK_STREAM != 0,
+			zeroReadIsEOF:    ln.sotype != syscall.SOCK_DGRAM && ln.sotype != syscall.SOCK_RAW,
+			async:            ln.async,
+			nonBlocking:      false,
+			disableInAdvance: ln.disableInAdvance,
+			vortex:           vortex,
+		},
+		family: ln.family,
+		sotype: ln.sotype,
+		net:    ln.net,
+		laddr:  nil,
+		raddr:  nil,
 	}
 	if directAllocated {
 		fd.direct = accepted

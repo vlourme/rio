@@ -4,23 +4,25 @@ package aio
 
 import (
 	"errors"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
+	"golang.org/x/sys/unix"
 	"io"
 	"os"
 	"syscall"
-	"time"
 )
 
 const (
-	maxSendfileSize = 4 << 20
-	maxMMapSize     = int(^uint(0) >> 1)
+	maxSendfileSize   = 4 << 20
+	maxMMapSize       = int(^uint(0) >> 1)
+	sendFileChunkSize = 1<<31 - 1
 )
 
 var (
 	pagesize = os.Getpagesize()
 )
 
-func (fd *NetFd) Sendfile(r io.Reader, useSendZC bool) (written int64, err error) {
+func (fd *Fd) Sendfile(r io.Reader) (written int64, err error) {
 	var remain int64 = 0
 	lr, ok := r.(*io.LimitedReader)
 	if ok {
@@ -43,13 +45,42 @@ func (fd *NetFd) Sendfile(r io.Reader, useSendZC bool) (written int64, err error
 		remain = info.Size()
 	}
 
+	offset := int64(0)
+
+	if fd.canInAdvance() && remain < sendFileChunkSize {
+		fmt.Println("adv")
+		if sc, scErr := file.SyscallConn(); scErr == nil {
+			var (
+				wn   int
+				wErr error
+			)
+			err = sc.Read(func(ffd uintptr) (done bool) {
+				wn, wErr = unix.Sendfile(fd.regular, int(ffd), nil, int(remain))
+				return true
+			})
+			if err == nil {
+				err = wErr
+			}
+			written = int64(wn)
+			if err != nil && !errors.Is(err, syscall.EAGAIN) {
+				err = os.NewSyscallError("sendfile", err)
+				return
+			}
+			if written == remain {
+				return
+			}
+			remain -= written
+			offset = written
+		}
+	}
+
 	srcFd := int(file.Fd())
 
 	if remain > int64(maxMMapSize) {
-		return fd.sendfileChunk(srcFd, remain, useSendZC)
+		return fd.sendfileChunk(srcFd, offset, remain)
 	}
 	// mmap
-	b, mmapErr := sys.Mmap(srcFd, 0, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
+	b, mmapErr := sys.Mmap(srcFd, offset, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
 	if mmapErr != nil {
 		err = os.NewSyscallError("mmap", mmapErr)
 		return
@@ -72,15 +103,7 @@ func (fd *NetFd) Sendfile(r io.Reader, useSendZC bool) (written int64, err error
 		if int64(chunk) > remain {
 			chunk = int(remain)
 		}
-		var (
-			n    int
-			wErr error
-		)
-		if useSendZC {
-			n, wErr = fd.SendZC(b[written:written+int64(chunk)], time.Time{})
-		} else {
-			n, wErr = fd.Send(b[written:written+int64(chunk)], time.Time{})
-		}
+		n, wErr := fd.Write(b[written : written+int64(chunk)])
 		if n > 0 {
 			written += int64(n)
 			remain -= int64(n)
@@ -95,28 +118,20 @@ func (fd *NetFd) Sendfile(r io.Reader, useSendZC bool) (written int64, err error
 	return
 }
 
-func (fd *NetFd) sendfileChunk(src int, remain int64, useSendZC bool) (written int64, err error) {
+func (fd *Fd) sendfileChunk(src int, offset int64, remain int64) (written int64, err error) {
 	chunk := int64(pagesize)
 	for err == nil && remain > 0 {
 		if chunk > remain {
 			chunk = remain
 		}
-		b, mmapErr := sys.Mmap(src, written, int(chunk), syscall.PROT_READ, syscall.MAP_SHARED)
+		offset += written
+		b, mmapErr := sys.Mmap(src, offset, int(chunk), syscall.PROT_READ, syscall.MAP_SHARED)
 		if mmapErr != nil {
 			err = os.NewSyscallError("mmap", mmapErr)
 			break
 		}
 		_ = sys.Madvise(b, syscall.MADV_WILLNEED|syscall.MADV_SEQUENTIAL)
-
-		var (
-			n    int
-			wErr error
-		)
-		if useSendZC {
-			n, wErr = fd.SendZC(b, time.Time{})
-		} else {
-			n, wErr = fd.Send(b, time.Time{})
-		}
+		n, wErr := fd.Write(b)
 		if n > 0 {
 			written += int64(n)
 			remain -= int64(n)

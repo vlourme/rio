@@ -6,7 +6,7 @@ import (
 	"syscall"
 )
 
-func (fd *NetFd) Cancel() {
+func (fd *Fd) Cancel() {
 	if fd.direct != -1 {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCancelFixedFd(fd.direct)
@@ -22,7 +22,7 @@ func (fd *NetFd) Cancel() {
 	return
 }
 
-func (fd *NetFd) Close() error {
+func (fd *Fd) Close() error {
 	defer fd.cancel()
 
 	fd.Cancel()
@@ -45,7 +45,7 @@ func (fd *NetFd) Close() error {
 	return nil
 }
 
-func (fd *NetFd) closeFd() (err error) {
+func (fd *Fd) closeFd() (err error) {
 	op := fd.vortex.acquireOperation()
 	op.PrepareClose(fd.regular)
 	_, _, err = fd.vortex.submitAndWait(fd.ctx, op)
@@ -53,32 +53,10 @@ func (fd *NetFd) closeFd() (err error) {
 	return err
 }
 
-func (fd *NetFd) closeDirectFd() (err error) {
+func (fd *Fd) closeDirectFd() (err error) {
 	op := fd.vortex.acquireOperation()
 	op.PrepareCloseDirect(fd.direct)
 	_, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	fd.vortex.releaseOperation(op)
 	return err
-}
-
-func (fd *NetFd) CloseRead() error {
-	if fd.direct > -1 {
-		op := fd.vortex.acquireOperation()
-		op.PrepareCloseRead(fd)
-		_, _, err := fd.vortex.submitAndWait(fd.ctx, op)
-		fd.vortex.releaseOperation(op)
-		return err
-	}
-	return syscall.Shutdown(fd.regular, syscall.SHUT_RD)
-}
-
-func (fd *NetFd) CloseWrite() error {
-	if fd.direct > -1 {
-		op := fd.vortex.acquireOperation()
-		op.PrepareCloseWrite(fd)
-		_, _, err := fd.vortex.submitAndWait(fd.ctx, op)
-		fd.vortex.releaseOperation(op)
-		return err
-	}
-	return syscall.Shutdown(fd.regular, syscall.SHUT_WR)
 }

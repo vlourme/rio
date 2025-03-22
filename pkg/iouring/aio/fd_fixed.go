@@ -4,7 +4,7 @@ package aio
 
 import "time"
 
-func (fd *NetFd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
+func (fd *Fd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReadFixed(fd, buf)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
@@ -13,7 +13,7 @@ func (fd *NetFd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err err
 	return
 }
 
-func (fd *NetFd) WriteFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
+func (fd *Fd) WriteFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareWriteFixed(fd, buf)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
@@ -22,27 +22,10 @@ func (fd *NetFd) WriteFixed(buf *FixedBuffer, deadline time.Time) (n int, err er
 	return
 }
 
-func (fd *NetFd) AcquireBuffer() *FixedBuffer {
+func (fd *Fd) AcquireBuffer() *FixedBuffer {
 	return fd.vortex.AcquireBuffer()
 }
 
-func (fd *NetFd) ReleaseBuffer(buf *FixedBuffer) {
+func (fd *Fd) ReleaseBuffer(buf *FixedBuffer) {
 	fd.vortex.ReleaseBuffer(buf)
-}
-
-func (fd *NetFd) Registered() bool {
-	return fd.direct != -1
-}
-
-func (fd *NetFd) Register() error {
-	if fd.direct > -1 {
-		return nil
-	}
-	direct, regErr := fd.vortex.RegisterFixedFd(fd.regular)
-	if regErr != nil {
-		return regErr
-	}
-	fd.direct = direct
-	fd.allocated = false
-	return nil
 }

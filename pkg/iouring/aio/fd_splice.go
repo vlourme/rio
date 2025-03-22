@@ -11,7 +11,7 @@ const (
 	maxSpliceSize = 1 << 20
 )
 
-func (fd *NetFd) Splice(src int, remain int64) (n int64, err error) {
+func (fd *Fd) Splice(src int, remain int64) (n int64, err error) {
 	pipe, pipeErr := sys.AcquirePipe()
 	if pipeErr != nil {
 		return 0, pipeErr
