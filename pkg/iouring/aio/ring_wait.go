@@ -90,7 +90,9 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 				} else {
 					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
 				}
-				time.Sleep(cqeWaitTimeout)
+				if cqeWaitTimeout > 1 {
+					time.Sleep(cqeWaitTimeout)
+				}
 				break
 			default:
 				// unknown fd
@@ -124,7 +126,7 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
 	cqes := make([]*iouring.CompletionQueueEvent, 1024)
 	cqesLen := uint32(len(cqes))
-	waitZeroTimes := 5
+	waitZeroTimes := 10
 	stopped := false
 	for {
 		select {
@@ -179,6 +181,12 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 						needToIdle = false
 						waitZeroTimes = 10
 					}
+				}
+				if cqeWaitMaxCount < 1 {
+					cqeWaitMaxCount = 1
+				}
+				if cqeWaitTimeout < 1 {
+					cqeWaitTimeout = time.Duration(cqeWaitMaxCount) * time.Microsecond
 				}
 				ns := syscall.NsecToTimespec(cqeWaitTimeout.Nanoseconds())
 				if _, waitErr := ring.WaitCQEs(cqeWaitMaxCount, &ns, nil); waitErr != nil {
