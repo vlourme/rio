@@ -22,7 +22,7 @@ func TestTCP(t *testing.T) {
 		MultipathTCP:       false,
 		ReusePort:          false,
 		MultishotAccept:    true,
-		DisableDirectAlloc: true,
+		DisableDirectAlloc: false,
 	}
 	ln, lnErr := config.Listen(ctx, "tcp", ":9000")
 	if lnErr != nil {

@@ -57,7 +57,7 @@ func getVortex() (*aio.Vortex, error) {
 			if v, has := envLoadFlags(envFlags); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			} else {
-				if cpus := runtime.NumCPU(); cpus > 3 { // use sq_poll and sq_aff
+				if cpus := runtime.NumCPU(); cpus > 3 { // use sq_poll
 					v = iouring.SetupSQPoll
 				} else { // use coop task run
 					v = iouring.SetupCoopTaskRun | iouring.SetupDeferTaskRun
