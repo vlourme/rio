@@ -527,7 +527,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		}
 		return written, nil
 	case 2: // sendfile(mmap+send)
-		written, sendfileErr := c.fd.Sendfile(r, c.useSendZC)
+		written, sendfileErr := c.fd.Sendfile(r)
 		if lr != nil {
 			lr.N -= written
 		}
