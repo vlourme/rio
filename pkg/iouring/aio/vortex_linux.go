@@ -63,20 +63,60 @@ type Vortex struct {
 	timers     sync.Pool
 }
 
-func (vortex *Vortex) CancelOperation(ctx context.Context, target *Operation) (ok bool) {
-	op := vortex.acquireOperation()
-	op.PrepareCancel(target)
-	_, _, err := vortex.submitAndWait(ctx, op)
-	ok = err == nil
-	vortex.releaseOperation(op)
-	return
-}
-
 func (vortex *Vortex) FixedFdInstall(ctx context.Context, directFd int) (regularFd int, err error) {
 	op := vortex.acquireOperation()
 	op.PrepareFixedFdInstall(directFd)
 	regularFd, _, err = vortex.submitAndWait(ctx, op)
 	vortex.releaseOperation(op)
+	return
+}
+
+func (vortex *Vortex) CancelOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
+	if vortex.tryCancelOperation(ctx, op) { // cancel succeed
+		r, ok := <-op.resultCh
+		if !ok {
+			op.Close()
+			err = ErrCanceled
+			return
+		}
+		n, cqeFlags, err = r.N, r.Flags, r.Err
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrTimeout
+		}
+		return
+	}
+	// cancel failed
+	// means target op is not in ring, maybe completed or lost
+	timer := vortex.acquireTimer(50 * time.Microsecond)
+	defer vortex.releaseTimer(timer)
+
+	select {
+	case <-timer.C: // maybe lost
+		op.Close()
+		err = ErrCanceled
+		break
+	case r, ok := <-op.resultCh: // completed
+		if !ok {
+			err = ErrCanceled
+			break
+		}
+		n, cqeFlags, err = r.N, r.Flags, r.Err
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrTimeout
+		}
+		break
+	}
+	return
+}
+
+func (vortex *Vortex) tryCancelOperation(ctx context.Context, target *Operation) (ok bool) {
+	if target.canCancel() {
+		op := vortex.acquireOperation()
+		op.PrepareCancel(target)
+		_, _, err := vortex.submitAndWait(ctx, op)
+		ok = err == nil
+		vortex.releaseOperation(op)
+	}
 	return
 }
 
@@ -141,51 +181,11 @@ func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int,
 	case <-ctx.Done():
 		err = ctx.Err()
 		if errors.Is(err, context.DeadlineExceeded) { // deadline so can cancel
-			n, cqeFlags, err = vortex.cancelOperation(ctx, op)
+			n, cqeFlags, err = vortex.CancelOperation(ctx, op)
 		} else { // ctx canceled so try cancel and close op
-			if op.canCancel() {
-				vortex.CancelOperation(ctx, op)
-			}
+			vortex.tryCancelOperation(ctx, op)
 			op.Close()
 			err = ErrCanceled
-		}
-		break
-	}
-	return
-}
-
-func (vortex *Vortex) cancelOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
-	if vortex.CancelOperation(ctx, op) { // cancel succeed
-		r, ok := <-op.resultCh
-		if !ok {
-			op.Close()
-			err = ErrCanceled
-			return
-		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrTimeout
-		}
-		return
-	}
-	// cancel failed
-	// means target op is not in ring, maybe completed or lost
-	timer := vortex.acquireTimer(50 * time.Microsecond)
-	defer vortex.releaseTimer(timer)
-
-	select {
-	case <-timer.C: // maybe lost
-		op.Close()
-		err = ErrCanceled
-		break
-	case r, ok := <-op.resultCh: // completed
-		if !ok {
-			err = ErrCanceled
-			break
-		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrTimeout
 		}
 		break
 	}
