@@ -23,6 +23,8 @@ var (
 		{96, 500 * time.Microsecond},
 	}
 	defaultPushCurve = Curve{
+		{1, 1 * time.Microsecond},
+		{16, 10 * time.Microsecond},
 		{32, 200 * time.Microsecond},
 		{64, 300 * time.Microsecond},
 		{96, 500 * time.Microsecond},

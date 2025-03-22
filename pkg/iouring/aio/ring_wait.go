@@ -48,21 +48,17 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 				stopped = true
 				break
 			case int32(eventFd):
-				time.Sleep(cqeWaitTimeout)
+				_, _ = unix.Read(eventFd, b)
+
 				ready := ring.CQReady()
-				if ready > cqeWaitMaxCount {
-					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
-				} else {
-					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
-				}
 				if ready > cqesLen {
 					cqesLen = iouring.RoundupPow2(ready)
 					cqes = make([]*iouring.CompletionQueueEvent, cqesLen)
 				}
 				if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
-					for i := uint32(0); i < peeked; i++ {
-						cqe := cqes[i]
-						cqes[i] = nil
+					for j := uint32(0); j < peeked; j++ {
+						cqe := cqes[j]
+						cqes[j] = nil
 
 						if cqe.UserData == 0 { // no userdata means no op
 							continue
@@ -88,18 +84,18 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 					}
 					ring.CQAdvance(peeked)
 				}
+
+				if ready > cqeWaitMaxCount {
+					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
+				} else {
+					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
+				}
+				time.Sleep(cqeWaitTimeout)
 				break
 			default:
 				// unknown fd
 				_, _ = unix.Read(int(event.Fd), b)
 				break
-			}
-			if event.Fd == int32(exitFd) {
-				_, _ = unix.Read(exitFd, b)
-				stopped = true
-			}
-			if event.Fd == int32(eventFd) {
-				_, _ = unix.Read(exitFd, b)
 			}
 		}
 		if stopped {
