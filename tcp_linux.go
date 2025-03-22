@@ -471,6 +471,14 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	sendMode := 0 // 0: copy, 1: splice, 2: mmap
 	var srcFd int
 	switch v := r.(type) {
+	case *net.TCPConn:
+		dup, dupErr := v.File()
+		if dupErr != nil {
+			break
+		}
+		srcFd = int(dup.Fd())
+		sendMode = 1
+		break
 	case *TCPConn:
 		srcFd = v.fd.RegularSocket()
 		sendMode = 1
