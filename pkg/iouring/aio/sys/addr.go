@@ -25,11 +25,16 @@ func ParseAddr(network string, address string) (addr net.Addr, err error) {
 			err = resolveErr
 			return
 		}
-		if !ipv6only && a.AddrPort().Addr().Is4In6() {
-			a.IP = a.IP.To4()
-		}
 		if len(a.IP) == 0 {
 			a.IP = net.IPv6zero
+		}
+		if !ipv6only {
+			if a.IP.Equal(net.IPv4zero) {
+				a.IP = net.IPv6zero
+			}
+		}
+		if !ipv6only && a.AddrPort().Addr().Is4In6() {
+			a.IP = a.IP.To4()
 		}
 		addr = a
 		break
@@ -39,11 +44,16 @@ func ParseAddr(network string, address string) (addr net.Addr, err error) {
 			err = resolveErr
 			return
 		}
-		if !ipv6only && a.AddrPort().Addr().Is4In6() {
-			a.IP = a.IP.To4()
-		}
 		if len(a.IP) == 0 {
 			a.IP = net.IPv6zero
+		}
+		if !ipv6only {
+			if a.IP.Equal(net.IPv4zero) {
+				a.IP = net.IPv6zero
+			}
+		}
+		if !ipv6only && a.AddrPort().Addr().Is4In6() {
+			a.IP = a.IP.To4()
 		}
 		addr = a
 		break
@@ -54,13 +64,18 @@ func ParseAddr(network string, address string) (addr net.Addr, err error) {
 			return
 		}
 		ipLen := len(a.IP)
+		if ipLen == 0 {
+			a.IP = net.IPv6zero
+		}
+		if !ipv6only {
+			if a.IP.Equal(net.IPv4zero) {
+				a.IP = net.IPv6zero
+			}
+		}
 		if !ipv6only && ipLen == net.IPv6len {
 			if isZeros(a.IP[0:10]) && a.IP[10] == 0xff && a.IP[11] == 0xff {
 				a.IP = a.IP.To4()
 			}
-		}
-		if ipLen == 0 {
-			a.IP = net.IPv6zero
 		}
 		addr = a
 		break
