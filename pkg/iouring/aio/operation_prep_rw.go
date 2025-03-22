@@ -14,7 +14,7 @@ func (op *Operation) PrepareRead(nfd *Fd, b []byte) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpRead
+	op.code = iouring.OpRead
 	op.fd = fd
 	op.msg.Name = &b[0]
 	op.msg.Namelen = uint32(len(b))
@@ -29,7 +29,7 @@ func (op *Operation) PrepareWrite(nfd *Fd, b []byte) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpWrite
+	op.code = iouring.OpWrite
 	op.fd = fd
 	op.msg.Name = &b[0]
 	op.msg.Namelen = uint32(len(b))
@@ -44,7 +44,7 @@ func (op *Operation) PrepareReadFixed(nfd *Fd, buf *FixedBuffer) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpReadFixed
+	op.code = iouring.OpReadFixed
 	op.fd = fd
 	op.msg.Name = &buf.value[buf.rPos]
 	op.msg.Namelen = uint32(len(buf.value) - buf.rPos)
@@ -60,7 +60,7 @@ func (op *Operation) PrepareWriteFixed(nfd *Fd, buf *FixedBuffer) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpWriteFixed
+	op.code = iouring.OpWriteFixed
 	op.fd = fd
 	op.msg.Name = &buf.value[buf.rPos]
 	op.msg.Namelen = uint32(buf.Length())
@@ -69,7 +69,7 @@ func (op *Operation) PrepareWriteFixed(nfd *Fd, buf *FixedBuffer) {
 }
 
 func (op *Operation) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int64, nbytes uint32, flags uint32) {
-	op.kind = iouring.OpSplice
+	op.code = iouring.OpSplice
 	op.pipe.fdIn = fdIn
 	op.pipe.offIn = offIn
 	op.pipe.fdOut = fdOut
@@ -79,7 +79,7 @@ func (op *Operation) PrepareSplice(fdIn int, offIn int64, fdOut int, offOut int6
 }
 
 func (op *Operation) PrepareTee(fdIn int, fdOut int, nbytes uint32, flags uint32) {
-	op.kind = iouring.OpTee
+	op.code = iouring.OpTee
 	op.pipe.fdIn = fdIn
 	op.pipe.fdOut = fdOut
 	op.pipe.nbytes = nbytes

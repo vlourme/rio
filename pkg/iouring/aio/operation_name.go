@@ -5,7 +5,7 @@ package aio
 import "github.com/brickingsoft/rio/pkg/iouring"
 
 func (op *Operation) Name() string {
-	switch op.kind {
+	switch op.code {
 	case iouring.OpNop:
 		return "nop"
 	case iouring.OpReadv:

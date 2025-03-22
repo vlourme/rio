@@ -11,7 +11,7 @@ import (
 )
 
 func (op *Operation) packingSQE(sqe *iouring.SubmissionQueueEntry) error {
-	switch op.kind {
+	switch op.code {
 	case iouring.OpNop:
 		sqe.PrepareNop()
 		sqe.SetData(unsafe.Pointer(op))

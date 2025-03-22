@@ -16,7 +16,7 @@ func (op *Operation) PrepareConnect(nfd *NetFd, addr *syscall.RawSockaddrAny, ad
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpConnect
+	op.code = iouring.OpConnect
 	op.fd = fd
 	op.msg.Name = (*byte)(unsafe.Pointer(addr))
 	op.msg.Namelen = uint32(addrLen)
@@ -31,7 +31,7 @@ func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addr
 	if ln.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpAccept
+	op.code = iouring.OpAccept
 	op.fd = fd
 	op.msg.Name = (*byte)(unsafe.Pointer(addr))
 	op.msg.Namelen = uint32(addrLen)
@@ -47,7 +47,7 @@ func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddr
 		op.sqeFlags |= iouring.SQEAsync
 	}
 	op.pipe.fdIn = syscall.SOCK_NONBLOCK
-	op.kind = iouring.OpAccept
+	op.code = iouring.OpAccept
 	op.multishot = true
 	op.fd = fd
 	op.msg.Name = (*byte)(unsafe.Pointer(addr))
@@ -63,7 +63,7 @@ func (op *Operation) PrepareReceive(nfd *NetFd, b []byte) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpRecv
+	op.code = iouring.OpRecv
 	op.fd = fd
 	op.msg.Name = &b[0]
 	op.msg.Namelen = uint32(len(b))
@@ -78,7 +78,7 @@ func (op *Operation) PrepareSend(nfd *NetFd, b []byte) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpSend
+	op.code = iouring.OpSend
 	op.fd = fd
 	op.msg.Name = &b[0]
 	op.msg.Namelen = uint32(len(b))
@@ -93,7 +93,7 @@ func (op *Operation) PrepareSendZC(nfd *NetFd, b []byte) {
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpSendZC
+	op.code = iouring.OpSendZC
 	op.fd = fd
 	op.msg.Name = &b[0]
 	op.msg.Namelen = uint32(len(b))
@@ -108,7 +108,7 @@ func (op *Operation) PrepareReceiveMsg(nfd *NetFd, b []byte, oob []byte, addr *s
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpRecvmsg
+	op.code = iouring.OpRecvmsg
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)
 	return
@@ -122,7 +122,7 @@ func (op *Operation) PrepareSendMsg(nfd *NetFd, b []byte, oob []byte, addr *sysc
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpSendmsg
+	op.code = iouring.OpSendmsg
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)
 	return
@@ -136,7 +136,7 @@ func (op *Operation) PrepareSendMsgZC(nfd *NetFd, b []byte, oob []byte, addr *sy
 	if nfd.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.kind = iouring.OpSendMsgZC
+	op.code = iouring.OpSendMsgZC
 	op.fd = fd
 	op.setMsg(b, oob, addr, addrLen, flags)
 	return

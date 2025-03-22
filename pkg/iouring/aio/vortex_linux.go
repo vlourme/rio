@@ -42,7 +42,7 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
-					kind:     iouring.OpLast,
+					code:     iouring.OpLast,
 					borrowed: true,
 					resultCh: make(chan Result, 1),
 				}

@@ -7,12 +7,12 @@ import (
 )
 
 func (op *Operation) PrepareNop() (err error) {
-	op.kind = iouring.OpNop
+	op.code = iouring.OpNop
 	return
 }
 
 func (op *Operation) prepareLinkTimeout(target *Operation) {
-	op.kind = iouring.OpLinkTimeout
+	op.code = iouring.OpLinkTimeout
 	op.timeout = target.timeout
 	target.linkTimeout = op
 }

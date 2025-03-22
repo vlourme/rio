@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"unsafe"
 )
 
 type QueueEntry struct {
@@ -72,4 +75,14 @@ func TestQueue(t *testing.T) {
 	}
 	t.Log("dequeue", nn)
 	t.Log("length", queue.Length())
+}
+
+func TestSize(t *testing.T) {
+	n := atomic.Int64{}
+
+	t.Log("atomic.int64", unsafe.Sizeof(n), unsafe.Sizeof([4]byte{}))
+	ch := make(chan int)
+	t.Log("ch", unsafe.Sizeof(ch))
+	ns := syscall.NsecToTimespec(10)
+	t.Log("ch", unsafe.Sizeof(&ns), unsafe.Sizeof(unsafe.Pointer(&ns)))
 }

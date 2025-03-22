@@ -37,24 +37,41 @@ func NewOperation(resultChanBuffer int) *Operation {
 		resultChanBuffer = 0
 	}
 	return &Operation{
-		kind:     iouring.OpLast,
+		code:     iouring.OpLast,
 		resultCh: make(chan Result, resultChanBuffer),
 	}
 }
 
 type Operation struct {
-	kind        uint8
-	subKind     int
-	borrowed    bool
-	status      atomic.Int64
-	resultCh    chan Result
-	timeout     *syscall.Timespec
+	code     uint8             // 1
+	flags    uint8             // 1 borrowed, multishot, directMode
+	sqeFlags uint8             // 1
+	pad05    [5]byte           // 5
+	timeout  *syscall.Timespec // 8
+	status   atomic.Int64      // 8
+	resultCh chan Result       // 8
+
+	fd      int            // 8
+	addr    unsafe.Pointer // 8 &b[0], *syscall.Msghdr, *Operation
+	addrLen uint32         // 4
+	pad14   [4]byte        // 4 //
+	target  *Operation     // 8
+
+	fdIn   int   // 8 or use addr to set splice use struct with pool also tee and others, then op size is 64
+	offIn  int64 // 8
+	fdOut  int   // 8
+	offOut int64 // 8
+
+	nbytes      uint32   // 8
+	spliceFlags uint32   // 8
+	pad216      [16]byte // 16
+
+	subKind     int  // todo use params
+	borrowed    bool // todo use flags
 	multishot   bool
 	directMode  bool
 	filedIndex  int
-	sqeFlags    uint8
-	fd          int
-	ptr         unsafe.Pointer
+	ptr         unsafe.Pointer // 8
 	pipe        pipeRequest
 	msg         syscall.Msghdr
 	linkTimeout *Operation
@@ -106,8 +123,8 @@ func (op *Operation) WithFiledIndex(index uint32) *Operation {
 }
 
 func (op *Operation) reset() {
-	// kind
-	op.kind = iouring.OpLast
+	// code
+	op.code = iouring.OpLast
 	op.subKind = -1
 	// status
 	op.status.Store(ReadyOperationStatus)

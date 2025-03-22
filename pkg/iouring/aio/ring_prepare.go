@@ -44,7 +44,7 @@ func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
 			if op.canPrepare() {
 				sqe := ring.GetSQE()
 				if sqe == nil {
-					op.failed(ErrSQBusy) // when prep err occur, means invalid op kind or no sqe left
+					op.failed(ErrSQBusy) // when prep err occur, means no sqe left
 					break
 				}
 				var timeoutSQE *iouring.SubmissionQueueEntry
@@ -140,7 +140,7 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 				batchTimer.Reset(batchTimeWindow)
 			}
 			if op.canPrepare() {
-				if op.timeout != nil && uint32(batchIdx+2) >= minBatch { // timeout1 need twe sqe, when no remains then prepare first
+				if op.timeout != nil && uint32(batchIdx+2) >= minBatch { // timeout need twe sqe, when no remains then prepare first
 					overflowed = op
 					needToPrepare = true
 					break
@@ -193,9 +193,9 @@ func packingBatchOperation(ring *iouring.Ring, op *Operation, batchIdx int, batc
 		return batchIdx
 	}
 	batch := *batchPtr
-	// handle timeout1
+	// handle timeout
 	var timeoutSQE *iouring.SubmissionQueueEntry
-	if op.timeout != nil { // has timeout1 then get sqe for link timeout1
+	if op.timeout != nil { // has timeout then get sqe for link timeout
 		timeoutSQE = ring.GetSQE()
 		if timeoutSQE == nil { // no sqe then prep_nop
 			sqe.PrepareNop()
@@ -214,7 +214,7 @@ func packingBatchOperation(ring *iouring.Ring, op *Operation, batchIdx int, batc
 	}
 	batchIdx++
 	batch[batchIdx] = sqe
-	// check has timeout1
+	// check has timeout
 	if timeoutSQE != nil { // prep_link_timeout
 		timeoutOP := NewOperation(1)
 		timeoutOP.prepareLinkTimeout(op)
