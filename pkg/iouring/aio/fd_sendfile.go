@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"golang.org/x/sys/unix"
 	"io"
@@ -48,7 +47,6 @@ func (fd *Fd) Sendfile(r io.Reader) (written int64, err error) {
 	offset := int64(0)
 
 	if fd.canInAdvance() && remain < sendFileChunkSize {
-		fmt.Println("adv")
 		if sc, scErr := file.SyscallConn(); scErr == nil {
 			var (
 				wn   int
