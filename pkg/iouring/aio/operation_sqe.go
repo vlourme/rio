@@ -16,6 +16,20 @@ func (op *Operation) packingSQE(sqe *iouring.SubmissionQueueEntry) error {
 		sqe.PrepareNop()
 		sqe.SetData(unsafe.Pointer(op))
 		break
+	case iouring.OpRead:
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
+		sqe.PrepareRead(op.fd, b, bLen, 0)
+		sqe.SetFlags(op.sqeFlags)
+		sqe.SetData(unsafe.Pointer(op))
+		break
+	case iouring.OpWrite:
+		b := uintptr(unsafe.Pointer(op.msg.Name))
+		bLen := op.msg.Namelen
+		sqe.PrepareWrite(op.fd, b, bLen, 0)
+		sqe.SetFlags(op.sqeFlags)
+		sqe.SetData(unsafe.Pointer(op))
+		break
 	case iouring.OpSocket:
 		family := op.pipe.fdIn
 		sotype := op.pipe.fdOut
