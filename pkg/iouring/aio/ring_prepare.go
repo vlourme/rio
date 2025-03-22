@@ -4,12 +4,15 @@ package aio
 
 import (
 	"context"
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/process"
-	"os"
 	"runtime"
-	"syscall"
 	"time"
+)
+
+var (
+	ErrSQBusy = errors.New("submission queue is busy")
 )
 
 func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
@@ -41,11 +44,31 @@ func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
 			if op.canPrepare() {
 				sqe := ring.GetSQE()
 				if sqe == nil {
-					op.setResult(0, 0, os.NewSyscallError("ring_getsqe", syscall.EBUSY)) // when prep err occur, means invalid op kind or no sqe left
+					op.failed(ErrSQBusy) // when prep err occur, means invalid op kind or no sqe left
 					break
 				}
-				if makeErr := op.makeSQE(sqe); makeErr != nil { // make err but prep_nop, so need to submit
-					op.setResult(0, 0, makeErr)
+				var timeoutSQE *iouring.SubmissionQueueEntry
+				if op.timeout != nil {
+					timeoutSQE = ring.GetSQE()
+					if timeoutSQE == nil { // timeout1 but no sqe, then prep_nop and submit
+						op.failed(ErrSQBusy)
+						sqe.PrepareNop()
+						_, _ = ring.Submit()
+						break
+					}
+				}
+				if err := op.packingSQE(sqe); err != nil { // make err but prep_nop, so need to submit
+					op.failed(err)
+				} else {
+					if timeoutSQE != nil { // prep_link_timeout
+						timeoutOP := NewOperation(1)
+						timeoutOP.prepareLinkTimeout(op)
+						timeoutOP.Prepared()
+						if timeoutErr := timeoutOP.packingSQE(timeoutSQE); timeoutErr != nil {
+							// should be ok
+							panic(errors.New("packing timeout SQE failed: " + timeoutErr.Error()))
+						}
+					}
 				}
 				_, _ = ring.Submit()
 			}
@@ -88,11 +111,12 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 	requestCh := r.requestCh
 
 	var (
-		batchIdx      = -1
-		stopped       = false
-		idle          = false
-		needToPrepare = false
-		needToSubmit  = 0
+		batchIdx                 = -1
+		stopped                  = false
+		idle                     = false
+		needToPrepare            = false
+		needToSubmit             = 0
+		overflowed    *Operation = nil
 	)
 
 	for {
@@ -116,17 +140,12 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 				batchTimer.Reset(batchTimeWindow)
 			}
 			if op.canPrepare() {
-				sqe := ring.GetSQE()
-				if sqe == nil {
-					op.setResult(0, 0, os.NewSyscallError("ring_getsqe", syscall.EBUSY))
+				if op.timeout != nil && uint32(batchIdx+2) >= minBatch { // timeout1 need twe sqe, when no remains then prepare first
+					overflowed = op
+					needToPrepare = true
 					break
 				}
-				if makeErr := op.makeSQE(sqe); makeErr != nil { //
-					op.setResult(0, 0, makeErr)
-				}
-				batchIdx++
-				batch[batchIdx] = sqe
-				runtime.KeepAlive(sqe)
+				batchIdx = packingBatchOperation(ring, op, batchIdx, &batch)
 				if uint32(batchIdx+1) == minBatch { // full so flush
 					needToPrepare = true
 				}
@@ -144,16 +163,19 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 		}
 
 		if needToPrepare { // go to prepare
+			if overflowed != nil && overflowed.canPrepare() {
+				batchIdx = packingBatchOperation(ring, overflowed, batchIdx, &batch)
+			}
 			needToPrepare = false
-			received := batchIdx + 1
+			packed := batchIdx + 1
 
 			submitted, _ := ring.Submit()
-			needToSubmit += received - int(submitted)
+			needToSubmit += packed - int(submitted)
 			if needToSubmit < 0 {
 				needToSubmit = 0
 			}
 
-			for i := 0; i < received; i++ {
+			for i := 0; i < packed; i++ {
 				batch[i] = nil
 			}
 			batchIdx = -1
@@ -162,4 +184,48 @@ func (r *Ring) preparingSQEWithBatchMode(ctx context.Context) {
 			batchTimer.Reset(batchTimeWindow)
 		}
 	}
+}
+
+func packingBatchOperation(ring *iouring.Ring, op *Operation, batchIdx int, batchPtr *[]*iouring.SubmissionQueueEntry) int {
+	sqe := ring.GetSQE()
+	if sqe == nil {
+		op.failed(ErrSQBusy)
+		return batchIdx
+	}
+	batch := *batchPtr
+	// handle timeout1
+	var timeoutSQE *iouring.SubmissionQueueEntry
+	if op.timeout != nil { // has timeout1 then get sqe for link timeout1
+		timeoutSQE = ring.GetSQE()
+		if timeoutSQE == nil { // no sqe then prep_nop
+			sqe.PrepareNop()
+			batchIdx++
+			batch[batchIdx] = sqe
+			op.failed(ErrSQBusy)
+			return batchIdx
+		}
+	}
+	if err := op.packingSQE(sqe); err != nil { // packing failed then prep_nop
+		sqe.PrepareNop()
+		batchIdx++
+		batch[batchIdx] = sqe
+		op.failed(err)
+		return batchIdx
+	}
+	batchIdx++
+	batch[batchIdx] = sqe
+	// check has timeout1
+	if timeoutSQE != nil { // prep_link_timeout
+		timeoutOP := NewOperation(1)
+		timeoutOP.prepareLinkTimeout(op)
+		timeoutOP.Prepared()
+		if timeoutErr := timeoutOP.packingSQE(timeoutSQE); timeoutErr != nil {
+			// should be ok
+			panic(errors.New("packing timeout SQE failed: " + timeoutErr.Error()))
+		}
+		batchIdx++
+		batch[batchIdx] = timeoutSQE
+	}
+	runtime.KeepAlive(sqe)
+	return batchIdx
 }

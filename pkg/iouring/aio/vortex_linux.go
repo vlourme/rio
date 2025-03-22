@@ -105,16 +105,11 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 }
 
 func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
-	deadline := op.deadline
 RETRY:
 	vortex.Submit(op)
 	n, cqeFlags, err = vortex.awaitOperation(ctx, op)
 	if err != nil {
-		if errors.Is(err, syscall.EBUSY) {
-			if !deadline.IsZero() && deadline.Before(time.Now()) {
-				err = ErrTimeout
-				return
-			}
+		if errors.Is(err, ErrSQBusy) { // means cannot get sqe
 			goto RETRY
 		}
 		return
@@ -123,19 +118,6 @@ RETRY:
 }
 
 func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
-	var (
-		done                    = ctx.Done()
-		timerC <-chan time.Time = nil
-	)
-	timeout := op.Timeout()
-	if timeout > 0 {
-		timer := vortex.acquireTimer(timeout)
-		defer vortex.releaseTimer(timer)
-		timerC = timer.C
-	} else if timeout < 0 {
-		n, cqeFlags, err = vortex.cancelOperation(ctx, op)
-		return
-	}
 	select {
 	case r, ok := <-op.resultCh:
 		if !ok {
@@ -144,14 +126,19 @@ func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int,
 			break
 		}
 		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if errors.Is(err, syscall.ECANCELED) {
+		if err != nil && errors.Is(err, syscall.ECANCELED) {
 			err = ErrCanceled
 		}
+		if op.linkTimeout != nil { // wait link timeout
+			r, ok = <-op.linkTimeout.resultCh
+			if ok {
+				if err != nil && errors.Is(r.Err, syscall.ETIME) {
+					err = ErrTimeout
+				}
+			}
+		}
 		break
-	case <-timerC:
-		n, cqeFlags, err = vortex.cancelOperation(ctx, op)
-		break
-	case <-done:
+	case <-ctx.Done():
 		err = ctx.Err()
 		if errors.Is(err, context.DeadlineExceeded) { // deadline so can cancel
 			n, cqeFlags, err = vortex.cancelOperation(ctx, op)

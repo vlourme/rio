@@ -49,7 +49,10 @@ func TestNew(t *testing.T) {
 }
 
 func TestSubmissionQueueEntry_PrepareLinkTimeout(t *testing.T) {
-	ring, ringErr := iouring.New(iouring.WithEntries(4))
+	ring, ringErr := iouring.New(
+		iouring.WithEntries(4),
+		iouring.WithFlags(iouring.SetupSQPoll),
+	)
 	if ringErr != nil {
 		t.Error(ringErr)
 		return
@@ -64,12 +67,22 @@ func TestSubmissionQueueEntry_PrepareLinkTimeout(t *testing.T) {
 		t.Error(err)
 		return
 	}
+	defer syscall.Close(pipe[0])
+	defer syscall.Close(pipe[1])
 
 	// timeout: timeout_sqe (ETIME) op_sqe (ECANCELED)
 	// SUCCEED: timeout_sqe (ECANCELED) op_sqe (OK)
 	// DONT CANCEL OP AFTER timeout
 	// will get at same time, so wait twice and send twice when op has deadline
+	// todo use tagged ptr to check which is timeout cqe
 	//_, _ = syscall.Write(pipe[1], []byte{1})
+
+	go func() {
+		time.Sleep(1 * time.Second)
+		//_, _ = syscall.Write(pipe[1], []byte{1})
+		//syscall.Close(pipe[0])
+		//syscall.Close(pipe[1])
+	}()
 
 	readSQE := ring.GetSQE()
 	b := make([]byte, 1)
@@ -78,12 +91,14 @@ func TestSubmissionQueueEntry_PrepareLinkTimeout(t *testing.T) {
 	readSQE.Flags = iouring.SQEIOLink
 
 	timeoutSQE := ring.GetSQE()
-	timeoutSQE.PrepareLinkTimeout(500*time.Millisecond, 0)
+	ns := syscall.NsecToTimespec((500 * time.Millisecond).Nanoseconds())
+	timeoutSQE.PrepareLinkTimeout(&ns, 0)
 	timeoutSQE.SetData64(2)
 
-	_, _ = ring.Submit()
-
-	cqe0, cqe0Err := ring.WaitCQE()
+	t.Log(ring.Submit())
+	//_, _ = ring.Submit()
+	ns2 := syscall.NsecToTimespec(3000 * time.Millisecond.Nanoseconds())
+	cqe0, cqe0Err := ring.WaitCQETimeout(&ns2)
 	if cqe0Err != nil {
 		t.Error(cqe0Err)
 		return
@@ -91,7 +106,7 @@ func TestSubmissionQueueEntry_PrepareLinkTimeout(t *testing.T) {
 	t.Log("cqes:", ring.CQReady())
 	ring.CQESeen(cqe0)
 	if cqe0.Res < 0 {
-		t.Log("c0:", cqe0.Res, syscall.Errno(-cqe0.Res), cqe0.Flags, cqe0.UserData)
+		t.Log("c0:", cqe0.Res, syscall.Errno(-cqe0.Res), int(syscall.ETIME), int(syscall.ECANCELED), cqe0.Flags, cqe0.UserData)
 	} else {
 		t.Log("c0:", cqe0.Res, cqe0.Flags, cqe0.UserData)
 	}
@@ -103,7 +118,7 @@ func TestSubmissionQueueEntry_PrepareLinkTimeout(t *testing.T) {
 			return
 		}
 		if cqe.Res < 0 {
-			t.Log("cqe:", cqe.Res, syscall.Errno(-cqe.Res), cqe.Flags, cqe.UserData)
+			t.Log("cqe:", cqe.Res, syscall.Errno(-cqe.Res), int(syscall.ETIME), int(syscall.ECANCELED), cqe.Flags, cqe.UserData)
 		} else {
 			t.Log("cqe:", cqe.Res, cqe.Flags, cqe.UserData)
 		}

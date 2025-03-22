@@ -74,19 +74,17 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 						copPtr := cqe.GetData()
 						cop := (*Operation)(copPtr)
 						// handle
-						if cop.canSetResult() { // not done
-							var (
-								opN     int
-								opFlags = cqe.Flags
-								opErr   error
-							)
-							if cqe.Res < 0 {
-								opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
-							} else {
-								opN = int(cqe.Res)
-							}
-							cop.setResult(opN, opFlags, opErr)
+						var (
+							opN     int
+							opFlags = cqe.Flags
+							opErr   error
+						)
+						if cqe.Res < 0 {
+							opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
+						} else {
+							opN = int(cqe.Res)
 						}
+						cop.complete(opN, opFlags, opErr)
 					}
 					ring.CQAdvance(peeked)
 				}
@@ -160,19 +158,17 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 					cop := (*Operation)(copPtr)
 
 					// handle
-					if cop.canSetResult() { // not done
-						var (
-							opN     int
-							opFlags = cqe.Flags
-							opErr   error
-						)
-						if cqe.Res < 0 {
-							opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
-						} else {
-							opN = int(cqe.Res)
-						}
-						cop.setResult(opN, opFlags, opErr)
+					var (
+						opN     int
+						opFlags = cqe.Flags
+						opErr   error
+					)
+					if cqe.Res < 0 {
+						opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-cqe.Res))
+					} else {
+						opN = int(cqe.Res)
 					}
+					cop.complete(opN, opFlags, opErr)
 				}
 				// CQAdvance
 				ring.CQAdvance(completed)

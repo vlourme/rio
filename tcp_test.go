@@ -284,8 +284,9 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 			_ = conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
 			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
 			b := make([]byte, 1024)
+			now := time.Now()
 			rn, rErr := conn.Read(b)
-			t.Log("srv read", rn, string(b[:rn]), rErr, errors.Is(rErr, context.DeadlineExceeded))
+			t.Log("srv read", time.Now().Sub(now), rn, string(b[:rn]), rErr, errors.Is(rErr, context.DeadlineExceeded))
 			_ = conn.Close()
 			return
 		}
@@ -300,5 +301,4 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 	defer conn.Close()
 
 	time.Sleep(3 * time.Second)
-
 }

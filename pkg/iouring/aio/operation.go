@@ -43,20 +43,21 @@ func NewOperation(resultChanBuffer int) *Operation {
 }
 
 type Operation struct {
-	kind       uint8
-	subKind    int
-	borrowed   bool
-	status     atomic.Int64
-	resultCh   chan Result
-	deadline   time.Time
-	multishot  bool
-	directMode bool
-	filedIndex int
-	sqeFlags   uint8
-	fd         int
-	ptr        unsafe.Pointer
-	pipe       pipeRequest
-	msg        syscall.Msghdr
+	kind        uint8
+	subKind     int
+	borrowed    bool
+	status      atomic.Int64
+	resultCh    chan Result
+	timeout     *syscall.Timespec
+	multishot   bool
+	directMode  bool
+	filedIndex  int
+	sqeFlags    uint8
+	fd          int
+	ptr         unsafe.Pointer
+	pipe        pipeRequest
+	msg         syscall.Msghdr
+	linkTimeout *Operation
 }
 
 func (op *Operation) Close() {
@@ -72,20 +73,26 @@ func (op *Operation) Complete() {
 	op.status.Store(CompletedOperationStatus)
 }
 
+func (op *Operation) Prepared() {
+	op.status.Store(ProcessingOperationStatus)
+}
+
 func (op *Operation) UseMultishot() {
 	op.multishot = true
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
-	op.deadline = deadline
-	return op
-}
-
-func (op *Operation) Timeout() time.Duration {
-	if deadline := op.deadline; !deadline.IsZero() {
-		return time.Until(deadline)
+	if deadline.IsZero() {
+		return op
 	}
-	return 0
+	timeout := time.Until(deadline)
+	if timeout < 1 {
+		timeout = 10 * time.Microsecond
+	}
+	ns := syscall.NsecToTimespec(timeout.Nanoseconds())
+	op.timeout = &ns
+	op.sqeFlags |= iouring.SQEIOLink
+	return op
 }
 
 func (op *Operation) WithDirect(direct bool) *Operation {
@@ -389,6 +396,12 @@ func (op *Operation) PrepareFixedFdInstall(fd int) {
 	op.fd = fd
 }
 
+func (op *Operation) prepareLinkTimeout(target *Operation) {
+	op.kind = iouring.OpLinkTimeout
+	op.timeout = target.timeout
+	target.linkTimeout = op
+}
+
 func (op *Operation) reset() {
 	// kind
 	op.kind = iouring.OpLast
@@ -424,11 +437,15 @@ func (op *Operation) reset() {
 		op.pipe.nbytes = 0
 		op.pipe.spliceFlags = 0
 	}
-	// deadline
-	op.deadline = time.Time{}
+	// timeout
+	op.timeout = nil
 	// ptr
 	if op.ptr != nil {
 		op.ptr = nil
+	}
+	// linkTimeout
+	if op.linkTimeout != nil {
+		op.linkTimeout = nil
 	}
 	return
 }
@@ -480,6 +497,22 @@ func (op *Operation) setResult(n int, flags uint32, err error) {
 	op.resultCh <- Result{n, flags, err}
 }
 
+func (op *Operation) failed(err error) {
+	op.resultCh <- Result{0, 0, err}
+}
+
+func (op *Operation) complete(n int, flags uint32, err error) {
+	if ok := op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus); ok {
+		op.resultCh <- Result{n, flags, err}
+		return
+	}
+	if ok := op.status.Load() == HijackedOperationStatus; ok {
+		op.resultCh <- Result{n, flags, err}
+		return
+	}
+	return
+}
+
 func (op *Operation) canCancel() bool {
 	if ok := op.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus); ok {
 		return true
@@ -495,16 +528,6 @@ func (op *Operation) canCancel() bool {
 
 func (op *Operation) canPrepare() bool {
 	if ok := op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus); ok {
-		return true
-	}
-	if ok := op.status.Load() == HijackedOperationStatus; ok {
-		return true
-	}
-	return false
-}
-
-func (op *Operation) canSetResult() bool {
-	if ok := op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus); ok {
 		return true
 	}
 	if ok := op.status.Load() == HijackedOperationStatus; ok {

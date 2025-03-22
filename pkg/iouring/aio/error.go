@@ -7,9 +7,9 @@ import (
 )
 
 var (
-	ErrCanceled      = &CanceledError{}
-	ErrTimeout       = &TimeoutError{}
-	ErrUnsupportedOp = errors.New("unsupported op")
+	ErrCanceled  = &CanceledError{}
+	ErrTimeout   = &TimeoutError{}
+	ErrOpInvalid = errors.New("invalid operation")
 )
 
 func IsCanceled(err error) bool {
@@ -20,8 +20,8 @@ func IsTimeout(err error) bool {
 	return errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func IsUnsupported(err error) bool {
-	return errors.Is(err, ErrUnsupportedOp)
+func IsOperationInvalid(err error) bool {
+	return errors.Is(err, ErrOpInvalid)
 }
 
 func MapErr(err error) error {
@@ -67,7 +67,24 @@ type RingError struct {
 	Err error
 }
 
-func (e *RingError) Error() string { return "create iouring failed: " + e.Err.Error() }
+func (e *RingError) Error() string   { return "create iouring failed: " + e.Err.Error() }
+func (e *RingError) Timeout() bool   { return false }
+func (e *RingError) Temporary() bool { return false }
 func (e *RingError) Is(err error) bool {
 	return errors.Is(err, e.Err)
+}
+
+func NewInvalidOpErr(err error) error {
+	return &OperationInvalidError{err}
+}
+
+type OperationInvalidError struct {
+	Err error
+}
+
+func (e *OperationInvalidError) Error() string   { return "invalid operation: " + e.Err.Error() }
+func (e *OperationInvalidError) Timeout() bool   { return false }
+func (e *OperationInvalidError) Temporary() bool { return false }
+func (e *OperationInvalidError) Is(err error) bool {
+	return errors.Is(err, ErrOpInvalid)
 }

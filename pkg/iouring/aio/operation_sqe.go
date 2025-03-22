@@ -3,13 +3,14 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"runtime"
 	"syscall"
 	"unsafe"
 )
 
-func (op *Operation) makeSQE(sqe *iouring.SubmissionQueueEntry) error {
+func (op *Operation) packingSQE(sqe *iouring.SubmissionQueueEntry) error {
 	switch op.kind {
 	case iouring.OpNop:
 		sqe.PrepareNop()
@@ -38,8 +39,7 @@ func (op *Operation) makeSQE(sqe *iouring.SubmissionQueueEntry) error {
 			optValue := int(op.pipe.offIn)
 			sqe.PrepareSetsockoptInt(fd, level, optName, &optValue)
 		default:
-			sqe.PrepareNop()
-			return ErrUnsupportedOp
+			return NewInvalidOpErr(errors.New("invalid uring cmd params"))
 		}
 		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
@@ -154,8 +154,7 @@ func (op *Operation) makeSQE(sqe *iouring.SubmissionQueueEntry) error {
 			sqe.SetFlags(op.sqeFlags)
 			sqe.SetData(unsafe.Pointer(op))
 		} else {
-			sqe.PrepareNop()
-			return ErrUnsupportedOp
+			return NewInvalidOpErr(errors.New("invalid cancel params"))
 		}
 		break
 	case iouring.OPFixedFdInstall:
@@ -167,9 +166,15 @@ func (op *Operation) makeSQE(sqe *iouring.SubmissionQueueEntry) error {
 		sqe.SetFlags(op.sqeFlags)
 		sqe.SetData(unsafe.Pointer(op))
 		break
+	case iouring.OpLinkTimeout:
+		if op.timeout == nil {
+			return NewInvalidOpErr(errors.New("invalid timeout"))
+		}
+		sqe.PrepareLinkTimeout(op.timeout, 0)
+		sqe.SetData(unsafe.Pointer(op))
+		break
 	default:
-		sqe.PrepareNop()
-		return ErrUnsupportedOp
+		return NewInvalidOpErr(errors.New("unsupported"))
 	}
 	runtime.KeepAlive(sqe)
 	return nil

@@ -571,9 +571,8 @@ func (entry *SubmissionQueueEntry) PrepareLink(oldPath, newPath []byte, flags in
 	entry.PrepareLinkat(unix.AT_FDCWD, oldPath, unix.AT_FDCWD, newPath, flags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareLinkTimeout(duration time.Duration, flags uint32) {
-	spec := syscall.NsecToTimespec(duration.Nanoseconds())
-	entry.prepareRW(OpLinkTimeout, -1, uintptr(unsafe.Pointer(&spec)), 1, 0)
+func (entry *SubmissionQueueEntry) PrepareLinkTimeout(spec *syscall.Timespec, flags uint32) {
+	entry.prepareRW(OpLinkTimeout, -1, uintptr(unsafe.Pointer(spec)), 1, 0)
 	entry.OpcodeFlags = flags
 }
 
