@@ -6,7 +6,6 @@ import (
 	"golang.org/x/sys/unix"
 	"math"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -435,20 +434,23 @@ func (entry *SubmissionQueueEntry) PrepareCancelALL() {
 
 // [Timeout] ***********************************************************************************************************
 
+func (entry *SubmissionQueueEntry) PrepareLinkTimeout(spec *syscall.Timespec, flags uint32) {
+	entry.prepareRW(OpLinkTimeout, -1, uintptr(unsafe.Pointer(spec)), 1, 0)
+	entry.OpcodeFlags = flags
+}
+
 func (entry *SubmissionQueueEntry) PrepareTimeout(spec *syscall.Timespec, count, flags uint32) {
 	entry.prepareRW(OpTimeout, -1, uintptr(unsafe.Pointer(&spec)), 1, uint64(count))
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareTimeoutRemove(duration time.Duration, count uint64, flags uint32) {
-	spec := syscall.NsecToTimespec(duration.Nanoseconds())
-	entry.prepareRW(OpTimeoutRemove, -1, uintptr(unsafe.Pointer(&spec)), 1, count)
+func (entry *SubmissionQueueEntry) PrepareTimeoutRemove(spec *syscall.Timespec, count uint64, flags uint32) {
+	entry.prepareRW(OpTimeoutRemove, -1, uintptr(unsafe.Pointer(spec)), 1, count)
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareTimeoutUpdate(duration time.Duration, count uint64, flags uint32) {
-	spec := syscall.NsecToTimespec(duration.Nanoseconds())
-	entry.prepareRW(OpTimeoutRemove, -1, uintptr(unsafe.Pointer(&spec)), 1, count)
+func (entry *SubmissionQueueEntry) PrepareTimeoutUpdate(spec *syscall.Timespec, count uint64, flags uint32) {
+	entry.prepareRW(OpTimeoutRemove, -1, uintptr(unsafe.Pointer(spec)), 1, count)
 	entry.OpcodeFlags = flags | TimeoutUpdate
 }
 
@@ -569,11 +571,6 @@ func (entry *SubmissionQueueEntry) PrepareRenameat(oldFd int, oldPath []byte, ne
 
 func (entry *SubmissionQueueEntry) PrepareLink(oldPath, newPath []byte, flags int) {
 	entry.PrepareLinkat(unix.AT_FDCWD, oldPath, unix.AT_FDCWD, newPath, flags)
-}
-
-func (entry *SubmissionQueueEntry) PrepareLinkTimeout(spec *syscall.Timespec, flags uint32) {
-	entry.prepareRW(OpLinkTimeout, -1, uintptr(unsafe.Pointer(spec)), 1, 0)
-	entry.OpcodeFlags = flags
 }
 
 func (entry *SubmissionQueueEntry) PrepareLinkat(oldFd int, oldPath []byte, newFd int, newPath []byte, flags int) {
