@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"syscall"
 	"unsafe"
@@ -15,8 +16,20 @@ func (op *Operation) PrepareClose(fd int) {
 
 func (op *Operation) PrepareCloseDirect(filedIndex int) {
 	op.code = iouring.OpClose
-	op.filedIndex = filedIndex
-	op.directMode = true
+	op.fd = filedIndex
+	if op.flags&directFd == 0 {
+		op.flags |= directFd
+	}
+}
+
+func (op *Operation) packingClose(sqe *iouring.SubmissionQueueEntry) (err error) {
+	if op.flags&directFd != 0 {
+		sqe.PrepareCloseDirect(uint32(op.fd))
+	} else {
+		sqe.PrepareClose(op.fd)
+	}
+	sqe.SetData(unsafe.Pointer(op))
+	return
 }
 
 func (op *Operation) PrepareCloseRead(nfd *NetFd) {
@@ -29,7 +42,7 @@ func (op *Operation) PrepareCloseRead(nfd *NetFd) {
 	}
 	op.code = iouring.OpShutdown
 	op.fd = fd
-	op.pipe.fdIn = syscall.SHUT_RD
+	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_RD))
 	return
 }
 
@@ -43,13 +56,21 @@ func (op *Operation) PrepareCloseWrite(nfd *NetFd) {
 	}
 	op.code = iouring.OpShutdown
 	op.fd = fd
-	op.pipe.fdIn = syscall.SHUT_WR
+	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_WR))
+	return
+}
+
+func (op *Operation) packingShutdown(sqe *iouring.SubmissionQueueEntry) (err error) {
+	cmd := int(uintptr(op.addr2))
+	sqe.PrepareShutdown(op.fd, cmd)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
 func (op *Operation) PrepareCancel(target *Operation) {
 	op.code = iouring.OpAsyncCancel
-	op.ptr = unsafe.Pointer(target)
+	op.target = target
 }
 
 func (op *Operation) PrepareCancelFd(fd int) {
@@ -59,11 +80,35 @@ func (op *Operation) PrepareCancelFd(fd int) {
 
 func (op *Operation) PrepareCancelFixedFd(fileIndex int) {
 	op.code = iouring.OpAsyncCancel
-	op.filedIndex = fileIndex
-	op.directMode = true
+	op.fd = fileIndex
+	op.flags |= directFd
+}
+
+func (op *Operation) packingCancel(sqe *iouring.SubmissionQueueEntry) (err error) {
+	if op.fd > -1 { // cancel fd
+		if op.flags&directFd != 0 { // cancel direct
+			sqe.PrepareCancelFdFixed(uint32(op.fd), 0)
+		} else { // cancel regular
+			sqe.PrepareCancelFd(op.fd, 0)
+		}
+	} else if op.target != nil { // cancel op
+		sqe.PrepareCancel(uintptr(unsafe.Pointer(op.target)), 0)
+	} else {
+		sqe.PrepareNop()
+		err = NewInvalidOpErr(errors.New("invalid cancel params"))
+		return
+	}
+	sqe.SetData(unsafe.Pointer(op))
+	return
 }
 
 func (op *Operation) PrepareFixedFdInstall(fd int) {
 	op.code = iouring.OPFixedFdInstall
 	op.fd = fd
+}
+
+func (op *Operation) packingFixedFdInstall(sqe *iouring.SubmissionQueueEntry) (err error) {
+	sqe.PrepareFixedFdInstall(op.fd, 0)
+	sqe.SetData(unsafe.Pointer(op))
+	return err
 }

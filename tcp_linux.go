@@ -246,9 +246,9 @@ func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 		cfd *aio.NetFd
 	)
 	if ln.directMode {
-		cfd, err = ln.fd.AcceptDirectAlloc(addr, addrLen, ln.deadline)
+		cfd, err = ln.fd.AcceptDirectAlloc(addr, &addrLen, ln.deadline)
 	} else {
-		cfd, err = ln.fd.Accept(addr, addrLen, ln.deadline)
+		cfd, err = ln.fd.Accept(addr, &addrLen, ln.deadline)
 	}
 	if err != nil {
 		if aio.IsCanceled(err) {
@@ -296,17 +296,15 @@ func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 }
 
 func (ln *TCPListener) prepareMultishotAccepting() (err error) {
-	addr := &syscall.RawSockaddrAny{}
-	addrLen := syscall.SizeofSockaddrAny
 	backlog := sys.MaxListenerBacklog()
 	if backlog < 1024 {
 		backlog = 1024
 	}
 	if ln.directMode {
-		future := ln.fd.AcceptMultishotDirectAsync(addr, addrLen, backlog)
+		future := ln.fd.AcceptMultishotDirectAsync(backlog)
 		ln.acceptFuture = &future
 	} else {
-		future := ln.fd.AcceptMultishotAsync(addr, addrLen, backlog)
+		future := ln.fd.AcceptMultishotAsync(backlog)
 		ln.acceptFuture = &future
 	}
 	return

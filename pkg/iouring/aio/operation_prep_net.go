@@ -18,12 +18,21 @@ func (op *Operation) PrepareConnect(nfd *NetFd, addr *syscall.RawSockaddrAny, ad
 	}
 	op.code = iouring.OpConnect
 	op.fd = fd
-	op.msg.Name = (*byte)(unsafe.Pointer(addr))
-	op.msg.Namelen = uint32(addrLen)
+	op.addr = unsafe.Pointer(addr)
+	op.addrLen = uint32(addrLen)
 	return
 }
 
-func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) packingConnect(sqe *iouring.SubmissionQueueEntry) (err error) {
+	addrPtr := (*syscall.RawSockaddrAny)(op.addr)
+	addrLenPtr := uint64(op.addrLen)
+	sqe.PrepareConnect(op.fd, addrPtr, addrLenPtr)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
+	return
+}
+
+func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= iouring.SQEFixedFile
@@ -33,12 +42,17 @@ func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addr
 	}
 	op.code = iouring.OpAccept
 	op.fd = fd
-	op.msg.Name = (*byte)(unsafe.Pointer(addr))
-	op.msg.Namelen = uint32(addrLen)
+	op.addr = unsafe.Pointer(addr)
+	op.addr2 = unsafe.Pointer(addrLen)
+	if op.flags&directFd != 0 {
+		op.addrLen = uint32(syscall.SOCK_NONBLOCK)
+	} else {
+		op.addrLen = uint32(syscall.SOCK_NONBLOCK | syscall.SOCK_CLOEXEC)
+	}
 	return
 }
 
-func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= iouring.SQEFixedFile
@@ -46,12 +60,39 @@ func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddr
 	if ln.Async() {
 		op.sqeFlags |= iouring.SQEAsync
 	}
-	op.pipe.fdIn = syscall.SOCK_NONBLOCK
+
 	op.code = iouring.OpAccept
-	op.multishot = true
 	op.fd = fd
-	op.msg.Name = (*byte)(unsafe.Pointer(addr))
-	op.msg.Namelen = uint32(addrLen)
+	op.flags |= multishot
+	op.addr = unsafe.Pointer(addr)
+	op.addr2 = unsafe.Pointer(addrLen)
+	if op.flags&directFd != 0 {
+		op.addrLen = uint32(syscall.SOCK_NONBLOCK)
+	} else {
+		op.addrLen = uint32(syscall.SOCK_NONBLOCK | syscall.SOCK_CLOEXEC)
+	}
+	return
+}
+
+func (op *Operation) packingAccept(sqe *iouring.SubmissionQueueEntry) (err error) {
+	addrPtr := (*syscall.RawSockaddrAny)(op.addr)
+	addrLenPtr := uint64(uintptr(op.addr2))
+	flags := int(op.addrLen)
+	if op.flags&multishot != 0 {
+		if op.flags&directFd != 0 {
+			sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, flags)
+		} else {
+			sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, flags)
+		}
+	} else {
+		if op.flags&directFd != 0 {
+			sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, flags, iouring.FileIndexAlloc)
+		} else {
+			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, flags)
+		}
+	}
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
@@ -65,8 +106,17 @@ func (op *Operation) PrepareReceive(nfd *NetFd, b []byte) {
 	}
 	op.code = iouring.OpRecv
 	op.fd = fd
-	op.msg.Name = &b[0]
-	op.msg.Namelen = uint32(len(b))
+	op.addr = unsafe.Pointer(&b[0])
+	op.addrLen = uint32(len(b))
+	return
+}
+
+func (op *Operation) packingReceive(sqe *iouring.SubmissionQueueEntry) (err error) {
+	b := uintptr(op.addr)
+	bLen := op.addrLen
+	sqe.PrepareRecv(op.fd, b, bLen, 0)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
@@ -80,8 +130,17 @@ func (op *Operation) PrepareSend(nfd *NetFd, b []byte) {
 	}
 	op.code = iouring.OpSend
 	op.fd = fd
-	op.msg.Name = &b[0]
-	op.msg.Namelen = uint32(len(b))
+	op.addr = unsafe.Pointer(&b[0])
+	op.addrLen = uint32(len(b))
+	return
+}
+
+func (op *Operation) packingSend(sqe *iouring.SubmissionQueueEntry) (err error) {
+	b := uintptr(op.addr)
+	bLen := op.addrLen
+	sqe.PrepareSend(op.fd, b, bLen, 0)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
@@ -95,12 +154,21 @@ func (op *Operation) PrepareSendZC(nfd *NetFd, b []byte) {
 	}
 	op.code = iouring.OpSendZC
 	op.fd = fd
-	op.msg.Name = &b[0]
-	op.msg.Namelen = uint32(len(b))
+	op.addr = unsafe.Pointer(&b[0])
+	op.addrLen = uint32(len(b))
 	return
 }
 
-func (op *Operation) PrepareReceiveMsg(nfd *NetFd, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) packingSendZC(sqe *iouring.SubmissionQueueEntry) (err error) {
+	b := uintptr(op.addr)
+	bLen := op.addrLen
+	sqe.PrepareSendZC(op.fd, b, bLen, 0, 0)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
+	return
+}
+
+func (op *Operation) PrepareReceiveMsg(nfd *NetFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= iouring.SQEFixedFile
@@ -110,11 +178,19 @@ func (op *Operation) PrepareReceiveMsg(nfd *NetFd, b []byte, oob []byte, addr *s
 	}
 	op.code = iouring.OpRecvmsg
 	op.fd = fd
-	op.setMsg(b, oob, addr, addrLen, flags)
+	op.addr = unsafe.Pointer(msg)
 	return
 }
 
-func (op *Operation) PrepareSendMsg(nfd *NetFd, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) packingReceiveMsg(sqe *iouring.SubmissionQueueEntry) (err error) {
+	msg := (*syscall.Msghdr)(op.addr)
+	sqe.PrepareRecvMsg(op.fd, msg, 0)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
+	return
+}
+
+func (op *Operation) PrepareSendMsg(nfd *NetFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= iouring.SQEFixedFile
@@ -124,11 +200,19 @@ func (op *Operation) PrepareSendMsg(nfd *NetFd, b []byte, oob []byte, addr *sysc
 	}
 	op.code = iouring.OpSendmsg
 	op.fd = fd
-	op.setMsg(b, oob, addr, addrLen, flags)
+	op.addr = unsafe.Pointer(msg)
 	return
 }
 
-func (op *Operation) PrepareSendMsgZC(nfd *NetFd, b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
+func (op *Operation) packingSendMsg(sqe *iouring.SubmissionQueueEntry) (err error) {
+	msg := (*syscall.Msghdr)(op.addr)
+	sqe.PrepareSendMsg(op.fd, msg, 0)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
+	return
+}
+
+func (op *Operation) PrepareSendMsgZC(nfd *NetFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= iouring.SQEFixedFile
@@ -138,6 +222,14 @@ func (op *Operation) PrepareSendMsgZC(nfd *NetFd, b []byte, oob []byte, addr *sy
 	}
 	op.code = iouring.OpSendMsgZC
 	op.fd = fd
-	op.setMsg(b, oob, addr, addrLen, flags)
+	op.addr = unsafe.Pointer(msg)
+	return
+}
+
+func (op *Operation) packingSendMsgZc(sqe *iouring.SubmissionQueueEntry) (err error) {
+	msg := (*syscall.Msghdr)(op.addr)
+	sqe.PrepareSendmsgZC(op.fd, msg, 0)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
 	return
 }

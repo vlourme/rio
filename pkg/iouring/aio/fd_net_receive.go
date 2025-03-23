@@ -64,8 +64,11 @@ func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
+	msg := fd.vortex.acquireMsg(b, nil, rsa, rsaLen, 0)
+	defer fd.vortex.releaseMsg(msg)
+
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, nil, rsa, rsaLen, 0)
+	op.WithDeadline(deadline).PrepareReceiveMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {
@@ -101,12 +104,15 @@ func (fd *NetFd) ReceiveMsg(b []byte, oob []byte, flags int, deadline time.Time)
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
+	msg := fd.vortex.acquireMsg(b, oob, rsa, rsaLen, 0)
+	defer fd.vortex.releaseMsg(msg)
+
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceiveMsg(fd, b, oob, rsa, rsaLen, int32(flags))
+	op.WithDeadline(deadline).PrepareReceiveMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	if err == nil {
-		oobn = int(op.msg.Controllen)
-		flag = int(op.msg.Flags)
+		oobn = int(msg.Controllen)
+		flag = int(msg.Flags)
 	}
 	fd.vortex.releaseOperation(op)
 	if err != nil {

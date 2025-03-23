@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"os"
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
@@ -43,7 +45,7 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 			New: func() interface{} {
 				return &Operation{
 					code:     iouring.OpLast,
-					borrowed: true,
+					flags:    borrowed,
 					resultCh: make(chan Result, 1),
 				}
 			},
@@ -51,6 +53,11 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 		timers: sync.Pool{
 			New: func() interface{} {
 				return time.NewTimer(0)
+			},
+		},
+		msgs: sync.Pool{
+			New: func() interface{} {
+				return &syscall.Msghdr{}
 			},
 		},
 	}
@@ -61,6 +68,7 @@ type Vortex struct {
 	IOURing
 	operations sync.Pool
 	timers     sync.Pool
+	msgs       sync.Pool
 }
 
 func (vortex *Vortex) FixedFdInstall(ctx context.Context, directFd int) (regularFd int, err error) {
@@ -101,8 +109,12 @@ func (vortex *Vortex) CancelOperation(ctx context.Context, op *Operation) (n int
 			break
 		}
 		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrTimeout
+		if err != nil {
+			if errors.Is(err, syscall.ECANCELED) {
+				err = ErrCanceled
+			} else {
+				err = os.NewSyscallError(op.Name(), err)
+			}
 		}
 		break
 	}
@@ -144,6 +156,41 @@ func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	return
 }
 
+func (vortex *Vortex) acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {
+	msg := vortex.msgs.Get().(*syscall.Msghdr)
+	bLen := len(b)
+	if bLen > 0 {
+		msg.Iov = &syscall.Iovec{
+			Base: &b[0],
+			Len:  uint64(bLen),
+		}
+		msg.Iovlen = 1
+	}
+	oobLen := len(oob)
+	if oobLen > 0 {
+		msg.Control = &oob[0]
+		msg.SetControllen(oobLen)
+	}
+	if addr != nil {
+		msg.Name = (*byte)(unsafe.Pointer(addr))
+		msg.Namelen = uint32(addrLen)
+	}
+	msg.Flags = flags
+	return msg
+}
+
+func (vortex *Vortex) releaseMsg(msg *syscall.Msghdr) {
+	msg.Name = nil
+	msg.Namelen = 0
+	msg.Iov = nil
+	msg.Iovlen = 0
+	msg.Control = nil
+	msg.Controllen = 0
+	msg.Flags = 0
+	vortex.msgs.Put(msg)
+	return
+}
+
 func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
 RETRY:
 	vortex.Submit(op)
@@ -169,11 +216,13 @@ func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int,
 		if err != nil && errors.Is(err, syscall.ECANCELED) {
 			err = ErrCanceled
 		}
-		if op.linkTimeout != nil { // wait link timeout
-			r, ok = <-op.linkTimeout.resultCh
-			if ok {
-				if err != nil && errors.Is(r.Err, syscall.ETIME) {
-					err = ErrTimeout
+		if op.timeout != nil {
+			if timeoutOp := op.getLinkTimeoutOp(); timeoutOp != nil { // wait timeout op
+				r, ok = <-timeoutOp.resultCh
+				if ok {
+					if err != nil && errors.Is(r.Err, syscall.ETIME) {
+						err = ErrTimeout
+					}
 				}
 			}
 		}

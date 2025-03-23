@@ -4,7 +4,6 @@ package aio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/iouring"
 	"syscall"
 	"time"
 )
@@ -34,7 +33,6 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 	}
 	if directAllocated {
 		fd.direct = accepted
-
 		regular, installErr := vortex.FixedFdInstall(ctx, fd.direct) // todo: dont install here, just when used.
 		if installErr != nil {
 			_ = fd.Close()
@@ -48,7 +46,7 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 	return
 }
 
-func (fd *NetFd) Accept(addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (conn *NetFd, err error) {
+func (fd *NetFd) Accept(addr *syscall.RawSockaddrAny, addrLen *int, deadline time.Time) (conn *NetFd, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareAccept(fd, addr, addrLen)
 	accepted, _, acceptErr := fd.vortex.submitAndWait(fd.ctx, op)
@@ -61,46 +59,51 @@ func (fd *NetFd) Accept(addr *syscall.RawSockaddrAny, addrLen int, deadline time
 	return
 }
 
-func (fd *NetFd) AcceptDirect(addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time, fileIndex uint32) (conn *NetFd, err error) {
+func (fd *NetFd) AcceptDirectAlloc(addr *syscall.RawSockaddrAny, addrLen *int, deadline time.Time) (conn *NetFd, err error) {
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).WithFiledIndex(fileIndex).WithDirect(true).PrepareAccept(fd, addr, addrLen)
+	op.WithDeadline(deadline).WithDirect(true).PrepareAccept(fd, addr, addrLen)
 	accepted, _, acceptErr := fd.vortex.submitAndWait(fd.ctx, op)
 	fd.vortex.releaseOperation(op)
 	if acceptErr != nil {
 		err = acceptErr
 		return
 	}
-	conn, err = newAcceptedNetFd(fd, accepted, fileIndex == iouring.FileIndexAlloc)
+	conn, err = newAcceptedNetFd(fd, accepted, true)
 	return
 }
 
-func (fd *NetFd) AcceptDirectAlloc(addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (conn *NetFd, err error) {
-	conn, err = fd.AcceptDirect(addr, addrLen, deadline, iouring.FileIndexAlloc)
-	return
-}
-
-func (fd *NetFd) AcceptMultishotAsync(addr *syscall.RawSockaddrAny, addrLen int, buffer int) AcceptFuture {
+func (fd *NetFd) AcceptMultishotAsync(buffer int) AcceptFuture {
+	addr := &syscall.RawSockaddrAny{}
+	addrLen := syscall.SizeofSockaddrAny
+	addrLenPtr := &addrLen
 	op := NewOperation(buffer)
 	op.Hijack()
-	op.PrepareAcceptMultishot(fd, addr, addrLen)
+	op.PrepareAcceptMultishot(fd, addr, addrLenPtr)
 	fd.vortex.Submit(op)
 	return AcceptFuture{
 		vortex:      fd.vortex,
 		op:          op,
 		ln:          fd,
+		addr:        addr,
+		addrLen:     addrLenPtr,
 		directAlloc: false,
 	}
 }
 
-func (fd *NetFd) AcceptMultishotDirectAsync(addr *syscall.RawSockaddrAny, addrLen int, buffer int) AcceptFuture {
+func (fd *NetFd) AcceptMultishotDirectAsync(buffer int) AcceptFuture {
+	addr := &syscall.RawSockaddrAny{}
+	addrLen := syscall.SizeofSockaddrAny
+	addrLenPtr := &addrLen
 	op := NewOperation(buffer)
 	op.Hijack()
-	op.WithDirect(true).PrepareAcceptMultishot(fd, addr, addrLen)
+	op.WithDirect(true).PrepareAcceptMultishot(fd, addr, addrLenPtr)
 	fd.vortex.Submit(op)
 	return AcceptFuture{
 		vortex:      fd.vortex,
 		op:          op,
 		ln:          fd,
+		addr:        addr,
+		addrLen:     addrLenPtr,
 		directAlloc: true,
 	}
 }

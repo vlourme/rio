@@ -259,7 +259,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 	addr := &syscall.RawSockaddrAny{}
 	addrLen := syscall.SizeofSockaddrAny
 
-	cfd, acceptErr := ln.fd.Accept(addr, addrLen, ln.deadline)
+	cfd, acceptErr := ln.fd.Accept(addr, &addrLen, ln.deadline)
 	if acceptErr != nil {
 		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
@@ -306,13 +306,11 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 }
 
 func (ln *UnixListener) prepareMultishotAccepting() (err error) {
-	addr := &syscall.RawSockaddrAny{}
-	addrLen := syscall.SizeofSockaddrAny
 	backlog := sys.MaxListenerBacklog()
 	if backlog < 1024 {
 		backlog = 1024
 	}
-	future := ln.fd.AcceptMultishotAsync(addr, addrLen, backlog)
+	future := ln.fd.AcceptMultishotAsync(backlog)
 	ln.acceptFuture = &future
 	return
 }

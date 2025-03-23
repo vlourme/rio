@@ -4,7 +4,7 @@ package aio
 
 import (
 	"context"
-	"unsafe"
+	"syscall"
 )
 
 type Future struct {
@@ -23,32 +23,12 @@ func (f *Future) Await(ctx context.Context) (n int, cqeFlags uint32, err error) 
 	return
 }
 
-type MsgFuture struct {
-	vortex *Vortex
-	op     *Operation
-}
-
-func (f *MsgFuture) Operation() *Operation {
-	return f.op
-}
-
-func (f *MsgFuture) Await(ctx context.Context) (n int, oobn int, flags int, addr unsafe.Pointer, addrLen uint32, cqeFlags uint32, err error) {
-	op := f.op
-	n, cqeFlags, err = f.vortex.awaitOperation(ctx, op)
-	if err == nil {
-		oobn = int(op.msg.Controllen)
-		flags = int(op.msg.Flags)
-		addr = unsafe.Pointer(op.msg.Name)
-		addrLen = op.msg.Namelen
-	}
-	f.vortex.releaseOperation(op)
-	return
-}
-
 type AcceptFuture struct {
 	vortex      *Vortex
 	op          *Operation
 	ln          *NetFd
+	addr        *syscall.RawSockaddrAny
+	addrLen     *int
 	directAlloc bool
 }
 

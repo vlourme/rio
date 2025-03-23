@@ -24,8 +24,16 @@ func (fd *Fd) Splice(src int, remain int64) (n int64, err error) {
 			chunk = remain
 		}
 		// drain
+		drainParams := SpliceParams{
+			FdIn:   src,
+			OffIn:  -1,
+			FdOut:  pipe.WriterFd(),
+			OffOut: -1,
+			NBytes: uint32(chunk),
+			Flags:  unix.SPLICE_F_NONBLOCK,
+		}
 		opDrain := fd.vortex.acquireOperation()
-		opDrain.PrepareSplice(src, -1, pipe.WriterFd(), -1, uint32(chunk), unix.SPLICE_F_NONBLOCK)
+		opDrain.PrepareSplice(&drainParams)
 		fd.vortex.Submit(opDrain)
 		drained, _, drainedErr := fd.vortex.awaitOperation(fd.ctx, opDrain)
 		fd.vortex.releaseOperation(opDrain)
@@ -35,8 +43,16 @@ func (fd *Fd) Splice(src int, remain int64) (n int64, err error) {
 		}
 		pipe.DrainN(drained)
 		// pump
+		pumpParams := SpliceParams{
+			FdIn:   pipe.ReaderFd(),
+			OffIn:  -1,
+			FdOut:  fd.regular,
+			OffOut: -1,
+			NBytes: uint32(drained),
+			Flags:  unix.SPLICE_F_NONBLOCK,
+		}
 		opPump := fd.vortex.acquireOperation()
-		opPump.PrepareSplice(pipe.ReaderFd(), -1, fd.regular, -1, uint32(drained), unix.SPLICE_F_NONBLOCK)
+		opPump.PrepareSplice(&pumpParams)
 		fd.vortex.Submit(opPump)
 		pumped, _, pumpedErr := fd.vortex.awaitOperation(fd.ctx, opPump)
 		fd.vortex.releaseOperation(opPump)

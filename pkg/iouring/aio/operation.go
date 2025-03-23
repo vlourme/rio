@@ -16,15 +16,6 @@ type Result struct {
 	Err   error
 }
 
-type pipeRequest struct {
-	fdIn        int
-	offIn       int64
-	fdOut       int
-	offOut      int64
-	nbytes      uint32
-	spliceFlags uint32
-}
-
 const (
 	ReadyOperationStatus int64 = iota
 	ProcessingOperationStatus
@@ -38,48 +29,36 @@ func NewOperation(resultChanBuffer int) *Operation {
 	}
 	return &Operation{
 		code:     iouring.OpLast,
+		flags:    0,
 		resultCh: make(chan Result, resultChanBuffer),
 	}
 }
 
+const (
+	borrowed uint8 = 1 << iota
+	discard
+	directFd
+	multishot
+)
+
 type Operation struct {
-	code     uint8             // 1
-	flags    uint8             // 1 borrowed, multishot, directMode
-	sqeFlags uint8             // 1
-	pad05    [5]byte           // 5
-	timeout  *syscall.Timespec // 8
-	status   atomic.Int64      // 8
-	resultCh chan Result       // 8
-
-	fd      int            // 8
-	addr    unsafe.Pointer // 8 &b[0], *syscall.Msghdr, *Operation
-	addrLen uint32         // 4
-	pad14   [4]byte        // 4 //
-	target  *Operation     // 8
-
-	fdIn   int   // 8 or use addr to set splice use struct with pool also tee and others, then op size is 64
-	offIn  int64 // 8
-	fdOut  int   // 8
-	offOut int64 // 8
-
-	nbytes      uint32   // 8
-	spliceFlags uint32   // 8
-	pad216      [16]byte // 16
-
-	subKind     int  // todo use params
-	borrowed    bool // todo use flags
-	multishot   bool
-	directMode  bool
-	filedIndex  int
-	ptr         unsafe.Pointer // 8
-	pipe        pipeRequest
-	msg         syscall.Msghdr
-	linkTimeout *Operation
+	code     uint8
+	cmd      uint8
+	flags    uint8
+	sqeFlags uint8
+	timeout  *syscall.Timespec
+	status   atomic.Int64
+	resultCh chan Result
+	fd       int
+	addr     unsafe.Pointer
+	addrLen  uint32
+	addr2    unsafe.Pointer
+	target   *Operation
 }
 
 func (op *Operation) Close() {
 	op.status.Store(CompletedOperationStatus)
-	op.borrowed = false
+	op.flags |= discard
 }
 
 func (op *Operation) Hijack() {
@@ -92,10 +71,6 @@ func (op *Operation) Complete() {
 
 func (op *Operation) Prepared() {
 	op.status.Store(ProcessingOperationStatus)
-}
-
-func (op *Operation) UseMultishot() {
-	op.multishot = true
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -113,87 +88,30 @@ func (op *Operation) WithDeadline(deadline time.Time) *Operation {
 }
 
 func (op *Operation) WithDirect(direct bool) *Operation {
-	op.directMode = direct
-	return op
-}
-
-func (op *Operation) WithFiledIndex(index uint32) *Operation {
-	op.filedIndex = int(index)
+	if direct {
+		op.flags |= directFd
+	}
 	return op
 }
 
 func (op *Operation) reset() {
-	// code
 	op.code = iouring.OpLast
-	op.subKind = -1
-	// status
-	op.status.Store(ReadyOperationStatus)
-	// multishot
-	op.multishot = false
-	// direct
-	op.directMode = false
-	// file index
-	op.filedIndex = -1
-	// sqe flags
+	op.cmd = 0
+	if op.flags&borrowed != 0 {
+		op.flags = borrowed
+	} else {
+		op.flags = 0
+	}
 	op.sqeFlags = 0
-	// fd
-	op.fd = -1
-	// msg
-	op.msg.Name = nil
-	op.msg.Namelen = 0
-	if op.msg.Iov != nil {
-		op.msg.Iov = nil
-		op.msg.Iovlen = 0
-		op.msg.Control = nil
-		op.msg.Controllen = 0
-		op.msg.Flags = 0
-	}
-	// pipe
-	if op.pipe.fdIn != 0 {
-		op.pipe.fdIn = 0
-		op.pipe.offIn = 0
-		op.pipe.fdOut = 0
-		op.pipe.offOut = 0
-		op.pipe.nbytes = 0
-		op.pipe.spliceFlags = 0
-	}
-	// timeout
 	op.timeout = nil
-	// ptr
-	if op.ptr != nil {
-		op.ptr = nil
-	}
-	// linkTimeout
-	if op.linkTimeout != nil {
-		op.linkTimeout = nil
-	}
-	return
-}
+	op.status.Store(ReadyOperationStatus)
 
-func (op *Operation) setMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) {
-	bLen := len(b)
-	oobLen := len(oob)
-	if bLen > 0 {
-		op.msg.Iov = &syscall.Iovec{
-			Base: &b[0],
-			Len:  uint64(bLen),
-		}
-		op.msg.Iovlen = 1
-	}
-	if oobLen > 0 {
-		op.msg.Control = &oob[0]
-		op.msg.SetControllen(oobLen)
-	}
-	if addr != nil {
-		op.msg.Name = (*byte)(unsafe.Pointer(addr))
-		op.msg.Namelen = uint32(addrLen)
-	}
-	op.msg.Flags = flags
+	op.fd = -1
+	op.addr = nil
+	op.addrLen = 0
+	op.addr2 = nil
+	op.target = nil
 	return
-}
-
-func (op *Operation) setResult(n int, flags uint32, err error) {
-	op.resultCh <- Result{n, flags, err}
 }
 
 func (op *Operation) failed(err error) {
@@ -239,5 +157,5 @@ func (op *Operation) canRelease() bool {
 	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
 		return false
 	}
-	return op.borrowed
+	return op.flags&borrowed != 0 && op.flags&discard == 0
 }

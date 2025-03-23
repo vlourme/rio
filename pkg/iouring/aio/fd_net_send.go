@@ -107,8 +107,11 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err
 		err = rsaErr
 		return
 	}
+	msg := fd.vortex.acquireMsg(b, nil, rsa, int(rsaLen), 0)
+	defer fd.vortex.releaseMsg(msg)
+
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSendMsg(fd, b, nil, rsa, int(rsaLen), 0)
+	op.WithDeadline(deadline).PrepareSendMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	fd.vortex.releaseOperation(op)
 	return
@@ -148,12 +151,14 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 		err = rsaErr
 		return
 	}
+	msg := fd.vortex.acquireMsg(b, oob, rsa, int(rsaLen), 0)
+	defer fd.vortex.releaseMsg(msg)
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSendMsg(fd, b, oob, rsa, int(rsaLen), 0)
+	op.WithDeadline(deadline).PrepareSendMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	if err == nil {
-		oobn = int(op.msg.Controllen)
+		oobn = int(msg.Controllen)
 	}
 	fd.vortex.releaseOperation(op)
 	return
@@ -170,10 +175,12 @@ func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Ti
 		err = rsaErr
 		return
 	}
+	msg := fd.vortex.acquireMsg(b, oob, rsa, int(rsaLen), 0)
+	defer fd.vortex.releaseMsg(msg)
 
 	op := fd.vortex.acquireOperation()
 	op.Hijack()
-	op.WithDeadline(deadline).PrepareSendMsgZC(fd, b, oob, rsa, int(rsaLen), 0)
+	op.WithDeadline(deadline).PrepareSendMsgZC(fd, msg)
 	var (
 		cqeFlags uint32
 	)
@@ -184,7 +191,7 @@ func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Ti
 		return
 	}
 
-	oobn = int(op.msg.Controllen)
+	oobn = int(msg.Controllen)
 
 	if cqeFlags&iouring.CQEFMore != 0 {
 		_, cqeFlags, err = fd.vortex.awaitOperation(fd.ctx, op)
