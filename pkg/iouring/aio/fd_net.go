@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"golang.org/x/sys/unix"
 	"net"
@@ -56,7 +57,7 @@ func OpenNetFd(
 			regular, sockErr = vortex.FixedFdInstall(ctx, direct)
 		}
 	} else {
-		regular, sockErr = sys.NewSocket(family, sotype, proto)
+		regular, sockErr = syscall.Socket(family, sotype, proto)
 	}
 	if sockErr != nil {
 		err = sockErr
@@ -90,6 +91,11 @@ func OpenNetFd(
 			_ = fd.Close()
 			return
 		}
+	}
+	// zero copy
+	if err = fd.SetZeroCopy(true); err != nil {
+		_ = fd.Close()
+		return
 	}
 	return
 }
@@ -210,6 +216,15 @@ func (fd *NetFd) WriteBuffer() (n int, err error) {
 func (fd *NetFd) SetWriteBuffer(bytes int) error {
 	if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_SNDBUF, bytes); err != nil {
 		return os.NewSyscallError("setsockopt", err)
+	}
+	return nil
+}
+
+func (fd *NetFd) SetZeroCopy(ok bool) (err error) {
+	if fd.family == syscall.AF_INET || fd.family == syscall.AF_INET6 {
+		if iouring.VersionEnable(4, 14, 0) {
+			err = syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, boolint(ok))
+		}
 	}
 	return nil
 }
