@@ -26,11 +26,11 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 	if len(curve) == 0 {
 		curve = defaultPushCurve
 	}
-	var (
-		cqeWaitMaxCount uint32
-		cqeWaitTimeout  time.Duration
-	)
-	transmission := NewCurveTransmission(curve)
+	//var (
+	//	cqeWaitMaxCount uint32
+	//	cqeWaitTimeout  time.Duration
+	//)
+	//transmission := NewCurveTransmission(curve)
 	cqes := make([]*iouring.CompletionQueueEvent, 1024)
 	cqesLen := uint32(len(cqes))
 	stopped := false
@@ -58,6 +58,7 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 					cqesLen = iouring.RoundupPow2(ready)
 					cqes = make([]*iouring.CompletionQueueEvent, cqesLen)
 				}
+				//completed := uint32(0)
 
 			PEEK:
 				if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
@@ -88,19 +89,24 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 						cop.complete(opN, opFlags, opErr)
 					}
 					ring.CQAdvance(peeked)
-					if ring.CQReady() > 1 {
-						goto PEEK
-					}
+					//completed += peeked
+					goto PEEK
 				}
 
-				if ready >= cqeWaitMaxCount {
-					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
-				} else {
-					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
+				//if completed >= cqeWaitMaxCount {
+				//	cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
+				//} else {
+				//	cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
+				//}
+
+				if ring.CQReady() > 1 {
+					goto PEEK
 				}
-				if cqeWaitTimeout > 1 {
-					time.Sleep(cqeWaitTimeout)
-				}
+				//
+				//if cqeWaitTimeout > 1 {
+				//	time.Sleep(cqeWaitTimeout)
+				//}
+
 				break
 			default:
 				// unknown fd
@@ -149,8 +155,8 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 			}
 
 		PEEK:
-			if completed := ring.PeekBatchCQE(cqes); completed > 0 {
-				for i := uint32(0); i < completed; i++ {
+			if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
+				for i := uint32(0); i < peeked; i++ {
 					cqe := cqes[i]
 					cqes[i] = nil
 
@@ -179,10 +185,8 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 					cop.complete(opN, opFlags, opErr)
 				}
 				// CQAdvance
-				ring.CQAdvance(completed)
-				if ring.CQReady() > 1 {
-					goto PEEK
-				}
+				ring.CQAdvance(peeked)
+				goto PEEK
 			} else {
 				if needToIdle {
 					if _, waitErr := ring.WaitCQETimeout(&idleTime); waitErr != nil {
