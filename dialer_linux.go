@@ -117,6 +117,11 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			return d.Control(network, address, raw)
 		}
 	}
+	// sotype
+	sotype := syscall.SOCK_STREAM | syscall.SOCK_NONBLOCK
+	if d.DisableDirectAlloc {
+		sotype |= syscall.SOCK_CLOEXEC
+	}
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if d.MultipathTCP {
@@ -125,7 +130,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, proto, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, proto, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -239,8 +244,13 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			return d.Control(network, address, raw)
 		}
 	}
+	// sotype
+	sotype := syscall.SOCK_DGRAM | syscall.SOCK_NONBLOCK
+	if d.DisableDirectAlloc {
+		sotype |= syscall.SOCK_CLOEXEC
+	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -357,8 +367,13 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			return d.Control(network, address, raw)
 		}
 	}
+	// sotype
+	sotype |= syscall.SOCK_NONBLOCK
+	if d.DisableDirectAlloc {
+		sotype |= syscall.SOCK_CLOEXEC
+	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype|syscall.SOCK_NONBLOCK, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}

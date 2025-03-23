@@ -5,7 +5,6 @@ package aio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"syscall"
 	"time"
 )
@@ -23,7 +22,7 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 			isStream:         ln.sotype&syscall.SOCK_STREAM != 0,
 			zeroReadIsEOF:    ln.sotype != syscall.SOCK_DGRAM && ln.sotype != syscall.SOCK_RAW,
 			async:            ln.async,
-			nonBlocking:      false,
+			nonBlocking:      ln.nonBlocking,
 			disableInAdvance: ln.disableInAdvance,
 			vortex:           vortex,
 		},
@@ -35,9 +34,8 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 	}
 	if directAllocated {
 		fd.direct = accepted
-		fd.nonBlocking = true
 
-		regular, installErr := vortex.FixedFdInstall(ctx, fd.direct)
+		regular, installErr := vortex.FixedFdInstall(ctx, fd.direct) // todo: dont install here, just when used.
 		if installErr != nil {
 			_ = fd.Close()
 			err = installErr
@@ -46,8 +44,6 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 		fd.regular = regular
 	} else {
 		fd.regular = accepted
-		flag, _ := sys.Fcntl(fd.regular, syscall.F_GETFL, 0)
-		fd.nonBlocking = flag&syscall.O_NONBLOCK != 0
 	}
 	return
 }

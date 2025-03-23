@@ -26,8 +26,11 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 	if len(curve) == 0 {
 		curve = defaultPushCurve
 	}
+	var (
+		cqeWaitMaxCount uint32
+		cqeWaitTimeout  time.Duration
+	)
 	transmission := NewCurveTransmission(curve)
-	cqeWaitMaxCount, cqeWaitTimeout := transmission.Up()
 	cqes := make([]*iouring.CompletionQueueEvent, 1024)
 	cqesLen := uint32(len(cqes))
 	stopped := false
@@ -55,6 +58,8 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 					cqesLen = iouring.RoundupPow2(ready)
 					cqes = make([]*iouring.CompletionQueueEvent, cqesLen)
 				}
+
+			PEEK:
 				if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
 					for j := uint32(0); j < peeked; j++ {
 						cqe := cqes[j]
@@ -83,9 +88,12 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 						cop.complete(opN, opFlags, opErr)
 					}
 					ring.CQAdvance(peeked)
+					if ring.CQReady() > 1 {
+						goto PEEK
+					}
 				}
 
-				if ready > cqeWaitMaxCount {
+				if ready >= cqeWaitMaxCount {
 					cqeWaitMaxCount, cqeWaitTimeout = transmission.Up()
 				} else {
 					cqeWaitMaxCount, cqeWaitTimeout = transmission.Down()
@@ -139,6 +147,8 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 				cqesLen = iouring.RoundupPow2(ready)
 				cqes = make([]*iouring.CompletionQueueEvent, cqesLen)
 			}
+
+		PEEK:
 			if completed := ring.PeekBatchCQE(cqes); completed > 0 {
 				for i := uint32(0); i < completed; i++ {
 					cqe := cqes[i]
@@ -170,6 +180,9 @@ func (r *Ring) waitingCQEWithPullMode(ctx context.Context) {
 				}
 				// CQAdvance
 				ring.CQAdvance(completed)
+				if ring.CQReady() > 1 {
+					goto PEEK
+				}
 			} else {
 				if needToIdle {
 					if _, waitErr := ring.WaitCQETimeout(&idleTime); waitErr != nil {

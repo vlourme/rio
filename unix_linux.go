@@ -58,7 +58,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, sotype, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -159,7 +159,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}

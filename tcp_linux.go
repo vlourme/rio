@@ -76,7 +76,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			proto = mp
 		}
 	}
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -164,6 +164,20 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if lc.DisableInAdvanceIO {
 		fd.DisableInAdvance()
 	}
+	// no delay
+	_ = fd.SetNoDelay(true)
+	// keepalive
+	keepAliveConfig := lc.KeepAliveConfig
+	if !keepAliveConfig.Enable && lc.KeepAlive >= 0 {
+		keepAliveConfig = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   lc.KeepAlive,
+		}
+	}
+	if keepAliveConfig.Enable {
+		_ = fd.SetKeepAliveConfig(keepAliveConfig)
+	}
+
 	// ln
 	ln := &TCPListener{
 		fd:                 fd,
@@ -244,19 +258,6 @@ func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 		return
 	}
 
-	// no delay
-	_ = cfd.SetNoDelay(true)
-	// keepalive
-	keepAliveConfig := ln.keepAliveConfig
-	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
-		keepAliveConfig = net.KeepAliveConfig{
-			Enable: true,
-			Idle:   ln.keepAlive,
-		}
-	}
-	if keepAliveConfig.Enable {
-		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
-	}
 	// conn
 	c = &TCPConn{
 		conn{
@@ -279,19 +280,6 @@ func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
-	}
-	// no delay
-	_ = cfd.SetNoDelay(true)
-	// keepalive
-	keepAliveConfig := ln.keepAliveConfig
-	if !keepAliveConfig.Enable && ln.keepAlive >= 0 {
-		keepAliveConfig = net.KeepAliveConfig{
-			Enable: true,
-			Idle:   ln.keepAlive,
-		}
-	}
-	if keepAliveConfig.Enable {
-		_ = cfd.SetKeepAliveConfig(keepAliveConfig)
 	}
 
 	// tcp conn
