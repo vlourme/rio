@@ -2,7 +2,10 @@
 
 package aio
 
-import "time"
+import (
+	"io"
+	"time"
+)
 
 func (fd *Fd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
 	op := fd.vortex.acquireOperation()
@@ -10,6 +13,9 @@ func (fd *Fd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err error)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	buf.rightShiftWritePosition(n)
 	fd.vortex.releaseOperation(op)
+	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
+		err = io.EOF
+	}
 	return
 }
 

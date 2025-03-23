@@ -37,6 +37,9 @@ func (fd *Fd) Read(b []byte) (n int, err error) {
 	op.PrepareRead(fd, b)
 	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
 	fd.vortex.releaseOperation(op)
+	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
+		err = io.EOF
+	}
 	return
 }
 
