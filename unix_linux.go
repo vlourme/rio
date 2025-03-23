@@ -101,9 +101,9 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	if lc.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
-	// disable in advance io
-	if lc.DisableInAdvanceIO {
-		fd.DisableInAdvance()
+	// enable in advance io
+	if lc.EnableInAdvanceIO {
+		fd.EnableInAdvance()
 	}
 	// ln
 	ln := &UnixListener{
@@ -197,9 +197,9 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
 	}
-	// disable in advance io
-	if lc.DisableInAdvanceIO {
-		fd.DisableInAdvance()
+	// enable in advance io
+	if lc.EnableInAdvanceIO {
+		fd.EnableInAdvance()
 	}
 	// conn
 	c := &UnixConn{

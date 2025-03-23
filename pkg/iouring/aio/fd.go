@@ -13,17 +13,17 @@ import (
 const maxRW = 1 << 30
 
 type Fd struct {
-	ctx              context.Context
-	cancel           context.CancelFunc
-	regular          int
-	direct           int
-	allocated        bool
-	isStream         bool
-	zeroReadIsEOF    bool
-	async            bool
-	nonBlocking      bool
-	disableInAdvance bool
-	vortex           *Vortex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	regular       int
+	direct        int
+	allocated     bool
+	isStream      bool
+	zeroReadIsEOF bool
+	async         bool
+	nonBlocking   bool
+	inAdvanceIO   bool
+	vortex        *Vortex
 }
 
 func (fd *Fd) FileDescriptor() (n int, direct bool) {
@@ -59,16 +59,12 @@ func (fd *Fd) SetAsync(async bool) {
 	fd.async = async
 }
 
-func (fd *Fd) DisableInAdvance() {
-	fd.disableInAdvance = true
-}
-
 func (fd *Fd) EnableInAdvance() {
-	fd.disableInAdvance = false
+	fd.inAdvanceIO = true
 }
 
 func (fd *Fd) canInAdvance() bool {
-	return !fd.disableInAdvance && fd.regular != -1 && fd.nonBlocking
+	return fd.inAdvanceIO && fd.regular != -1 && fd.nonBlocking
 }
 
 func (fd *Fd) Vortex() *Vortex {

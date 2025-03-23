@@ -23,7 +23,7 @@ func TestTCP(t *testing.T) {
 		ReusePort:          false,
 		MultishotAccept:    false,
 		DisableDirectAlloc: false,
-		DisableInAdvanceIO: false,
+		EnableInAdvanceIO:  false,
 	}
 	ln, lnErr := config.Listen(ctx, "tcp", ":9000")
 	if lnErr != nil {
@@ -69,8 +69,6 @@ func TestTCP(t *testing.T) {
 	}(ln, wg)
 
 	dialer := rio.DefaultDialer
-	dialer.DisableDirectAlloc = false
-	dialer.DisableInAdvanceIO = true
 	conn, connErr := dialer.Dial("tcp", "127.0.0.1:9000")
 	if connErr != nil {
 		t.Error(connErr)
