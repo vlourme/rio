@@ -61,10 +61,8 @@ func (r *Ring) preparingSQEWithSQPollMode(ctx context.Context) {
 					op.failed(err)
 				} else {
 					if timeoutSQE != nil { // prep_link_timeout
-						timeoutOP := NewOperation(1)
-						timeoutOP.prepareLinkTimeout(op)
-						timeoutOP.Prepared()
-						if timeoutErr := timeoutOP.packingSQE(timeoutSQE); timeoutErr != nil {
+						timeoutOp := op.attached
+						if timeoutErr := timeoutOp.packingSQE(timeoutSQE); timeoutErr != nil {
 							// should be ok
 							panic(errors.New("packing timeout SQE failed: " + timeoutErr.Error()))
 						}
@@ -216,10 +214,8 @@ func packingBatchOperation(ring *iouring.Ring, op *Operation, batchIdx int, batc
 	batch[batchIdx] = sqe
 	// check has timeout
 	if timeoutSQE != nil { // prep_link_timeout
-		timeoutOP := NewOperation(1)
-		timeoutOP.prepareLinkTimeout(op)
-		timeoutOP.Prepared()
-		if timeoutErr := timeoutOP.packingSQE(timeoutSQE); timeoutErr != nil {
+		timeoutOp := op.attached
+		if timeoutErr := timeoutOp.packingSQE(timeoutSQE); timeoutErr != nil {
 			// should be ok
 			panic(errors.New("packing timeout SQE failed: " + timeoutErr.Error()))
 		}

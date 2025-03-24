@@ -53,7 +53,7 @@ type Operation struct {
 	addr     unsafe.Pointer
 	addrLen  uint32
 	addr2    unsafe.Pointer
-	target   *Operation
+	attached *Operation
 }
 
 func (op *Operation) Close() {
@@ -67,10 +67,6 @@ func (op *Operation) Hijack() {
 
 func (op *Operation) Complete() {
 	op.status.Store(CompletedOperationStatus)
-}
-
-func (op *Operation) Prepared() {
-	op.status.Store(ProcessingOperationStatus)
 }
 
 func (op *Operation) WithDeadline(deadline time.Time) *Operation {
@@ -110,7 +106,7 @@ func (op *Operation) reset() {
 	op.addr = nil
 	op.addrLen = 0
 	op.addr2 = nil
-	op.target = nil
+	op.attached = nil
 	return
 }
 

@@ -94,7 +94,7 @@ func (vortex *Vortex) CancelOperation(ctx context.Context, op *Operation) (n int
 		return
 	}
 	// cancel failed
-	// means target op is not in ring, maybe completed or lost
+	// means attached op is not in ring, maybe completed or lost
 	timer := vortex.acquireTimer(50 * time.Microsecond)
 	defer vortex.releaseTimer(timer)
 
@@ -192,6 +192,12 @@ func (vortex *Vortex) releaseMsg(msg *syscall.Msghdr) {
 }
 
 func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
+	// attach timeout op
+	if op.timeout != nil {
+		timeoutOp := vortex.acquireOperation()
+		defer vortex.releaseOperation(timeoutOp)
+		timeoutOp.prepareLinkTimeout(op)
+	}
 RETRY:
 	vortex.Submit(op)
 	n, cqeFlags, err = vortex.awaitOperation(ctx, op)
@@ -216,13 +222,11 @@ func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int,
 		if err != nil && errors.Is(err, syscall.ECANCELED) {
 			err = ErrCanceled
 		}
-		if op.timeout != nil {
-			if timeoutOp := op.getLinkTimeoutOp(); timeoutOp != nil { // wait timeout op
-				r, ok = <-timeoutOp.resultCh
-				if ok {
-					if err != nil && errors.Is(r.Err, syscall.ETIME) {
-						err = ErrTimeout
-					}
+		if op.timeout != nil && op.attached != nil { // wait timeout op
+			r, ok = <-op.attached.resultCh
+			if ok {
+				if err != nil && errors.Is(r.Err, syscall.ETIME) {
+					err = ErrTimeout
 				}
 			}
 		}

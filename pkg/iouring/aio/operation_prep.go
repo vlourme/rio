@@ -21,11 +21,8 @@ func (op *Operation) packingNop(sqe *iouring.SubmissionQueueEntry) (err error) {
 func (op *Operation) prepareLinkTimeout(target *Operation) {
 	op.code = iouring.OpLinkTimeout
 	op.timeout = target.timeout
-	target.target = op
-}
-
-func (op *Operation) getLinkTimeoutOp() *Operation {
-	return op.target
+	op.status.Store(ProcessingOperationStatus)
+	target.attached = op
 }
 
 func (op *Operation) packingLinkTimeout(sqe *iouring.SubmissionQueueEntry) (err error) {

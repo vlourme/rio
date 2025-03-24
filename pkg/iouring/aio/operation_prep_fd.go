@@ -70,7 +70,7 @@ func (op *Operation) packingShutdown(sqe *iouring.SubmissionQueueEntry) (err err
 
 func (op *Operation) PrepareCancel(target *Operation) {
 	op.code = iouring.OpAsyncCancel
-	op.target = target
+	op.attached = target
 }
 
 func (op *Operation) PrepareCancelFd(fd int) {
@@ -91,8 +91,8 @@ func (op *Operation) packingCancel(sqe *iouring.SubmissionQueueEntry) (err error
 		} else { // cancel regular
 			sqe.PrepareCancelFd(op.fd, 0)
 		}
-	} else if op.target != nil { // cancel op
-		sqe.PrepareCancel(uintptr(unsafe.Pointer(op.target)), 0)
+	} else if op.attached != nil { // cancel op
+		sqe.PrepareCancel(uintptr(unsafe.Pointer(op.attached)), 0)
 	} else {
 		sqe.PrepareNop()
 		err = NewInvalidOpErr(errors.New("invalid cancel params"))
