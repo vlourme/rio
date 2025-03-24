@@ -59,9 +59,9 @@ func newCQEPushTypedConsumer(ring *iouring.Ring, curve Curve) (CQEConsumer, erro
 	// curve
 	if len(curve) == 0 {
 		curve = Curve{
-			{512, 200 * time.Microsecond},
-			{1024, 300 * time.Microsecond},
-			{4096, 500 * time.Microsecond},
+			{512, 100 * time.Microsecond},
+			{1024, 200 * time.Microsecond},
+			{4096, 400 * time.Microsecond},
 		}
 	}
 	c := &CQEPushTypedConsumer{
