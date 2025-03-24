@@ -3,11 +3,11 @@
 package process
 
 import (
-	"fmt"
 	"golang.org/x/sys/unix"
 	"runtime"
 )
 
+// SetCPUAffinity 亲和CPU
 func SetCPUAffinity(index int) error {
 	var newMask unix.CPUSet
 
@@ -15,11 +15,19 @@ func SetCPUAffinity(index int) error {
 
 	cpuIndex := (index) % (runtime.NumCPU())
 	newMask.Set(cpuIndex)
+	pid := unix.Getpid()
+	return unix.SchedSetaffinity(pid, &newMask)
+}
 
-	err := unix.SchedSetaffinity(0, &newMask)
-	if err != nil {
-		return fmt.Errorf("SchedSetaffinity: %w, %v", err, newMask)
+// MaskCPU 屏蔽CPU
+func MaskCPU(index int) error {
+	var mask unix.CPUSet
+	mask.Zero()
+	for i := 0; i < runtime.NumCPU(); i++ {
+		if i != index { // 允许所有 CPU，除了 index
+			mask.Set(i)
+		}
 	}
-
-	return nil
+	pid := unix.Getpid()
+	return unix.SchedSetaffinity(pid, &mask)
 }
