@@ -1,23 +1,11 @@
 //go:build linux
 
-package process
+package sys
 
 import (
 	"golang.org/x/sys/unix"
 	"runtime"
 )
-
-// SetCPUAffinity 亲和CPU
-func SetCPUAffinity(index int) error {
-	var newMask unix.CPUSet
-
-	newMask.Zero()
-
-	cpuIndex := (index) % (runtime.NumCPU())
-	newMask.Set(cpuIndex)
-	pid := unix.Getpid()
-	return unix.SchedSetaffinity(pid, &newMask)
-}
 
 // MaskCPU 屏蔽CPU
 func MaskCPU(index int) error {
@@ -30,4 +18,16 @@ func MaskCPU(index int) error {
 	}
 	pid := unix.Getpid()
 	return unix.SchedSetaffinity(pid, &mask)
+}
+
+// SetCPUAffinity 亲和CPU
+func SetCPUAffinity(index int) error {
+	var newMask unix.CPUSet
+
+	newMask.Zero()
+
+	cpuIndex := (index) % (runtime.NumCPU())
+	newMask.Set(cpuIndex)
+	pid := unix.Getpid()
+	return unix.SchedSetaffinity(pid, &newMask)
 }
