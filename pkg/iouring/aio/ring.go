@@ -214,6 +214,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 	r := &Ring{
 		ring:               ring,
 		heartbeatTimeout:   options.HeartbeatTimeout,
+		done:               make(chan struct{}),
 		producer:           producer,
 		consumer:           consumer,
 		bufferRegistered:   buffers.Length() > 0,
@@ -233,6 +234,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 type Ring struct {
 	ring               *iouring.Ring
 	heartbeatTimeout   time.Duration
+	done               chan struct{}
 	producer           SQEProducer
 	consumer           CQEConsumer
 	bufferRegistered   bool
@@ -335,16 +337,23 @@ func (r *Ring) heartbeat() {
 	ticker := time.NewTicker(r.heartbeatTimeout)
 	defer ticker.Stop()
 	for {
-		<-ticker.C
-		op := &Operation{}
-		_ = op.PrepareNop()
-		if ok := r.Submit(op); !ok {
+		select {
+		case <-r.done:
+			return
+		case <-ticker.C:
+			op := &Operation{}
+			_ = op.PrepareNop()
+			if ok := r.Submit(op); !ok {
+				break
+			}
 			break
 		}
 	}
 }
 
 func (r *Ring) Close() (err error) {
+	// done
+	close(r.done)
 	// close producer
 	_ = r.producer.Close()
 	// close consumer
