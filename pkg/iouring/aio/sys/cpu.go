@@ -11,8 +11,9 @@ import (
 func MaskCPU(index int) error {
 	var mask unix.CPUSet
 	mask.Zero()
+	cpuIndex := (index) % (runtime.NumCPU())
 	for i := 0; i < runtime.NumCPU(); i++ {
-		if i != index { // 允许所有 CPU，除了 index
+		if i != cpuIndex { // 允许所有 CPU，除了 index
 			mask.Set(i)
 		}
 	}
@@ -23,9 +24,7 @@ func MaskCPU(index int) error {
 // SetCPUAffinity 亲和CPU
 func SetCPUAffinity(index int) error {
 	var newMask unix.CPUSet
-
 	newMask.Zero()
-
 	cpuIndex := (index) % (runtime.NumCPU())
 	newMask.Set(cpuIndex)
 	pid := unix.Getpid()
