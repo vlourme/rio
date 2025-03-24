@@ -146,8 +146,7 @@ func (vortex *Vortex) releaseMsg(msg *syscall.Msghdr) {
 }
 
 func (vortex *Vortex) submitAndWait(op *Operation) (n int, cqeFlags uint32, err error) {
-	// attach timeout op
-	if op.timeout != nil {
+	if op.timeout != nil { // prepare timeout op
 		timeoutOp := vortex.acquireOperation()
 		defer vortex.releaseOperation(timeoutOp)
 		timeoutOp.prepareLinkTimeout(op)
