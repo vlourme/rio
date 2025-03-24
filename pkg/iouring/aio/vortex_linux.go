@@ -72,7 +72,7 @@ func (vortex *Vortex) FixedFdInstall(directFd int) (regularFd int, err error) {
 }
 
 func (vortex *Vortex) CancelOperation(op *Operation) (n int, cqeFlags uint32, err error) {
-	if vortex.tryCancelOperation(op) { // cancel succeed
+	if err = vortex.tryCancelOperation(op); err != nil { // cancel succeed
 		r, ok := <-op.resultCh
 		if !ok {
 			op.Close()
@@ -85,30 +85,18 @@ func (vortex *Vortex) CancelOperation(op *Operation) (n int, cqeFlags uint32, er
 		}
 		return
 	}
-	// cancel failed means op has completed
-	r, ok := <-op.resultCh
-	if !ok {
-		err = ErrCanceled
-		return
-	}
-	n, cqeFlags, err = r.N, r.Flags, r.Err
-	if err != nil {
-		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrCanceled
-		} else {
-			err = os.NewSyscallError(op.Name(), err)
-		}
-	}
 	return
 }
 
-func (vortex *Vortex) tryCancelOperation(target *Operation) (ok bool) {
-	if target.canCancel() {
+func (vortex *Vortex) tryCancelOperation(target *Operation) (err error) {
+	if target.cancelAble() {
 		op := vortex.acquireOperation()
 		op.PrepareCancel(target)
-		_, _, err := vortex.submitAndWait(op)
-		ok = err == nil
+		_, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
+		if err != nil && !IsOperationInvalid(err) { // discard no op to cancel
+			err = nil
+		}
 	}
 	return
 }
@@ -119,7 +107,7 @@ func (vortex *Vortex) acquireOperation() *Operation {
 }
 
 func (vortex *Vortex) releaseOperation(op *Operation) {
-	if op.canRelease() {
+	if op.releaseAble() {
 		op.reset()
 		vortex.operations.Put(op)
 	}
@@ -191,8 +179,9 @@ func (vortex *Vortex) awaitOperation(op *Operation) (n int, cqeFlags uint32, err
 	}
 	n, cqeFlags, err = r.N, r.Flags, r.Err
 
-	if op.timeout != nil && op.attached != nil { // wait timeout op
-		r, ok = <-op.attached.resultCh
+	if op.timeout != nil && op.addr2 != nil { // wait timeout op
+		timeoutOp := (*Operation)(op.addr2)
+		r, ok = <-timeoutOp.resultCh
 		if ok {
 			if err != nil && errors.Is(r.Err, syscall.ETIME) {
 				err = ErrTimeout

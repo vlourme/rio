@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
+	"github.com/brickingsoft/rio/pkg/process"
 	"os"
 	"runtime"
 	"strconv"
@@ -39,14 +40,20 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		err = NewRingErr(probeErr)
 	}
 	// ring
+	if options.Flags&iouring.SetupSQPoll != 0 && options.SQThreadIdle == 0 { // set default idle
+		options.SQThreadIdle = 10000
+	}
+	if options.Flags&iouring.SetupSQAff != 0 {
+		if err = process.MaskCPU(int(options.SQThreadCPU)); err != nil { // mask cpu when sq_aff set
+			err = NewRingErr(err)
+			return
+		}
+	}
 	opts := make([]iouring.Option, 0, 1)
 	opts = append(opts, iouring.WithEntries(options.Entries))
 	opts = append(opts, iouring.WithFlags(options.Flags))
-	if options.Flags&iouring.SetupSQPoll != 0 && options.SQThreadIdle == 0 {
-		options.SQThreadIdle = 10000
-		opts = append(opts, iouring.WithSQThreadIdle(options.SQThreadIdle))
-		opts = append(opts, iouring.WithSQThreadCPU(options.SQThreadCPU))
-	}
+	opts = append(opts, iouring.WithSQThreadIdle(options.SQThreadIdle))
+	opts = append(opts, iouring.WithSQThreadCPU(options.SQThreadCPU))
 	if options.AttachRingFd > 0 {
 		opts = append(opts, iouring.WithAttachWQFd(uint32(options.AttachRingFd)))
 	}

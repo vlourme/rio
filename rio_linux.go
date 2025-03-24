@@ -57,10 +57,13 @@ func getVortex() (*aio.Vortex, error) {
 			if v, has := envLoadFlags(envFlags); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			} else {
-				if cpus := runtime.NumCPU(); cpus > 3 { // use sq_poll
-					v = iouring.SetupSQPoll | iouring.SetupSQAff | iouring.SetupSingleIssuer
+				if cpus := runtime.NumCPU(); cpus > 1 { // use sq_poll
+					v = iouring.SetupSQPoll | iouring.SetupSingleIssuer
+					if cpus > 3 {
+						v |= iouring.SetupSQAff
+					}
 				} else { // use coop task run
-					v = iouring.SetupCoopTaskRun | iouring.SetupDeferTaskRun
+					v = iouring.SetupCoopTaskRun | iouring.SetupTaskRunFlag
 				}
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			}

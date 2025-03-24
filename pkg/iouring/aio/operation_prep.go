@@ -22,7 +22,7 @@ func (op *Operation) prepareLinkTimeout(target *Operation) {
 	op.code = iouring.OpLinkTimeout
 	op.timeout = target.timeout
 	op.status.Store(ProcessingOperationStatus)
-	target.attached = op
+	target.addr2 = unsafe.Pointer(op)
 }
 
 func (op *Operation) packingLinkTimeout(sqe *iouring.SubmissionQueueEntry) (err error) {

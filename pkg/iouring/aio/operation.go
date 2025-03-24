@@ -46,14 +46,15 @@ type Operation struct {
 	cmd      uint8
 	flags    uint8
 	sqeFlags uint8
+	pad0_4   [4]byte
 	timeout  *syscall.Timespec
 	status   atomic.Int64
 	resultCh chan Result
 	fd       int
 	addr     unsafe.Pointer
 	addrLen  uint32
+	pad1_4   [4]byte
 	addr2    unsafe.Pointer
-	attached *Operation
 }
 
 func (op *Operation) Close() {
@@ -106,7 +107,6 @@ func (op *Operation) reset() {
 	op.addr = nil
 	op.addrLen = 0
 	op.addr2 = nil
-	op.attached = nil
 	return
 }
 
@@ -137,20 +137,11 @@ func (op *Operation) complete(n int, flags uint32, err error) {
 	return
 }
 
-func (op *Operation) canCancel() bool {
-	if ok := op.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus); ok {
-		return true
-	}
-	if ok := op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus); ok {
-		return true
-	}
-	if ok := op.status.CompareAndSwap(HijackedOperationStatus, CompletedOperationStatus); ok {
-		return true
-	}
-	return false
+func (op *Operation) cancelAble() bool {
+	return op.status.Load() != CompletedOperationStatus
 }
 
-func (op *Operation) canPrepare() bool {
+func (op *Operation) prepareAble() bool {
 	if ok := op.status.CompareAndSwap(ReadyOperationStatus, ProcessingOperationStatus); ok {
 		return true
 	}
@@ -160,7 +151,7 @@ func (op *Operation) canPrepare() bool {
 	return false
 }
 
-func (op *Operation) canRelease() bool {
+func (op *Operation) releaseAble() bool {
 	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
 		return false
 	}

@@ -94,7 +94,7 @@ func (producer *SQEChanProducer) handleImmediately() {
 		if op == nil {
 			continue
 		}
-		if op.canPrepare() {
+		if op.prepareAble() {
 			sqe := ring.GetSQE()
 			if sqe == nil {
 				op.failed(ErrIOURingSQBusy) // when prep err occur, means no sqe left
@@ -115,7 +115,7 @@ func (producer *SQEChanProducer) handleImmediately() {
 				sqe.PrepareNop()
 			} else {
 				if timeoutSQE != nil { // prep_link_timeout
-					timeoutOp := op.attached
+					timeoutOp := (*Operation)(op.addr2)
 					if timeoutErr := timeoutOp.packingSQE(timeoutSQE); timeoutErr != nil {
 						// should be ok
 						panic(errors.New("packing timeout SQE failed: " + timeoutErr.Error()))
@@ -204,7 +204,7 @@ func (producer *SQEChanProducer) handleBatch() {
 				if op == nil {
 					continue
 				}
-				if op.canPrepare() {
+				if op.prepareAble() {
 					sqe := ring.GetSQE()
 					if sqe == nil {
 						op.failed(ErrIOURingSQBusy) // when prep err occur, means no sqe left
@@ -228,7 +228,7 @@ func (producer *SQEChanProducer) handleBatch() {
 						sqe.PrepareNop()
 					} else {
 						if timeoutSQE != nil { // prep_link_timeout
-							timeoutOp := op.attached
+							timeoutOp := (*Operation)(op.addr2)
 							if timeoutErr := timeoutOp.packingSQE(timeoutSQE); timeoutErr != nil {
 								// should be ok
 								panic(errors.New("packing timeout SQE failed: " + timeoutErr.Error()))
