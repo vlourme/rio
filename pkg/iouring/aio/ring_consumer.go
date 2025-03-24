@@ -122,7 +122,6 @@ func (c *CQEPushTypedConsumer) handle() {
 				stopped = true
 				break
 			case eventFd:
-				_, _ = unix.Read(c.eventFd, buf)
 			PEEK:
 				if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
 					for j := uint32(0); j < peeked; j++ {
@@ -162,6 +161,7 @@ func (c *CQEPushTypedConsumer) handle() {
 					goto PEEK
 				}
 
+				_, _ = unix.Read(c.eventFd, buf)
 				break
 			default:
 				_, _ = unix.Read(int(event.Fd), buf)
@@ -283,7 +283,6 @@ func (c *CQEPollTypedConsumer) handle() {
 					// get op from cqe
 					copPtr := cqe.GetData()
 					cop := (*Operation)(copPtr)
-
 					// handle
 					var (
 						opN     int
