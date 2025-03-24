@@ -165,6 +165,7 @@ func (c *CQEPushTypedConsumer) handle() {
 				}
 				// read
 				_, _ = unix.Read(c.eventFd, buf)
+				// wait when matched
 				if _, waitTime := transmission.Match(completed); waitTime > 0 {
 					time.Sleep(waitTime)
 				}
