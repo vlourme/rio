@@ -94,7 +94,6 @@ func (op *Operation) packingCancel(sqe *iouring.SubmissionQueueEntry) (err error
 	} else if op.attached != nil { // cancel op
 		sqe.PrepareCancel(uintptr(unsafe.Pointer(op.attached)), 0)
 	} else {
-		sqe.PrepareNop()
 		err = NewInvalidOpErr(errors.New("invalid cancel params"))
 		return
 	}

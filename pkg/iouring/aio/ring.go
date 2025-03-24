@@ -3,18 +3,16 @@
 package aio
 
 import (
-	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
-	"golang.org/x/sys/unix"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 )
 
 var (
@@ -24,7 +22,7 @@ var (
 
 type IOURing interface {
 	Fd() int
-	Submit(op *Operation)
+	Submit(op *Operation) bool
 	DirectAllocEnabled() bool
 	RegisterFixedFdEnabled() bool
 	RegisterFixedFd(fd int) (index int, err error)
@@ -34,7 +32,7 @@ type IOURing interface {
 	Close() (err error)
 }
 
-func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
+func OpenIOURing(options Options) (v IOURing, err error) {
 	// probe
 	probe, probeErr := iouring.GetProbe()
 	if probeErr != nil {
@@ -170,92 +168,54 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 		}
 	}
 
-	// affinity cpu
+	// producer
 	var (
-		sqThreadCPU   = options.SQThreadCPU
-		prepSQEAFFCPU = options.PrepSQEAffCPU
+		producerAFFCPU          = options.SQEProducerAffinityCPU
+		producerBatchSize       = options.SQEProducerBatchSize
+		producerBatchTimeWindow = options.SQEProducerBatchTimeWindow
+		producerBatchIdleTime   = options.SQEProducerBatchIdleTime
 	)
 	if ring.Flags()&iouring.SetupSingleIssuer != 0 || runtime.NumCPU() > 3 {
-		if prepSQEAFFCPU == -1 {
+		if producerAFFCPU == -1 {
 			if ring.Flags()&iouring.SetupSingleIssuer != 0 {
-				prepSQEAFFCPU = int(sqThreadCPU) + 1
+				producerAFFCPU = int(options.SQThreadCPU) + 1
 			} else {
-				prepSQEAFFCPU = 0
+				producerAFFCPU = 0
 			}
 		}
 	}
+	producer := newSQEChanProducer(ring, producerAFFCPU, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)
 
-	if ring.Flags()&iouring.SetupSQPoll == 0 {
-		options.WaitCQEMode = WaitCQEPushMode
+	consumerType := strings.ToUpper(strings.TrimSpace(options.CQEConsumerType))
+	if consumerType == "" {
+		if ring.Flags()&iouring.SetupSQPoll != 0 {
+			consumerType = CQEConsumerPushType
+		} else {
+			consumerType = CQEConsumerPollType
+		}
 	}
-
-	var (
-		exitFd   int
-		eventFd  int
-		epollFd  int
-		eventErr error
-	)
-	if options.WaitCQEMode == "" || options.WaitCQEMode == WaitCQEPushMode {
-		exitFd, eventErr = unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
-		if eventErr != nil {
-			_ = ring.Close()
-			err = NewRingErr(os.NewSyscallError("eventfd", eventErr))
-			return
-		}
-		eventFd, eventErr = unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
-		if eventErr != nil {
-			_ = ring.Close()
-			_ = unix.Close(exitFd)
-			err = NewRingErr(os.NewSyscallError("eventfd", eventErr))
-			return
-		}
-		epollFd, eventErr = unix.EpollCreate1(0)
-		if eventErr != nil {
-			_ = ring.Close()
-			_ = unix.Close(exitFd)
-			_ = unix.Close(eventFd)
-			err = NewRingErr(os.NewSyscallError("epoll_create1", eventErr))
-			return
-		}
-
-		eventErr = unix.EpollCtl(
-			epollFd,
-			unix.EPOLL_CTL_ADD, eventFd,
-			&unix.EpollEvent{Fd: int32(eventFd), Events: unix.EPOLLIN | unix.EPOLLET},
-		)
-		if eventErr != nil {
-			_ = ring.Close()
-			_ = unix.Close(exitFd)
-			_ = unix.Close(eventFd)
-			_ = unix.Close(epollFd)
-			err = NewRingErr(os.NewSyscallError("epoll_ctl", eventErr))
-			return
-		}
-		_, regEventFdErr := ring.RegisterEventFd(eventFd)
-		if regEventFdErr != nil {
-			_ = ring.Close()
-			_ = unix.Close(exitFd)
-			_ = unix.Close(eventFd)
-			_ = unix.Close(epollFd)
-			err = NewRingErr(os.NewSyscallError("epoll_ctl", regEventFdErr))
-			return
-		}
+	// consumer
+	var consumer CQEConsumer
+	switch consumerType {
+	case CQEConsumerPollType:
+		consumer, err = newCQEPollTypedConsumer(ring, options.CQEPullTypedConsumeIdleTime, options.CQEConsumeTimeCurve)
+		break
+	default:
+		consumer, err = newCQEPushTypedConsumer(ring, options.CQEConsumeTimeCurve)
+		break
+	}
+	if err != nil {
+		_ = producer.Close()
+		_ = ring.Close()
+		err = NewRingErr(err)
+		return
 	}
 
 	r := &Ring{
 		ring:               ring,
-		eventFd:            eventFd,
-		exitFd:             exitFd,
-		epollFd:            epollFd,
-		requestCh:          make(chan *Operation, ring.SQEntries()),
-		cancel:             nil,
-		wg:                 sync.WaitGroup{},
-		prepSQEAFFCPU:      prepSQEAFFCPU,
-		prepSQEMinBatch:    options.PrepSQEBatchMinSize,
-		prepSQETimeWindow:  options.PrepSQEBatchTimeWindow,
-		prepSQEIdleTime:    options.PrepSQEBatchIdleTime,
-		waitCQETimeCurve:   options.WaitCQETimeCurve,
-		waitCQEMode:        options.WaitCQEMode,
+		heartbeatTimeout:   options.HeartbeatTimeout,
+		producer:           producer,
+		consumer:           consumer,
 		bufferRegistered:   buffers.Length() > 0,
 		buffers:            buffers,
 		directAllocEnabled: directAllocEnabled,
@@ -263,33 +223,24 @@ func OpenIOURing(ctx context.Context, options Options) (v IOURing, err error) {
 		files:              files,
 		fileIndexes:        fileIndexes,
 	}
-	r.start(ctx)
+
+	go r.heartbeat()
 
 	v = r
 	return
 }
 
 type Ring struct {
-	ring                *iouring.Ring
-	eventFd             int
-	exitFd              int
-	epollFd             int
-	requestCh           chan *Operation
-	cancel              context.CancelFunc
-	wg                  sync.WaitGroup
-	prepSQEAFFCPU       int
-	prepSQEMinBatch     uint32
-	prepSQETimeWindow   time.Duration
-	prepSQEIdleTime     time.Duration
-	waitCQEMode         string
-	waitCQETimeCurve    Curve
-	waitCQEPullIdleTime time.Duration
-	bufferRegistered    bool
-	buffers             *Queue[FixedBuffer]
-	directAllocEnabled  bool
-	fixedFileLocker     sync.Locker
-	files               []int
-	fileIndexes         *Queue[int]
+	ring               *iouring.Ring
+	heartbeatTimeout   time.Duration
+	producer           SQEProducer
+	consumer           CQEConsumer
+	bufferRegistered   bool
+	buffers            *Queue[FixedBuffer]
+	directAllocEnabled bool
+	fixedFileLocker    sync.Locker
+	files              []int
+	fileIndexes        *Queue[int]
 }
 
 func (r *Ring) Fd() int {
@@ -373,56 +324,32 @@ func (r *Ring) ReleaseBuffer(buf *FixedBuffer) {
 	}
 }
 
-func (r *Ring) Submit(op *Operation) {
-	r.requestCh <- op
-	return
+func (r *Ring) Submit(op *Operation) bool {
+	return r.producer.Produce(op)
 }
 
-func (r *Ring) start(ctx context.Context) {
-	cc, cancel := context.WithCancel(ctx)
-	r.cancel = cancel
-
-	r.wg.Add(2)
-	if r.ring.Flags()&iouring.SetupSQPoll != 0 {
-		go r.preparingSQEWithSQPollMode(cc)
-	} else {
-		go r.preparingSQEWithBatchMode(cc)
+func (r *Ring) heartbeat() {
+	if r.heartbeatTimeout < 1 {
+		r.heartbeatTimeout = defaultHeartbeatTimeout
 	}
-
-	if r.waitCQEMode == WaitCQEPullMode {
-		go r.waitingCQEWithPullMode(cc)
-	} else {
-		go r.waitingCQEWithPushMode(cc)
-	}
-	return
-}
-
-var (
-	waitExit = new(time.Time)
-)
-
-func (r *Ring) Close() (err error) {
-	// exit epoll
-	if _, writeExitErr := unix.Write(r.exitFd, []byte{1}); writeExitErr != nil {
-		// use nop
-		for i := 0; i < 10; i++ {
-			sqe := r.ring.GetSQE()
-			if sqe == nil {
-				_, _ = r.ring.Submit()
-				continue
-			}
-			sqe.PrepareNop()
-			sqe.SetData(unsafe.Pointer(waitExit))
-			_, _ = r.ring.Submit()
-			time.Sleep(500 * time.Millisecond)
+	ticker := time.NewTicker(r.heartbeatTimeout)
+	defer ticker.Stop()
+	for {
+		<-ticker.C
+		op := &Operation{}
+		_ = op.PrepareNop()
+		if ok := r.Submit(op); !ok {
 			break
 		}
 	}
-	_ = unix.Close(r.exitFd)
-	// cancel prep and wait go
-	r.cancel()
-	r.cancel = nil
-	r.wg.Wait()
+}
+
+func (r *Ring) Close() (err error) {
+	// close producer
+	_ = r.producer.Close()
+	// close consumer
+	_ = r.consumer.Close()
+
 	// unregister buffers
 	if r.bufferRegistered {
 		_, _ = r.ring.UnregisterBuffers()
@@ -436,10 +363,6 @@ func (r *Ring) Close() (err error) {
 	if r.RegisterFixedFdEnabled() {
 		_, _ = r.ring.UnregisterFiles()
 	}
-	// unregister eventFd
-	_, _ = r.ring.UnregisterEventFd(r.eventFd)
-	_ = unix.Close(r.eventFd)
-	_ = unix.Close(r.epollFd)
 	// close
 	err = r.ring.Close()
 	return

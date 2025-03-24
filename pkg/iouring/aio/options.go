@@ -6,22 +6,23 @@ import (
 )
 
 type Options struct {
-	Entries                    uint32
-	Flags                      uint32
-	SQThreadCPU                uint32
-	SQThreadIdle               uint32
-	RegisterFixedBufferSize    uint32
-	RegisterFixedBufferCount   uint32
-	RegisterFixedFiles         uint32
-	RegisterReservedFixedFiles uint32
-	PrepSQEAffCPU              int
-	PrepSQEBatchMinSize        uint32
-	PrepSQEBatchTimeWindow     time.Duration
-	PrepSQEBatchIdleTime       time.Duration
-	WaitCQEMode                string
-	WaitCQETimeCurve           Curve
-	waitCQEPullIdleTime        time.Duration
-	AttachRingFd               int
+	Entries                     uint32
+	Flags                       uint32
+	SQThreadCPU                 uint32
+	SQThreadIdle                uint32
+	RegisterFixedBufferSize     uint32
+	RegisterFixedBufferCount    uint32
+	RegisterFixedFiles          uint32
+	RegisterReservedFixedFiles  uint32
+	SQEProducerAffinityCPU      int
+	SQEProducerBatchSize        uint32
+	SQEProducerBatchTimeWindow  time.Duration
+	SQEProducerBatchIdleTime    time.Duration
+	CQEConsumerType             string
+	CQEConsumeTimeCurve         Curve
+	CQEPullTypedConsumeIdleTime time.Duration
+	HeartbeatTimeout            time.Duration
+	AttachRingFd                int
 }
 
 type Option func(*Options)
@@ -82,91 +83,91 @@ func WithSQThreadIdle(idle time.Duration) Option {
 	}
 }
 
-// WithPrepSQEAFFCPU
+// WithSQEProducerAffinityCPU
 // setup affinity cpu of preparing sqe.
-func WithPrepSQEAFFCPU(cpu int) Option {
+func WithSQEProducerAffinityCPU(cpu int) Option {
 	return func(opts *Options) {
-		opts.PrepSQEAffCPU = cpu
+		opts.SQEProducerAffinityCPU = cpu
 	}
 }
 
-// WithPrepSQEBatchMinSize
+// WithSQEProducerBatchSize
 // setup min batch for preparing sqe.
-func WithPrepSQEBatchMinSize(size uint32) Option {
+func WithSQEProducerBatchSize(size uint32) Option {
 	return func(opts *Options) {
 		if size < 1 {
 			size = 64
 		}
-		opts.PrepSQEBatchMinSize = size
+		opts.SQEProducerBatchSize = size
 	}
 }
 
 const (
-	defaultPrepSQEBatchTimeWindow = 100 * time.Microsecond
+	defaultSQEProduceBatchTimeWindow = 100 * time.Microsecond
 )
 
-// WithPrepSQEBatchTimeWindow
+// WithSQEProducerBatchTimeWindow
 // setup time window of batch for preparing sqe without SQ_POLL.
-func WithPrepSQEBatchTimeWindow(window time.Duration) Option {
+func WithSQEProducerBatchTimeWindow(window time.Duration) Option {
 	return func(opts *Options) {
 		if window < 1 {
-			window = defaultPrepSQEBatchTimeWindow
+			window = defaultSQEProduceBatchTimeWindow
 		}
-		opts.PrepSQEBatchTimeWindow = window
+		opts.SQEProducerBatchTimeWindow = window
 	}
 }
 
 const (
-	defaultPrepSQEBatchIdleTime = 30 * time.Second
+	defaultSQEProduceBatchIdleTime = 30 * time.Second
 )
 
-// WithPrepSQEBatchIdleTime
+// WithSQEProducerBatchIdleTime
 // setup idle time for preparing sqe without SQ_POLL.
-func WithPrepSQEBatchIdleTime(d time.Duration) Option {
+func WithSQEProducerBatchIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
 		if d < 1 {
-			d = defaultPrepSQEBatchIdleTime
+			d = defaultSQEProduceBatchIdleTime
 		}
-		opts.PrepSQEBatchIdleTime = d
+		opts.SQEProducerBatchIdleTime = d
 	}
 }
 
 const (
-	WaitCQEPushMode = "PUSH"
-	WaitCQEPullMode = "PULL"
+	CQEConsumerPushType = "PUSH"
+	CQEConsumerPollType = "PULL"
 )
 
-// WithWaitCQEMode
-// setup mode of wait cqe, default is [WaitCQEPushMode]
-func WithWaitCQEMode(mode string) Option {
+// WithCQEConsumerType
+// setup mode of wait cqe, default is [CQEConsumerPushType]
+func WithCQEConsumerType(mode string) Option {
 	return func(opts *Options) {
 		mode = strings.ToUpper(strings.TrimSpace(mode))
-		if mode == WaitCQEPushMode || mode == WaitCQEPullMode {
-			opts.WaitCQEMode = mode
+		if mode == CQEConsumerPushType || mode == CQEConsumerPollType {
+			opts.CQEConsumerType = mode
 		}
 	}
 }
 
-// WithWaitCQETimeCurve
+// WithCQEConsumeTimeCurve
 // setup time curve for waiting cqe.
-func WithWaitCQETimeCurve(curve Curve) Option {
+func WithCQEConsumeTimeCurve(curve Curve) Option {
 	return func(opts *Options) {
-		opts.WaitCQETimeCurve = curve
+		opts.CQEConsumeTimeCurve = curve
 	}
 }
 
 const (
-	defaultWaitCQEPullIdleTime = 15 * time.Second
+	defaultCQEPullTypedConsumeIdleTime = 15 * time.Second
 )
 
-// WithWaitCQEPullIdleTime
+// WithCQEPullTypedConsumeIdleTime
 // setup idle time for pull wait mode.
-func WithWaitCQEPullIdleTime(d time.Duration) Option {
+func WithCQEPullTypedConsumeIdleTime(d time.Duration) Option {
 	return func(opts *Options) {
 		if d < 1 {
-			d = defaultWaitCQEPullIdleTime
+			d = defaultCQEPullTypedConsumeIdleTime
 		}
-		opts.waitCQEPullIdleTime = d
+		opts.CQEPullTypedConsumeIdleTime = d
 	}
 }
 
@@ -195,5 +196,20 @@ func WithRegisterFixedFiles(files uint32) Option {
 func WithRegisterReservedFixedFiles(files uint32) Option {
 	return func(opts *Options) {
 		opts.RegisterReservedFixedFiles = files
+	}
+}
+
+const (
+	defaultHeartbeatTimeout = 30 * time.Second
+)
+
+// WithHeartBeatTimeout
+// setup heartbeat timeout.
+func WithHeartBeatTimeout(d time.Duration) Option {
+	return func(opts *Options) {
+		if d < 1 {
+			d = defaultHeartbeatTimeout
+		}
+		opts.HeartbeatTimeout = d
 	}
 }

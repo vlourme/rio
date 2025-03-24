@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring"
@@ -24,7 +23,7 @@ const (
 )
 
 func OpenNetFd(
-	ctx context.Context, vortex *Vortex,
+	vortex *Vortex,
 	mode OpenNetFdMode,
 	network string, sotype int, proto int,
 	laddr net.Addr, raddr net.Addr,
@@ -51,10 +50,10 @@ func OpenNetFd(
 	if directAlloc {
 		op := vortex.acquireOperation()
 		op.WithDirect(true).PrepareSocket(family, sotype, proto)
-		direct, _, sockErr = vortex.submitAndWait(ctx, op)
+		direct, _, sockErr = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
 		if sockErr == nil {
-			regular, sockErr = vortex.FixedFdInstall(ctx, direct)
+			regular, sockErr = vortex.FixedFdInstall(direct)
 		}
 	} else {
 		regular, sockErr = syscall.Socket(family, sotype, proto)
@@ -64,11 +63,8 @@ func OpenNetFd(
 		return
 	}
 	// fd
-	cc, cancel := context.WithCancel(ctx)
 	fd = &NetFd{
 		Fd: Fd{
-			ctx:           cc,
-			cancel:        cancel,
 			regular:       regular,
 			direct:        direct,
 			allocated:     directAlloc,
@@ -136,7 +132,7 @@ func (fd *NetFd) Net() string {
 func (fd *NetFd) LocalAddr() net.Addr {
 	if fd.laddr == nil {
 		if fd.regular == -1 && fd.direct != -1 {
-			regular, installErr := fd.vortex.FixedFdInstall(fd.ctx, fd.direct)
+			regular, installErr := fd.vortex.FixedFdInstall(fd.direct)
 			if installErr != nil {
 				return nil
 			}
@@ -158,7 +154,7 @@ func (fd *NetFd) SetLocalAddr(addr net.Addr) {
 func (fd *NetFd) RemoteAddr() net.Addr {
 	if fd.raddr == nil {
 		if fd.regular == -1 && fd.direct != -1 {
-			regular, installErr := fd.vortex.FixedFdInstall(fd.ctx, fd.direct)
+			regular, installErr := fd.vortex.FixedFdInstall(fd.direct)
 			if installErr != nil {
 				return nil
 			}
@@ -336,7 +332,7 @@ func (fd *NetFd) CloseRead() error {
 	if fd.direct > -1 {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCloseRead(fd)
-		_, _, err := fd.vortex.submitAndWait(fd.ctx, op)
+		_, _, err := fd.vortex.submitAndWait(op)
 		fd.vortex.releaseOperation(op)
 		return err
 	}
@@ -347,7 +343,7 @@ func (fd *NetFd) CloseWrite() error {
 	if fd.direct > -1 {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCloseWrite(fd)
-		_, _, err := fd.vortex.submitAndWait(fd.ctx, op)
+		_, _, err := fd.vortex.submitAndWait(op)
 		fd.vortex.releaseOperation(op)
 		return err
 	}

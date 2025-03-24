@@ -10,22 +10,19 @@ func (fd *Fd) Cancel() {
 	if fd.direct != -1 {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCancelFixedFd(fd.direct)
-		_, _, _ = fd.vortex.submitAndWait(fd.ctx, op)
+		_, _, _ = fd.vortex.submitAndWait(op)
 		fd.vortex.releaseOperation(op)
 	}
 	if fd.regular != -1 {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCancelFd(fd.regular)
-		_, _, _ = fd.vortex.submitAndWait(fd.ctx, op)
+		_, _, _ = fd.vortex.submitAndWait(op)
 		fd.vortex.releaseOperation(op)
 	}
 	return
 }
 
 func (fd *Fd) Close() error {
-	defer fd.cancel()
-
-	fd.Cancel()
 	if fd.direct != -1 {
 		err := fd.closeDirectFd()
 		if !fd.allocated {
@@ -48,7 +45,7 @@ func (fd *Fd) Close() error {
 func (fd *Fd) closeFd() (err error) {
 	op := fd.vortex.acquireOperation()
 	op.PrepareClose(fd.regular)
-	_, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	_, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	return err
 }
@@ -56,7 +53,7 @@ func (fd *Fd) closeFd() (err error) {
 func (fd *Fd) closeDirectFd() (err error) {
 	op := fd.vortex.acquireOperation()
 	op.PrepareCloseDirect(fd.direct)
-	_, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	_, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	return err
 }

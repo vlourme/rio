@@ -39,7 +39,7 @@ func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
 
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSend(fd, b)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {
 		return
@@ -55,7 +55,7 @@ func (fd *NetFd) SendZC(b []byte, deadline time.Time) (n int, err error) {
 	var (
 		cqeFlags uint32
 	)
-	n, cqeFlags, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, cqeFlags, err = fd.vortex.submitAndWait(op)
 	if err != nil {
 		op.Complete()
 		fd.vortex.releaseOperation(op)
@@ -63,7 +63,7 @@ func (fd *NetFd) SendZC(b []byte, deadline time.Time) (n int, err error) {
 	}
 
 	if cqeFlags&iouring.CQEFMore != 0 {
-		_, cqeFlags, err = fd.vortex.awaitOperation(fd.ctx, op)
+		_, cqeFlags, err = fd.vortex.awaitOperation(op)
 		if err != nil {
 			op.Complete()
 			fd.vortex.releaseOperation(op)
@@ -112,7 +112,7 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err
 
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendMsg(fd, msg)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	return
 }
@@ -156,7 +156,7 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSendMsg(fd, msg)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	if err == nil {
 		oobn = int(msg.Controllen)
 	}
@@ -184,7 +184,7 @@ func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Ti
 	var (
 		cqeFlags uint32
 	)
-	n, cqeFlags, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, cqeFlags, err = fd.vortex.submitAndWait(op)
 	if err != nil {
 		op.Complete()
 		fd.vortex.releaseOperation(op)
@@ -194,7 +194,7 @@ func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Ti
 	oobn = int(msg.Controllen)
 
 	if cqeFlags&iouring.CQEFMore != 0 {
-		_, cqeFlags, err = fd.vortex.awaitOperation(fd.ctx, op)
+		_, cqeFlags, err = fd.vortex.awaitOperation(op)
 		if err != nil {
 			op.Complete()
 			fd.vortex.releaseOperation(op)

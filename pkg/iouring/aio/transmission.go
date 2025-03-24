@@ -14,26 +14,15 @@ type Curve []struct {
 	Timeout time.Duration
 }
 
-var (
-	defaultPullCurve = Curve{
-		{8, 1 * time.Microsecond},
-		{16, 10 * time.Microsecond},
-		{32, 200 * time.Microsecond},
-		{64, 300 * time.Microsecond},
-		{96, 500 * time.Microsecond},
-	}
-	defaultPushCurve = Curve{
-		{1, 1 * time.Microsecond},
-		{16, 10 * time.Microsecond},
-		{32, 200 * time.Microsecond},
-		{64, 300 * time.Microsecond},
-		{96, 500 * time.Microsecond},
-	}
-)
-
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
-		curve = defaultPushCurve
+		curve = Curve{
+			{8, 1 * time.Microsecond},
+			{16, 10 * time.Microsecond},
+			{32, 200 * time.Microsecond},
+			{64, 300 * time.Microsecond},
+			{96, 500 * time.Microsecond},
+		}
 	}
 	times := make([]WaitNTime, len(curve))
 	for i, t := range curve {

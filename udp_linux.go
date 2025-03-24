@@ -113,7 +113,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -258,11 +258,9 @@ func (c *UDPConn) ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error) {
 	}
 
 	var (
-		uaddr    net.Addr
-		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+		uaddr net.Addr
 	)
-
-	n, uaddr, err = c.fd.ReceiveFrom(b, deadline)
+	n, uaddr, err = c.fd.ReceiveFrom(b, c.readDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -318,11 +316,9 @@ func (c *UDPConn) ReadMsgUDP(b, oob []byte) (n, oobn, flags int, addr *net.UDPAd
 	}
 
 	var (
-		uaddr    net.Addr
-		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+		uaddr net.Addr
 	)
-
-	n, oobn, flags, uaddr, err = c.fd.ReceiveMsg(b, oob, 0, deadline)
+	n, oobn, flags, uaddr, err = c.fd.ReceiveMsg(b, oob, 0, c.readDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -392,11 +388,10 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 }
 
 func (c *UDPConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
-	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, err = c.fd.SendToZC(b, addr, deadline)
+		n, err = c.fd.SendToZC(b, addr, c.writeDeadline)
 	} else {
-		n, err = c.fd.SendTo(b, addr, deadline)
+		n, err = c.fd.SendTo(b, addr, c.writeDeadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -455,11 +450,10 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr net.Addr) (n, oobn int, err error
 		b = []byte{0}
 	}
 
-	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, deadline)
+		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, c.writeDeadline)
 	} else {
-		n, oobn, err = c.fd.SendMsg(b, oob, addr, deadline)
+		n, oobn, err = c.fd.SendMsg(b, oob, addr, c.writeDeadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

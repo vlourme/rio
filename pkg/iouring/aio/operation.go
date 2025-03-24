@@ -111,7 +111,18 @@ func (op *Operation) reset() {
 }
 
 func (op *Operation) failed(err error) {
-	op.resultCh <- Result{0, 0, err}
+	if op.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) {
+		op.resultCh <- Result{0, 0, err}
+		return
+	}
+	if op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
+		op.resultCh <- Result{0, 0, err}
+		return
+	}
+	if op.status.Load() == HijackedOperationStatus {
+		op.resultCh <- Result{0, 0, err}
+		return
+	}
 }
 
 func (op *Operation) complete(n int, flags uint32, err error) {

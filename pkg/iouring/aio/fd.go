@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"context"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"os"
@@ -13,8 +12,6 @@ import (
 const maxRW = 1 << 30
 
 type Fd struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
 	regular       int
 	direct        int
 	allocated     bool
@@ -37,10 +34,6 @@ func (fd *Fd) FileDescriptor() (n int, direct bool) {
 
 func (fd *Fd) Name() string {
 	return fmt.Sprintf("[fd:%d][direct:%d][allocated:%t][async:%t][nonblocking:%t]", fd.regular, fd.direct, fd.allocated, fd.async, fd.nonBlocking)
-}
-
-func (fd *Fd) Context() context.Context {
-	return fd.ctx
 }
 
 func (fd *Fd) IsStream() bool {

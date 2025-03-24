@@ -466,7 +466,7 @@ func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr 
 		return
 	}
 
-	fd, err = aio.OpenNetFd(ctx, vortex, aio.DialMode, network, sotype, proto, laddr, raddr, !disableDirectAlloc)
+	fd, err = aio.OpenNetFd(vortex, aio.DialMode, network, sotype, proto, laddr, raddr, !disableDirectAlloc)
 	if err != nil {
 		return
 	}

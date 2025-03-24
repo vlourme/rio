@@ -37,7 +37,7 @@ func (fd *NetFd) Receive(b []byte, deadline time.Time) (n int, err error) {
 
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceive(fd, b)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
 		err = io.EOF
@@ -72,7 +72,7 @@ func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr
 
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceiveMsg(fd, msg)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {
 		return
@@ -112,7 +112,7 @@ func (fd *NetFd) ReceiveMsg(b []byte, oob []byte, flags int, deadline time.Time)
 
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReceiveMsg(fd, msg)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	if err == nil {
 		oobn = int(msg.Controllen)
 		flag = int(msg.Flags)

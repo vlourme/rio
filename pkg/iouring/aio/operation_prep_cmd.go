@@ -16,7 +16,6 @@ func (op *Operation) packingURingCMD(sqe *iouring.SubmissionQueueEntry) (err err
 		err = op.packingGetSocketoptInt(sqe)
 		break
 	default:
-		sqe.PrepareNop()
 		err = NewInvalidOpErr(errors.New("unsupported iouring command"))
 		return
 	}

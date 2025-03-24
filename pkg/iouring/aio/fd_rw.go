@@ -35,7 +35,7 @@ func (fd *Fd) Read(b []byte) (n int, err error) {
 
 	op := fd.vortex.acquireOperation()
 	op.PrepareRead(fd, b)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
 		err = io.EOF
@@ -70,7 +70,7 @@ func (fd *Fd) Write(b []byte) (n int, err error) {
 
 	op := fd.vortex.acquireOperation()
 	op.PrepareWrite(fd, b)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {
 		return

@@ -76,7 +76,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			proto = mp
 		}
 	}
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -272,8 +272,7 @@ func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 }
 
 func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
-	ctx := ln.fd.Context()
-	cfd, _, acceptErr := ln.acceptFuture.Await(ctx)
+	cfd, _, acceptErr := ln.acceptFuture.Await()
 	if acceptErr != nil {
 		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
@@ -302,10 +301,10 @@ func (ln *TCPListener) prepareMultishotAccepting() (err error) {
 	}
 	if ln.directMode {
 		future := ln.fd.AcceptMultishotDirectAsync(backlog)
-		ln.acceptFuture = &future
+		ln.acceptFuture = future
 	} else {
 		future := ln.fd.AcceptMultishotAsync(backlog)
-		ln.acceptFuture = &future
+		ln.acceptFuture = future
 	}
 	return
 }
@@ -315,6 +314,9 @@ func (ln *TCPListener) prepareMultishotAccepting() (err error) {
 func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
+	}
+	if ln.acceptFuture != nil {
+		_ = ln.acceptFuture.Cancel()
 	}
 	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}

@@ -3,7 +3,6 @@
 package rio
 
 import (
-	"context"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio"
 	"os"
@@ -28,20 +27,21 @@ var (
 )
 
 const (
-	envEntries                    = "RIO_IOURING_ENTRIES"
-	envFlags                      = "RIO_IOURING_SETUP_FLAGS"
-	envSQThreadCPU                = "RIO_IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle               = "RIO_IOURING_SQ_THREAD_IDLE"
-	envRegisterFixedBuffers       = "RIO_IOURING_REG_FIXED_BUFFERS"
-	envRegisterFixedFiles         = "RIO_IOURING_REG_FIXED_FILES"
-	envRegisterReservedFixedFiles = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
-	envPrepSQEAffCPU              = "RIO_PREP_SQE_AFF_CPU"
-	envPrepSQEBatchMinSize        = "RIO_PREP_SQE_BATCH_MIN_SIZE"
-	envPrepSQEBatchTimeWindow     = "RIO_PREP_SQE_BATCH_TIME_WINDOW"
-	envPrepSQEBatchIdleTime       = "RIO_PREP_SQE_BATCH_IDLE_TIME"
-	envWaitCQEMode                = "RIO_WAIT_CQE_MODE"
-	envWaitCQETimeCurve           = "RIO_WAIT_CQE_TIME_CURVE"
-	envWaitCQEPullIdleTime        = "RIO_WAIT_CQE_PULL_IDLE_TIME"
+	envEntries                     = "RIO_IOURING_ENTRIES"
+	envFlags                       = "RIO_IOURING_SETUP_FLAGS"
+	envSQThreadCPU                 = "RIO_IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle                = "RIO_IOURING_SQ_THREAD_IDLE"
+	envRegisterFixedBuffers        = "RIO_IOURING_REG_FIXED_BUFFERS"
+	envRegisterFixedFiles          = "RIO_IOURING_REG_FIXED_FILES"
+	envRegisterReservedFixedFiles  = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
+	envIOURingHeartbeatTimeout     = "RIO_IOURING_HEARTBEAT_TIMEOUT"
+	envSQEProducerAffinityCPU      = "RIO_SQE_PROD_AFF_CPU"
+	envSQEProducerBatchSize        = "RIO_SQE_PROD_BATCH_SIZE"
+	envSQEProducerBatchTimeWindow  = "RIO_SQE_PROD_BATCH_TIME_WINDOW"
+	envSQEProducerBatchIdleTime    = "RIO_SQE_PROD_BATCH_IDLE_TIME"
+	envCQEConsumerType             = "RIO_CQE_CONS_TYPE"
+	envCQEConsumeTimeCurve         = "RIO_CQE_CONS_CURVE"
+	envCQEPullTypedConsumeIdleTime = "RIO_CQE_POLL_TYPED_CONS_IDLE_TIME"
 )
 
 func getVortex() (*aio.Vortex, error) {
@@ -85,37 +85,41 @@ func getVortex() (*aio.Vortex, error) {
 			}
 			// fixed <<<
 
-			// prep >>>
-			if v, has := envLoadUint32(envPrepSQEAffCPU); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEAFFCPU(int(v)))
-			}
-			if v, has := envLoadUint32(envPrepSQEBatchMinSize); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchMinSize(v))
-			}
-			if v, has := envLoadDuration(envPrepSQEBatchTimeWindow); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchTimeWindow(v))
-			}
-			if v, has := envLoadDuration(envPrepSQEBatchIdleTime); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithPrepSQEBatchIdleTime(v))
-			}
-			// prep <<<
-
-			// wait >>>
-			if v, has := envLoadString(envWaitCQEMode); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEMode(v))
-			}
-			if v, has := envLoadCurve(envWaitCQETimeCurve); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQETimeCurve(v))
-			}
-			if v, has := envLoadDuration(envWaitCQEPullIdleTime); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithWaitCQEPullIdleTime(v))
+			// heartbeat
+			if v, has := envLoadDuration(envIOURingHeartbeatTimeout); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithHeartBeatTimeout(v))
 			}
 
-			// wait <<<
+			// sqe >>>
+			if v, has := envLoadUint32(envSQEProducerAffinityCPU); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerAffinityCPU(int(v)))
+			}
+			if v, has := envLoadUint32(envSQEProducerBatchSize); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchSize(v))
+			}
+			if v, has := envLoadDuration(envSQEProducerBatchTimeWindow); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchTimeWindow(v))
+			}
+			if v, has := envLoadDuration(envSQEProducerBatchIdleTime); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchIdleTime(v))
+			}
+			// sqe <<<
+
+			// cqe >>>
+			if v, has := envLoadString(envCQEConsumerType); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithCQEConsumerType(v))
+			}
+			if v, has := envLoadCurve(envCQEConsumeTimeCurve); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithCQEConsumeTimeCurve(v))
+			}
+			if v, has := envLoadDuration(envCQEPullTypedConsumeIdleTime); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithCQEPullTypedConsumeIdleTime(v))
+			}
+			// cqe <<<
 
 		}
 		// open
-		vortexInstance, vortexInstanceErr = aio.Open(context.Background(), vortexInstanceOptions...)
+		vortexInstance, vortexInstanceErr = aio.Open(vortexInstanceOptions...)
 	})
 	return vortexInstance, vortexInstanceErr
 }

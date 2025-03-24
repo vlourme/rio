@@ -21,11 +21,6 @@ type conn struct {
 	useSendZC     bool
 }
 
-// Context get context of conn.
-func (c *conn) Context() context.Context {
-	return c.fd.Context()
-}
-
 func (c *conn) SetAsync(async bool) error {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -44,9 +39,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	deadline := c.deadline(c.Context(), c.readDeadline)
-
-	n, err = c.fd.Receive(b, deadline)
+	n, err = c.fd.Receive(b, c.readDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -66,12 +59,10 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	deadline := c.deadline(c.Context(), c.writeDeadline)
-
 	if c.useSendZC {
-		n, err = c.fd.SendZC(b, deadline)
+		n, err = c.fd.SendZC(b, c.writeDeadline)
 	} else {
-		n, err = c.fd.Send(b, deadline)
+		n, err = c.fd.Send(b, c.writeDeadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -111,9 +102,7 @@ func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
 		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	deadline := c.deadline(c.fd.Context(), c.readDeadline)
-
-	n, err = c.fd.ReadFixed(buf, deadline)
+	n, err = c.fd.ReadFixed(buf, c.readDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -141,9 +130,7 @@ func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
-
-	n, err = c.fd.WriteFixed(buf, deadline)
+	n, err = c.fd.WriteFixed(buf, c.writeDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed

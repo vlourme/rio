@@ -58,7 +58,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -159,7 +159,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(ctx, vortex, aio.ListenMode, network, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -282,8 +282,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 }
 
 func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
-	ctx := ln.fd.Context()
-	cfd, _, acceptErr := ln.acceptFuture.Await(ctx)
+	cfd, _, acceptErr := ln.acceptFuture.Await()
 	if acceptErr != nil {
 		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
@@ -311,7 +310,7 @@ func (ln *UnixListener) prepareMultishotAccepting() (err error) {
 		backlog = 1024
 	}
 	future := ln.fd.AcceptMultishotAsync(backlog)
-	ln.acceptFuture = &future
+	ln.acceptFuture = future
 	return
 }
 
@@ -321,7 +320,9 @@ func (ln *UnixListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-
+	if ln.acceptFuture != nil {
+		_ = ln.acceptFuture.Cancel()
+	}
 	if err := ln.fd.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
@@ -439,11 +440,9 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 	}
 
 	var (
-		uaddr    net.Addr
-		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+		uaddr net.Addr
 	)
-
-	n, uaddr, err = c.fd.ReceiveFrom(b, deadline)
+	n, uaddr, err = c.fd.ReceiveFrom(b, c.readDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -479,11 +478,9 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 	}
 
 	var (
-		uaddr    net.Addr
-		deadline = c.deadline(c.fd.Context(), c.readDeadline)
+		uaddr net.Addr
 	)
-
-	n, oobn, flags, uaddr, err = c.fd.ReceiveMsg(b, oob, unix.MSG_CMSG_CLOEXEC, deadline)
+	n, oobn, flags, uaddr, err = c.fd.ReceiveMsg(b, oob, unix.MSG_CMSG_CLOEXEC, c.readDeadline)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -524,11 +521,10 @@ func (c *UnixConn) WriteToUnix(b []byte, addr *net.UnixAddr) (int, error) {
 }
 
 func (c *UnixConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
-	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, err = c.fd.SendToZC(b, addr, deadline)
+		n, err = c.fd.SendToZC(b, addr, c.writeDeadline)
 	} else {
-		n, err = c.fd.SendTo(b, addr, deadline)
+		n, err = c.fd.SendTo(b, addr, c.writeDeadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -564,11 +560,10 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 		b = []byte{0}
 	}
 
-	deadline := c.deadline(c.fd.Context(), c.writeDeadline)
 	if c.useSendMSGZC {
-		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, deadline)
+		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, c.writeDeadline)
 	} else {
-		n, oobn, err = c.fd.SendMsg(b, oob, addr, deadline)
+		n, oobn, err = c.fd.SendMsg(b, oob, addr, c.writeDeadline)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

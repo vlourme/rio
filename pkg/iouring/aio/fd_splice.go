@@ -34,8 +34,11 @@ func (fd *Fd) Splice(src int, remain int64) (n int64, err error) {
 		}
 		opDrain := fd.vortex.acquireOperation()
 		opDrain.PrepareSplice(&drainParams)
-		fd.vortex.Submit(opDrain)
-		drained, _, drainedErr := fd.vortex.awaitOperation(fd.ctx, opDrain)
+		if ok := fd.vortex.Submit(opDrain); !ok {
+			err = ErrCanceled
+			return
+		}
+		drained, _, drainedErr := fd.vortex.awaitOperation(opDrain)
 		fd.vortex.releaseOperation(opDrain)
 		if drainedErr != nil || drained == 0 {
 			err = drainedErr
@@ -53,8 +56,11 @@ func (fd *Fd) Splice(src int, remain int64) (n int64, err error) {
 		}
 		opPump := fd.vortex.acquireOperation()
 		opPump.PrepareSplice(&pumpParams)
-		fd.vortex.Submit(opPump)
-		pumped, _, pumpedErr := fd.vortex.awaitOperation(fd.ctx, opPump)
+		if ok := fd.vortex.Submit(opPump); !ok {
+			err = ErrCanceled
+			return
+		}
+		pumped, _, pumpedErr := fd.vortex.awaitOperation(opPump)
 		fd.vortex.releaseOperation(opPump)
 		if pumped > 0 {
 			n += int64(pumped)

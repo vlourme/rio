@@ -10,7 +10,7 @@ import (
 func (fd *NetFd) Connect(addr *syscall.RawSockaddrAny, addrLen int, deadline time.Time) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareConnect(fd, addr, addrLen)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	return
 }

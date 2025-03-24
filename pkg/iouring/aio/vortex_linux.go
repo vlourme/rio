@@ -3,17 +3,15 @@
 package aio
 
 import (
-	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"os"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
-func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
+func Open(options ...Option) (v *Vortex, err error) {
 	// check kernel version
 	version := iouring.GetVersion()
 	if version.Invalidate() {
@@ -26,14 +24,14 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 	}
 	// options
 	opt := Options{
-		PrepSQEAffCPU: -1,
-		WaitCQEMode:   WaitCQEPushMode,
+		SQEProducerAffinityCPU: -1,
+		CQEConsumerType:        CQEConsumerPushType,
 	}
 	for _, option := range options {
 		option(&opt)
 	}
 	// ring
-	ring, ringErr := OpenIOURing(ctx, opt)
+	ring, ringErr := OpenIOURing(opt)
 	if ringErr != nil {
 		err = ringErr
 		return
@@ -50,11 +48,6 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 				}
 			},
 		},
-		timers: sync.Pool{
-			New: func() interface{} {
-				return time.NewTimer(0)
-			},
-		},
 		msgs: sync.Pool{
 			New: func() interface{} {
 				return &syscall.Msghdr{}
@@ -67,20 +60,19 @@ func Open(ctx context.Context, options ...Option) (v *Vortex, err error) {
 type Vortex struct {
 	IOURing
 	operations sync.Pool
-	timers     sync.Pool
 	msgs       sync.Pool
 }
 
-func (vortex *Vortex) FixedFdInstall(ctx context.Context, directFd int) (regularFd int, err error) {
+func (vortex *Vortex) FixedFdInstall(directFd int) (regularFd int, err error) {
 	op := vortex.acquireOperation()
 	op.PrepareFixedFdInstall(directFd)
-	regularFd, _, err = vortex.submitAndWait(ctx, op)
+	regularFd, _, err = vortex.submitAndWait(op)
 	vortex.releaseOperation(op)
 	return
 }
 
-func (vortex *Vortex) CancelOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
-	if vortex.tryCancelOperation(ctx, op) { // cancel succeed
+func (vortex *Vortex) CancelOperation(op *Operation) (n int, cqeFlags uint32, err error) {
+	if vortex.tryCancelOperation(op) { // cancel succeed
 		r, ok := <-op.resultCh
 		if !ok {
 			op.Close()
@@ -93,39 +85,28 @@ func (vortex *Vortex) CancelOperation(ctx context.Context, op *Operation) (n int
 		}
 		return
 	}
-	// cancel failed
-	// means attached op is not in ring, maybe completed or lost
-	timer := vortex.acquireTimer(50 * time.Microsecond)
-	defer vortex.releaseTimer(timer)
-
-	select {
-	case <-timer.C: // maybe lost
-		op.Close()
+	// cancel failed means op has completed
+	r, ok := <-op.resultCh
+	if !ok {
 		err = ErrCanceled
-		break
-	case r, ok := <-op.resultCh: // completed
-		if !ok {
+		return
+	}
+	n, cqeFlags, err = r.N, r.Flags, r.Err
+	if err != nil {
+		if errors.Is(err, syscall.ECANCELED) {
 			err = ErrCanceled
-			break
+		} else {
+			err = os.NewSyscallError(op.Name(), err)
 		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if err != nil {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = ErrCanceled
-			} else {
-				err = os.NewSyscallError(op.Name(), err)
-			}
-		}
-		break
 	}
 	return
 }
 
-func (vortex *Vortex) tryCancelOperation(ctx context.Context, target *Operation) (ok bool) {
+func (vortex *Vortex) tryCancelOperation(target *Operation) (ok bool) {
 	if target.canCancel() {
 		op := vortex.acquireOperation()
 		op.PrepareCancel(target)
-		_, _, err := vortex.submitAndWait(ctx, op)
+		_, _, err := vortex.submitAndWait(op)
 		ok = err == nil
 		vortex.releaseOperation(op)
 	}
@@ -142,18 +123,6 @@ func (vortex *Vortex) releaseOperation(op *Operation) {
 		op.reset()
 		vortex.operations.Put(op)
 	}
-}
-
-func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
-	timer := vortex.timers.Get().(*time.Timer)
-	timer.Reset(timeout)
-	return timer
-}
-
-func (vortex *Vortex) releaseTimer(timer *time.Timer) {
-	timer.Stop()
-	vortex.timers.Put(timer)
-	return
 }
 
 func (vortex *Vortex) acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {
@@ -191,7 +160,7 @@ func (vortex *Vortex) releaseMsg(msg *syscall.Msghdr) {
 	return
 }
 
-func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
+func (vortex *Vortex) submitAndWait(op *Operation) (n int, cqeFlags uint32, err error) {
 	// attach timeout op
 	if op.timeout != nil {
 		timeoutOp := vortex.acquireOperation()
@@ -199,48 +168,46 @@ func (vortex *Vortex) submitAndWait(ctx context.Context, op *Operation) (n int, 
 		timeoutOp.prepareLinkTimeout(op)
 	}
 RETRY:
-	vortex.Submit(op)
-	n, cqeFlags, err = vortex.awaitOperation(ctx, op)
-	if err != nil {
-		if errors.Is(err, ErrSQBusy) { // means cannot get sqe
-			goto RETRY
+	if ok := vortex.Submit(op); ok {
+		n, cqeFlags, err = vortex.awaitOperation(op)
+		if err != nil {
+			if errors.Is(err, ErrIOURingSQBusy) { // means cannot get sqe
+				goto RETRY
+			}
+			return
 		}
 		return
 	}
+	err = ErrCanceled
 	return
 }
 
-func (vortex *Vortex) awaitOperation(ctx context.Context, op *Operation) (n int, cqeFlags uint32, err error) {
-	select {
-	case r, ok := <-op.resultCh:
-		if !ok {
-			op.Close()
-			err = ErrCanceled
-			break
-		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if err != nil && errors.Is(err, syscall.ECANCELED) {
-			err = ErrCanceled
-		}
-		if op.timeout != nil && op.attached != nil { // wait timeout op
-			r, ok = <-op.attached.resultCh
-			if ok {
-				if err != nil && errors.Is(r.Err, syscall.ETIME) {
-					err = ErrTimeout
-				}
+func (vortex *Vortex) awaitOperation(op *Operation) (n int, cqeFlags uint32, err error) {
+	r, ok := <-op.resultCh
+	if !ok {
+		op.Close()
+		err = ErrCanceled
+		return
+	}
+	n, cqeFlags, err = r.N, r.Flags, r.Err
+
+	if op.timeout != nil && op.attached != nil { // wait timeout op
+		r, ok = <-op.attached.resultCh
+		if ok {
+			if err != nil && errors.Is(r.Err, syscall.ETIME) {
+				err = ErrTimeout
 			}
 		}
-		break
-	case <-ctx.Done():
-		err = ctx.Err()
-		if errors.Is(err, context.DeadlineExceeded) { // deadline so can cancel
-			n, cqeFlags, err = vortex.CancelOperation(ctx, op)
-		} else { // ctx canceled so try cancel and close op
-			vortex.tryCancelOperation(ctx, op)
-			op.Close()
+	}
+
+	if err != nil {
+		if errors.Is(err, syscall.ECANCELED) {
 			err = ErrCanceled
+		} else if errors.Is(r.Err, syscall.ETIME) {
+			err = ErrTimeout
+		} else {
+			err = os.NewSyscallError(op.Name(), err)
 		}
-		break
 	}
 	return
 }

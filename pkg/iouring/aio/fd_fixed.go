@@ -10,7 +10,7 @@ import (
 func (fd *Fd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareReadFixed(fd, buf)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	buf.rightShiftWritePosition(n)
 	fd.vortex.releaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
@@ -22,7 +22,7 @@ func (fd *Fd) ReadFixed(buf *FixedBuffer, deadline time.Time) (n int, err error)
 func (fd *Fd) WriteFixed(buf *FixedBuffer, deadline time.Time) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareWriteFixed(fd, buf)
-	n, _, err = fd.vortex.submitAndWait(fd.ctx, op)
+	n, _, err = fd.vortex.submitAndWait(op)
 	buf.rightShiftReadPosition(n)
 	fd.vortex.releaseOperation(op)
 	return
