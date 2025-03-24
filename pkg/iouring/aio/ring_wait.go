@@ -10,6 +10,7 @@ import (
 	"os"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
@@ -70,6 +71,10 @@ func (r *Ring) waitingCQEWithPushMode(ctx context.Context) {
 							continue
 						}
 						if cqe.IsInternalUpdateTimeoutUserdata() { // userdata means not op
+							continue
+						}
+						if cqe.UserData == uint64(uintptr(unsafe.Pointer(waitExit))) { // exit
+							stopped = true
 							continue
 						}
 						// get op from cqe
