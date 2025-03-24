@@ -7,6 +7,7 @@ import (
 type Transmission interface {
 	Up() (uint32, time.Duration)
 	Down() (uint32, time.Duration)
+	Match(n uint32) (uint32, time.Duration)
 }
 
 type Curve []struct {
@@ -71,4 +72,19 @@ func (tran *CurveTransmission) Down() (uint32, time.Duration) {
 	}
 	tran.idx--
 	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
+}
+
+func (tran *CurveTransmission) Match(n uint32) (uint32, time.Duration) {
+	head := tran.curve[0]
+	if n < head.n {
+		return 0, 0
+	}
+	for i := range tran.curve {
+		node := tran.curve[i]
+		if node.n >= n {
+			return node.n, node.time
+		}
+	}
+	tail := tran.curve[len(tran.curve)-1]
+	return tail.n, tail.time
 }

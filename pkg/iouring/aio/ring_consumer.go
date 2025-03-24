@@ -93,13 +93,14 @@ func (c *CQEPushTypedConsumer) handle() {
 	defer c.wg.Done()
 
 	var (
-		ring    = c.ring
-		eventFd = int32(c.eventFd)
-		exitFd  = int32(c.exitFd)
-		buf     = make([]byte, 8)
-		events  = make([]unix.EpollEvent, 1024)
-		cqes    = make([]*iouring.CompletionQueueEvent, 1024)
-		stopped = false
+		ring         = c.ring
+		eventFd      = int32(c.eventFd)
+		exitFd       = int32(c.exitFd)
+		buf          = make([]byte, 8)
+		events       = make([]unix.EpollEvent, 1024)
+		cqes         = make([]*iouring.CompletionQueueEvent, 1024)
+		transmission = NewCurveTransmission(c.waitTimeCurve)
+		stopped      = false
 	)
 
 	for {
@@ -122,6 +123,7 @@ func (c *CQEPushTypedConsumer) handle() {
 				stopped = true
 				break
 			case eventFd:
+				completed := uint32(0)
 			PEEK:
 				if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
 					for j := uint32(0); j < peeked; j++ {
@@ -157,11 +159,15 @@ func (c *CQEPushTypedConsumer) handle() {
 					}
 					// cq advance
 					ring.CQAdvance(peeked)
+					completed += peeked
 					// try to peek more
 					goto PEEK
 				}
-
+				// read
 				_, _ = unix.Read(c.eventFd, buf)
+				if _, waitTime := transmission.Match(completed); waitTime > 0 {
+					time.Sleep(waitTime)
+				}
 				break
 			default:
 				_, _ = unix.Read(int(event.Fd), buf)
