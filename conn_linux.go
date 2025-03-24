@@ -323,7 +323,7 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 	if !c.ok() {
 		return nil, syscall.EINVAL
 	}
-	return sys.NewRawConn(c.fd.RegularSocket()), nil
+	return sys.NewRawConn(c.fd.RegularFd()), nil
 }
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }

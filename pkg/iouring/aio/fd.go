@@ -3,9 +3,11 @@
 package aio
 
 import (
+	"errors"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"os"
+	"sync"
 	"syscall"
 )
 
@@ -20,6 +22,7 @@ type Fd struct {
 	async         bool
 	nonBlocking   bool
 	inAdvanceIO   bool
+	locker        sync.Mutex
 	vortex        *Vortex
 }
 
@@ -64,15 +67,18 @@ func (fd *Fd) Vortex() *Vortex {
 	return fd.vortex
 }
 
-func (fd *Fd) RegularSocket() int {
+func (fd *Fd) RegularFd() int {
 	return fd.regular
 }
 
-func (fd *Fd) DirectSocket() int {
+func (fd *Fd) DirectFd() int {
 	return fd.direct
 }
 
 func (fd *Fd) SetNonblocking(nonblocking bool) error {
+	if fd.regular == -1 {
+		return errors.New("fd has not installed")
+	}
 	if err := syscall.SetNonblock(fd.regular, nonblocking); err != nil {
 		return os.NewSyscallError("setnonblock", err)
 	}
@@ -84,7 +90,9 @@ func (fd *Fd) Nonblocking() bool {
 }
 
 func (fd *Fd) SetCloseOnExec() {
-	syscall.CloseOnExec(fd.regular)
+	if fd.regular != -1 {
+		syscall.CloseOnExec(fd.regular)
+	}
 }
 
 func (fd *Fd) Dup() (int, string, error) {
@@ -106,6 +114,29 @@ func (fd *Fd) Register() error {
 	fd.direct = direct
 	fd.allocated = false
 	return nil
+}
+
+func (fd *Fd) Installed() bool {
+	return fd.regular != -1
+}
+
+func (fd *Fd) Install() (err error) {
+	fd.locker.Lock()
+	defer fd.locker.Unlock()
+	if fd.regular != -1 {
+		return nil
+	}
+	if fd.direct == -1 {
+		err = errors.New("fd is not directed")
+		return
+	}
+	regular, installErr := fd.vortex.FixedFdInstall(fd.direct)
+	if installErr != nil {
+		err = installErr
+		return
+	}
+	fd.regular = regular
+	return
 }
 
 func boolint(b bool) int {

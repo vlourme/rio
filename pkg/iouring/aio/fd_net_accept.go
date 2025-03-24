@@ -14,8 +14,8 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 			regular:       -1,
 			direct:        -1,
 			allocated:     directAllocated,
-			isStream:      ln.sotype&syscall.SOCK_STREAM != 0,
-			zeroReadIsEOF: ln.sotype != syscall.SOCK_DGRAM && ln.sotype != syscall.SOCK_RAW,
+			isStream:      ln.isStream,
+			zeroReadIsEOF: ln.zeroReadIsEOF,
 			async:         ln.async,
 			nonBlocking:   ln.nonBlocking,
 			inAdvanceIO:   ln.inAdvanceIO,
@@ -29,13 +29,6 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 	}
 	if directAllocated {
 		fd.direct = accepted
-		regular, installErr := vortex.FixedFdInstall(fd.direct) // todo: dont install here, just when used.
-		if installErr != nil {
-			_ = fd.Close()
-			err = installErr
-			return
-		}
-		fd.regular = regular
 	} else {
 		fd.regular = accepted
 	}

@@ -25,7 +25,7 @@ const (
 func OpenNetFd(
 	vortex *Vortex,
 	mode OpenNetFdMode,
-	network string, sotype int, proto int,
+	network string, sotype int, subsotype int, proto int,
 	laddr net.Addr, raddr net.Addr,
 	directAlloc bool,
 ) (fd *NetFd, err error) {
@@ -44,31 +44,32 @@ func OpenNetFd(
 	var (
 		regular     = -1
 		direct      = -1
-		nonblocking = sotype&syscall.SOCK_NONBLOCK != 0
+		nonblocking = subsotype&syscall.SOCK_NONBLOCK != 0
 		sockErr     error
 	)
 	if directAlloc {
 		op := vortex.acquireOperation()
-		op.WithDirect(true).PrepareSocket(family, sotype, proto)
+		op.WithDirect(true).PrepareSocket(family, sotype|subsotype, proto)
 		direct, _, sockErr = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
-		if sockErr == nil {
+		if sockErr == nil && mode == ListenMode {
 			regular, sockErr = vortex.FixedFdInstall(direct)
 		}
 	} else {
-		regular, sockErr = syscall.Socket(family, sotype, proto)
+		regular, sockErr = syscall.Socket(family, sotype|subsotype, proto)
 	}
 	if sockErr != nil {
 		err = sockErr
 		return
 	}
 	// fd
+
 	fd = &NetFd{
 		Fd: Fd{
 			regular:       regular,
 			direct:        direct,
 			allocated:     directAlloc,
-			isStream:      sotype&syscall.SOCK_STREAM != 0,
+			isStream:      sotype == syscall.SOCK_STREAM,
 			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 			async:         false,
 			nonBlocking:   nonblocking,
@@ -131,12 +132,10 @@ func (fd *NetFd) Net() string {
 
 func (fd *NetFd) LocalAddr() net.Addr {
 	if fd.laddr == nil {
-		if fd.regular == -1 && fd.direct != -1 {
-			regular, installErr := fd.vortex.FixedFdInstall(fd.direct)
-			if installErr != nil {
+		if !fd.Installed() {
+			if installErr := fd.Install(); installErr != nil {
 				return nil
 			}
-			fd.regular = regular
 		}
 		sa, saErr := syscall.Getsockname(fd.regular)
 		if saErr != nil {
@@ -153,12 +152,10 @@ func (fd *NetFd) SetLocalAddr(addr net.Addr) {
 
 func (fd *NetFd) RemoteAddr() net.Addr {
 	if fd.raddr == nil {
-		if fd.regular == -1 && fd.direct != -1 {
-			regular, installErr := fd.vortex.FixedFdInstall(fd.direct)
-			if installErr != nil {
+		if !fd.Installed() {
+			if installErr := fd.Install(); installErr != nil {
 				return nil
 			}
-			fd.regular = regular
 		}
 		sa, saErr := syscall.Getpeername(fd.regular)
 		if saErr != nil {
@@ -178,40 +175,68 @@ func (fd *NetFd) Bind(addr net.Addr) error {
 	if saErr != nil {
 		return saErr
 	}
-	if err := syscall.Bind(fd.regular, sa); err != nil {
-		return os.NewSyscallError("bind", err)
+	if fd.Installed() {
+		if err := syscall.Bind(fd.regular, sa); err != nil {
+			return os.NewSyscallError("bind", err)
+		}
+	} else {
+		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
+		if rsaErr != nil {
+			return os.NewSyscallError("bind", rsaErr)
+		}
+		op := fd.vortex.acquireOperation()
+		op.PrepareBind(fd, rsa, int(rsaLen))
+		_, _, err := fd.vortex.submitAndWait(op)
+		fd.vortex.releaseOperation(op)
+		return err
 	}
 	return nil
 }
 
 func (fd *NetFd) ReadBuffer() (n int, err error) {
-	n, err = syscall.GetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_RCVBUF)
-	if err != nil {
-		err = os.NewSyscallError("getsockopt", err)
-		return
+	if fd.Installed() {
+		n, err = syscall.GetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_RCVBUF)
+		if err != nil {
+			err = os.NewSyscallError("getsockopt", err)
+			return
+		}
+	} else {
+		n, err = fd.GetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_RCVBUF)
 	}
 	return
 }
 
 func (fd *NetFd) SetReadBuffer(bytes int) error {
-	if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_RCVBUF, bytes); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_RCVBUF, bytes); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_RCVBUF, bytes)
 	}
 	return nil
 }
 
 func (fd *NetFd) WriteBuffer() (n int, err error) {
-	n, err = syscall.GetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_SNDBUF)
-	if err != nil {
-		err = os.NewSyscallError("getsockopt", err)
-		return
+	if fd.Installed() {
+		n, err = syscall.GetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_SNDBUF)
+		if err != nil {
+			err = os.NewSyscallError("getsockopt", err)
+			return
+		}
+	} else {
+		n, err = fd.GetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF)
 	}
 	return
 }
 
 func (fd *NetFd) SetWriteBuffer(bytes int) error {
-	if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_SNDBUF, bytes); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_SNDBUF, bytes); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF, bytes)
 	}
 	return nil
 }
@@ -219,22 +244,39 @@ func (fd *NetFd) SetWriteBuffer(bytes int) error {
 func (fd *NetFd) SetZeroCopy(ok bool) (err error) {
 	if fd.family == syscall.AF_INET || fd.family == syscall.AF_INET6 {
 		if iouring.VersionEnable(4, 14, 0) {
-			err = syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, boolint(ok))
+			if fd.Installed() {
+				if err = syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_ZEROCOPY, boolint(ok)); err != nil {
+					return os.NewSyscallError("setsockopt", err)
+				}
+			} else {
+				return fd.SetSocketoptInt(syscall.SOL_SOCKET, unix.SO_ZEROCOPY, boolint(ok))
+			}
+			return
 		}
 	}
-	return nil
+	return
 }
 
 func (fd *NetFd) SetNoDelay(noDelay bool) error {
-	if fd.sotype == syscall.SOCK_STREAM {
-		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay)); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if fd.sotype&syscall.SOCK_STREAM != 0 {
+		if fd.Installed() {
+			if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay)); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay))
 		}
 	}
 	return nil
 }
 
 func (fd *NetFd) SetLinger(sec int) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
+
 	var l syscall.Linger
 	if sec >= 0 {
 		l.Onoff = 1
@@ -267,9 +309,12 @@ func roundDurationUp(d time.Duration, to time.Duration) time.Duration {
 }
 
 func (fd *NetFd) SetKeepAlive(keepalive bool) error {
-
-	if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, boolint(keepalive)); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, boolint(keepalive)); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_KEEPALIVE, boolint(keepalive))
 	}
 	return nil
 }
@@ -281,8 +326,13 @@ func (fd *NetFd) SetKeepAlivePeriod(d time.Duration) error {
 		return nil
 	}
 	secs := int(roundDurationUp(d, time.Second))
-	if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, secs); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, secs); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_KEEPIDLE, secs)
 	}
 	return nil
 }
@@ -294,8 +344,13 @@ func (fd *NetFd) SetKeepAliveInterval(d time.Duration) error {
 		return nil
 	}
 	secs := int(roundDurationUp(d, time.Second))
-	if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, secs); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, secs); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_KEEPINTVL, secs)
 	}
 	return nil
 }
@@ -306,8 +361,13 @@ func (fd *NetFd) SetKeepAliveCount(n int) error {
 	} else if n < 0 {
 		return nil
 	}
-	if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, n); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, n); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_KEEPCNT, n)
 	}
 	return nil
 }
@@ -351,35 +411,59 @@ func (fd *NetFd) CloseWrite() error {
 }
 
 func (fd *NetFd) SetIpv6only(ipv6only bool) error {
-	if fd.family == syscall.AF_INET6 && fd.sotype != syscall.SOCK_RAW {
-		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, boolint(ipv6only)); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if fd.family == syscall.AF_INET6 && fd.sotype&syscall.SOCK_RAW == 0 {
+		if fd.Installed() {
+			if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, boolint(ipv6only)); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			return fd.SetSocketoptInt(syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, boolint(ipv6only))
 		}
 	}
 	return nil
 }
 
 func (fd *NetFd) SetBroadcast(ok bool) error {
-	if (fd.sotype == syscall.SOCK_DGRAM || fd.sotype == syscall.SOCK_RAW) && fd.family != syscall.AF_UNIX && fd.family != syscall.AF_INET6 {
-		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_BROADCAST, boolint(ok)); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if (fd.sotype == syscall.SOCK_DGRAM || fd.sotype&syscall.SOCK_RAW == 0) && fd.family != syscall.AF_UNIX && fd.family != syscall.AF_INET6 {
+		if fd.Installed() {
+			if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_BROADCAST, boolint(ok)); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_BROADCAST, boolint(ok))
 		}
 	}
 	return nil
 }
 
 func (fd *NetFd) SetReuseAddr(ok bool) error {
-	if err := os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok))); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok)); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok))
 	}
 	return nil
 }
 
 func (fd *NetFd) SetReusePort(reusePort int) error {
-	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort))
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort)
+	}
+	return nil
 }
 
 func (fd *NetFd) SetIPv4MulticastInterface(ifi *net.Interface) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
 	ip, err := sys.InterfaceToIPv4Addr(ifi)
 	if err != nil {
 		return err
@@ -390,10 +474,20 @@ func (fd *NetFd) SetIPv4MulticastInterface(ifi *net.Interface) error {
 }
 
 func (fd *NetFd) SetIPv4MulticastLoopback(ok bool) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
 	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_IP, syscall.IP_MULTICAST_LOOP, boolint(ok)))
 }
 
 func (fd *NetFd) JoinIPv4Group(ifi *net.Interface, ip net.IP) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
 	mreq := &syscall.IPMreq{Multiaddr: [4]byte{ip[0], ip[1], ip[2], ip[3]}}
 	if err := sys.SetIPv4MreqToInterface(mreq, ifi); err != nil {
 		return err
@@ -402,6 +496,11 @@ func (fd *NetFd) JoinIPv4Group(ifi *net.Interface, ip net.IP) error {
 }
 
 func (fd *NetFd) SetIPv6MulticastInterface(ifi *net.Interface) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
 	var v int
 	if ifi != nil {
 		v = ifi.Index
@@ -410,10 +509,20 @@ func (fd *NetFd) SetIPv6MulticastInterface(ifi *net.Interface) error {
 }
 
 func (fd *NetFd) SetIPv6MulticastLoopback(ok bool) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
 	return os.NewSyscallError("setsockopt", syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_IPV6, syscall.IPV6_MULTICAST_LOOP, boolint(ok)))
 }
 
 func (fd *NetFd) JoinIPv6Group(ifi *net.Interface, ip net.IP) error {
+	if !fd.Installed() {
+		if installErr := fd.Install(); installErr != nil {
+			return installErr
+		}
+	}
 	mreq := &syscall.IPv6Mreq{}
 	copy(mreq.Multiaddr[:], ip)
 	if ifi != nil {

@@ -118,9 +118,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// sotype
-	sotype := syscall.SOCK_STREAM | syscall.SOCK_NONBLOCK
+	subsotype := syscall.SOCK_NONBLOCK
 	if d.DisableDirectAlloc {
-		sotype |= syscall.SOCK_CLOEXEC
+		subsotype |= syscall.SOCK_CLOEXEC
 	}
 	// proto
 	proto := syscall.IPPROTO_TCP
@@ -130,7 +130,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, proto, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM, subsotype, proto, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -153,9 +153,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// addr
-	if laddr != nil {
-		fd.SetLocalAddr(laddr)
-	}
 	fd.SetRemoteAddr(raddr)
 
 	// no delay
@@ -245,12 +242,12 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// sotype
-	sotype := syscall.SOCK_DGRAM | syscall.SOCK_NONBLOCK
+	subsotype := syscall.SOCK_NONBLOCK
 	if d.DisableDirectAlloc {
-		sotype |= syscall.SOCK_CLOEXEC
+		subsotype |= syscall.SOCK_CLOEXEC
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM, subsotype, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -274,9 +271,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// addr
-	if laddr != nil {
-		fd.SetLocalAddr(laddr)
-	}
 	fd.SetRemoteAddr(raddr)
 
 	// send zc
@@ -368,12 +362,12 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		}
 	}
 	// sotype
-	sotype |= syscall.SOCK_NONBLOCK
+	subsotype := syscall.SOCK_NONBLOCK
 	if d.DisableDirectAlloc {
-		sotype |= syscall.SOCK_CLOEXEC
+		subsotype |= syscall.SOCK_CLOEXEC
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, subsotype, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
@@ -397,9 +391,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	}
 
 	// addr
-	if laddr != nil {
-		fd.SetLocalAddr(laddr)
-	}
 	fd.SetRemoteAddr(raddr)
 
 	// send zc
@@ -454,7 +445,7 @@ func (d *Dialer) DialIP(_ context.Context, network string, laddr, raddr *net.IPA
 	return &IPConn{c}, nil
 }
 
-func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, disableDirectAlloc bool, control sys.ControlContextFn) (fd *aio.NetFd, err error) {
+func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr net.Addr, raddr net.Addr, sotype int, subsotype int, proto int, disableDirectAlloc bool, control sys.ControlContextFn) (fd *aio.NetFd, err error) {
 	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
 		laddr = nil
 	}
@@ -466,7 +457,7 @@ func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr 
 		return
 	}
 
-	fd, err = aio.OpenNetFd(vortex, aio.DialMode, network, sotype, proto, laddr, raddr, !disableDirectAlloc)
+	fd, err = aio.OpenNetFd(vortex, aio.DialMode, network, sotype, subsotype, proto, laddr, raddr, !disableDirectAlloc)
 	if err != nil {
 		return
 	}
@@ -479,7 +470,14 @@ func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr 
 
 	// control
 	if control != nil {
-		raw := sys.NewRawConn(fd.RegularSocket())
+		if !fd.Installed() {
+			if installErr := fd.Install(); installErr != nil {
+				_ = fd.Close()
+				err = installErr
+				return
+			}
+		}
+		raw := sys.NewRawConn(fd.RegularFd())
 		address := ""
 		if raddr != nil {
 			address = raddr.String()

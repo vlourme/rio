@@ -76,7 +76,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			proto = mp
 		}
 	}
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -86,7 +86,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw := sys.NewRawConn(fd.RegularSocket())
+		raw := sys.NewRawConn(fd.RegularFd())
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -105,13 +105,13 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 		// cbpf (dep reuse port)
 		filter := cbpf.NewFilter(uint32(runtime.NumCPU()))
-		if err := filter.ApplyTo(fd.RegularSocket()); err != nil {
+		if err := filter.ApplyTo(fd.RegularFd()); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 	}
 	// defer accept
-	if err := syscall.SetsockoptInt(fd.RegularSocket(), syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
+	if err := syscall.SetsockoptInt(fd.RegularFd(), syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
 		_ = fd.Close()
 		err = os.NewSyscallError("setsockopt", err)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -124,13 +124,13 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	}
 	// listen
 	backlog := sys.MaxListenerBacklog()
-	if err := syscall.Listen(fd.RegularSocket(), backlog); err != nil {
+	if err := syscall.Listen(fd.RegularFd(), backlog); err != nil {
 		_ = fd.Close()
 		err = os.NewSyscallError("listen", err)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularSocket()); getSockNameErr == nil {
+	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
@@ -354,7 +354,7 @@ func (ln *TCPListener) SyscallConn() (syscall.RawConn, error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
 	}
-	return sys.NewRawConn(ln.fd.RegularSocket()), nil
+	return sys.NewRawConn(ln.fd.RegularFd()), nil
 }
 
 // File returns a copy of the underlying [os.File].
@@ -471,18 +471,18 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		sendMode = 1
 		break
 	case *TCPConn:
-		srcFd = v.fd.RegularSocket()
+		srcFd = v.fd.RegularFd()
 		sendMode = 1
 		break
 	case tcpConnWithoutWriteTo:
-		srcFd = v.fd.RegularSocket()
+		srcFd = v.fd.RegularFd()
 		sendMode = 1
 		break
 	case *UnixConn:
 		if v.fd.Net() != "unix" {
 			break
 		}
-		srcFd = v.fd.RegularSocket()
+		srcFd = v.fd.RegularFd()
 		sendMode = 1
 		break
 	case *os.File:
@@ -556,7 +556,7 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 	}
 	uc, ok := w.(*UnixConn)
 	if ok && uc.fd.Net() == "unix" {
-		fd := c.fd.RegularSocket()
+		fd := c.fd.RegularFd()
 		written, spliceErr := uc.fd.Splice(fd, 1<<63-1)
 		if spliceErr != nil {
 			if errors.Is(spliceErr, context.Canceled) {
@@ -688,6 +688,6 @@ func (c *TCPConn) MultipathTCP() (bool, error) {
 	if !c.ok() {
 		return false, syscall.EINVAL
 	}
-	ok := sys.IsUsingMultipathTCP(c.fd.RegularSocket())
+	ok := sys.IsUsingMultipathTCP(c.fd.RegularFd())
 	return ok, nil
 }

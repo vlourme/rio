@@ -58,7 +58,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -68,7 +68,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw := sys.NewRawConn(fd.RegularSocket())
+		raw := sys.NewRawConn(fd.RegularFd())
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -81,13 +81,13 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	}
 	// listen
 	backlog := sys.MaxListenerBacklog()
-	if err := syscall.Listen(fd.RegularSocket(), backlog); err != nil {
+	if err := syscall.Listen(fd.RegularFd(), backlog); err != nil {
 		_ = fd.Close()
 		err = os.NewSyscallError("listen", err)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularSocket()); getSockNameErr == nil {
+	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
@@ -159,7 +159,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -169,7 +169,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw := sys.NewRawConn(fd.RegularSocket())
+		raw := sys.NewRawConn(fd.RegularFd())
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -181,7 +181,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularSocket()); getSockNameErr == nil {
+	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
 		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
 			fd.SetLocalAddr(sockname)
 		} else {
@@ -403,7 +403,7 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
 	}
-	return sys.NewRawConn(ln.fd.RegularSocket()), nil
+	return sys.NewRawConn(ln.fd.RegularFd()), nil
 }
 
 // UnixConn is an implementation of the [net.Conn] interface for connections
