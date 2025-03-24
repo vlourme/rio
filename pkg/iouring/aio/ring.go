@@ -6,9 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
-	"github.com/brickingsoft/rio/pkg/process"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +42,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		options.SQThreadIdle = 10000
 	}
 	if options.Flags&iouring.SetupSQAff != 0 {
-		if err = process.MaskCPU(int(options.SQThreadCPU)); err != nil { // mask cpu when sq_aff set
+		if err = sys.MaskCPU(int(options.SQThreadCPU)); err != nil { // mask cpu when sq_aff set
 			err = NewRingErr(err)
 			return
 		}
@@ -177,21 +175,15 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 
 	// producer
 	var (
-		producerAFFCPU          = options.SQEProducerAffinityCPU
+		producerLockOSThread    = options.SQEProducerLockOSThread
 		producerBatchSize       = options.SQEProducerBatchSize
 		producerBatchTimeWindow = options.SQEProducerBatchTimeWindow
 		producerBatchIdleTime   = options.SQEProducerBatchIdleTime
 	)
-	if ring.Flags()&iouring.SetupSingleIssuer != 0 || runtime.NumCPU() > 3 {
-		if producerAFFCPU == -1 {
-			if ring.Flags()&iouring.SetupSingleIssuer != 0 {
-				producerAFFCPU = int(options.SQThreadCPU) + 1
-			} else {
-				producerAFFCPU = 0
-			}
-		}
+	if ring.Flags()&iouring.SetupSingleIssuer != 0 {
+		producerLockOSThread = true
 	}
-	producer := newSQEChanProducer(ring, producerAFFCPU, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)
+	producer := newSQEChanProducer(ring, producerLockOSThread, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)
 
 	consumerType := strings.ToUpper(strings.TrimSpace(options.CQEConsumerType))
 	if consumerType == "" {

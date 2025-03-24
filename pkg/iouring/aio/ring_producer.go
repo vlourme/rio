@@ -5,7 +5,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/process"
 	"os"
 	"runtime"
 	"sync"
@@ -23,17 +22,17 @@ type SQEProducer interface {
 	Close() error
 }
 
-func newSQEChanProducer(ring *iouring.Ring, affinityCPU int, batchSize int, batchTimeWindow time.Duration, batchIdleTime time.Duration) SQEProducer {
+func newSQEChanProducer(ring *iouring.Ring, producerLockOSThread bool, batchSize int, batchTimeWindow time.Duration, batchIdleTime time.Duration) SQEProducer {
 
 	p := &SQEChanProducer{
-		running:         atomic.Bool{},
-		ring:            ring,
-		ch:              make(chan *Operation, ring.SQEntries()),
-		affinityCPU:     affinityCPU,
-		batchSize:       batchSize,
-		batchTimeWindow: batchTimeWindow,
-		batchIdleTime:   batchIdleTime,
-		wg:              new(sync.WaitGroup),
+		running:              atomic.Bool{},
+		ring:                 ring,
+		ch:                   make(chan *Operation, ring.SQEntries()),
+		producerLockOSThread: producerLockOSThread,
+		batchSize:            batchSize,
+		batchTimeWindow:      batchTimeWindow,
+		batchIdleTime:        batchIdleTime,
+		wg:                   new(sync.WaitGroup),
 	}
 
 	p.running.Store(true)
@@ -49,14 +48,14 @@ func newSQEChanProducer(ring *iouring.Ring, affinityCPU int, batchSize int, batc
 }
 
 type SQEChanProducer struct {
-	running         atomic.Bool
-	ring            *iouring.Ring
-	ch              chan *Operation
-	affinityCPU     int
-	batchSize       int
-	batchTimeWindow time.Duration
-	batchIdleTime   time.Duration
-	wg              *sync.WaitGroup
+	running              atomic.Bool
+	ring                 *iouring.Ring
+	ch                   chan *Operation
+	producerLockOSThread bool
+	batchSize            int
+	batchTimeWindow      time.Duration
+	batchIdleTime        time.Duration
+	wg                   *sync.WaitGroup
 }
 
 func (producer *SQEChanProducer) Produce(op *Operation) bool {
@@ -78,9 +77,8 @@ func (producer *SQEChanProducer) Close() (err error) {
 func (producer *SQEChanProducer) handleImmediately() {
 	defer producer.wg.Done()
 
-	if producer.affinityCPU > -1 {
+	if producer.producerLockOSThread {
 		runtime.LockOSThread()
-		_ = process.SetCPUAffinity(producer.affinityCPU)
 		defer runtime.UnlockOSThread()
 	}
 	ring := producer.ring
@@ -130,9 +128,8 @@ func (producer *SQEChanProducer) handleImmediately() {
 func (producer *SQEChanProducer) handleBatch() {
 	defer producer.wg.Done()
 
-	if producer.affinityCPU > -1 {
+	if producer.producerLockOSThread {
 		runtime.LockOSThread()
-		_ = process.SetCPUAffinity(producer.affinityCPU)
 		defer runtime.UnlockOSThread()
 	}
 	ring := producer.ring

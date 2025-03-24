@@ -15,6 +15,7 @@ type Options struct {
 	RegisterFixedFiles          uint32
 	RegisterReservedFixedFiles  uint32
 	SQEProducerAffinityCPU      int
+	SQEProducerLockOSThread     bool
 	SQEProducerBatchSize        uint32
 	SQEProducerBatchTimeWindow  time.Duration
 	SQEProducerBatchIdleTime    time.Duration
@@ -83,11 +84,11 @@ func WithSQThreadIdle(idle time.Duration) Option {
 	}
 }
 
-// WithSQEProducerAffinityCPU
-// setup affinity cpu of preparing sqe.
-func WithSQEProducerAffinityCPU(cpu int) Option {
+// WithSQEProducerLockOSThread
+// setup lock os thread of producing sqe.
+func WithSQEProducerLockOSThread(lock bool) Option {
 	return func(opts *Options) {
-		opts.SQEProducerAffinityCPU = cpu
+		opts.SQEProducerLockOSThread = lock
 	}
 }
 

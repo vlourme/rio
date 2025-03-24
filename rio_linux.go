@@ -35,7 +35,7 @@ const (
 	envRegisterFixedFiles          = "RIO_IOURING_REG_FIXED_FILES"
 	envRegisterReservedFixedFiles  = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
 	envIOURingHeartbeatTimeout     = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envSQEProducerAffinityCPU      = "RIO_SQE_PROD_AFF_CPU"
+	envSQEProducerLockOSThread     = "RIO_SQE_PROD_LOCK_OSTHREAD"
 	envSQEProducerBatchSize        = "RIO_SQE_PROD_BATCH_SIZE"
 	envSQEProducerBatchTimeWindow  = "RIO_SQE_PROD_BATCH_TIME_WINDOW"
 	envSQEProducerBatchIdleTime    = "RIO_SQE_PROD_BATCH_IDLE_TIME"
@@ -94,9 +94,10 @@ func getVortex() (*aio.Vortex, error) {
 			}
 
 			// sqe >>>
-			if v, has := envLoadUint32(envSQEProducerAffinityCPU); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerAffinityCPU(int(v)))
+			if v := envLoadBool(envSQEProducerLockOSThread); v {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerLockOSThread(v))
 			}
+
 			if v, has := envLoadUint32(envSQEProducerBatchSize); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchSize(v))
 			}
@@ -145,6 +146,20 @@ func envLoadUint32(name string) (uint32, bool) {
 		return 0, false
 	}
 	return uint32(u), true
+}
+
+func envLoadBool(name string) bool {
+	s, has := os.LookupEnv(name)
+	if !has {
+		return false
+	}
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "true", "1", "y", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func envLoadUint32Coop(name string) (uint32, uint32, bool) {

@@ -23,10 +23,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 		return
 	}
 	// options
-	opt := Options{
-		SQEProducerAffinityCPU: -1,
-		CQEConsumerType:        CQEConsumerPushType,
-	}
+	opt := Options{}
 	for _, option := range options {
 		option(&opt)
 	}
