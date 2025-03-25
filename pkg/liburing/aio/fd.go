@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
-	"syscall"
 )
 
 const maxRW = 1 << 30
@@ -79,12 +78,6 @@ func (fd *Fd) RegularFd() int {
 
 func (fd *Fd) DirectFd() int {
 	return fd.direct
-}
-
-func (fd *Fd) SetCloseOnExec() {
-	if fd.regular != -1 {
-		syscall.CloseOnExec(fd.regular)
-	}
 }
 
 func (fd *Fd) Dup() (int, string, error) {
