@@ -3,8 +3,8 @@
 package rio
 
 import (
-	"github.com/brickingsoft/rio/pkg/iouring"
-	"github.com/brickingsoft/rio/pkg/iouring/aio"
+	"github.com/brickingsoft/rio/pkg/liburing"
+	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"os"
 	"runtime"
 	"strconv"
@@ -58,12 +58,12 @@ func getVortex() (*aio.Vortex, error) {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			} else {
 				if cpus := runtime.NumCPU(); cpus > 1 { // use sq_poll
-					v = iouring.SetupSQPoll | iouring.SetupSingleIssuer
+					v = liburing.SetupSQPoll | liburing.SetupSingleIssuer
 					if cpus > 3 {
-						v |= iouring.SetupSQAff
+						v |= liburing.SetupSQAff
 					}
 				} else { // use coop task run
-					v = iouring.SetupCoopTaskRun | iouring.SetupTaskRunFlag
+					v = liburing.SetupCoopTaskRun | liburing.SetupTaskRunFlag
 				}
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			}
@@ -193,7 +193,7 @@ func envLoadFlags(name string) (uint32, bool) {
 	flags := uint32(0)
 	ss := strings.Split(s, ",")
 	for _, s0 := range ss {
-		parsed := iouring.ParseSetupFlags(s0)
+		parsed := liburing.ParseSetupFlags(s0)
 		if parsed > 0 {
 			flags |= parsed
 		}

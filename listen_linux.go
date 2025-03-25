@@ -4,7 +4,7 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
 )
 

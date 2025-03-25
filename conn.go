@@ -1,7 +1,7 @@
 package rio
 
 import (
-	"github.com/brickingsoft/rio/pkg/iouring/aio"
+	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"net"
 )
 
