@@ -57,11 +57,15 @@ func newCQEPushTypedConsumer(ring *liburing.Ring, curve Curve) (CQEConsumer, err
 	}
 
 	// curve
-	if len(curve) == 0 {
+	if len(curve) == 0 { // todo make 2 curve, one for t10s, one for r5k
 		curve = Curve{
-			{512, 100 * time.Microsecond},
-			{1024, 200 * time.Microsecond},
-			{4096, 400 * time.Microsecond},
+			{8, 1 * time.Microsecond},
+			{32, 10 * time.Microsecond},
+			{96, 50 * time.Microsecond},
+			{128, 100 * time.Microsecond},
+			{256, 200 * time.Microsecond},
+			{512, 300 * time.Microsecond},
+			{1024, 500 * time.Microsecond},
 		}
 	}
 	c := &CQEPushTypedConsumer{
@@ -163,10 +167,10 @@ func (c *CQEPushTypedConsumer) handle() {
 					// try to peek more
 					goto PEEK
 				}
-
 				// wait when matched
 				if _, waitTime := transmission.Match(completed); waitTime > 0 {
 					time.Sleep(waitTime)
+					completed = 0
 					goto PEEK
 				}
 				// read
