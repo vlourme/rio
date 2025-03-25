@@ -78,7 +78,14 @@ func (fd *Fd) Sendfile(r io.Reader) (written int64, err error) {
 	srcFd := int(file.Fd())
 
 	if remain > int64(maxMMapSize) {
-		return fd.sendfileChunk(srcFd, offset, remain)
+		written, err = fd.sendfileChunk(srcFd, offset, remain)
+		if written > 0 {
+			_, _ = file.Seek(written, io.SeekCurrent)
+		}
+		if lr != nil {
+			lr.N -= written
+		}
+		return
 	}
 	// mmap
 	b, mmapErr := sys.Mmap(srcFd, offset, int(remain), syscall.PROT_READ, syscall.MAP_SHARED)
@@ -110,6 +117,10 @@ func (fd *Fd) Sendfile(r io.Reader) (written int64, err error) {
 			remain -= int64(n)
 		}
 		err = wErr
+	}
+
+	if written > 0 {
+		_, _ = file.Seek(written, io.SeekCurrent)
 	}
 
 	if lr != nil {

@@ -244,13 +244,16 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 	}
 	defer cli0.Close()
 
-	cli := cli0.(io.ReaderFrom)
+	cli := cli0.(*rio.TCPConn)
+	//cli.SetReadFromFilePolicy(rio.ReadFromFileUseMixPolicy)
 	crn, crErr := cli.ReadFrom(tmp)
 	if crErr != nil {
 		t.Error("cli read from", crErr)
 		return
 	}
 	t.Log("cli read from", crn, crn == int64(len(b)))
+	remain, remainErr := io.ReadAll(tmp)
+	t.Log("remain:", len(remain), remainErr)
 
 }
 

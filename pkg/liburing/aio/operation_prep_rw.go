@@ -106,17 +106,25 @@ func (op *Operation) packingWriteFixed(sqe *liburing.SubmissionQueueEntry) (err 
 }
 
 type SpliceParams struct {
-	FdIn   int
-	OffIn  int64
-	FdOut  int
-	OffOut int64
-	NBytes uint32
-	Flags  uint32
+	FdIn       int
+	FdInFixed  bool
+	OffIn      int64
+	FdOut      int
+	FdOutFixed bool
+	OffOut     int64
+	NBytes     uint32
+	Flags      uint32
 }
 
 func (op *Operation) PrepareSplice(params *SpliceParams) {
 	op.code = liburing.OpSplice
-	op.addr = unsafe.Pointer(&params)
+	if params.FdInFixed {
+		params.Flags |= liburing.SpliceFFdInFixed
+	}
+	op.addr = unsafe.Pointer(params)
+	if params.FdOutFixed {
+		op.sqeFlags |= liburing.SQEFixedFile
+	}
 }
 
 func (op *Operation) packingSplice(sqe *liburing.SubmissionQueueEntry) (err error) {
