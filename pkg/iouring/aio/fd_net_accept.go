@@ -137,6 +137,6 @@ func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
 }
 
 func (f *AcceptFuture) Cancel() (err error) {
-	_, _, err = f.vortex.CancelOperation(f.op)
+	err = f.vortex.CancelOperation(f.op)
 	return
 }

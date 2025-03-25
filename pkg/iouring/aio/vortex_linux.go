@@ -68,30 +68,13 @@ func (vortex *Vortex) FixedFdInstall(directFd int) (regularFd int, err error) {
 	return
 }
 
-func (vortex *Vortex) CancelOperation(op *Operation) (n int, cqeFlags uint32, err error) {
-	if err = vortex.tryCancelOperation(op); err != nil { // cancel succeed
-		r, ok := <-op.resultCh
-		if !ok {
-			op.Close()
-			err = ErrCanceled
-			return
-		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrTimeout
-		}
-		return
-	}
-	return
-}
-
-func (vortex *Vortex) tryCancelOperation(target *Operation) (err error) {
+func (vortex *Vortex) CancelOperation(target *Operation) (err error) {
 	if target.cancelAble() {
 		op := vortex.acquireOperation()
 		op.PrepareCancel(target)
 		_, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
-		if err != nil && !IsOperationInvalid(err) { // discard no op to cancel
+		if err != nil && !IsOperationInvalid(err) { // discard target missing
 			err = nil
 		}
 	}
