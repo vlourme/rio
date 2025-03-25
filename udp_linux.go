@@ -113,7 +113,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -186,15 +186,8 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: bindErr}
 	}
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
-		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
-			fd.SetLocalAddr(sockname)
-		} else {
-			fd.SetLocalAddr(addr)
-		}
-	} else {
-		fd.SetLocalAddr(addr)
-	}
+	fd.SetLocalAddr(addr)
+
 	// install fixed fd
 	if vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {

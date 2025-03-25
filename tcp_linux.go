@@ -69,18 +69,19 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
-	// fd
+
+	// proto
 	proto := syscall.IPPROTO_TCP
 	if lc.MultipathTCP {
 		if mp, ok := sys.TryGetMultipathTCPProto(); ok {
 			proto = mp
 		}
 	}
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto, addr, nil, false)
+	// fd (use regular fd only)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-
 	// control
 	if lc.Control != nil {
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
@@ -111,9 +112,8 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 	}
 	// defer accept
-	if err := syscall.SetsockoptInt(fd.RegularFd(), syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 1); err != nil {
+	if err := fd.SetTcpDeferAccept(true); err != nil {
 		_ = fd.Close()
-		err = os.NewSyscallError("setsockopt", err)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 
@@ -122,39 +122,30 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		_ = fd.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
+
 	// listen
-	backlog := sys.MaxListenerBacklog()
-	if err := syscall.Listen(fd.RegularFd(), backlog); err != nil {
+	if err := fd.Listen(); err != nil {
 		_ = fd.Close()
-		err = os.NewSyscallError("listen", err)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
+
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
-		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
-			fd.SetLocalAddr(sockname)
-		} else {
-			fd.SetLocalAddr(addr)
-		}
-	} else {
-		fd.SetLocalAddr(addr)
-	}
+	fd.SetLocalAddr(addr)
 
 	// install fixed fd
-	directMode := !lc.DisableDirectAlloc
 	if vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
-			directMode = false
 		}
 	}
-	if directMode {
-		directMode = vortex.DirectAllocEnabled()
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
 	}
-
 	// send zc
 	useSendZC := false
 	if lc.SendZC {
@@ -164,24 +155,11 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if lc.EnableInAdvanceIO {
 		fd.EnableInAdvance()
 	}
-	// no delay
-	_ = fd.SetNoDelay(true)
-	// keepalive
-	keepAliveConfig := lc.KeepAliveConfig
-	if !keepAliveConfig.Enable && lc.KeepAlive >= 0 {
-		keepAliveConfig = net.KeepAliveConfig{
-			Enable: true,
-			Idle:   lc.KeepAlive,
-		}
-	}
-	if keepAliveConfig.Enable {
-		_ = fd.SetKeepAliveConfig(keepAliveConfig)
-	}
 
 	// ln
 	ln := &TCPListener{
 		fd:                 fd,
-		directMode:         directMode,
+		directAlloc:        directAlloc,
 		vortex:             vortex,
 		acceptFuture:       nil,
 		multipathTCP:       lc.MultipathTCP,
@@ -206,7 +184,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
 	fd                 *aio.NetFd
-	directMode         bool
+	directAlloc        bool
 	vortex             *aio.Vortex
 	acceptFuture       *aio.AcceptFuture
 	multipathTCP       bool
@@ -240,12 +218,12 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 
 func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 	// accept
-	addr := &syscall.RawSockaddrAny{}
-	addrLen := syscall.SizeofSockaddrAny
 	var (
-		cfd *aio.NetFd
+		cfd     *aio.NetFd
+		addr    = &syscall.RawSockaddrAny{}
+		addrLen = syscall.SizeofSockaddrAny
 	)
-	if ln.directMode {
+	if ln.directAlloc {
 		cfd, err = ln.fd.AcceptDirectAlloc(addr, &addrLen, ln.deadline)
 	} else {
 		cfd, err = ln.fd.Accept(addr, &addrLen, ln.deadline)
@@ -299,7 +277,7 @@ func (ln *TCPListener) prepareMultishotAccepting() (err error) {
 	if backlog < 1024 {
 		backlog = 1024
 	}
-	if ln.directMode {
+	if ln.directAlloc {
 		future := ln.fd.AcceptMultishotDirectAsync(backlog)
 		ln.acceptFuture = future
 	} else {

@@ -58,7 +58,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -80,22 +80,29 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// listen
-	backlog := sys.MaxListenerBacklog()
-	if err := syscall.Listen(fd.RegularFd(), backlog); err != nil {
+	if err := fd.Listen(); err != nil {
 		_ = fd.Close()
-		err = os.NewSyscallError("listen", err)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
+
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
-		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
-			fd.SetLocalAddr(sockname)
-		} else {
-			fd.SetLocalAddr(addr)
+	fd.SetLocalAddr(addr)
+
+	// install fixed fd
+	if vortex.RegisterFixedFdEnabled() {
+		if regErr := fd.Register(); regErr != nil {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = fd.Close()
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
+			}
 		}
-	} else {
-		fd.SetLocalAddr(addr)
 	}
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
+	}
+
 	// send zc
 	useSendZC := false
 	if lc.SendZC {
@@ -113,6 +120,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		unlinkOnce:         sync.Once{},
 		vortex:             vortex,
 		acceptFuture:       nil,
+		directAlloc:        directAlloc,
 		useSendZC:          useSendZC,
 		useMultishotAccept: lc.MultishotAccept,
 		deadline:           time.Time{},
@@ -159,7 +167,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		}
 	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, false)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -181,15 +189,18 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// set socket addr
-	if sn, getSockNameErr := syscall.Getsockname(fd.RegularFd()); getSockNameErr == nil {
-		if sockname := sys.SockaddrToAddr(network, sn); sockname != nil {
-			fd.SetLocalAddr(sockname)
-		} else {
-			fd.SetLocalAddr(addr)
+	fd.SetLocalAddr(addr)
+
+	// install fixed fd
+	if vortex.RegisterFixedFdEnabled() {
+		if regErr := fd.Register(); regErr != nil {
+			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
+				_ = fd.Close()
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
+			}
 		}
-	} else {
-		fd.SetLocalAddr(addr)
 	}
+
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -224,6 +235,7 @@ type UnixListener struct {
 	unlinkOnce         sync.Once
 	vortex             *aio.Vortex
 	acceptFuture       *aio.AcceptFuture
+	directAlloc        bool
 	useSendZC          bool
 	useMultishotAccept bool
 	deadline           time.Time
@@ -254,17 +266,22 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 }
 
 func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
-
 	// accept
-	addr := &syscall.RawSockaddrAny{}
-	addrLen := syscall.SizeofSockaddrAny
-
-	cfd, acceptErr := ln.fd.Accept(addr, &addrLen, ln.deadline)
-	if acceptErr != nil {
-		if aio.IsCanceled(acceptErr) {
-			acceptErr = net.ErrClosed
+	var (
+		cfd     *aio.NetFd
+		addr    = &syscall.RawSockaddrAny{}
+		addrLen = syscall.SizeofSockaddrAny
+	)
+	if ln.directAlloc {
+		cfd, err = ln.fd.AcceptDirectAlloc(addr, &addrLen, ln.deadline)
+	} else {
+		cfd, err = ln.fd.Accept(addr, &addrLen, ln.deadline)
+	}
+	if err != nil {
+		if aio.IsCanceled(err) {
+			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 		return
 	}
 
@@ -309,8 +326,13 @@ func (ln *UnixListener) prepareMultishotAccepting() (err error) {
 	if backlog < 1024 {
 		backlog = 1024
 	}
-	future := ln.fd.AcceptMultishotAsync(backlog)
-	ln.acceptFuture = future
+	if ln.directAlloc {
+		future := ln.fd.AcceptMultishotDirectAsync(backlog)
+		ln.acceptFuture = future
+	} else {
+		future := ln.fd.AcceptMultishotAsync(backlog)
+		ln.acceptFuture = future
+	}
 	return
 }
 

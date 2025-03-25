@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
+	"golang.org/x/sys/unix"
 	"os"
 	"strconv"
 	"strings"
@@ -67,6 +68,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		directAllocEnabled   = iouring.VersionEnable(6, 7, 0) && probe.IsSupported(iouring.OPFixedFdInstall) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
 		files                []int
 		fileIndexes          *Queue[int]
+		reservedHolds        []int
 	)
 
 	if registerFiledEnabled {
@@ -98,8 +100,11 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 			// reserved
 			files = make([]int, options.RegisterReservedFixedFiles)
 			fileIndexes = NewQueue[int]()
+			reservedHolds = make([]int, options.RegisterReservedFixedFiles)
 			for i := uint32(0); i < options.RegisterReservedFixedFiles; i++ {
-				files[i] = -1
+				reservedHold, _ := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
+				files[i] = 0
+				reservedHolds[i] = reservedHold
 				idx := int(i)
 				fileIndexes.Enqueue(&idx)
 			}
@@ -110,6 +115,12 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 				return
 			}
 			// keep reserved
+			if _, regErr := ring.RegisterFilesUpdate(0, files); regErr != nil {
+				_ = ring.Close()
+				err = NewRingErr(regErr)
+				return
+			}
+			// todo: not works, so use reserved holds
 			if _, regErr := ring.RegisterFileAllocRange(options.RegisterReservedFixedFiles, options.RegisterFixedFiles-options.RegisterReservedFixedFiles); regErr != nil {
 				_ = ring.Close()
 				err = NewRingErr(regErr)
@@ -222,6 +233,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		fixedFileLocker:    new(sync.Mutex),
 		files:              files,
 		fileIndexes:        fileIndexes,
+		reservedHolds:      reservedHolds,
 	}
 
 	go r.heartbeat()
@@ -242,6 +254,7 @@ type Ring struct {
 	fixedFileLocker    sync.Locker
 	files              []int
 	fileIndexes        *Queue[int]
+	reservedHolds      []int
 }
 
 func (r *Ring) Fd() int {
@@ -370,6 +383,9 @@ func (r *Ring) Close() (err error) {
 	// unregister files
 	if r.RegisterFixedFdEnabled() {
 		_, _ = r.ring.UnregisterFiles()
+	}
+	for _, fd := range r.reservedHolds {
+		_ = syscall.Close(fd)
 	}
 	// close
 	err = r.ring.Close()

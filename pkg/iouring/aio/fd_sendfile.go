@@ -46,7 +46,10 @@ func (fd *Fd) Sendfile(r io.Reader) (written int64, err error) {
 
 	offset := int64(0)
 
-	if fd.regular != -1 && fd.nonBlocking && remain < sendFileChunkSize {
+	if remain < sendFileChunkSize {
+		if !fd.Installed() {
+			_ = fd.Install()
+		}
 		if sc, scErr := file.SyscallConn(); scErr == nil {
 			var (
 				wn   int

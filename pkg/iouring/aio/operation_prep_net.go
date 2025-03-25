@@ -32,6 +32,27 @@ func (op *Operation) packingConnect(sqe *iouring.SubmissionQueueEntry) (err erro
 	return
 }
 
+func (op *Operation) PrepareListen(nfd *NetFd, backlog int) {
+	fd, direct := nfd.FileDescriptor()
+	if direct {
+		op.sqeFlags |= iouring.SQEFixedFile
+	}
+	if nfd.Async() {
+		op.sqeFlags |= iouring.SQEAsync
+	}
+	op.code = iouring.OpListen
+	op.fd = fd
+	op.addrLen = uint32(backlog)
+	return
+}
+
+func (op *Operation) packingListen(sqe *iouring.SubmissionQueueEntry) (err error) {
+	sqe.PrepareListen(op.fd, op.addrLen)
+	sqe.SetFlags(op.sqeFlags)
+	sqe.SetData(unsafe.Pointer(op))
+	return
+}
+
 func (op *Operation) PrepareBind(nfd *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
-	"os"
 	"sync"
 	"syscall"
 )
@@ -20,7 +19,6 @@ type Fd struct {
 	isStream      bool
 	zeroReadIsEOF bool
 	async         bool
-	nonBlocking   bool
 	inAdvanceIO   bool
 	locker        sync.Mutex
 	vortex        *Vortex
@@ -36,7 +34,7 @@ func (fd *Fd) FileDescriptor() (n int, direct bool) {
 }
 
 func (fd *Fd) Name() string {
-	return fmt.Sprintf("[fd:%d][direct:%d][allocated:%t][async:%t][nonblocking:%t]", fd.regular, fd.direct, fd.allocated, fd.async, fd.nonBlocking)
+	return fmt.Sprintf("[fd:%d][direct:%d][allocated:%t][async:%t][advance:%t]", fd.regular, fd.direct, fd.allocated, fd.async, fd.inAdvanceIO)
 }
 
 func (fd *Fd) IsStream() bool {
@@ -60,7 +58,7 @@ func (fd *Fd) EnableInAdvance() {
 }
 
 func (fd *Fd) canInAdvance() bool {
-	return fd.inAdvanceIO && fd.regular != -1 && fd.nonBlocking
+	return fd.inAdvanceIO && fd.regular != -1
 }
 
 func (fd *Fd) Vortex() *Vortex {
@@ -73,20 +71,6 @@ func (fd *Fd) RegularFd() int {
 
 func (fd *Fd) DirectFd() int {
 	return fd.direct
-}
-
-func (fd *Fd) SetNonblocking(nonblocking bool) error {
-	if fd.regular == -1 {
-		return errors.New("fd has not installed")
-	}
-	if err := syscall.SetNonblock(fd.regular, nonblocking); err != nil {
-		return os.NewSyscallError("setnonblock", err)
-	}
-	return nil
-}
-
-func (fd *Fd) Nonblocking() bool {
-	return fd.nonBlocking
 }
 
 func (fd *Fd) SetCloseOnExec() {

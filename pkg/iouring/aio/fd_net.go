@@ -25,7 +25,7 @@ const (
 func OpenNetFd(
 	vortex *Vortex,
 	mode OpenNetFdMode,
-	network string, sotype int, subsotype int, proto int,
+	network string, sotype int, proto int,
 	laddr net.Addr, raddr net.Addr,
 	directAlloc bool,
 ) (fd *NetFd, err error) {
@@ -42,28 +42,26 @@ func OpenNetFd(
 	// sock
 	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, string(mode))
 	var (
-		regular     = -1
-		direct      = -1
-		nonblocking = subsotype&syscall.SOCK_NONBLOCK != 0
-		sockErr     error
+		regular = -1
+		direct  = -1
+		sockErr error
 	)
 	if directAlloc {
 		op := vortex.acquireOperation()
-		op.WithDirect(true).PrepareSocket(family, sotype|subsotype, proto)
+		op.WithDirect(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
 		direct, _, sockErr = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
 		if sockErr == nil && mode == ListenMode {
 			regular, sockErr = vortex.FixedFdInstall(direct)
 		}
 	} else {
-		regular, sockErr = syscall.Socket(family, sotype|subsotype, proto)
+		regular, sockErr = syscall.Socket(family, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto)
 	}
 	if sockErr != nil {
 		err = sockErr
 		return
 	}
 	// fd
-
 	fd = &NetFd{
 		Fd: Fd{
 			regular:       regular,
@@ -72,7 +70,6 @@ func OpenNetFd(
 			isStream:      sotype == syscall.SOCK_STREAM,
 			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 			async:         false,
-			nonBlocking:   nonblocking,
 			inAdvanceIO:   false,
 			vortex:        vortex,
 		},
@@ -168,29 +165,6 @@ func (fd *NetFd) RemoteAddr() net.Addr {
 
 func (fd *NetFd) SetRemoteAddr(addr net.Addr) {
 	fd.raddr = addr
-}
-
-func (fd *NetFd) Bind(addr net.Addr) error {
-	sa, saErr := sys.AddrToSockaddr(addr)
-	if saErr != nil {
-		return saErr
-	}
-	if fd.Installed() {
-		if err := syscall.Bind(fd.regular, sa); err != nil {
-			return os.NewSyscallError("bind", err)
-		}
-	} else {
-		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-		if rsaErr != nil {
-			return os.NewSyscallError("bind", rsaErr)
-		}
-		op := fd.vortex.acquireOperation()
-		op.PrepareBind(fd, rsa, int(rsaLen))
-		_, _, err := fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
-		return err
-	}
-	return nil
 }
 
 func (fd *NetFd) ReadBuffer() (n int, err error) {
@@ -443,6 +417,17 @@ func (fd *NetFd) SetReuseAddr(ok bool) error {
 		}
 	} else {
 		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok))
+	}
+	return nil
+}
+
+func (fd *NetFd) SetTcpDeferAccept(ok bool) error {
+	if fd.Installed() {
+		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok)); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok))
 	}
 	return nil
 }

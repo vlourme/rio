@@ -49,6 +49,9 @@ func (op *Operation) packingSQE(sqe *iouring.SubmissionQueueEntry) (err error) {
 	case iouring.OpConnect:
 		err = op.packingConnect(sqe)
 		break
+	case iouring.OpListen:
+		err = op.packingListen(sqe)
+		break
 	case iouring.OpBind:
 		err = op.packingBind(sqe)
 		break
