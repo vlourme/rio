@@ -203,8 +203,8 @@ wn, wErr := fixed.WriteFixed(buf)
 | RIO_IOURING_SQ_THREAD_CPU            | 数字 | 设置 SQ 环锁亲和的 CPU。                                   |
 | RIO_IOURING_SQ_THREAD_IDLE           | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 10 秒。 |
 | RIO_IOURING_REG_FIXED_BUFFERS        | 文本 | 设置注册固定字节缓存，格式为 `单个大小, 个数`， 如`4096, 1024`。          |
-| RIO_IOURING_REG_FIXED_FILES          | 数字 | 设置注册固定描述符。                                         |
-| RIO_IOURING_REG_FIXED_FILES_RESERVED | 数字 | 设置预留的注册固定描述符。                                      |
+| RIO_IOURING_REG_FIXED_FILES          | 数字 | 设置注册固定描述符，当内核`>=6.7`后，默认`65535`。                   |
+| RIO_IOURING_REG_FIXED_FILES_RESERVED | 数字 | 设置预留的注册固定描述符，只用于非`generic`的内核，如`WSL2`。             |
 | RIO_PREP_SQE_AFF_CPU                 | 数字 | 设置准备 SQE 线程所亲和的 CPU。                               |
 | RIO_PREP_SQE_BATCH_MIN_SIZE          | 数字 | 设置准备 SQE 的最小批量大小。                                  |
 | RIO_PREP_SQE_BATCH_TIME_WINDOW       | 文本 | 批量准备 SQE 的时间窗口。格式为时长，如`500us`。                     |
