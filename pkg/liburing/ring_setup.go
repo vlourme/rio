@@ -76,6 +76,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 		ring.kind |= regRing | doubleRegRing
 	} else {
 		ring.ringFd = fd
+		syscall.CloseOnExec(ring.ringFd)
 	}
 	return nil
 }
