@@ -5,6 +5,7 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/iouring"
+	"github.com/brickingsoft/rio/pkg/iouring/aio/queue"
 	"github.com/brickingsoft/rio/pkg/iouring/aio/sys"
 	"golang.org/x/sys/unix"
 	"os"
@@ -67,7 +68,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		registerFiledEnabled = iouring.VersionEnable(6, 0, 0)                                                // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
 		directAllocEnabled   = iouring.VersionEnable(6, 7, 0) && probe.IsSupported(iouring.OPFixedFdInstall) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
 		files                []int
-		fileIndexes          *Queue[int]
+		fileIndexes          *queue.Queue[int]
 		reservedHolds        []int
 	)
 
@@ -99,7 +100,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 			}
 			// reserved
 			files = make([]int, options.RegisterReservedFixedFiles)
-			fileIndexes = NewQueue[int]()
+			fileIndexes = queue.New[int]()
 			reservedHolds = make([]int, options.RegisterReservedFixedFiles)
 			for i := uint32(0); i < options.RegisterReservedFixedFiles; i++ {
 				reservedHold, _ := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
@@ -144,7 +145,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 				}
 			}
 			files = make([]int, options.RegisterReservedFixedFiles)
-			fileIndexes = NewQueue[int]()
+			fileIndexes = queue.New[int]()
 			for i := uint32(0); i < options.RegisterReservedFixedFiles; i++ {
 				files[i] = -1
 				idx := int(i)
@@ -160,7 +161,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 	}
 
 	// register buffers
-	buffers := NewQueue[FixedBuffer]()
+	buffers := queue.New[FixedBuffer]()
 	if size, count := options.RegisterFixedBufferSize, options.RegisterFixedBufferCount; count > 0 && size > 0 {
 		iovecs := make([]syscall.Iovec, count)
 		for i := uint32(0); i < count; i++ {
@@ -249,11 +250,11 @@ type Ring struct {
 	producer           SQEProducer
 	consumer           CQEConsumer
 	bufferRegistered   bool
-	buffers            *Queue[FixedBuffer]
+	buffers            *queue.Queue[FixedBuffer]
 	directAllocEnabled bool
 	fixedFileLocker    sync.Locker
 	files              []int
-	fileIndexes        *Queue[int]
+	fileIndexes        *queue.Queue[int]
 	reservedHolds      []int
 }
 

@@ -1,10 +1,10 @@
-package aio
+package queue
 
 import (
 	"sync/atomic"
 )
 
-func NewQueue[E any]() *Queue[E] {
+func New[E any]() *Queue[E] {
 	node := &queueNode[E]{}
 	q := &Queue[E]{}
 	q.head.Store(node)
