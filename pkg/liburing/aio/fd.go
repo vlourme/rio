@@ -58,7 +58,15 @@ func (fd *Fd) EnableInAdvance() {
 }
 
 func (fd *Fd) canInAdvance() bool {
-	return fd.inAdvanceIO && fd.regular != -1
+	if !fd.inAdvanceIO {
+		return false
+	}
+	if fd.regular == -1 {
+		if err := fd.Install(); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func (fd *Fd) Vortex() *Vortex {

@@ -168,6 +168,7 @@ func (c *CQEPushTypedConsumer) handle() {
 				// wait when matched
 				if _, waitTime := transmission.Match(completed); waitTime > 0 {
 					time.Sleep(waitTime)
+					goto PEEK
 				}
 				break
 			default:
