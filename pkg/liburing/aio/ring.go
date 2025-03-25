@@ -65,10 +65,11 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 
 	// register files
 	var (
+		generic              = liburing.GenericVersion()
 		registerFiledEnabled = liburing.VersionEnable(6, 0, 0)                                                 // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
 		directAllocEnabled   = liburing.VersionEnable(6, 7, 0) && probe.IsSupported(liburing.OPFixedFdInstall) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
 		files                []int
-		fileIndexes          *queue.Queue[int]
+		fileIndexes          = queue.New[int]()
 		reservedHolds        []int
 	)
 
@@ -90,41 +91,43 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 					return
 				}
 			}
-			if options.RegisterReservedFixedFiles == 0 {
-				options.RegisterReservedFixedFiles = 8
-			}
-			if options.RegisterReservedFixedFiles*4 >= options.RegisterFixedFiles {
-				_ = ring.Close()
-				err = NewRingErr(errors.New("reserved fixed files too big"))
-				return
-			}
-			// reserved
-			files = make([]int, options.RegisterReservedFixedFiles)
-			fileIndexes = queue.New[int]()
-			reservedHolds = make([]int, options.RegisterReservedFixedFiles)
-			for i := uint32(0); i < options.RegisterReservedFixedFiles; i++ {
-				reservedHold, _ := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
-				reservedHolds[i] = reservedHold
-				files[i] = reservedHold
-				idx := int(i)
-				fileIndexes.Enqueue(&idx)
-			}
 			// register files
 			if _, regErr := ring.RegisterFilesSparse(options.RegisterFixedFiles); regErr != nil {
 				_ = ring.Close()
 				err = NewRingErr(regErr)
 				return
 			}
-			// keep reserved
-			if _, regErr := ring.RegisterFilesUpdate(0, files); regErr != nil {
-				_ = ring.Close()
-				err = NewRingErr(regErr)
-				return
-			}
-			if _, regErr := ring.RegisterFileAllocRange(options.RegisterReservedFixedFiles, options.RegisterFixedFiles-options.RegisterReservedFixedFiles); regErr != nil {
-				_ = ring.Close()
-				err = NewRingErr(regErr)
-				return
+			if !generic { // wsl2 is not support well, use reserved to make listen good.
+				if options.RegisterFixedFilesReserved == 0 {
+					options.RegisterFixedFilesReserved = 8
+				}
+				if options.RegisterFixedFilesReserved*4 >= options.RegisterFixedFiles {
+					_, _ = ring.UnregisterFiles()
+					_ = ring.Close()
+					err = NewRingErr(errors.New("reserved fixed files too big"))
+					return
+				}
+				// reserved
+				files = make([]int, options.RegisterFixedFilesReserved)
+				reservedHolds = make([]int, options.RegisterFixedFilesReserved)
+				for i := uint32(0); i < options.RegisterFixedFilesReserved; i++ {
+					reservedHold, _ := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
+					reservedHolds[i] = reservedHold
+					files[i] = reservedHold
+					idx := int(i)
+					fileIndexes.Enqueue(&idx)
+				}
+				// keep reserved
+				if _, regErr := ring.RegisterFilesUpdate(0, files); regErr != nil {
+					_ = ring.Close()
+					err = NewRingErr(regErr)
+					return
+				}
+				if _, regErr := ring.RegisterFileAllocRange(options.RegisterFixedFilesReserved, options.RegisterFixedFiles-options.RegisterFixedFilesReserved); regErr != nil {
+					_ = ring.Close()
+					err = NewRingErr(regErr)
+					return
+				}
 			}
 		} else { // use list and register files
 			if options.RegisterFixedFiles == 0 {
@@ -143,9 +146,8 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 					return
 				}
 			}
-			files = make([]int, options.RegisterReservedFixedFiles)
-			fileIndexes = queue.New[int]()
-			for i := uint32(0); i < options.RegisterReservedFixedFiles; i++ {
+			files = make([]int, options.RegisterFixedFiles)
+			for i := uint32(0); i < options.RegisterFixedFiles; i++ {
 				files[i] = -1
 				idx := int(i)
 				fileIndexes.Enqueue(&idx)
@@ -301,7 +303,7 @@ func (r *Ring) RegisterFixedFd(fd int) (index int, err error) {
 		return
 	}
 	r.files[index] = fd
-	_, err = r.ring.RegisterFilesUpdate(uint(index), r.files[index:index+1])
+	_, err = r.ring.RegisterFilesUpdate(0, r.files)
 	if err != nil {
 		r.releaseFixedFd(index)
 		index = -1
@@ -317,7 +319,7 @@ func (r *Ring) UnregisterFixedFd(index int) (err error) {
 	r.fixedFileLocker.Lock()
 	defer r.fixedFileLocker.Unlock()
 	r.files[index] = -1
-	_, err = r.ring.RegisterFilesUpdate(uint(index), r.files[index:index+1])
+	_, err = r.ring.RegisterFilesUpdate(0, r.files)
 	return
 }
 

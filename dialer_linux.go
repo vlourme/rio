@@ -457,14 +457,12 @@ func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr 
 
 	// control
 	if control != nil {
-		if !fd.Installed() {
-			if installErr := fd.Install(); installErr != nil {
-				_ = fd.Close()
-				err = installErr
-				return
-			}
+		raw, rawErr := fd.SyscallConn()
+		if rawErr != nil {
+			_ = fd.Close()
+			err = rawErr
+			return
 		}
-		raw := sys.NewRawConn(fd.RegularFd())
 		address := ""
 		if raddr != nil {
 			address = raddr.String()

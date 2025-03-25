@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
+	"syscall"
 )
 
 const maxRW = 1 << 30
@@ -122,6 +123,15 @@ func (fd *Fd) Install() (err error) {
 	}
 	fd.regular = regular
 	return
+}
+
+func (fd *Fd) SyscallConn() (syscall.RawConn, error) {
+	if !fd.Installed() {
+		if err := fd.Install(); err != nil {
+			return nil, err
+		}
+	}
+	return sys.NewRawConn(fd.RegularFd()), nil
 }
 
 func boolint(b bool) int {

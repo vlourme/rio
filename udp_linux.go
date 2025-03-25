@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
@@ -112,11 +113,21 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
+	}
+	directAllocLn := false
+	if directAlloc {
+		directAllocLn = liburing.GenericVersion()
+	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAllocLn)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
+
 	// broadcast
 	if err := fd.SetBroadcast(true); err != nil {
 		_ = fd.Close()
@@ -172,7 +183,11 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw := sys.NewRawConn(fd.RegularFd())
+		raw, rawErr := fd.SyscallConn()
+		if rawErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
+		}
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}

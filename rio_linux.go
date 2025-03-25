@@ -33,7 +33,7 @@ const (
 	envSQThreadIdle                = "RIO_IOURING_SQ_THREAD_IDLE"
 	envRegisterFixedBuffers        = "RIO_IOURING_REG_FIXED_BUFFERS"
 	envRegisterFixedFiles          = "RIO_IOURING_REG_FIXED_FILES"
-	envRegisterReservedFixedFiles  = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
+	envRegisterFixedFilesReserved  = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
 	envIOURingHeartbeatTimeout     = "RIO_IOURING_HEARTBEAT_TIMEOUT"
 	envSQEProducerLockOSThread     = "RIO_SQE_PROD_LOCK_OSTHREAD"
 	envSQEProducerBatchSize        = "RIO_SQE_PROD_BATCH_SIZE"
@@ -83,8 +83,8 @@ func getVortex() (*aio.Vortex, error) {
 			if v, has := envLoadUint32(envRegisterFixedFiles); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(v))
 			}
-			if v, has := envLoadUint32(envRegisterReservedFixedFiles); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterReservedFixedFiles(v))
+			if v, has := envLoadUint32(envRegisterFixedFilesReserved); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFilesReserved(v))
 			}
 			// fixed <<<
 

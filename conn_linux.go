@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"io"
 	"net"
 	"os"
@@ -323,7 +322,7 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 	if !c.ok() {
 		return nil, syscall.EINVAL
 	}
-	return sys.NewRawConn(c.fd.RegularFd()), nil
+	return c.fd.SyscallConn()
 }
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }

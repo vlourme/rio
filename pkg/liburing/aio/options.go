@@ -13,7 +13,7 @@ type Options struct {
 	RegisterFixedBufferSize     uint32
 	RegisterFixedBufferCount    uint32
 	RegisterFixedFiles          uint32
-	RegisterReservedFixedFiles  uint32
+	RegisterFixedFilesReserved  uint32
 	SQEProducerAffinityCPU      int
 	SQEProducerLockOSThread     bool
 	SQEProducerBatchSize        uint32
@@ -192,11 +192,11 @@ func WithRegisterFixedFiles(files uint32) Option {
 	}
 }
 
-// WithRegisterReservedFixedFiles
-// setup  register reserved fixed fd of iouring.
-func WithRegisterReservedFixedFiles(files uint32) Option {
+// WithRegisterFixedFilesReserved
+// setup register reserved fixed fd for not generic kernel of iouring, such as WSL2.
+func WithRegisterFixedFilesReserved(files uint32) Option {
 	return func(opts *Options) {
-		opts.RegisterReservedFixedFiles = files
+		opts.RegisterFixedFilesReserved = files
 	}
 }
 

@@ -5,6 +5,7 @@ package rio
 import (
 	"context"
 	"errors"
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"golang.org/x/sys/unix"
@@ -57,8 +58,17 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
+	}
+	directAllocLn := false
+	if directAlloc {
+		directAllocLn = liburing.GenericVersion()
+	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype, 0, addr, nil, directAllocLn)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -68,7 +78,11 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw := sys.NewRawConn(fd.RegularFd())
+		raw, rawErr := fd.SyscallConn()
+		if rawErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
+		}
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -88,11 +102,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	// set socket addr
 	fd.SetLocalAddr(addr)
 
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
-	}
 	// install fixed fd
 	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
@@ -166,8 +175,17 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
+	}
+	directAllocLn := false
+	if directAlloc {
+		directAllocLn = liburing.GenericVersion()
+	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, false)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAllocLn)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -177,7 +195,11 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw := sys.NewRawConn(fd.RegularFd())
+		raw, rawErr := fd.SyscallConn()
+		if rawErr != nil {
+			_ = fd.Close()
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
+		}
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -425,7 +447,7 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 	if !ln.ok() {
 		return nil, syscall.EINVAL
 	}
-	return sys.NewRawConn(ln.fd.RegularFd()), nil
+	return ln.fd.SyscallConn()
 }
 
 // UnixConn is an implementation of the [net.Conn] interface for connections
