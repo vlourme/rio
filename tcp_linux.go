@@ -69,7 +69,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
-
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if lc.MultipathTCP {
@@ -105,10 +104,12 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 		// cbpf (dep reuse port)
-		filter := cbpf.NewFilter(uint32(runtime.NumCPU()))
-		if err := filter.ApplyTo(fd.RegularFd()); err != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+		if fd.Installed() {
+			filter := cbpf.NewFilter(uint32(runtime.NumCPU()))
+			if err := filter.ApplyTo(fd.RegularFd()); err != nil {
+				_ = fd.Close()
+				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+			}
 		}
 	}
 	// defer accept
@@ -131,20 +132,19 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 
 	// set socket addr
 	fd.SetLocalAddr(addr)
-
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
+	}
 	// install fixed fd
-	if vortex.RegisterFixedFdEnabled() {
+	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 		}
-	}
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
 	}
 	// send zc
 	useSendZC := false
@@ -405,21 +405,6 @@ type TCPConn struct {
 	readFromFilePolicy int32
 }
 
-const (
-	ReadFromFileUseMMapPolicy = int32(iota)
-	ReadFromFileUseMixPolicy
-)
-
-func (c *TCPConn) SetReadFromFilePolicy(policy int32) {
-	switch policy {
-	case ReadFromFileUseMMapPolicy, ReadFromFileUseMixPolicy:
-		c.readFromFilePolicy = policy
-		break
-	default:
-		break
-	}
-}
-
 // ReadFrom implements the [io.ReaderFrom] ReadFrom method.
 func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 	if !c.ok() {
@@ -465,21 +450,17 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		sendMode = 1
 		break
 	case *os.File:
-		if c.readFromFilePolicy == ReadFromFileUseMixPolicy {
-			if remain == 1<<63-1 {
-				info, infoErr := v.Stat()
-				if infoErr != nil {
-					return 0, infoErr
-				}
-				remain = info.Size()
+		if remain == 1<<63-1 {
+			info, infoErr := v.Stat()
+			if infoErr != nil {
+				return 0, infoErr
 			}
-			wb, _ := c.WriteBuffer()
-			if remain <= int64(wb) {
-				srcFd = int(v.Fd())
-				sendMode = 1
-			} else {
-				sendMode = 2
-			}
+			remain = info.Size()
+		}
+		wb, _ := c.WriteBuffer()
+		if remain <= int64(wb) {
+			srcFd = int(v.Fd())
+			sendMode = 1
 		} else {
 			sendMode = 2
 		}
@@ -504,7 +485,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 			return written, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: spliceErr}
 		}
 		return written, nil
-	case 2: // sendfile(mmap+send)
+	case 2: // (sendfile+mmap+send)
 		written, sendfileErr := c.fd.Sendfile(r)
 		if lr != nil {
 			lr.N -= written

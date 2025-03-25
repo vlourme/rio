@@ -88,19 +88,19 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	// set socket addr
 	fd.SetLocalAddr(addr)
 
+	// directAlloc
+	directAlloc := !lc.DisableDirectAlloc
+	if directAlloc {
+		directAlloc = vortex.DirectAllocEnabled()
+	}
 	// install fixed fd
-	if vortex.RegisterFixedFdEnabled() {
+	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
 			}
 		}
-	}
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
 	}
 
 	// send zc
@@ -192,7 +192,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	fd.SetLocalAddr(addr)
 
 	// install fixed fd
-	if vortex.RegisterFixedFdEnabled() {
+	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()

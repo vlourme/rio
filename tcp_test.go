@@ -21,7 +21,7 @@ func TestTCP(t *testing.T) {
 	config := rio.ListenConfig{
 		MultipathTCP:       false,
 		ReusePort:          false,
-		MultishotAccept:    true,
+		MultishotAccept:    false,
 		DisableDirectAlloc: false,
 		EnableInAdvanceIO:  false,
 	}
@@ -244,8 +244,7 @@ func TestTCPConn_ReadFrom(t *testing.T) {
 	}
 	defer cli0.Close()
 
-	cli := cli0.(*rio.TCPConn)
-	//cli.SetReadFromFilePolicy(rio.ReadFromFileUseMixPolicy)
+	cli := cli0.(io.ReaderFrom)
 	crn, crErr := cli.ReadFrom(tmp)
 	if crErr != nil {
 		t.Error("cli read from", crErr)

@@ -189,7 +189,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	fd.SetLocalAddr(addr)
 
 	// install fixed fd
-	if vortex.RegisterFixedFdEnabled() {
+	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()

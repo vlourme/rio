@@ -104,8 +104,8 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 			reservedHolds = make([]int, options.RegisterReservedFixedFiles)
 			for i := uint32(0); i < options.RegisterReservedFixedFiles; i++ {
 				reservedHold, _ := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
-				files[i] = 0
 				reservedHolds[i] = reservedHold
+				files[i] = reservedHold
 				idx := int(i)
 				fileIndexes.Enqueue(&idx)
 			}
@@ -121,7 +121,6 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 				err = NewRingErr(regErr)
 				return
 			}
-			// todo: not works, so use reserved holds
 			if _, regErr := ring.RegisterFileAllocRange(options.RegisterReservedFixedFiles, options.RegisterFixedFiles-options.RegisterReservedFixedFiles); regErr != nil {
 				_ = ring.Close()
 				err = NewRingErr(regErr)
@@ -371,7 +370,6 @@ func (r *Ring) Close() (err error) {
 	_ = r.producer.Close()
 	// close consumer
 	_ = r.consumer.Close()
-
 	// unregister buffers
 	if r.bufferRegistered {
 		_, _ = r.ring.UnregisterBuffers()
@@ -385,8 +383,11 @@ func (r *Ring) Close() (err error) {
 	if r.RegisterFixedFdEnabled() {
 		_, _ = r.ring.UnregisterFiles()
 	}
-	for _, fd := range r.reservedHolds {
-		_ = syscall.Close(fd)
+	// close reserved holds
+	if len(r.reservedHolds) > 0 {
+		for _, fd := range r.reservedHolds {
+			_ = syscall.Close(fd)
+		}
 	}
 	// close
 	err = r.ring.Close()
