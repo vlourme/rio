@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"golang.org/x/sys/unix"
+	"strings"
 	"sync"
 )
 
@@ -54,8 +55,16 @@ func (v Version) LT(major, minor, patch int) bool {
 	return v.Compare(Version{Major: major, Minor: minor, Patch: patch}) < 0
 }
 
+func (v Version) IsGeneric() bool {
+	return strings.Contains(v.Flavor, "generic")
+}
+
 func (v Version) String() string {
 	return fmt.Sprintf("%d.%d.%d%s", v.Major, v.Minor, v.Patch, v.Flavor)
+}
+
+func GenericVersion() bool {
+	return GetVersion().IsGeneric()
 }
 
 func VersionEnable(major, minor, patch int) bool {
