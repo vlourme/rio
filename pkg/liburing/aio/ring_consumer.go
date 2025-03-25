@@ -163,13 +163,14 @@ func (c *CQEPushTypedConsumer) handle() {
 					// try to peek more
 					goto PEEK
 				}
-				// read
-				_, _ = unix.Read(c.eventFd, buf)
+
 				// wait when matched
 				if _, waitTime := transmission.Match(completed); waitTime > 0 {
 					time.Sleep(waitTime)
 					goto PEEK
 				}
+				// read
+				_, _ = unix.Read(c.eventFd, buf)
 				break
 			default:
 				_, _ = unix.Read(int(event.Fd), buf)
