@@ -205,7 +205,8 @@ func newCQEPollTypedConsumer(ring *liburing.Ring, idleTime time.Duration, curve 
 	// curve
 	if len(curve) == 0 {
 		curve = Curve{
-			{8, 1 * time.Microsecond},
+			{1, 1 * time.Microsecond},
+			{8, 5 * time.Microsecond},
 			{16, 10 * time.Microsecond},
 			{32, 200 * time.Microsecond},
 			{64, 300 * time.Microsecond},
