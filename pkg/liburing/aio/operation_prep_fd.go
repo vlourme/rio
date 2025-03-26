@@ -10,12 +10,12 @@ import (
 )
 
 func (op *Operation) PrepareClose(fd int) {
-	op.code = liburing.OpClose
+	op.code = liburing.IORING_OP_CLOSE
 	op.fd = fd
 }
 
 func (op *Operation) PrepareCloseDirect(filedIndex int) {
-	op.code = liburing.OpClose
+	op.code = liburing.IORING_OP_CLOSE
 	op.fd = filedIndex
 	if op.flags&directFd == 0 {
 		op.flags |= directFd
@@ -35,12 +35,12 @@ func (op *Operation) packingClose(sqe *liburing.SubmissionQueueEntry) (err error
 func (op *Operation) PrepareCloseRead(nfd *NetFd) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpShutdown
+	op.code = liburing.IORING_OP_SHUTDOWN
 	op.fd = fd
 	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_RD))
 	return
@@ -49,12 +49,12 @@ func (op *Operation) PrepareCloseRead(nfd *NetFd) {
 func (op *Operation) PrepareCloseWrite(nfd *NetFd) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpShutdown
+	op.code = liburing.IORING_OP_SHUTDOWN
 	op.fd = fd
 	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_WR))
 	return
@@ -69,17 +69,17 @@ func (op *Operation) packingShutdown(sqe *liburing.SubmissionQueueEntry) (err er
 }
 
 func (op *Operation) PrepareCancel(target *Operation) {
-	op.code = liburing.OpAsyncCancel
+	op.code = liburing.IORING_OP_ASYNC_CANCEL
 	op.addr2 = unsafe.Pointer(target)
 }
 
 func (op *Operation) PrepareCancelFd(fd int) {
-	op.code = liburing.OpAsyncCancel
+	op.code = liburing.IORING_OP_ASYNC_CANCEL
 	op.fd = fd
 }
 
 func (op *Operation) PrepareCancelFixedFd(fileIndex int) {
-	op.code = liburing.OpAsyncCancel
+	op.code = liburing.IORING_OP_ASYNC_CANCEL
 	op.fd = fileIndex
 	op.flags |= directFd
 }
@@ -102,7 +102,7 @@ func (op *Operation) packingCancel(sqe *liburing.SubmissionQueueEntry) (err erro
 }
 
 func (op *Operation) PrepareFixedFdInstall(fd int) {
-	op.code = liburing.OPFixedFdInstall
+	op.code = liburing.IORING_OP_FIXED_FD_INSTALL
 	op.fd = fd
 }
 

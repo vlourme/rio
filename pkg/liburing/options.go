@@ -62,8 +62,8 @@ func WithAttachWQFd(fd uint32) Option {
 			return errors.New("invalid wqfd")
 		}
 		o.WQFd = fd
-		if o.Flags&SetupAttachWQ == 0 {
-			o.Flags |= SetupAttachWQ
+		if o.Flags&IORING_SETUP_ATTACH_WQ == 0 {
+			o.Flags |= IORING_SETUP_ATTACH_WQ
 		}
 		return nil
 	}

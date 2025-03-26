@@ -6,129 +6,129 @@ import "github.com/brickingsoft/rio/pkg/liburing"
 
 func (op *Operation) Name() string {
 	switch op.code {
-	case liburing.OpNop:
+	case liburing.IORING_OP_NOP:
 		return "nop"
-	case liburing.OpReadv:
+	case liburing.IORING_OP_READV:
 		return "readv"
-	case liburing.OpWritev:
+	case liburing.IORING_OP_WRITEV:
 		return "writev"
-	case liburing.OpFsync:
+	case liburing.IORING_OP_FSYNC:
 		return "fsync"
-	case liburing.OpReadFixed:
+	case liburing.IORING_OP_READ_FIXED:
 		return "read_fixed"
-	case liburing.OpWriteFixed:
+	case liburing.IORING_OP_WRITE_FIXED:
 		return "write_fixed"
-	case liburing.OpPollAdd:
+	case liburing.IORING_OP_POLL_ADD:
 		return "poll_add"
-	case liburing.OpPollRemove:
+	case liburing.IORING_OP_POLL_REMOVE:
 		return "poll_remove"
-	case liburing.OpSyncFileRange:
+	case liburing.IORING_OP_SYNC_FILE_RANGE:
 		return "sync_file_range"
-	case liburing.OpSendmsg:
+	case liburing.IORING_OP_SENDMSG:
 		return "sendmsg"
-	case liburing.OpRecvmsg:
+	case liburing.IORING_OP_RECVMSG:
 		return "recvmsg"
-	case liburing.OpTimeout:
+	case liburing.IORING_OP_TIMEOUT:
 		return "timeout"
-	case liburing.OpTimeoutRemove:
+	case liburing.IORING_OP_TIMEOUT_REMOVE:
 		return "timeout_remove"
-	case liburing.OpAccept:
+	case liburing.IORING_OP_ACCEPT:
 		return "accept"
-	case liburing.OpAsyncCancel:
+	case liburing.IORING_OP_ASYNC_CANCEL:
 		return "async_cancel"
-	case liburing.OpLinkTimeout:
+	case liburing.IORING_OP_LINK_TIMEOUT:
 		return "link_timeout"
-	case liburing.OpConnect:
+	case liburing.IORING_OP_CONNECT:
 		return "connect"
-	case liburing.OpFallocate:
+	case liburing.IORING_OP_FALLOCATE:
 		return "fallocate"
-	case liburing.OpOpenat:
+	case liburing.IORING_OP_OPENAT:
 		return "openat"
-	case liburing.OpClose:
+	case liburing.IORING_OP_CLOSE:
 		return "close"
-	case liburing.OpFilesUpdate:
+	case liburing.IORING_OP_FILES_UPDATE:
 		return "files_update"
-	case liburing.OpStatx:
+	case liburing.IORING_OP_STATX:
 		return "statx"
-	case liburing.OpRead:
+	case liburing.IORING_OP_READ:
 		return "read"
-	case liburing.OpWrite:
+	case liburing.IORING_OP_WRITE:
 		return "write"
-	case liburing.OpFadvise:
+	case liburing.IORING_OP_FADVISE:
 		return "fadvise"
-	case liburing.OpMadvise:
+	case liburing.IORING_OP_MADVISE:
 		return "madvise"
-	case liburing.OpSend:
+	case liburing.IORING_OP_SEND:
 		return "send"
-	case liburing.OpRecv:
+	case liburing.IORING_OP_RECV:
 		return "recv"
-	case liburing.OpOpenat2:
+	case liburing.IORING_OP_OPENAT2:
 		return "openat2"
-	case liburing.OpEpollCtl:
+	case liburing.IORING_OP_EPOLL_CTL:
 		return "epollctl"
-	case liburing.OpSplice:
+	case liburing.IORING_OP_SPLICE:
 		return "splice"
-	case liburing.OpProvideBuffers:
+	case liburing.IORING_OP_PROVIDE_BUFFERS:
 		return "provide_buffers"
-	case liburing.OpRemoveBuffers:
+	case liburing.IORING_OP_REMOVE_BUFFERS:
 		return "remove_buffers"
-	case liburing.OpTee:
+	case liburing.IORING_OP_TEE:
 		return "tee"
-	case liburing.OpShutdown:
+	case liburing.IORING_OP_SHUTDOWN:
 		return "shutdown"
-	case liburing.OpRenameat:
+	case liburing.IORING_OP_RENAMEAT:
 		return "renameat"
-	case liburing.OpUnlinkat:
+	case liburing.IORING_OP_UNLINKAT:
 		return "unlinkat"
-	case liburing.OpMkdirat:
+	case liburing.IORING_OP_MKDIRAT:
 		return "mkdirat"
-	case liburing.OpSymlinkat:
+	case liburing.IORING_OP_SYMLINKAT:
 		return "symlinkat"
-	case liburing.OpLinkat:
+	case liburing.IORING_OP_LINKAT:
 		return "linkat"
-	case liburing.OpMsgRing:
+	case liburing.IORING_OP_MSG_RING:
 		return "msgring"
-	case liburing.OpFsetxattr:
+	case liburing.IORING_OP_FSETXATTR:
 		return "fsetxattr"
-	case liburing.OpSetxattr:
+	case liburing.IORING_OP_SETXATTR:
 		return "setxattr"
-	case liburing.OpFgetxattr:
+	case liburing.IORING_OP_FGETXATTR:
 		return "fgetxattr"
-	case liburing.OpGetxattr:
+	case liburing.IORING_OP_GETXATTR:
 		return "getxattr"
-	case liburing.OpSocket:
+	case liburing.IORING_OP_SOCKET:
 		return "socket"
-	case liburing.OpUringCmd:
+	case liburing.IORING_OP_URING_CMD:
 		return "uringcmd"
-	case liburing.OpSendZC:
+	case liburing.IORING_OP_SEND_ZC:
 		return "sendzc"
-	case liburing.OpSendMsgZC:
+	case liburing.IORING_OP_SENDMSG_ZC:
 		return "sendmsgzc"
-	case liburing.OpReadMultishot:
+	case liburing.IORING_OP_READ_MULTISHOT:
 		return "read_multishot"
-	case liburing.OpWaitId:
+	case liburing.IORING_OP_WAITID:
 		return "wait_id"
-	case liburing.OpFutexWait:
+	case liburing.IORING_OP_FUTEX_WAIT:
 		return "futex_wait"
-	case liburing.OpFutexWake:
+	case liburing.IORING_OP_FUTEX_WAKE:
 		return "futex_wake"
-	case liburing.OpFutexWaitv:
+	case liburing.IORING_OP_FUTEX_WAITV:
 		return "futex_waitv"
-	case liburing.OPFixedFdInstall:
+	case liburing.IORING_OP_FIXED_FD_INSTALL:
 		return "fixed_fd_install"
-	case liburing.OpFtuncate:
+	case liburing.IORING_OP_FTRUNCATE:
 		return "ftuncate"
-	case liburing.OpBind:
+	case liburing.IORING_OP_BIND:
 		return "bind"
-	case liburing.OpListen:
+	case liburing.IORING_OP_LISTEN:
 		return "listen"
-	case liburing.OpRecvZC:
+	case liburing.IORING_OP_RECV_ZC:
 		return "recvzc"
-	case liburing.OpEpollWait:
+	case liburing.IORING_OP_EPOLL_WAIT:
 		return "epollwait"
-	case liburing.OpReadvFixed:
+	case liburing.IORING_OP_READV_FIXED:
 		return "readv_fixed"
-	case liburing.OpWritevFixed:
+	case liburing.IORING_OP_WRITEV_FIXED:
 		return "writev_fixed"
 	default:
 		return "unknown"

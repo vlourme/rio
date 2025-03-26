@@ -10,73 +10,73 @@ import (
 
 func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) {
 	switch op.code {
-	case liburing.OpNop:
+	case liburing.IORING_OP_NOP:
 		err = op.packingNop(sqe)
 		break
-	case liburing.OpUringCmd:
+	case liburing.IORING_OP_URING_CMD:
 		err = op.packingURingCMD(sqe)
 		break
-	case liburing.OpAsyncCancel:
+	case liburing.IORING_OP_ASYNC_CANCEL:
 		err = op.packingCancel(sqe)
 		break
-	case liburing.OpClose:
+	case liburing.IORING_OP_CLOSE:
 		err = op.packingClose(sqe)
 		break
-	case liburing.OPFixedFdInstall:
+	case liburing.IORING_OP_FIXED_FD_INSTALL:
 		err = op.packingFixedFdInstall(sqe)
 		break
-	case liburing.OpShutdown:
+	case liburing.IORING_OP_SHUTDOWN:
 		err = op.packingShutdown(sqe)
 		break
-	case liburing.OpLinkTimeout:
+	case liburing.IORING_OP_LINK_TIMEOUT:
 		err = op.packingLinkTimeout(sqe)
 		break
-	case liburing.OpRead:
+	case liburing.IORING_OP_READ:
 		err = op.packingRead(sqe)
 		break
-	case liburing.OpWrite:
+	case liburing.IORING_OP_WRITE:
 		err = op.packingWrite(sqe)
 		break
-	case liburing.OpReadFixed:
+	case liburing.IORING_OP_READ_FIXED:
 		err = op.packingReadFixed(sqe)
 		break
-	case liburing.OpWriteFixed:
+	case liburing.IORING_OP_WRITE_FIXED:
 		err = op.packingWriteFixed(sqe)
 		break
-	case liburing.OpSocket:
+	case liburing.IORING_OP_SOCKET:
 		err = op.packingSocket(sqe)
 		break
-	case liburing.OpConnect:
+	case liburing.IORING_OP_CONNECT:
 		err = op.packingConnect(sqe)
 		break
-	case liburing.OpListen:
+	case liburing.IORING_OP_LISTEN:
 		err = op.packingListen(sqe)
 		break
-	case liburing.OpBind:
+	case liburing.IORING_OP_BIND:
 		err = op.packingBind(sqe)
 		break
-	case liburing.OpAccept:
+	case liburing.IORING_OP_ACCEPT:
 		err = op.packingAccept(sqe)
 		break
-	case liburing.OpRecv:
+	case liburing.IORING_OP_RECV:
 		err = op.packingReceive(sqe)
 		break
-	case liburing.OpSend:
+	case liburing.IORING_OP_SEND:
 		err = op.packingSend(sqe)
 		break
-	case liburing.OpSendZC:
+	case liburing.IORING_OP_SEND_ZC:
 		err = op.packingSendZC(sqe)
 		break
-	case liburing.OpRecvmsg:
+	case liburing.IORING_OP_RECVMSG:
 		err = op.packingReceiveMsg(sqe)
 		break
-	case liburing.OpSendmsg:
+	case liburing.IORING_OP_SENDMSG:
 		err = op.packingSendMsg(sqe)
 		break
-	case liburing.OpSendMsgZC:
+	case liburing.IORING_OP_SENDMSG_ZC:
 		err = op.packingSendMsgZc(sqe)
 		break
-	case liburing.OpSplice:
+	case liburing.IORING_OP_SPLICE:
 		err = op.packingSplice(sqe)
 		break
 	default:

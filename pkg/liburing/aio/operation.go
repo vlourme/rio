@@ -28,7 +28,7 @@ func NewOperation(resultChanBuffer int) *Operation {
 		resultChanBuffer = 0
 	}
 	return &Operation{
-		code:     liburing.OpLast,
+		code:     liburing.IORING_OP_LAST,
 		flags:    0,
 		resultCh: make(chan Result, resultChanBuffer),
 	}
@@ -80,7 +80,7 @@ func (op *Operation) WithDeadline(deadline time.Time) *Operation {
 	}
 	ns := syscall.NsecToTimespec(timeout.Nanoseconds())
 	op.timeout = &ns
-	op.sqeFlags |= liburing.SQEIOLink
+	op.sqeFlags |= liburing.IOSQE_IO_LINK
 	return op
 }
 
@@ -92,7 +92,7 @@ func (op *Operation) WithDirect(direct bool) *Operation {
 }
 
 func (op *Operation) reset() {
-	op.code = liburing.OpLast
+	op.code = liburing.IORING_OP_LAST
 	op.cmd = 0
 	if op.flags&borrowed != 0 {
 		op.flags = borrowed

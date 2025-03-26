@@ -24,13 +24,13 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	var sqEntries, index uint32
 	var err error
 
-	if params.flags&SetupRegisteredFdOnly != 0 && params.flags&SetupNoMmap == 0 {
+	if params.flags&IORING_SETUP_REGISTERED_FD_ONLY != 0 && params.flags&IORING_SETUP_NO_MMAP == 0 {
 		return syscall.EINVAL
 	}
 
 	entries = RoundupPow2(entries)
 
-	if params.flags&SetupNoMmap != 0 {
+	if params.flags&IORING_SETUP_NO_MMAP != 0 {
 		_, err = allocHuge(entries, params, ring.sqRing, ring.cqRing, buf, bufSize)
 		if err != nil {
 			return err
@@ -42,7 +42,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 
 	fdPtr, _, errno := syscall.Syscall(sysSetup, uintptr(entries), uintptr(unsafe.Pointer(params)), 0)
 	if errno != 0 {
-		if params.flags&SetupNoMmap != 0 && ring.kind&appMemRing == 0 {
+		if params.flags&IORING_SETUP_NO_MMAP != 0 && ring.kind&appMemRing == 0 {
 			_ = munmap(uintptr(unsafe.Pointer(ring.sqRing.sqes)), 1)
 			unmapRings(ring.sqRing, ring.cqRing)
 		}
@@ -51,7 +51,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	}
 	fd = int(fdPtr)
 
-	if params.flags&SetupNoMmap == 0 {
+	if params.flags&IORING_SETUP_NO_MMAP == 0 {
 		err = mmapRing(fd, params, ring.sqRing, ring.cqRing)
 		if err != nil {
 			_ = syscall.Close(fd)
@@ -71,7 +71,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	ring.features = params.features
 	ring.flags = params.flags
 	ring.enterRingFd = fd
-	if params.flags&SetupRegisteredFdOnly != 0 {
+	if params.flags&IORING_SETUP_REGISTERED_FD_ONLY != 0 {
 		ring.ringFd = -1
 		ring.kind |= regRing | doubleRegRing
 	} else {
@@ -132,7 +132,7 @@ func MLockSizeParams(entries uint32, p *Params) (uint64, error) {
 		_ = ring.Close()
 	}
 
-	if lp.features&FeatNativeWorkers != 0 {
+	if lp.features&IORING_FEAT_NATIVE_WORKERS != 0 {
 		return 0, nil
 	}
 
@@ -140,7 +140,7 @@ func MLockSizeParams(entries uint32, p *Params) (uint64, error) {
 		return 0, syscall.EINVAL
 	}
 	if entries > kernMaxEntries {
-		if p.flags&SetupClamp == 0 {
+		if p.flags&IORING_SETUP_CLAMP == 0 {
 			return 0, syscall.EINVAL
 		}
 		entries = kernMaxEntries
@@ -182,7 +182,7 @@ func ringsSize(p *Params, entries uint32, cqEntries uint32, pageSize uint64) uin
 	var pages, sqSize, cqSize uint64
 
 	cqSize = uint64(unsafe.Sizeof(CompletionQueueEvent{}))
-	if p.flags&SetupCQE32 != 0 {
+	if p.flags&IORING_SETUP_CQE32 != 0 {
 		cqSize += uint64(unsafe.Sizeof(CompletionQueueEvent{}))
 	}
 	cqSize *= uint64(cqEntries)
@@ -191,7 +191,7 @@ func ringsSize(p *Params, entries uint32, cqEntries uint32, pageSize uint64) uin
 	pages = 1 << npages(cqSize, pageSize)
 
 	sqSize = uint64(unsafe.Sizeof(SubmissionQueueEntry{}))
-	if p.flags&SetupSQE128 != 0 {
+	if p.flags&IORING_SETUP_SQE128 != 0 {
 		sqSize += 64
 	}
 	sqSize *= uint64(entries)
@@ -220,7 +220,7 @@ func allocHuge(entries uint32, p *Params, sq *SubmissionQueue, cq *CompletionQue
 	sqesMem = uint64(sqEntries) * uint64(unsafe.Sizeof(SubmissionQueue{}))
 	sqesMem = (sqesMem + pageSize - 1) &^ (pageSize - 1)
 	ringMem = uint64(cqEntries) * uint64(unsafe.Sizeof(CompletionQueue{}))
-	if p.flags&SetupCQE32 != 0 {
+	if p.flags&IORING_SETUP_CQE32 != 0 {
 		ringMem *= 2
 	}
 	ringMem += uint64(sqEntries) * uint64(unsafe.Sizeof(uint32(0)))
@@ -298,20 +298,20 @@ func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
 		return 0, 0, syscall.EINVAL
 	}
 	if entries > kernMaxEntries {
-		if p.flags&SetupClamp == 0 {
+		if p.flags&IORING_SETUP_CLAMP == 0 {
 			return 0, 0, syscall.EINVAL
 		}
 		entries = kernMaxEntries
 	}
 
 	entries = RoundupPow2(entries)
-	if p.flags&SetupCQSize != 0 {
+	if p.flags&IORING_SETUP_CQSIZE != 0 {
 		if p.cqEntries == 0 {
 			return 0, 0, syscall.EINVAL
 		}
 		cqEntries = p.cqEntries
 		if cqEntries > kernMaxCQEntries {
-			if p.flags&SetupClamp == 0 {
+			if p.flags&IORING_SETUP_CLAMP == 0 {
 				return 0, 0, syscall.EINVAL
 			}
 			cqEntries = kernMaxCQEntries

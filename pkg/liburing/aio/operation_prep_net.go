@@ -11,12 +11,12 @@ import (
 func (op *Operation) PrepareConnect(nfd *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpConnect
+	op.code = liburing.IORING_OP_CONNECT
 	op.fd = fd
 	op.addr = unsafe.Pointer(addr)
 	op.addrLen = uint32(addrLen)
@@ -35,12 +35,12 @@ func (op *Operation) packingConnect(sqe *liburing.SubmissionQueueEntry) (err err
 func (op *Operation) PrepareListen(nfd *NetFd, backlog int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpListen
+	op.code = liburing.IORING_OP_LISTEN
 	op.fd = fd
 	op.addrLen = uint32(backlog)
 	return
@@ -56,12 +56,12 @@ func (op *Operation) packingListen(sqe *liburing.SubmissionQueueEntry) (err erro
 func (op *Operation) PrepareBind(nfd *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpBind
+	op.code = liburing.IORING_OP_BIND
 	op.fd = fd
 	op.addr = unsafe.Pointer(addr)
 	op.addrLen = uint32(addrLen)
@@ -80,12 +80,12 @@ func (op *Operation) packingBind(sqe *liburing.SubmissionQueueEntry) (err error)
 func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if ln.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpAccept
+	op.code = liburing.IORING_OP_ACCEPT
 	op.fd = fd
 	op.addr = unsafe.Pointer(addr)
 	op.addr2 = unsafe.Pointer(addrLen)
@@ -100,13 +100,13 @@ func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addr
 func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if ln.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
 
-	op.code = liburing.OpAccept
+	op.code = liburing.IORING_OP_ACCEPT
 	op.fd = fd
 	op.flags |= multishot
 	op.addr = unsafe.Pointer(addr)
@@ -131,7 +131,7 @@ func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err erro
 		}
 	} else {
 		if op.flags&directFd != 0 {
-			sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, flags, liburing.FileIndexAlloc)
+			sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, flags, liburing.IORING_FILE_INDEX_ALLOC)
 		} else {
 			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, flags)
 		}
@@ -144,12 +144,12 @@ func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err erro
 func (op *Operation) PrepareReceive(nfd *NetFd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpRecv
+	op.code = liburing.IORING_OP_RECV
 	op.fd = fd
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
@@ -168,12 +168,12 @@ func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err err
 func (op *Operation) PrepareSend(nfd *NetFd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpSend
+	op.code = liburing.IORING_OP_SEND
 	op.fd = fd
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
@@ -184,7 +184,7 @@ func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error)
 	b := uintptr(op.addr)
 	bLen := op.addrLen
 	flags := 0
-	if op.sqeFlags&liburing.SQEIOLink != 0 {
+	if op.sqeFlags&liburing.IOSQE_IO_LINK != 0 {
 		flags = syscall.MSG_WAITALL
 	}
 	sqe.PrepareSend(op.fd, b, bLen, flags)
@@ -196,12 +196,12 @@ func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error)
 func (op *Operation) PrepareSendZC(nfd *NetFd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpSendZC
+	op.code = liburing.IORING_OP_SEND_ZC
 	op.fd = fd
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
@@ -212,7 +212,7 @@ func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err erro
 	b := uintptr(op.addr)
 	bLen := op.addrLen
 	flags := 0
-	if op.sqeFlags&liburing.SQEIOLink != 0 {
+	if op.sqeFlags&liburing.IOSQE_IO_LINK != 0 {
 		flags = syscall.MSG_WAITALL
 	}
 	sqe.PrepareSendZC(op.fd, b, bLen, flags, 0)
@@ -224,12 +224,12 @@ func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err erro
 func (op *Operation) PrepareReceiveMsg(nfd *NetFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpRecvmsg
+	op.code = liburing.IORING_OP_RECVMSG
 	op.fd = fd
 	op.addr = unsafe.Pointer(msg)
 	return
@@ -246,12 +246,12 @@ func (op *Operation) packingReceiveMsg(sqe *liburing.SubmissionQueueEntry) (err 
 func (op *Operation) PrepareSendMsg(nfd *NetFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpSendmsg
+	op.code = liburing.IORING_OP_SENDMSG
 	op.fd = fd
 	op.addr = unsafe.Pointer(msg)
 	return
@@ -268,12 +268,12 @@ func (op *Operation) packingSendMsg(sqe *liburing.SubmissionQueueEntry) (err err
 func (op *Operation) PrepareSendMsgZC(nfd *NetFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpSendMsgZC
+	op.code = liburing.IORING_OP_SENDMSG_ZC
 	op.fd = fd
 	op.addr = unsafe.Pointer(msg)
 	return

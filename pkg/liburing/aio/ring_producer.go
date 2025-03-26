@@ -37,7 +37,7 @@ func newSQEChanProducer(ring *liburing.Ring, producerLockOSThread bool, batchSiz
 
 	p.running.Store(true)
 
-	if ring.Flags()&liburing.SetupSQPoll != 0 {
+	if ring.Flags()&liburing.IORING_SETUP_SQPOLL != 0 {
 		go p.handleImmediately()
 	} else {
 		go p.handleBatch()

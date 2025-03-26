@@ -29,7 +29,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
-					code:     liburing.OpLast,
+					code:     liburing.IORING_OP_LAST,
 					flags:    borrowed,
 					resultCh: make(chan Result, 1),
 				}

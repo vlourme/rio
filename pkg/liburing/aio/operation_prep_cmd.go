@@ -9,10 +9,10 @@ import (
 
 func (op *Operation) packingURingCMD(sqe *liburing.SubmissionQueueEntry) (err error) {
 	switch op.cmd {
-	case liburing.SocketOpSetsockopt:
+	case liburing.SOCKET_URING_OP_SETSOCKOPT:
 		err = op.packingSetSocketoptInt(sqe)
 		break
-	case liburing.SocketOpGetsockopt:
+	case liburing.SOCKET_URING_OP_GETSOCKOPT:
 		err = op.packingGetSocketoptInt(sqe)
 		break
 	default:

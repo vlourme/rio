@@ -22,9 +22,9 @@ func TestNew(t *testing.T) {
 		t.Error(probeErr)
 		return
 	}
-	t.Log("bind:", probe.IsSupported(liburing.OpBind))
-	t.Log("listen:", probe.IsSupported(liburing.OpListen))
-	t.Log("recv_zc:", probe.IsSupported(liburing.OpRecvZC))
+	t.Log("bind:", probe.IsSupported(liburing.IORING_OP_BIND))
+	t.Log("listen:", probe.IsSupported(liburing.IORING_OP_LISTEN))
+	t.Log("recv_zc:", probe.IsSupported(liburing.IORING_OP_RECV_ZC))
 
 	sq := ring.GetSQE()
 	if sq == nil {

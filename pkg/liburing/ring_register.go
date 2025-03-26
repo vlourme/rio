@@ -16,46 +16,74 @@ const (
 )
 
 const (
-	RegisterBuffers uint32 = iota
-	UnregisterBuffers
-	RegisterFiles
-	UnregisterFiles
-	RegisterEventFd
-	UnregisterEventFd
-	RegisterFilesUpdate
-	RegisterEventFDAsync
-	RegisterProbe
-	RegisterPersonality
-	UnregisterPersonality
-	RegisterRestrictions
-	RegisterEnableRings
-	RegisterFiles2
-	RegisterFilesUpdate2
-	RegisterBuffers2
-	RegisterBuffersUpdate
-	RegisterIOWQAff
-	UnregisterIOWQAff
-	RegisterIOWQMaxWorkers
-	RegisterRingFds
-	UnregisterRingFds
-	RegisterPbufRing
-	UnregisterPbufRing
-	RegisterSyncCancel
-	RegisterFileAllocRange
-	RegisterLast
-	RegisterUseRegisteredRing = 1 << 31
+	IORING_REGISTER_BUFFERS uint32 = iota
+	IORING_UNREGISTER_BUFFERS
+	IORING_REGISTER_FILES
+	IORING_UNREGISTER_FILES
+	IORING_REGISTER_EVENTFD
+	IORING_UNREGISTER_EVENTFD
+	IORING_REGISTER_FILES_UPDATE
+	IORING_REGISTER_EVENTFD_ASYNC
+	IORING_REGISTER_PROBE
+	IORING_REGISTER_PERSONALITY
+	IORING_UNREGISTER_PERSONALITY
+	IORING_REGISTER_RESTRICTIONS
+	IORING_REGISTER_ENABLE_RINGS
+	IORING_REGISTER_FILES2
+	IORING_REGISTER_FILES_UPDATE2
+	IORING_REGISTER_BUFFERS2
+	IORING_REGISTER_BUFFERS_UPDATE
+	IORING_REGISTER_IOWQ_AFF
+	IORING_UNREGISTER_IOWQ_AFF
+	IORING_REGISTER_IOWQ_MAX_WORKERS
+	IORING_REGISTER_RING_FDS
+	IORING_UNREGISTER_RING_FDS
+	IORING_REGISTER_PBUF_RING
+	IORING_UNREGISTER_PBUF_RING
+	IORING_REGISTER_SYNC_CANCEL
+	IORING_REGISTER_FILE_ALLOC_RANGE
+	IORING_REGISTER_PBUF_STATUS
+	IORING_REGISTER_NAPI
+	IORING_UNREGISTER_NAPI
+	IORING_REGISTER_CLOCK
+	IORING_REGISTER_CLONE_BUFFERS
+	IORING_REGISTER_SEND_MSG_RING
+	IORING_REGISTER_ZCRX_IFQ
+	IORING_REGISTER_RESIZE_RINGS
+	IORING_REGISTER_MEM_REGION
+
+	IORING_REGISTER_LAST
+	IORING_REGISTER_USE_REGISTERED_RING = 1 << 31
 )
 
 const (
-	RestrictionRegisterOp uint32 = iota
-	RestrictionSQEOp
-	RestrictionSQEFlagsAllowed
-	RestrictionSQEFlagsRequired
-	RestrictionLast
+	IORING_MEM_REGION_TYPE_USER = 1
 )
 
-const RsrcRegisterSparse uint32 = 1 << iota
-const RegisterFilesSkip int = -2
+const (
+	IORING_RESTRICTION_REGISTER_OP uint32 = iota
+	IORING_RESTRICTION_SQE_OP
+	IORING_RESTRICTION_SQE_FLAGS_ALLOWED
+	IORING_RESTRICTION_SQE_FLAGS_REQUIRED
+	IORING_RESTRICTION_LAST
+)
+
+const IORING_RSRC_REGISTER_SPARSE uint32 = 1 << iota
+const IORING_REGISTER_FILES_SKIP int = -2
+
+const (
+	IORING_REGISTER_SRC_REGISTERED uint32 = 1 << iota
+	IORING_REGISTER_DST_REPLACE
+)
+
+const (
+	IOU_PBUF_RING_MMAP = 1
+	IOU_PBUF_RING_INC  = 2
+)
+
+const (
+	IORING_REG_WAIT_TS uint32 = 1 << iota
+)
 
 type FilesUpdate struct {
 	Offset uint32
@@ -127,7 +155,7 @@ func (ring *Ring) RegisterBuffersUpdateTag(off uint32, iovecs []syscall.Iovec, t
 		Tags:   *tags,
 		Nr:     nr,
 	}
-	result, err := ring.doRegister(RegisterBuffersUpdate, unsafe.Pointer(update), uint32(unsafe.Sizeof(*update)))
+	result, err := ring.doRegister(IORING_REGISTER_BUFFERS_UPDATE, unsafe.Pointer(update), uint32(unsafe.Sizeof(*update)))
 	runtime.KeepAlive(update)
 	return result, err
 }
@@ -138,27 +166,27 @@ func (ring *Ring) RegisterBuffersTags(iovecs []syscall.Iovec, tags []uint64) (ui
 		Data: uint64(uintptr(unsafe.Pointer(&iovecs[0]))),
 		Tags: uint64(uintptr(unsafe.Pointer(&tags[0]))),
 	}
-	result, err := ring.doRegister(RegisterBuffers2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
+	result, err := ring.doRegister(IORING_REGISTER_BUFFERS2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
 	runtime.KeepAlive(reg)
 	return result, err
 }
 
 func (ring *Ring) RegisterBuffersSparse(nr uint32) (uint, error) {
 	reg := &RsrcRegister{
-		Flags: RsrcRegisterSparse,
+		Flags: IORING_RSRC_REGISTER_SPARSE,
 		Nr:    nr,
 	}
-	result, err := ring.doRegister(RegisterBuffers2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
+	result, err := ring.doRegister(IORING_REGISTER_BUFFERS2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
 	runtime.KeepAlive(reg)
 	return result, err
 }
 
 func (ring *Ring) RegisterBuffers(iovecs []syscall.Iovec) (uint, error) {
-	return ring.doRegister(RegisterBuffers, unsafe.Pointer(&iovecs[0]), uint32(len(iovecs)))
+	return ring.doRegister(IORING_REGISTER_BUFFERS, unsafe.Pointer(&iovecs[0]), uint32(len(iovecs)))
 }
 
 func (ring *Ring) UnregisterBuffers() (uint, error) {
-	return ring.doRegister(UnregisterBuffers, unsafe.Pointer(nil), 0)
+	return ring.doRegister(IORING_UNREGISTER_BUFFERS, unsafe.Pointer(nil), 0)
 }
 
 func (ring *Ring) RegisterFilesUpdateTag(off uint, files []int, tags []uint64) (uint, error) {
@@ -168,7 +196,7 @@ func (ring *Ring) RegisterFilesUpdateTag(off uint, files []int, tags []uint64) (
 		Tags:   uint64(uintptr(unsafe.Pointer(&tags[0]))),
 		Nr:     uint32(len(files)),
 	}
-	result, err := ring.doRegister(RegisterBuffers2, unsafe.Pointer(update), 1)
+	result, err := ring.doRegister(IORING_REGISTER_BUFFERS2, unsafe.Pointer(update), 1)
 	runtime.KeepAlive(update)
 	return result, err
 }
@@ -178,14 +206,14 @@ func (ring *Ring) RegisterFilesUpdate(off uint, files []int) (uint, error) {
 		Offset: uint32(off),
 		Fds:    uint64(uintptr(unsafe.Pointer(&files[0]))),
 	}
-	result, err := ring.doRegister(RegisterFilesUpdate, unsafe.Pointer(update), uint32(len(files)))
+	result, err := ring.doRegister(IORING_REGISTER_FILES_UPDATE, unsafe.Pointer(update), uint32(len(files)))
 	runtime.KeepAlive(update)
 	return result, err
 }
 
 func (ring *Ring) RegisterFilesSparse(nr uint32) (uint, error) {
 	reg := &RsrcRegister{
-		Flags: RsrcRegisterSparse,
+		Flags: IORING_RSRC_REGISTER_SPARSE,
 		Nr:    nr,
 	}
 	var (
@@ -195,7 +223,7 @@ func (ring *Ring) RegisterFilesSparse(nr uint32) (uint, error) {
 		didIncrease bool
 	)
 	for {
-		ret, errno = ring.doRegisterErrno(RegisterFiles2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
+		ret, errno = ring.doRegisterErrno(IORING_REGISTER_FILES2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
 		if errno != 0 {
 			break
 		}
@@ -226,7 +254,7 @@ func (ring *Ring) RegisterFilesTags(files []int, tags []uint64) (uint, error) {
 		didIncrease bool
 	)
 	for {
-		ret, errno = ring.doRegisterErrno(RegisterFiles2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
+		ret, errno = ring.doRegisterErrno(IORING_REGISTER_FILES2, unsafe.Pointer(reg), uint32(unsafe.Sizeof(*reg)))
 		if ret > 0 {
 			break
 		}
@@ -251,7 +279,7 @@ func (ring *Ring) RegisterFiles(files []int) (uint, error) {
 		didIncrease bool
 	)
 	for {
-		ret, errno = ring.doRegisterErrno(RegisterFiles, unsafe.Pointer(&files[0]), uint32(len(files)))
+		ret, errno = ring.doRegisterErrno(IORING_REGISTER_FILES, unsafe.Pointer(&files[0]), uint32(len(files)))
 		if ret > 0 {
 			break
 		}
@@ -269,44 +297,44 @@ func (ring *Ring) RegisterFiles(files []int) (uint, error) {
 }
 
 func (ring *Ring) UnregisterFiles() (uint, error) {
-	return ring.doRegister(UnregisterFiles, unsafe.Pointer(nil), 0)
+	return ring.doRegister(IORING_UNREGISTER_FILES, unsafe.Pointer(nil), 0)
 }
 
 func (ring *Ring) RegisterEventFd(fd int) (uint, error) {
-	return ring.doRegister(RegisterEventFd, unsafe.Pointer(&fd), 1)
+	return ring.doRegister(IORING_REGISTER_EVENTFD, unsafe.Pointer(&fd), 1)
 }
 
 func (ring *Ring) UnregisterEventFd(fd int) (uint, error) {
-	return ring.doRegister(UnregisterEventFd, unsafe.Pointer(&fd), 1)
+	return ring.doRegister(IORING_UNREGISTER_EVENTFD, unsafe.Pointer(&fd), 1)
 }
 
 func (ring *Ring) RegisterEventFdAsync(fd int) (uint, error) {
-	return ring.doRegister(RegisterEventFDAsync, unsafe.Pointer(&fd), 1)
+	return ring.doRegister(IORING_REGISTER_EVENTFD_ASYNC, unsafe.Pointer(&fd), 1)
 }
 
 func (ring *Ring) RegisterProbe(probe *Probe, nrOps int) (uint, error) {
-	result, err := ring.doRegister(RegisterProbe, unsafe.Pointer(probe), uint32(nrOps))
+	result, err := ring.doRegister(IORING_REGISTER_PROBE, unsafe.Pointer(probe), uint32(nrOps))
 	runtime.KeepAlive(probe)
 
 	return result, err
 }
 
 func (ring *Ring) RegisterPersonality() (uint, error) {
-	return ring.doRegister(RegisterPersonality, unsafe.Pointer(nil), 0)
+	return ring.doRegister(IORING_REGISTER_PERSONALITY, unsafe.Pointer(nil), 0)
 }
 
 func (ring *Ring) UnregisterPersonality() (uint, error) {
-	return ring.doRegister(UnregisterPersonality, unsafe.Pointer(nil), 0)
+	return ring.doRegister(IORING_UNREGISTER_PERSONALITY, unsafe.Pointer(nil), 0)
 }
 
 func (ring *Ring) RegisterRestrictions(res []Restriction) (uint, error) {
-	return ring.doRegister(RegisterRestrictions, unsafe.Pointer(&res[0]), uint32(len(res)))
+	return ring.doRegister(IORING_REGISTER_RESTRICTIONS, unsafe.Pointer(&res[0]), uint32(len(res)))
 }
 
 func (ring *Ring) doRegisterErrno(opCode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, syscall.Errno) {
 	var fd int
 	if ring.kind&regRing != 0 {
-		opCode |= RegisterUseRegisteredRing
+		opCode |= IORING_REGISTER_USE_REGISTERED_RING
 		fd = ring.enterRingFd
 	} else {
 		fd = ring.ringFd
@@ -318,24 +346,24 @@ func (ring *Ring) RegisterIOWQAff(cpusz uint64, mask *unix.CPUSet) error {
 	if cpusz >= 1<<31 {
 		return syscall.EINVAL
 	}
-	_, err := ring.doRegister(RegisterIOWQAff, unsafe.Pointer(mask), uint32(cpusz))
+	_, err := ring.doRegister(IORING_REGISTER_IOWQ_AFF, unsafe.Pointer(mask), uint32(cpusz))
 	runtime.KeepAlive(mask)
 	return err
 }
 
 func (ring *Ring) UnregisterIOWQAff() (uint, error) {
-	return ring.doRegister(UnregisterIOWQAff, unsafe.Pointer(nil), 0)
+	return ring.doRegister(IORING_UNREGISTER_IOWQ_AFF, unsafe.Pointer(nil), 0)
 }
 
 const (
-	IOWQBound uint = iota
-	IOWQUnbound
+	IO_WQ_BOUND = iota
+	IO_WQ_UNBOUND
 )
 
 const regIOWQMaxWorkersNrArgs = 2
 
 func (ring *Ring) RegisterIOWQMaxWorkers(val []uint) (uint, error) {
-	return ring.doRegister(RegisterIOWQMaxWorkers, unsafe.Pointer(&val[0]), regIOWQMaxWorkersNrArgs)
+	return ring.doRegister(IORING_REGISTER_IOWQ_MAX_WORKERS, unsafe.Pointer(&val[0]), regIOWQMaxWorkersNrArgs)
 }
 
 const registerRingFdOffset = uint32(4294967295)
@@ -348,7 +376,7 @@ func (ring *Ring) RegisterRingFd() (uint, error) {
 		Data:   uint64(ring.ringFd),
 		Offset: registerRingFdOffset,
 	}
-	ret, err := ring.doRegister(RegisterRingFds, unsafe.Pointer(update), 1)
+	ret, err := ring.doRegister(IORING_REGISTER_RING_FDS, unsafe.Pointer(update), 1)
 	if err != nil {
 		return ret, err
 	}
@@ -356,7 +384,7 @@ func (ring *Ring) RegisterRingFd() (uint, error) {
 		ring.enterRingFd = int(update.Offset)
 		ring.kind |= regRing
 
-		if ring.features&FeatRegRegRing != 0 {
+		if ring.features&IORING_FEAT_REG_REG_RING != 0 {
 			ring.kind |= doubleRegRing
 		}
 	} else {
@@ -372,7 +400,7 @@ func (ring *Ring) UnregisterRingFd() (uint, error) {
 	if (ring.kind & regRing) != 0 {
 		return 0, syscall.EINVAL
 	}
-	ret, err := ring.doRegister(UnregisterRingFds, unsafe.Pointer(update), 1)
+	ret, err := ring.doRegister(IORING_UNREGISTER_RING_FDS, unsafe.Pointer(update), 1)
 	if err != nil {
 		return ret, err
 	}
@@ -384,7 +412,7 @@ func (ring *Ring) UnregisterRingFd() (uint, error) {
 }
 
 func (ring *Ring) RegisterBufferRing(reg *BufReg, _ uint32) (uint, error) {
-	result, err := ring.doRegister(RegisterPbufRing, unsafe.Pointer(reg), 1)
+	result, err := ring.doRegister(IORING_REGISTER_PBUF_RING, unsafe.Pointer(reg), 1)
 	runtime.KeepAlive(reg)
 	return result, err
 }
@@ -393,13 +421,13 @@ func (ring *Ring) UnregisterBufferRing(bgid int) (uint, error) {
 	reg := &BufReg{
 		Bgid: uint16(bgid),
 	}
-	result, err := ring.doRegister(UnregisterPbufRing, unsafe.Pointer(reg), 1)
+	result, err := ring.doRegister(IORING_UNREGISTER_PBUF_RING, unsafe.Pointer(reg), 1)
 	runtime.KeepAlive(reg)
 	return result, err
 }
 
 func (ring *Ring) RegisterSyncCancel(reg *SyncCancelReg) (uint, error) {
-	return ring.doRegister(RegisterSyncCancel, unsafe.Pointer(reg), 1)
+	return ring.doRegister(IORING_REGISTER_SYNC_CANCEL, unsafe.Pointer(reg), 1)
 }
 
 func (ring *Ring) RegisterFileAllocRange(off, length uint32) (uint, error) {
@@ -407,7 +435,7 @@ func (ring *Ring) RegisterFileAllocRange(off, length uint32) (uint, error) {
 		Off: off,
 		Len: length,
 	}
-	result, err := ring.doRegister(RegisterFileAllocRange, unsafe.Pointer(fileRange), 0)
+	result, err := ring.doRegister(IORING_REGISTER_FILE_ALLOC_RANGE, unsafe.Pointer(fileRange), 0)
 	runtime.KeepAlive(fileRange)
 	return result, err
 }

@@ -44,10 +44,10 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		err = NewRingErr(probeErr)
 	}
 	// ring
-	if options.Flags&liburing.SetupSQPoll != 0 && options.SQThreadIdle == 0 { // set default idle
+	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 && options.SQThreadIdle == 0 { // set default idle
 		options.SQThreadIdle = 10000
 	}
-	if options.Flags&liburing.SetupSQAff != 0 {
+	if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
 		if err = sys.MaskCPU(int(options.SQThreadCPU)); err != nil { // mask cpu when sq_aff set
 			err = NewRingErr(err)
 			return
@@ -70,8 +70,8 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 	// register files
 	var (
 		generic              = liburing.GenericVersion()
-		registerFiledEnabled = liburing.VersionEnable(6, 0, 0)                                                 // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
-		directAllocEnabled   = liburing.VersionEnable(6, 7, 0) && probe.IsSupported(liburing.OPFixedFdInstall) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
+		registerFiledEnabled = liburing.VersionEnable(6, 0, 0)                                                           // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
+		directAllocEnabled   = liburing.VersionEnable(6, 7, 0) && probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
 		files                []int
 		fileIndexes          = queue.New[int]()
 		reservedHolds        []int
@@ -197,7 +197,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		producerBatchTimeWindow = options.SQEProducerBatchTimeWindow
 		producerBatchIdleTime   = options.SQEProducerBatchIdleTime
 	)
-	if ring.Flags()&liburing.SetupSingleIssuer != 0 {
+	if ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
 		producerLockOSThread = true
 	}
 	producer := newSQEChanProducer(ring, producerLockOSThread, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)

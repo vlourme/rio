@@ -60,7 +60,7 @@ func (ring *Ring) WaitCQEsNew(waitNr uint32, ts *syscall.Timespec, sigmask *unix
 
 	data = &getData{
 		waitNr:   waitNr,
-		getFlags: EnterExtArg,
+		getFlags: IORING_ENTER_EXT_ARG,
 		sz:       int(unsafe.Sizeof(GetEventsArg{})),
 		hasTS:    true,
 		arg:      unsafe.Pointer(arg),
@@ -74,7 +74,7 @@ func (ring *Ring) WaitCQEsNew(waitNr uint32, ts *syscall.Timespec, sigmask *unix
 func (ring *Ring) WaitCQEs(waitNr uint32, ts *syscall.Timespec, sigmask *unix.Sigset_t) (*CompletionQueueEvent, error) {
 	var toSubmit uint32
 	if ts != nil {
-		if ring.features&FeatExtArg != 0 {
+		if ring.features&IORING_FEAT_EXT_ARG != 0 {
 			return ring.WaitCQEsNew(waitNr, ts, sigmask)
 		}
 		var err error
@@ -127,7 +127,7 @@ func (ring *Ring) PeekBatchCQE(cqes []*CompletionQueueEvent) uint32 {
 	var overflowChecked bool
 	var shift int
 
-	if ring.flags&SetupCQE32 != 0 {
+	if ring.flags&IORING_SETUP_CQE32 != 0 {
 		shift = 1
 	}
 	count := uint32(len(cqes))
@@ -165,9 +165,9 @@ AGAIN:
 }
 
 func (ring *Ring) GetEvents() (uint, error) {
-	flags := EnterGetEvents
+	flags := IORING_ENTER_GETEVENTS
 	if ring.kind&regRing != 0 {
-		flags |= EnterRegisteredRing
+		flags |= IORING_ENTER_REGISTERED_RING
 	}
 	return ring.Enter(0, 0, flags, nil)
 }
@@ -181,14 +181,14 @@ func (ring *Ring) CQReady() uint32 {
 }
 
 func (ring *Ring) CQHasOverflow() bool {
-	return atomic.LoadUint32(ring.sqRing.flags)&SQCQOverflow != 0
+	return atomic.LoadUint32(ring.sqRing.flags)&IORING_SQ_CQ_OVERFLOW != 0
 }
 
 func (ring *Ring) CQEventFdEnabled() bool {
 	if *ring.cqRing.flags == 0 {
 		return true
 	}
-	return !(*ring.cqRing.flags&CQEventFdDisabled != 0)
+	return !(*ring.cqRing.flags&IORING_CQ_EVENTFD_DISABLED != 0)
 }
 
 func (ring *Ring) CQEventFdToggle(enabled bool) error {
@@ -201,16 +201,16 @@ func (ring *Ring) CQEventFdToggle(enabled bool) error {
 	}
 	flags = *ring.cqRing.flags
 	if enabled {
-		flags &= ^CQEventFdDisabled
+		flags &= ^IORING_CQ_EVENTFD_DISABLED
 	} else {
-		flags |= CQEventFdDisabled
+		flags |= IORING_CQ_EVENTFD_DISABLED
 	}
 	atomic.StoreUint32(ring.cqRing.flags, flags)
 	return nil
 }
 
 func (ring *Ring) cqeShift() uint32 {
-	if ring.flags&SetupCQE32 != 0 {
+	if ring.flags&IORING_SETUP_CQE32 != 0 {
 		return 1
 	}
 	return 0
@@ -227,7 +227,7 @@ func peekCQE(ring *Ring, nrAvailable *uint32) (*CompletionQueueEvent, error) {
 	var shift uint32
 	mask := *ring.cqRing.ringMask
 
-	if ring.flags&SetupCQE32 != 0 {
+	if ring.flags&IORING_SETUP_CQE32 != 0 {
 		shift = 1
 	}
 
@@ -242,7 +242,7 @@ func peekCQE(ring *Ring, nrAvailable *uint32) (*CompletionQueueEvent, error) {
 		cqe = (*CompletionQueueEvent)(
 			unsafe.Add(unsafe.Pointer(ring.cqRing.cqes), uintptr((head&mask)<<shift)*unsafe.Sizeof(CompletionQueueEvent{})),
 		)
-		if ring.features&FeatExtArg == 0 && cqe.UserData == _updateTimeoutUserdata {
+		if ring.features&IORING_FEAT_EXT_ARG == 0 && cqe.UserData == _updateTimeoutUserdata {
 			if cqe.Res < 0 {
 				err = syscall.Errno(uintptr(-cqe.Res))
 			}
@@ -262,11 +262,11 @@ func peekCQE(ring *Ring, nrAvailable *uint32) (*CompletionQueueEvent, error) {
 }
 
 func (ring *Ring) cqRingNeedsFlush() bool {
-	return atomic.LoadUint32(ring.sqRing.flags)&(SQCQOverflow|SQTaskRun) != 0
+	return atomic.LoadUint32(ring.sqRing.flags)&(IORING_SQ_CQ_OVERFLOW|IORING_SQ_TASKRUN) != 0
 }
 
 func (ring *Ring) cqRingNeedsEnter() bool {
-	return (ring.flags&SetupIOPoll) != 0 || ring.cqRingNeedsFlush()
+	return (ring.flags&IORING_SETUP_IOPOLL) != 0 || ring.cqRingNeedsFlush()
 }
 
 type getData struct {
@@ -303,7 +303,7 @@ func (ring *Ring) getCQE(data *getData) (*CompletionQueueEvent, error) {
 			needEnter = true
 		}
 		if data.waitNr > nrAvailable || needEnter {
-			flags = EnterGetEvents | data.getFlags
+			flags = IORING_ENTER_GETEVENTS | data.getFlags
 			needEnter = true
 		}
 		if ring.sqRingNeedsEnter(data.submit, &flags) {
@@ -320,7 +320,7 @@ func (ring *Ring) getCQE(data *getData) (*CompletionQueueEvent, error) {
 			break
 		}
 		if ring.kind&regRing != 0 {
-			flags |= EnterRegisteredRing
+			flags |= IORING_ENTER_REGISTERED_RING
 		}
 		ret, localErr = ring.Enter2(data.submit, data.waitNr, flags, data.arg, data.sz)
 		if localErr != nil {

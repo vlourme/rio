@@ -12,7 +12,7 @@ func (ring *Ring) GetSQE() *SubmissionQueueEntry {
 	var head, next uint32
 	var shift int
 
-	if ring.flags&SetupSQE128 != 0 {
+	if ring.flags&IORING_SETUP_SQE128 != 0 {
 		shift = 1
 	}
 	head = atomic.LoadUint32(sq.head)
@@ -34,7 +34,7 @@ func (ring *Ring) SQEntries() uint32 {
 
 func (ring *Ring) SQReady() uint32 {
 	khead := *ring.sqRing.head
-	if ring.flags&SetupSQPoll != 0 {
+	if ring.flags&IORING_SETUP_SQPOLL != 0 {
 		khead = atomic.LoadUint32(ring.sqRing.head)
 	}
 	return ring.sqRing.sqeTail - khead
@@ -45,7 +45,7 @@ func (ring *Ring) SQSpaceLeft() uint32 {
 }
 
 func (ring *Ring) SQRingWait() (uint, error) {
-	if ring.flags&SetupSQPoll == 0 {
+	if ring.flags&IORING_SETUP_SQPOLL == 0 {
 		return 0, nil
 	}
 	if ring.SQSpaceLeft() != 0 {
@@ -58,11 +58,11 @@ func (ring *Ring) sqRingNeedsEnter(submit uint32, flags *uint32) bool {
 	if submit == 0 {
 		return false
 	}
-	if (ring.flags & SetupSQPoll) == 0 {
+	if (ring.flags & IORING_SETUP_SQPOLL) == 0 {
 		return true
 	}
-	if atomic.LoadUint32(ring.sqRing.flags)&SQNeedWakeup != 0 {
-		*flags |= EnterSQWakeup
+	if atomic.LoadUint32(ring.sqRing.flags)&IORING_SQ_NEED_WAKEUP != 0 {
+		*flags |= IORING_ENTER_SQ_WAKEUP
 		return true
 	}
 	return false

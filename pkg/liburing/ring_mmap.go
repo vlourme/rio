@@ -41,14 +41,14 @@ func mmapRing(fd int, p *Params, sq *SubmissionQueue, cq *CompletionQueue) error
 	var err error
 
 	size = unsafe.Sizeof(CompletionQueueEvent{})
-	if p.flags&SetupCQE32 != 0 {
+	if p.flags&IORING_SETUP_CQE32 != 0 {
 		size += unsafe.Sizeof(CompletionQueueEvent{})
 	}
 
 	sq.ringSize = uint(uintptr(p.sqOff.array) + uintptr(p.sqEntries)*unsafe.Sizeof(uint32(0)))
 	cq.ringSize = uint(uintptr(p.cqOff.cqes) + uintptr(p.cqEntries)*size)
 
-	if p.features&FeatSingleMMap != 0 {
+	if p.features&IORING_FEAT_SINGLE_MMAP != 0 {
 		if cq.ringSize > sq.ringSize {
 			sq.ringSize = cq.ringSize
 		}
@@ -62,7 +62,7 @@ func mmapRing(fd int, p *Params, sq *SubmissionQueue, cq *CompletionQueue) error
 		return err
 	}
 
-	if p.features&FeatSingleMMap != 0 {
+	if p.features&IORING_FEAT_SINGLE_MMAP != 0 {
 		cq.ringPtr = sq.ringPtr
 	} else {
 		cq.ringPtr, err = mmap(0, uintptr(cq.ringSize), syscall.PROT_READ|syscall.PROT_WRITE,
@@ -76,7 +76,7 @@ func mmapRing(fd int, p *Params, sq *SubmissionQueue, cq *CompletionQueue) error
 	}
 
 	size = unsafe.Sizeof(SubmissionQueueEntry{})
-	if p.flags&SetupSQE128 != 0 {
+	if p.flags&IORING_SETUP_SQE128 != 0 {
 		size += 64
 	}
 	sqesPtr, sqesMmapErr := mmap(0, size*uintptr(p.sqEntries), syscall.PROT_READ|syscall.PROT_WRITE,

@@ -8,11 +8,13 @@ import (
 )
 
 const (
-	EnterGetEvents uint32 = 1 << iota
-	EnterSQWakeup
-	EnterSQWait
-	EnterExtArg
-	EnterRegisteredRing
+	IORING_ENTER_GETEVENTS uint32 = 1 << iota
+	IORING_ENTER_SQ_WAKEUP
+	IORING_ENTER_SQ_WAIT
+	IORING_ENTER_EXT_ARG
+	IORING_ENTER_REGISTERED_RING
+	IORING_ENTER_ABS_TIMER
+	IORING_ENTER_EXT_ARG_REG
 )
 
 const (

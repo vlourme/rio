@@ -58,12 +58,12 @@ func getVortex() (*aio.Vortex, error) {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			} else {
 				if cpus := runtime.NumCPU(); cpus > 1 { // use sq_poll
-					v = liburing.SetupSQPoll | liburing.SetupSingleIssuer
+					v = liburing.IORING_SETUP_SQPOLL | liburing.IORING_SETUP_SINGLE_ISSUER
 					if cpus > 3 {
-						v |= liburing.SetupSQAff
+						v |= liburing.IORING_SETUP_SQ_AFF
 					}
 				} else { // use coop task run
-					v = liburing.SetupCoopTaskRun | liburing.SetupTaskRunFlag
+					v = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_TASKRUN_FLAG
 				}
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
 			}

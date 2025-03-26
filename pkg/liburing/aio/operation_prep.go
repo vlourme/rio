@@ -9,7 +9,7 @@ import (
 )
 
 func (op *Operation) PrepareNop() (err error) {
-	op.code = liburing.OpNop
+	op.code = liburing.IORING_OP_NOP
 	return
 }
 
@@ -19,7 +19,7 @@ func (op *Operation) packingNop(sqe *liburing.SubmissionQueueEntry) (err error) 
 }
 
 func (op *Operation) prepareLinkTimeout(target *Operation) {
-	op.code = liburing.OpLinkTimeout
+	op.code = liburing.IORING_OP_LINK_TIMEOUT
 	op.timeout = target.timeout
 	op.status.Store(ProcessingOperationStatus)
 	target.addr2 = unsafe.Pointer(op)

@@ -316,7 +316,7 @@ func (ln *TCPListener) Addr() net.Addr {
 }
 
 // SetDeadline sets the deadline associated with the listener.
-// A zero time value disables the deadline.
+// IORING_SETUP_SUBMIT_ALL zero time value disables the deadline.
 // Only valid when not multishot accept mode.
 func (ln *TCPListener) SetDeadline(t time.Time) error {
 	if !ln.ok() {

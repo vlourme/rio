@@ -10,12 +10,12 @@ import (
 func (op *Operation) PrepareRead(nfd *Fd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpRead
+	op.code = liburing.IORING_OP_READ
 	op.fd = fd
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
@@ -34,12 +34,12 @@ func (op *Operation) packingRead(sqe *liburing.SubmissionQueueEntry) (err error)
 func (op *Operation) PrepareWrite(nfd *Fd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpWrite
+	op.code = liburing.IORING_OP_WRITE
 	op.fd = fd
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
@@ -58,12 +58,12 @@ func (op *Operation) packingWrite(sqe *liburing.SubmissionQueueEntry) (err error
 func (op *Operation) PrepareReadFixed(nfd *Fd, buf *FixedBuffer) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpReadFixed
+	op.code = liburing.IORING_OP_READ_FIXED
 	op.fd = fd
 	op.addr = unsafe.Pointer(buf)
 	return
@@ -83,12 +83,12 @@ func (op *Operation) packingReadFixed(sqe *liburing.SubmissionQueueEntry) (err e
 func (op *Operation) PrepareWriteFixed(nfd *Fd, buf *FixedBuffer) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpWriteFixed
+	op.code = liburing.IORING_OP_WRITE_FIXED
 	op.fd = fd
 	op.addr = unsafe.Pointer(buf)
 	return
@@ -117,13 +117,13 @@ type SpliceParams struct {
 }
 
 func (op *Operation) PrepareSplice(params *SpliceParams) {
-	op.code = liburing.OpSplice
+	op.code = liburing.IORING_OP_SPLICE
 	if params.FdInFixed {
-		params.Flags |= liburing.SpliceFFdInFixed
+		params.Flags |= liburing.SPLICE_F_FD_IN_FIXED
 	}
 	op.addr = unsafe.Pointer(params)
 	if params.FdOutFixed {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 }
 

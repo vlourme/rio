@@ -38,14 +38,14 @@ func (fd *NetFd) SendZC(b []byte, deadline time.Time) (n int, err error) {
 		return
 	}
 
-	if cqeFlags&liburing.CQEFMore != 0 {
+	if cqeFlags&liburing.IORING_CQE_F_MORE != 0 {
 		_, cqeFlags, err = fd.vortex.awaitOperation(op)
 		if err != nil {
 			op.Complete()
 			fd.vortex.releaseOperation(op)
 			return
 		}
-		if cqeFlags&liburing.CQEFNotify == 0 {
+		if cqeFlags&liburing.IORING_CQE_F_NOTIF == 0 {
 			err = errors.New("send_zc received CQE_F_MORE but no CQE_F_NOTIF")
 		}
 	}
@@ -133,14 +133,14 @@ func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Ti
 
 	oobn = int(msg.Controllen)
 
-	if cqeFlags&liburing.CQEFMore != 0 {
+	if cqeFlags&liburing.IORING_CQE_F_MORE != 0 {
 		_, cqeFlags, err = fd.vortex.awaitOperation(op)
 		if err != nil {
 			op.Complete()
 			fd.vortex.releaseOperation(op)
 			return
 		}
-		if cqeFlags&liburing.CQEFNotify == 0 {
+		if cqeFlags&liburing.IORING_CQE_F_NOTIF == 0 {
 			err = errors.New("sendmsg_zc received CQE_F_MORE but no CQE_F_NOTIF")
 		}
 	}

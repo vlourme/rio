@@ -8,7 +8,7 @@ import (
 )
 
 func (op *Operation) PrepareSocket(family int, sotype int, proto int) {
-	op.code = liburing.OpSocket
+	op.code = liburing.IORING_OP_SOCKET
 	op.fd = family
 	op.addr = unsafe.Pointer(uintptr(sotype))
 	op.addrLen = uint32(proto)
@@ -31,13 +31,13 @@ func (op *Operation) packingSocket(sqe *liburing.SubmissionQueueEntry) (err erro
 func (op *Operation) PrepareSetSocketoptInt(nfd *NetFd, level int, optName int, optValue *int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
-	op.code = liburing.OpUringCmd
-	op.cmd = liburing.SocketOpSetsockopt
+	op.code = liburing.IORING_OP_URING_CMD
+	op.cmd = liburing.SOCKET_URING_OP_SETSOCKOPT
 
 	op.fd = fd
 	op.addr = unsafe.Pointer(uintptr(level))
@@ -61,14 +61,14 @@ func (op *Operation) packingSetSocketoptInt(sqe *liburing.SubmissionQueueEntry) 
 func (op *Operation) PrepareGetSocketoptInt(nfd *NetFd, level int, optName int, optValue *int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
-		op.sqeFlags |= liburing.SQEFixedFile
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	if nfd.Async() {
-		op.sqeFlags |= liburing.SQEAsync
+		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
 
-	op.code = liburing.OpUringCmd
-	op.cmd = liburing.SocketOpGetsockopt
+	op.code = liburing.IORING_OP_URING_CMD
+	op.cmd = liburing.SOCKET_URING_OP_GETSOCKOPT
 
 	op.fd = fd
 	op.addr = unsafe.Pointer(uintptr(level))

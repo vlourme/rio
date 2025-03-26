@@ -5,15 +5,16 @@ package liburing
 import "unsafe"
 
 const (
-	CQEFBuffer uint32 = 1 << iota
-	CQEFMore
-	CQEFSockNonempty
-	CQEFNotify
+	IORING_CQE_F_BUFFER uint32 = 1 << iota
+	IORING_CQE_F_MORE
+	IORING_CQE_F_SOCK_NONEMPTY
+	IORING_CQE_F_NOTIF
+	IORING_CQE_F_BUF_MORE
 )
 
-const CQEBufferShift uint32 = 16
+const IORING_CQE_BUFFER_SHIFT = 16
 
-const CQEventFdDisabled uint32 = 1 << 0
+const IORING_CQ_EVENTFD_DISABLED uint32 = 1 << 0
 
 type CompletionQueueEvent struct {
 	UserData uint64

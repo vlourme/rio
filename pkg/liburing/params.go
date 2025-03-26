@@ -27,97 +27,97 @@ func (params *Params) Validate() error {
 
 	flags := uint32(0)
 
-	if params.flags&SetupIOPoll != 0 {
-		flags |= SetupIOPoll
+	if params.flags&IORING_SETUP_IOPOLL != 0 {
+		flags |= IORING_SETUP_IOPOLL
 	}
-	if params.flags&SetupSQPoll != 0 {
+	if params.flags&IORING_SETUP_SQPOLL != 0 {
 		if version.GTE(5, 13, 0) {
-			flags |= SetupSQPoll
+			flags |= IORING_SETUP_SQPOLL
 		}
 	}
-	if flags&SetupSQPoll != 0 && params.sqThreadIdle == 0 {
+	if flags&IORING_SETUP_SQPOLL != 0 && params.sqThreadIdle == 0 {
 		params.sqThreadIdle = 15000
 	}
-	if params.flags&SetupSQAff != 0 {
-		if flags&SetupSQPoll != 0 {
-			flags |= SetupSQAff
+	if params.flags&IORING_SETUP_SQ_AFF != 0 {
+		if flags&IORING_SETUP_SQPOLL != 0 {
+			flags |= IORING_SETUP_SQ_AFF
 		}
 	}
-	if params.flags&SetupCQSize != 0 {
+	if params.flags&IORING_SETUP_CQSIZE != 0 {
 		if params.cqEntries > 0 {
-			flags |= SetupCQSize
+			flags |= IORING_SETUP_CQSIZE
 		}
 	}
-	if params.cqEntries > 0 && flags&SetupCQSize != 0 {
+	if params.cqEntries > 0 && flags&IORING_SETUP_CQSIZE != 0 {
 		params.sqEntries = 0
 		params.cqEntries = 0
 	}
-	if params.flags&SetupClamp != 0 {
-		flags |= SetupClamp
+	if params.flags&IORING_SETUP_CLAMP != 0 {
+		flags |= IORING_SETUP_CLAMP
 	}
-	if params.flags&SetupAttachWQ != 0 {
+	if params.flags&IORING_SETUP_ATTACH_WQ != 0 {
 		if params.wqFd > 0 {
-			flags |= SetupAttachWQ
+			flags |= IORING_SETUP_ATTACH_WQ
 		}
 	}
-	if params.flags&SetupRDisabled != 0 {
+	if params.flags&IORING_SETUP_R_DISABLED != 0 {
 		if version.GTE(5, 10, 0) {
-			flags |= SetupRDisabled
+			flags |= IORING_SETUP_R_DISABLED
 		}
 	}
-	if params.flags&SetupSubmitAll != 0 {
+	if params.flags&IORING_SETUP_SUBMIT_ALL != 0 {
 		if version.GTE(5, 18, 0) {
-			flags |= SetupSubmitAll
+			flags |= IORING_SETUP_SUBMIT_ALL
 		}
 	}
-	if params.flags&SetupCoopTaskRun != 0 {
+	if params.flags&IORING_SETUP_COOP_TASKRUN != 0 {
 		if version.GTE(5, 19, 0) {
-			flags |= SetupCoopTaskRun
+			flags |= IORING_SETUP_COOP_TASKRUN
 		}
 	}
-	if params.flags&SetupTaskRunFlag != 0 {
-		if version.GTE(5, 19, 0) && flags&SetupCoopTaskRun != 0 {
-			flags |= SetupTaskRunFlag
+	if params.flags&IORING_SETUP_TASKRUN_FLAG != 0 {
+		if version.GTE(5, 19, 0) && flags&IORING_SETUP_COOP_TASKRUN != 0 {
+			flags |= IORING_SETUP_TASKRUN_FLAG
 		}
 	}
-	if params.flags&SetupSQE128 != 0 {
+	if params.flags&IORING_SETUP_SQE128 != 0 {
 		if version.GTE(5, 19, 0) {
-			flags |= SetupSQE128
+			flags |= IORING_SETUP_SQE128
 		}
 	}
-	if params.flags&SetupCQE32 != 0 {
+	if params.flags&IORING_SETUP_CQE32 != 0 {
 		if version.GTE(5, 19, 0) {
-			flags |= SetupCQE32
+			flags |= IORING_SETUP_CQE32
 		}
 	}
-	if params.flags&SetupSingleIssuer != 0 {
+	if params.flags&IORING_SETUP_SINGLE_ISSUER != 0 {
 		if version.GTE(6, 0, 0) {
-			flags |= SetupSingleIssuer
+			flags |= IORING_SETUP_SINGLE_ISSUER
 		}
 	}
-	if params.flags&SetupDeferTaskRun != 0 {
-		if version.GTE(6, 1, 0) && flags&SetupSingleIssuer != 0 {
-			flags |= SetupDeferTaskRun
+	if params.flags&IORING_SETUP_DEFER_TASKRUN != 0 {
+		if version.GTE(6, 1, 0) && flags&IORING_SETUP_SINGLE_ISSUER != 0 {
+			flags |= IORING_SETUP_DEFER_TASKRUN
 		}
 	}
-	if params.flags&SetupNoMmap != 0 {
+	if params.flags&IORING_SETUP_NO_MMAP != 0 {
 		if version.GTE(6, 5, 0) {
-			flags |= SetupNoMmap
+			flags |= IORING_SETUP_NO_MMAP
 		}
 	}
-	if params.flags&SetupRegisteredFdOnly != 0 {
-		if version.GTE(6, 5, 0) && flags&SetupNoMmap != 0 {
-			flags |= SetupRegisteredFdOnly
+	if params.flags&IORING_SETUP_REGISTERED_FD_ONLY != 0 {
+		if version.GTE(6, 5, 0) && flags&IORING_SETUP_NO_MMAP != 0 {
+			flags |= IORING_SETUP_REGISTERED_FD_ONLY
 		}
 	}
-	if params.flags&SetupNoSQArray != 0 {
+	if params.flags&IORING_SETUP_NO_SQARRAY != 0 {
 		if version.GTE(6, 6, 0) {
-			flags |= SetupNoSQArray
+			flags |= IORING_SETUP_NO_SQARRAY
 		}
 	}
-	if params.flags&SetupHybridIOPoll != 0 {
-		if flags&SetupIOPoll != 0 {
-			flags |= SetupHybridIOPoll
+	if params.flags&IORING_SETUP_HYBRID_IOPOLL != 0 {
+		if flags&IORING_SETUP_IOPOLL != 0 {
+			flags |= IORING_SETUP_HYBRID_IOPOLL
 		}
 	}
 	params.flags = flags

@@ -20,7 +20,7 @@ func (ring *Ring) SubmitAndWaitTimeout(waitNr uint32, ts *syscall.Timespec, sigm
 	var cqe *CompletionQueueEvent
 
 	if ts != nil {
-		if ring.features&FeatExtArg != 0 {
+		if ring.features&IORING_FEAT_EXT_ARG != 0 {
 			arg := GetEventsArg{
 				sigMask:   uint64(uintptr(unsafe.Pointer(sigmask))),
 				sigMaskSz: nSig / szDivider,
@@ -29,7 +29,7 @@ func (ring *Ring) SubmitAndWaitTimeout(waitNr uint32, ts *syscall.Timespec, sigm
 			data := getData{
 				submit:   ring.flushSQ(),
 				waitNr:   waitNr,
-				getFlags: EnterExtArg,
+				getFlags: IORING_ENTER_EXT_ARG,
 				sz:       int(unsafe.Sizeof(arg)),
 				hasTS:    ts != nil,
 				arg:      unsafe.Pointer(&arg),
@@ -102,10 +102,10 @@ func (ring *Ring) submit(submitted uint32, waitNr uint32, getEvents bool) (uint,
 	flags = 0
 	if ring.sqRingNeedsEnter(submitted, &flags) || cqNeedsEnter {
 		if cqNeedsEnter {
-			flags |= EnterGetEvents
+			flags |= IORING_ENTER_GETEVENTS
 		}
 		if ring.kind&regRing != 0 {
-			flags |= EnterRegisteredRing
+			flags |= IORING_ENTER_REGISTERED_RING
 		}
 
 		ret, err = ring.Enter(submitted, waitNr, flags, nil)
@@ -124,10 +124,10 @@ func (ring *Ring) submitAndWait(waitNr uint32) (uint, error) {
 }
 
 func (ring *Ring) sqRingWait() (uint, error) {
-	flags := EnterSQWait
+	flags := IORING_ENTER_SQ_WAIT
 
 	if ring.kind&doubleRegRing != 0 {
-		flags |= EnterRegisteredRing
+		flags |= IORING_ENTER_REGISTERED_RING
 	}
 	return ring.Enter(0, 0, flags, nil)
 }

@@ -13,7 +13,7 @@ const (
 	probeOpsSize = 256
 )
 
-const opSupported uint16 = 1 << 0
+const IO_URING_OP_SUPPORTED uint16 = 1 << 0
 
 type Probe struct {
 	LastOp uint8
@@ -28,7 +28,7 @@ func (p *Probe) IsSupported(op uint8) bool {
 		if p.Ops[i].Op != op {
 			continue
 		}
-		return p.Ops[i].Flags&opSupported != 0
+		return p.Ops[i].Flags&IO_URING_OP_SUPPORTED != 0
 	}
 	return false
 }

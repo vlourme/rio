@@ -34,7 +34,7 @@ func New(options ...Option) (ring *Ring, err error) {
 	if memoryBuffer := opts.MemoryBuffer; len(memoryBuffer) > 0 {
 		buf = unsafe.Pointer(unsafe.SliceData(memoryBuffer))
 		bufSize = uint64(len(memoryBuffer))
-		params.flags |= SetupNoMmap
+		params.flags |= IORING_SETUP_NO_MMAP
 	}
 
 	if err = params.Validate(); err != nil {
@@ -76,7 +76,7 @@ func (ring *Ring) Close() (err error) {
 
 	if sq.ringSize == 0 {
 		sqeSize = unsafe.Sizeof(SubmissionQueueEntry{})
-		if ring.flags&SetupSQE128 != 0 {
+		if ring.flags&IORING_SETUP_SQE128 != 0 {
 			sqeSize += 64
 		}
 		_ = munmap(uintptr(unsafe.Pointer(sq.sqes)), sqeSize*uintptr(*sq.ringEntries))
@@ -100,11 +100,11 @@ func (ring *Ring) Fd() int {
 }
 
 func (ring *Ring) EnableRings() (uint, error) {
-	return ring.doRegister(RegisterEnableRings, unsafe.Pointer(nil), 0)
+	return ring.doRegister(IORING_REGISTER_ENABLE_RINGS, unsafe.Pointer(nil), 0)
 }
 
 func (ring *Ring) CloseFd() error {
-	if ring.features&FeatRegRegRing == 0 {
+	if ring.features&IORING_FEAT_REG_REG_RING == 0 {
 		return syscall.EOPNOTSUPP
 	}
 	if ring.kind&regRing == 0 {
@@ -136,7 +136,7 @@ func (ring *Ring) DontFork() error {
 	}
 
 	length = unsafe.Sizeof(SubmissionQueueEntry{})
-	if ring.flags&SetupSQE128 != 0 {
+	if ring.flags&IORING_SETUP_SQE128 != 0 {
 		length += 64
 	}
 	length *= uintptr(*ring.sqRing.ringEntries)

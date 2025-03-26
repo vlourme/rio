@@ -375,7 +375,7 @@ func (ln *UnixListener) Addr() net.Addr {
 }
 
 // SetDeadline sets the deadline associated with the listener.
-// A zero time value disables the deadline.
+// IORING_SETUP_SUBMIT_ALL zero time value disables the deadline.
 // Only valid when not multishot accept mode.
 func (ln *UnixListener) SetDeadline(t time.Time) error {
 	if !ln.ok() {
