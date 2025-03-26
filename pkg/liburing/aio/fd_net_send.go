@@ -7,8 +7,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
-	"os"
-	"syscall"
 	"time"
 )
 
@@ -16,27 +14,6 @@ func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	nn := 0
-	if fd.canInAdvance() {
-		n, err = syscall.Write(fd.regular, b)
-		if err == nil {
-			return
-		}
-		nn += n
-		n = 0
-		if !errors.Is(err, syscall.EAGAIN) {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = net.ErrClosed
-			} else {
-				err = os.NewSyscallError("write", err)
-			}
-			return
-		}
-	}
-	if nn > 0 {
-		b = b[nn:]
-	}
-
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(deadline).PrepareSend(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)
@@ -44,7 +21,6 @@ func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
 	if err != nil {
 		return
 	}
-	n += nn
 	return
 }
 
@@ -84,24 +60,6 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err
 		err = saErr
 		return
 	}
-
-	if fd.canInAdvance() {
-		err = syscall.Sendto(fd.regular, b, 0, sa)
-		if err == nil {
-			n = len(b)
-			return
-		}
-		n = 0
-		if !errors.Is(err, syscall.EAGAIN) {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = net.ErrClosed
-			} else {
-				err = os.NewSyscallError("sendto", err)
-			}
-			return
-		}
-	}
-
 	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
 	if rsaErr != nil {
 		err = rsaErr
@@ -128,24 +86,6 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 		err = saErr
 		return
 	}
-
-	if fd.canInAdvance() {
-		n, err = syscall.SendmsgN(fd.regular, b, oob, sa, 0)
-		if err == nil {
-			oobn = len(oob)
-			return
-		}
-		n = 0
-		if !errors.Is(err, syscall.EAGAIN) {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = net.ErrClosed
-			} else {
-				err = os.NewSyscallError("sendmsgn", err)
-			}
-			return
-		}
-	}
-
 	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
 	if rsaErr != nil {
 		err = rsaErr

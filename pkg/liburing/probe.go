@@ -42,6 +42,7 @@ func GetProbe() (*Probe, error) {
 	}
 	probe, probeErr := ring.Probe()
 	if probeErr != nil {
+		_ = ring.Close()
 		return nil, probeErr
 	}
 	_ = ring.Close()

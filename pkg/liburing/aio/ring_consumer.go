@@ -18,7 +18,7 @@ type CQEConsumer interface {
 	Close() (err error)
 }
 
-func newCQEPushTypedConsumer(ring *liburing.Ring, curve Curve) (CQEConsumer, error) {
+func newCQEPushTypedConsumer(ring *liburing.Ring) (CQEConsumer, error) {
 	// exit
 	exitFd, exitFdErr := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
 	if exitFdErr != nil {
@@ -56,26 +56,13 @@ func newCQEPushTypedConsumer(ring *liburing.Ring, curve Curve) (CQEConsumer, err
 		return nil, NewRingErr(os.NewSyscallError("ring_register_eventfd", regEventFdErr))
 	}
 
-	// curve
-	if len(curve) == 0 { // todo make 2 curve, one for t10s, one for r5k
-		curve = Curve{
-			{8, 1 * time.Microsecond},
-			{32, 10 * time.Microsecond},
-			{96, 50 * time.Microsecond},
-			{128, 100 * time.Microsecond},
-			{256, 200 * time.Microsecond},
-			{512, 300 * time.Microsecond},
-			{1024, 500 * time.Microsecond},
-		}
-	}
 	c := &CQEPushTypedConsumer{
-		ring:          ring,
-		eventFd:       eventFd,
-		exitFd:        exitFd,
-		epollFd:       epollFd,
-		wg:            new(sync.WaitGroup),
-		exitOp:        new(Operation),
-		waitTimeCurve: curve,
+		ring:    ring,
+		eventFd: eventFd,
+		exitFd:  exitFd,
+		epollFd: epollFd,
+		wg:      new(sync.WaitGroup),
+		exitOp:  new(Operation),
 	}
 
 	go c.handle()
@@ -84,27 +71,25 @@ func newCQEPushTypedConsumer(ring *liburing.Ring, curve Curve) (CQEConsumer, err
 }
 
 type CQEPushTypedConsumer struct {
-	ring          *liburing.Ring
-	eventFd       int
-	exitFd        int
-	epollFd       int
-	wg            *sync.WaitGroup
-	exitOp        *Operation
-	waitTimeCurve Curve
+	ring    *liburing.Ring
+	eventFd int
+	exitFd  int
+	epollFd int
+	wg      *sync.WaitGroup
+	exitOp  *Operation
 }
 
 func (c *CQEPushTypedConsumer) handle() {
 	defer c.wg.Done()
 
 	var (
-		ring         = c.ring
-		eventFd      = int32(c.eventFd)
-		exitFd       = int32(c.exitFd)
-		buf          = make([]byte, 8)
-		events       = make([]unix.EpollEvent, 1024)
-		cqes         = make([]*liburing.CompletionQueueEvent, 1024)
-		transmission = NewCurveTransmission(c.waitTimeCurve)
-		stopped      = false
+		ring    = c.ring
+		eventFd = int32(c.eventFd)
+		exitFd  = int32(c.exitFd)
+		buf     = make([]byte, 8)
+		events  = make([]unix.EpollEvent, 1024)
+		cqes    = make([]*liburing.CompletionQueueEvent, 1024)
+		stopped = false
 	)
 
 	for {
@@ -165,12 +150,6 @@ func (c *CQEPushTypedConsumer) handle() {
 					ring.CQAdvance(peeked)
 					completed += peeked
 					// try to peek more
-					goto PEEK
-				}
-				// wait when matched
-				if _, waitTime := transmission.Match(completed); waitTime > 0 {
-					time.Sleep(waitTime)
-					completed = 0
 					goto PEEK
 				}
 				// read

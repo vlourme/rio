@@ -167,10 +167,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if d.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 	}
-	// enable in advance io
-	if d.EnableInAdvanceIO {
-		fd.EnableInAdvance()
-	}
 	// conn
 	c := &TCPConn{
 		conn{
@@ -267,10 +263,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	if d.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
-	}
-	// enable in advance io
-	if d.EnableInAdvanceIO {
-		fd.EnableInAdvance()
 	}
 	// conn
 	c := &UDPConn{
@@ -382,10 +374,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	if d.SendZC {
 		useSendZC = aio.CheckSendZCEnable()
 		useSendMSGZC = aio.CheckSendMsdZCEnable()
-	}
-	// enable in advance io
-	if d.EnableInAdvanceIO {
-		fd.EnableInAdvance()
 	}
 	// conn
 	c := &UnixConn{

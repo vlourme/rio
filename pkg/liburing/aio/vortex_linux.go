@@ -12,16 +12,6 @@ import (
 )
 
 func Open(options ...Option) (v *Vortex, err error) {
-	// check kernel version
-	version := liburing.GetVersion()
-	if version.Invalidate() {
-		err = errors.New("get kernel version failed")
-		return
-	}
-	if !version.GTE(6, 0, 0) {
-		err = errors.New("kernel version must greater than or equal to 6.0")
-		return
-	}
 	// options
 	opt := Options{}
 	for _, option := range options {

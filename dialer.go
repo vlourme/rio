@@ -19,7 +19,6 @@ var (
 		MultipathTCP:       false,
 		SendZC:             false,
 		DisableDirectAlloc: false,
-		EnableInAdvanceIO:  false,
 		Control:            nil,
 		ControlContext:     nil,
 		Vortex:             nil,
@@ -167,8 +166,6 @@ type Dialer struct {
 	SendZC bool
 	// DisableDirectAlloc disable using iouring direct allocated socket to dial.
 	DisableDirectAlloc bool
-	// EnableInAdvanceIO is to enable nonblocking fd for pre-reading or pre-writing before delivery operation.
-	EnableInAdvanceIO bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//

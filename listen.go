@@ -109,8 +109,6 @@ type ListenConfig struct {
 	MultishotAccept bool
 	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
 	DisableDirectAlloc bool
-	// EnableInAdvanceIO is to enable nonblocking fd for pre-reading or pre-writing before delivery operation.
-	EnableInAdvanceIO bool
 	// Vortex customize [aio.Vortex]
 	Vortex *aio.Vortex
 }

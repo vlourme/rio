@@ -23,7 +23,6 @@ func TestTCP(t *testing.T) {
 		ReusePort:          false,
 		MultishotAccept:    true,
 		DisableDirectAlloc: false,
-		EnableInAdvanceIO:  false,
 	}
 	ln, lnErr := config.Listen(ctx, "tcp", ":9000")
 	if lnErr != nil {

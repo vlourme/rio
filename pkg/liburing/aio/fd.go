@@ -19,7 +19,6 @@ type Fd struct {
 	isStream      bool
 	zeroReadIsEOF bool
 	async         bool
-	inAdvanceIO   bool
 	locker        sync.Mutex
 	vortex        *Vortex
 }
@@ -34,7 +33,7 @@ func (fd *Fd) FileDescriptor() (n int, direct bool) {
 }
 
 func (fd *Fd) Name() string {
-	return fmt.Sprintf("[fd:%d][direct:%d][allocated:%t][async:%t][advance:%t]", fd.regular, fd.direct, fd.allocated, fd.async, fd.inAdvanceIO)
+	return fmt.Sprintf("[fd:%d][direct:%d][allocated:%t][async:%t]", fd.regular, fd.direct, fd.allocated, fd.async)
 }
 
 func (fd *Fd) IsStream() bool {
@@ -51,22 +50,6 @@ func (fd *Fd) Async() bool {
 
 func (fd *Fd) SetAsync(async bool) {
 	fd.async = async
-}
-
-func (fd *Fd) EnableInAdvance() {
-	fd.inAdvanceIO = true
-}
-
-func (fd *Fd) canInAdvance() bool {
-	if !fd.inAdvanceIO {
-		return false
-	}
-	if fd.regular == -1 {
-		if err := fd.Install(); err != nil {
-			return false
-		}
-	}
-	return true
 }
 
 func (fd *Fd) Vortex() *Vortex {

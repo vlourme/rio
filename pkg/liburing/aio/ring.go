@@ -34,6 +34,11 @@ type IOURing interface {
 }
 
 func OpenIOURing(options Options) (v IOURing, err error) {
+	// version check
+	if !liburing.VersionEnable(5, 19, 0) {
+		err = NewRingErr(errors.New("kernel version must >= 5.19"))
+		return
+	}
 	// probe
 	probe, probeErr := liburing.GetProbe()
 	if probeErr != nil {
@@ -198,22 +203,15 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 	}
 	producer := newSQEChanProducer(ring, producerLockOSThread, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)
 
-	consumerType := strings.ToUpper(strings.TrimSpace(options.CQEConsumerType))
-	if consumerType == "" {
-		if ring.Flags()&liburing.SetupSQPoll != 0 {
-			consumerType = CQEConsumerPushType
-		} else {
-			consumerType = CQEConsumerPollType
-		}
-	}
 	// consumer
+	consumerType := strings.ToUpper(strings.TrimSpace(options.CQEConsumerType))
 	var consumer CQEConsumer
 	switch consumerType {
-	case CQEConsumerPollType:
-		consumer, err = newCQEPollTypedConsumer(ring, options.CQEPullTypedConsumeIdleTime, options.CQEConsumeTimeCurve)
+	case CQEConsumerPushType:
+		consumer, err = newCQEPushTypedConsumer(ring)
 		break
 	default:
-		consumer, err = newCQEPushTypedConsumer(ring, options.CQEConsumeTimeCurve)
+		consumer, err = newCQEPollTypedConsumer(ring, options.CQEPullTypedConsumeIdleTime, options.CQEConsumeTimeCurve)
 		break
 	}
 	if err != nil {
