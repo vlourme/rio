@@ -281,12 +281,18 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 				t.Error("accept", err)
 				return
 			}
-			_ = conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
+			rc := conn.(rio.Conn)
+			rc.SetSendZC(false)
+			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
 			b := make([]byte, 1024)
 			now := time.Now()
 			rn, rErr := conn.Read(b)
 			t.Log("srv read", time.Now().Sub(now), rn, string(b[:rn]), rErr, errors.Is(rErr, context.DeadlineExceeded))
+
+			_ = conn.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+			wn, wnErr := conn.Write([]byte("hello world"))
+			t.Log("srv write", wn, wnErr)
 			_ = conn.Close()
 			return
 		}
@@ -300,6 +306,9 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
 	defer conn.Close()
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
+	b := make([]byte, 1024)
+	rn, rErr := conn.Read(b)
+	t.Log("cli read", rn, rErr, string(b[:rn]))
 	t.Log("done")
 }

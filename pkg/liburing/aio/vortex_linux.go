@@ -131,7 +131,21 @@ RETRY:
 			if errors.Is(err, ErrIOURingSQBusy) { // means cannot get sqe
 				goto RETRY
 			}
+			if errors.Is(err, syscall.ECANCELED) && op.timeout != nil && op.addr2 != nil {
+				op.timeout = nil // clean timeout for CQE_F_MORE, such as sendzc
+				timeoutOp := (*Operation)(op.addr2)
+				if timeoutErr := vortex.awaitTimeoutOp(timeoutOp); timeoutErr != nil {
+					if errors.Is(timeoutErr, ErrTimeout) {
+						err = ErrTimeout
+					}
+				}
+			}
 			return
+		}
+		if op.timeout != nil && op.addr2 != nil { // await timeout
+			op.timeout = nil // clean timeout for CQE_F_MORE, such as sendzc
+			timeoutOp := (*Operation)(op.addr2)
+			_ = vortex.awaitTimeoutOp(timeoutOp)
 		}
 		return
 	}
@@ -148,23 +162,21 @@ func (vortex *Vortex) awaitOperation(op *Operation) (n int, cqeFlags uint32, err
 	}
 	n, cqeFlags, err = r.N, r.Flags, r.Err
 
-	if op.timeout != nil && op.addr2 != nil { // wait timeout op
-		timeoutOp := (*Operation)(op.addr2)
-		r, ok = <-timeoutOp.resultCh
-		if ok {
-			if err != nil && errors.Is(r.Err, syscall.ETIME) {
-				err = ErrTimeout
-			}
-		}
-	}
-
 	if err != nil {
 		if errors.Is(err, syscall.ECANCELED) {
 			err = ErrCanceled
-		} else if errors.Is(r.Err, syscall.ETIME) {
-			err = ErrTimeout
 		} else {
 			err = os.NewSyscallError(op.Name(), err)
+		}
+	}
+	return
+}
+
+func (vortex *Vortex) awaitTimeoutOp(timeoutOp *Operation) (err error) {
+	r, ok := <-timeoutOp.resultCh
+	if ok {
+		if r.Err != nil && errors.Is(r.Err, syscall.ETIME) {
+			err = ErrTimeout
 		}
 	}
 	return

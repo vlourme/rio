@@ -183,7 +183,11 @@ func (op *Operation) PrepareSend(nfd *NetFd, b []byte) {
 func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error) {
 	b := uintptr(op.addr)
 	bLen := op.addrLen
-	sqe.PrepareSend(op.fd, b, bLen, 0)
+	flags := 0
+	if op.sqeFlags&liburing.SQEIOLink != 0 {
+		flags = syscall.MSG_WAITALL
+	}
+	sqe.PrepareSend(op.fd, b, bLen, flags)
 	sqe.SetFlags(op.sqeFlags)
 	sqe.SetData(unsafe.Pointer(op))
 	return
@@ -207,7 +211,11 @@ func (op *Operation) PrepareSendZC(nfd *NetFd, b []byte) {
 func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err error) {
 	b := uintptr(op.addr)
 	bLen := op.addrLen
-	sqe.PrepareSendZC(op.fd, b, bLen, 0, 0)
+	flags := 0
+	if op.sqeFlags&liburing.SQEIOLink != 0 {
+		flags = syscall.MSG_WAITALL
+	}
+	sqe.PrepareSendZC(op.fd, b, bLen, flags, 0)
 	sqe.SetFlags(op.sqeFlags)
 	sqe.SetData(unsafe.Pointer(op))
 	return

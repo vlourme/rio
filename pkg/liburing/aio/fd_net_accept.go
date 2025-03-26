@@ -126,7 +126,7 @@ func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
 		accepted    = -1
 		directAlloc = f.directAlloc
 	)
-	accepted, cqeFlags, err = f.vortex.awaitOperation(op)
+	accepted, cqeFlags, err = f.vortex.awaitOperation(op) // todo handle timeout...
 	f.vortex.releaseOperation(op)
 	if err != nil {
 		return
