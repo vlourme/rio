@@ -48,10 +48,6 @@ func ListenTCP(network string, addr *net.TCPAddr) (*TCPListener, error) {
 // If the Port field of laddr is 0, a port number is automatically
 // chosen.
 func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net.TCPAddr) (*TCPListener, error) {
-	// check multishot accept
-	if lc.MultishotAccept {
-		lc.MultishotAccept = aio.CheckMultishotAcceptEnable()
-	}
 	// network
 	switch network {
 	case "tcp", "tcp4", "tcp6":
@@ -165,19 +161,19 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 
 	// ln
 	ln := &TCPListener{
-		fd:                 fd,
-		directAlloc:        directAlloc,
-		vortex:             vortex,
-		acceptFuture:       nil,
-		multipathTCP:       lc.MultipathTCP,
-		keepAlive:          lc.KeepAlive,
-		keepAliveConfig:    lc.KeepAliveConfig,
-		useSendZC:          useSendZC,
-		useMultishotAccept: lc.MultishotAccept,
-		deadline:           time.Time{},
+		fd:              fd,
+		directAlloc:     directAlloc,
+		vortex:          vortex,
+		acceptFuture:    nil,
+		multipathTCP:    lc.MultipathTCP,
+		keepAlive:       lc.KeepAlive,
+		keepAliveConfig: lc.KeepAliveConfig,
+		useSendZC:       useSendZC,
+		useMultishot:    !lc.DisableMultishotIO,
+		deadline:        time.Time{},
 	}
 	// prepare multishot accept
-	if ln.useMultishotAccept {
+	if ln.useMultishot {
 		if err := ln.prepareMultishotAccepting(); err != nil {
 			_ = ln.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -190,16 +186,16 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 // TCPListener is a TCP network listener. Clients should typically
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
-	fd                 *aio.NetFd
-	directAlloc        bool
-	vortex             *aio.Vortex
-	acceptFuture       *aio.AcceptFuture
-	multipathTCP       bool
-	keepAlive          time.Duration
-	keepAliveConfig    net.KeepAliveConfig
-	useSendZC          bool
-	useMultishotAccept bool
-	deadline           time.Time
+	fd              *aio.NetFd
+	directAlloc     bool
+	vortex          *aio.Vortex
+	acceptFuture    *aio.AcceptFuture
+	multipathTCP    bool
+	keepAlive       time.Duration
+	keepAliveConfig net.KeepAliveConfig
+	useSendZC       bool
+	useMultishot    bool
+	deadline        time.Time
 }
 
 // Accept implements the Accept method in the [net.Listener] interface; it
@@ -215,7 +211,7 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
-	if ln.useMultishotAccept {
+	if ln.useMultishot {
 		c, err = ln.acceptMultishot()
 	} else {
 		c, err = ln.acceptOneshot()
@@ -249,9 +245,9 @@ func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 			fd:            cfd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
-		0,
 	}
 	return
 }
@@ -272,9 +268,9 @@ func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 			fd:            cfd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
-		0,
 	}
 	return
 }
@@ -409,7 +405,6 @@ func genericWriteTo(c *TCPConn, w io.Writer) (n int64, err error) {
 // connections.
 type TCPConn struct {
 	conn
-	readFromFilePolicy int32
 }
 
 // ReadFrom implements the [io.ReaderFrom] ReadFrom method.

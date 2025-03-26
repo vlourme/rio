@@ -173,9 +173,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			fd:            fd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  !d.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
-		0,
 	}
 
 	return c, nil
@@ -270,6 +270,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			fd:            fd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  !d.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,
@@ -381,6 +382,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			fd:            fd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  !d.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,

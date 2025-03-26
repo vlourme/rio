@@ -164,6 +164,8 @@ type Dialer struct {
 	MultipathTCP bool
 	// SendZC is set IOURING.OP_SENDZC
 	SendZC bool
+	// DisableMultishotIO disable to use multi op
+	DisableMultishotIO bool
 	// DisableDirectAlloc disable using iouring direct allocated socket to dial.
 	DisableDirectAlloc bool
 	// If Control is not nil, it is called after creating the network

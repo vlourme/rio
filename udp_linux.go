@@ -226,6 +226,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			fd:            fd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  !lc.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,

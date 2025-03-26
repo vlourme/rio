@@ -105,8 +105,8 @@ type ListenConfig struct {
 	ReusePort bool
 	// SendZC is set IOURING.OP_SENDZC
 	SendZC bool
-	// MultishotAccept is set use IOURING.OP_MULTISHOT_ACCEPT
-	MultishotAccept bool
+	// DisableMultishotIO disable to use multi op
+	DisableMultishotIO bool
 	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
 	DisableDirectAlloc bool
 	// Vortex customize [aio.Vortex]

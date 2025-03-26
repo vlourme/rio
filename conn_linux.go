@@ -17,6 +17,7 @@ type conn struct {
 	fd            *aio.NetFd
 	readDeadline  time.Time
 	writeDeadline time.Time
+	useMultishot  bool
 	useSendZC     bool
 }
 

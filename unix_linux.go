@@ -30,10 +30,6 @@ func ListenUnix(network string, addr *net.UnixAddr) (*UnixListener, error) {
 //
 // The network must be "unix" or "unixpacket".
 func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *net.UnixAddr) (*UnixListener, error) {
-	// check multishot accept
-	if lc.MultishotAccept {
-		lc.MultishotAccept = aio.CheckMultishotAcceptEnable()
-	}
 	// network
 	sotype := 0
 	switch network {
@@ -119,19 +115,19 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	}
 	// ln
 	ln := &UnixListener{
-		fd:                 fd,
-		path:               fd.LocalAddr().String(),
-		unlink:             true,
-		unlinkOnce:         sync.Once{},
-		vortex:             vortex,
-		acceptFuture:       nil,
-		directAlloc:        directAlloc,
-		useSendZC:          useSendZC,
-		useMultishotAccept: lc.MultishotAccept,
-		deadline:           time.Time{},
+		fd:           fd,
+		path:         fd.LocalAddr().String(),
+		unlink:       true,
+		unlinkOnce:   sync.Once{},
+		vortex:       vortex,
+		acceptFuture: nil,
+		directAlloc:  directAlloc,
+		useSendZC:    useSendZC,
+		useMultishot: !lc.DisableMultishotIO,
+		deadline:     time.Time{},
 	}
 	// prepare multishot accept
-	if ln.useMultishotAccept {
+	if ln.useMultishot {
 		if err := ln.prepareMultishotAccepting(); err != nil {
 			_ = ln.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
@@ -232,6 +228,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 			fd:            fd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  !lc.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
 		useSendMSGZC,
@@ -243,16 +240,16 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 // typically use variables of type [net.Listener] instead of assuming Unix
 // domain sockets.
 type UnixListener struct {
-	fd                 *aio.NetFd
-	path               string
-	unlink             bool
-	unlinkOnce         sync.Once
-	vortex             *aio.Vortex
-	acceptFuture       *aio.AcceptFuture
-	directAlloc        bool
-	useSendZC          bool
-	useMultishotAccept bool
-	deadline           time.Time
+	fd           *aio.NetFd
+	path         string
+	unlink       bool
+	unlinkOnce   sync.Once
+	vortex       *aio.Vortex
+	acceptFuture *aio.AcceptFuture
+	directAlloc  bool
+	useSendZC    bool
+	useMultishot bool
+	deadline     time.Time
 }
 
 // Accept implements the Accept method in the [net.Listener] interface.
@@ -268,7 +265,7 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
-	if ln.useMultishotAccept {
+	if ln.useMultishot {
 		c, err = ln.acceptMultishot()
 	} else {
 		c, err = ln.acceptOneshot()
@@ -305,6 +302,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 			fd:            cfd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
 		false,
@@ -328,6 +326,7 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 			fd:            cfd,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
+			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
 		false,
