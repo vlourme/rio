@@ -7,7 +7,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/queue"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"golang.org/x/sys/unix"
 	"os"
 	"strconv"
 	"strings"
@@ -116,7 +115,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 				files = make([]int, options.RegisterFixedFilesReserved)
 				reservedHolds = make([]int, options.RegisterFixedFilesReserved)
 				for i := uint32(0); i < options.RegisterFixedFilesReserved; i++ {
-					reservedHold, _ := unix.Eventfd(0, unix.EFD_NONBLOCK|unix.FD_CLOEXEC)
+					reservedHold, _ := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_RAW|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, 0)
 					reservedHolds[i] = reservedHold
 					files[i] = reservedHold
 					idx := int(i)
