@@ -327,8 +327,8 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
 
-// UseSendZC try to enable send_zc.
-func (c *conn) UseSendZC(use bool) bool {
+// SetSendZC try to enable send_zc.
+func (c *conn) SetSendZC(use bool) bool {
 	if !c.ok() {
 		return false
 	}
