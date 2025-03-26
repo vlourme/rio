@@ -9,6 +9,8 @@ type Conn interface {
 	net.Conn
 	// SetAsync set sqe_flags |= IOSQE_ASYNC
 	SetAsync(async bool) error
+	// SetSendZC set to use prep_sendzc
+	SetSendZC(ok bool) bool
 	// AcquireRegisteredBuffer
 	// acquire a buffer.
 	// Note! must release buffer after used.
