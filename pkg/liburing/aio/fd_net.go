@@ -46,6 +46,9 @@ func OpenNetFd(
 		direct  = -1
 		sockErr error
 	)
+	if directAlloc && mode == ListenMode {
+		directAlloc = liburing.GenericVersion()
+	}
 	if directAlloc {
 		op := vortex.acquireOperation()
 		op.WithDirect(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)

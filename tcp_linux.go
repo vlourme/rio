@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/cbpf"
-	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"io"
@@ -71,10 +70,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if directAlloc {
 		directAlloc = vortex.DirectAllocEnabled()
 	}
-	directAllocLn := false
-	if directAlloc {
-		directAllocLn = liburing.GenericVersion()
-	}
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if lc.MultipathTCP {
@@ -83,7 +78,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 	}
 	// fd (use regular fd only)
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, directAllocLn)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, directAlloc)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -145,7 +140,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	fd.SetLocalAddr(addr)
 
 	// install fixed fd
-	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
+	if directAlloc && !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()

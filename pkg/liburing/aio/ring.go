@@ -34,8 +34,8 @@ type IOURing interface {
 
 func OpenIOURing(options Options) (v IOURing, err error) {
 	// version check
-	if !liburing.VersionEnable(5, 19, 0) {
-		err = NewRingErr(errors.New("kernel version must >= 5.19"))
+	if !liburing.VersionEnable(6, 0, 0) { // support recv_multishot
+		err = NewRingErr(errors.New("kernel version must >= 6.0"))
 		return
 	}
 	// probe
@@ -69,7 +69,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 
 	// register files
 	var (
-		generic              = liburing.GenericVersion()
+		generic              = liburing.GenericVersion()                                                                 // todo: use listen and connect to test insteadof flavor
 		registerFiledEnabled = liburing.VersionEnable(6, 0, 0)                                                           // support io_uring_prep_cancel_fd(IORING_ASYNC_CANCEL_FD_FIXED)
 		directAllocEnabled   = liburing.VersionEnable(6, 7, 0) && probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT) and io_uring_prep_fixed_fd_install
 		files                []int
@@ -77,7 +77,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 		reservedHolds        []int
 	)
 
-	if registerFiledEnabled {
+	if registerFiledEnabled { // todo: 只支持 directAllocEnabled，不在支持手动注册，自动的情况下也只需要RegisterFixedFiles，非generic的，默认是8个预留。
 		if directAllocEnabled { // use reserved and register files sparse
 			if options.RegisterFixedFiles < 1024 {
 				options.RegisterFixedFiles = 65535
@@ -166,6 +166,7 @@ func OpenIOURing(options Options) (v IOURing, err error) {
 	}
 
 	// register buffers
+	// todo：使用 provide buffers 代替，动态管理
 	buffers := queue.New[FixedBuffer]()
 	if size, count := options.RegisterFixedBufferSize, options.RegisterFixedBufferCount; count > 0 && size > 0 {
 		iovecs := make([]syscall.Iovec, count)

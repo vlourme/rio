@@ -5,7 +5,6 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
@@ -118,12 +117,8 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	if directAlloc {
 		directAlloc = vortex.DirectAllocEnabled()
 	}
-	directAllocLn := false
-	if directAlloc {
-		directAllocLn = liburing.GenericVersion()
-	}
 	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAllocLn)
+	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAlloc)
 	if fdErr != nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
@@ -204,7 +199,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	fd.SetLocalAddr(addr)
 
 	// install fixed fd
-	if !fd.Registered() && vortex.RegisterFixedFdEnabled() {
+	if directAlloc && !fd.Registered() && vortex.RegisterFixedFdEnabled() {
 		if regErr := fd.Register(); regErr != nil {
 			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
 				_ = fd.Close()

@@ -206,6 +206,14 @@ func (entry *SubmissionQueueEntry) SetFlags(flags uint8) {
 	entry.Flags |= flags
 }
 
+func (entry *SubmissionQueueEntry) SetBufferIndex(bid uint16) {
+	entry.BufIG = bid
+}
+
+func (entry *SubmissionQueueEntry) SetBufferGroup(bgid uint16) {
+	entry.BufIG = bgid
+}
+
 // [Nop] ***************************************************************************************************************
 
 func (entry *SubmissionQueueEntry) PrepareNop() {
@@ -607,7 +615,7 @@ func (entry *SubmissionQueueEntry) PrepareMkdirat(dfd int, path []byte, mode uin
 }
 
 func (entry *SubmissionQueueEntry) PrepareFilesUpdate(fds []int, offset int) {
-	entry.prepareRW(IORING_OP_FILES_UPDATE, -1, uintptr(unsafe.Pointer(&fds)), uint32(len(fds)), uint64(offset))
+	entry.prepareRW(IORING_OP_FILES_UPDATE, -1, uintptr(unsafe.Pointer(&fds[0])), uint32(len(fds)), uint64(offset))
 }
 
 func (entry *SubmissionQueueEntry) PrepareStatx(dfd int, path []byte, flags int, mask uint32, statx *unix.Statx_t) {
