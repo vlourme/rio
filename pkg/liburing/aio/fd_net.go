@@ -112,7 +112,7 @@ func (fd *NetFd) Name() string {
 	if fd.raddr != nil {
 		rs = fd.raddr.String()
 	}
-	return fmt.Sprintf("%s[network:%s][laddr:%s][raddr:%s]", name, fd.net, ls, rs)
+	return fmt.Sprintf("[network:%s][laddr:%s][raddr:%s]%s", fd.net, ls, rs, name)
 }
 
 func (fd *NetFd) Family() int {

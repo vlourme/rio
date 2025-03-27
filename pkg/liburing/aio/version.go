@@ -8,12 +8,8 @@ import (
 
 func CheckSendZCEnable() bool {
 	return liburing.VersionEnable(6, 0, 0)
-}
+} // todo mv into vortex
 
 func CheckSendMsdZCEnable() bool {
 	return liburing.VersionEnable(6, 1, 0)
-}
-
-func CheckMultishotAcceptEnable() bool {
-	return liburing.VersionEnable(5, 19, 0)
-}
+} // todo mv into vortex

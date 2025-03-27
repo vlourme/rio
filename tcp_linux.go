@@ -5,7 +5,6 @@ package rio
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/brickingsoft/rio/pkg/cbpf"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
@@ -305,7 +304,6 @@ func (ln *TCPListener) Close() error {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	if err := ln.vortex.Close(); err != nil {
-		fmt.Println("ln close")
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil
