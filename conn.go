@@ -6,6 +6,6 @@ import (
 
 type Conn interface {
 	net.Conn
-	// SetSendZC set to use prep_sendzc
-	SetSendZC(ok bool) bool
+	// EnableSendZC try to enable send_zc
+	EnableSendZC(enable bool) bool
 }
