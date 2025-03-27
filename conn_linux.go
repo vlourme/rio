@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"os"
 	"syscall"
@@ -14,10 +15,10 @@ import (
 
 type conn struct {
 	fd            *aio.NetFd
+	vortex        *reference.Pointer[*aio.Vortex]
 	readDeadline  time.Time
 	writeDeadline time.Time
 	useMultishot  bool
-	useSendZC     bool
 }
 
 // Read implements the net.Conn Read method.
@@ -50,7 +51,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	if c.useSendZC {
+	if c.fd.SendZCEnabled() {
 		n, err = c.fd.SendZC(b, c.writeDeadline)
 	} else {
 		n, err = c.fd.Send(b, c.writeDeadline)
@@ -72,7 +73,15 @@ func (c *conn) Close() error {
 	}
 
 	if err := c.fd.Close(); err != nil {
+		if c.vortex != nil {
+			_ = c.vortex.Close()
+		}
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+	}
+	if c.vortex != nil {
+		if err := c.vortex.Close(); err != nil {
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		}
 	}
 	return nil
 }
@@ -240,14 +249,11 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
 
-// SetSendZC try to enable send_zc.
-func (c *conn) SetSendZC(use bool) bool {
+// EnableSendZC try to enable send_zc.
+func (c *conn) EnableSendZC(enable bool) bool {
 	if !c.ok() {
 		return false
 	}
-	if use {
-		use = c.fd.SendZCSupported()
-	}
-	c.useSendZC = use
-	return use
+	c.fd.EnableSendZC(enable)
+	return c.fd.SendZCEnabled()
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"net/netip"
 	"os"
@@ -206,23 +205,19 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	fd.SetLocalAddr(addr)
 
 	// send zc
-	useSendZC := false
-	useSendMSGZC := false
 	if lc.SendZC {
-		useSendZC = fd.SendZCSupported()
-		useSendMSGZC = fd.SendMsgZCSupported()
+		fd.EnableSendZC(true)
+		fd.EnableSendMSGZC(true)
 	}
 	// conn
 	c := &UDPConn{
 		conn{
 			fd:            fd,
+			vortex:        vortexRC,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  !lc.DisableMultishotIO,
-			useSendZC:     useSendZC,
 		},
-		vortexRC,
-		useSendMSGZC,
 	}
 	return c, nil
 }
@@ -231,36 +226,15 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 // for UDP network connections.
 type UDPConn struct {
 	conn
-	vortex       *reference.Pointer[*aio.Vortex]
-	useSendMSGZC bool
 }
 
-// Close udp conn.
-func (c *UDPConn) Close() error {
-	if !c.ok() {
-		return syscall.EINVAL
-	}
-
-	if err := c.fd.Close(); err != nil {
-		_ = c.vortex.Close()
-		return err
-	}
-	if err := c.vortex.Close(); err != nil {
-		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: nil, Addr: c.fd.LocalAddr(), Err: err}
-	}
-	return nil
-}
-
-// UseSendMSGZC try to enable sendmsg_zc.
-func (c *UDPConn) UseSendMSGZC(use bool) bool {
+// EnableSendMSGZC try to enable sendmsg_zc.
+func (c *UDPConn) EnableSendMSGZC(enable bool) bool {
 	if !c.ok() {
 		return false
 	}
-	if use {
-		use = c.fd.SendMsgZCSupported()
-	}
-	c.useSendMSGZC = use
-	return use
+	c.fd.EnableSendMSGZC(enable)
+	return c.fd.SendMSGZCEnabled()
 }
 
 // ReadFromUDP acts like [UDPConn.ReadFrom] but returns a net.UDPAddr.
@@ -403,7 +377,7 @@ func (c *UDPConn) WriteTo(b []byte, addr net.Addr) (n int, err error) {
 }
 
 func (c *UDPConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
-	if c.useSendMSGZC {
+	if c.fd.SendMSGZCEnabled() {
 		n, err = c.fd.SendToZC(b, addr, c.writeDeadline)
 	} else {
 		n, err = c.fd.SendTo(b, addr, c.writeDeadline)
@@ -465,7 +439,7 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr net.Addr) (n, oobn int, err error
 		b = []byte{0}
 	}
 
-	if c.useSendMSGZC {
+	if c.fd.SendMSGZCEnabled() {
 		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, c.writeDeadline)
 	} else {
 		n, oobn, err = c.fd.SendMsg(b, oob, addr, c.writeDeadline)

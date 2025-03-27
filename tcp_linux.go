@@ -151,9 +151,8 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	fd.SetLocalAddr(addr)
 
 	// send zc
-	useSendZC := false
 	if lc.SendZC {
-		useSendZC = fd.SendZCSupported()
+		fd.EnableSendZC(true)
 	}
 
 	// ln
@@ -165,7 +164,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
-		useSendZC:       useSendZC,
 		useMultishot:    !lc.DisableMultishotIO,
 		deadline:        time.Time{},
 	}
@@ -191,7 +189,6 @@ type TCPListener struct {
 	multipathTCP    bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
-	useSendZC       bool
 	useMultishot    bool
 	deadline        time.Time
 }
@@ -244,9 +241,7 @@ func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  ln.useMultishot,
-			useSendZC:     ln.useSendZC,
 		},
-		nil,
 	}
 	return
 }
@@ -268,9 +263,7 @@ func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  ln.useMultishot,
-			useSendZC:     ln.useSendZC,
 		},
-		nil,
 	}
 	return
 }
@@ -409,27 +402,6 @@ func genericWriteTo(c *TCPConn, w io.Writer) (n int64, err error) {
 // connections.
 type TCPConn struct {
 	conn
-	vortex *reference.Pointer[*aio.Vortex]
-}
-
-// Close udp conn.
-func (c *TCPConn) Close() error {
-	if !c.ok() {
-		return syscall.EINVAL
-	}
-
-	if err := c.fd.Close(); err != nil {
-		if c.vortex != nil {
-			_ = c.vortex.Close()
-		}
-		return err
-	}
-	if c.vortex != nil {
-		if err := c.vortex.Close(); err != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: nil, Addr: c.fd.LocalAddr(), Err: err}
-		}
-	}
-	return nil
 }
 
 // ReadFrom implements the [io.ReaderFrom] ReadFrom method.

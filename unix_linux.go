@@ -96,9 +96,8 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	fd.SetLocalAddr(addr)
 
 	// send zc
-	useSendZC := false
 	if lc.SendZC {
-		useSendZC = fd.SendZCSupported()
+		fd.EnableSendZC(true)
 	}
 	// ln
 	ln := &UnixListener{
@@ -109,7 +108,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		vortex:       vortexRC,
 		acceptFuture: nil,
 		directAlloc:  directAlloc,
-		useSendZC:    useSendZC,
 		useMultishot: !lc.DisableMultishotIO,
 		deadline:     time.Time{},
 	}
@@ -190,23 +188,19 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	fd.SetLocalAddr(addr)
 
 	// send zc
-	useSendZC := false
-	useSendMSGZC := false
 	if lc.SendZC {
-		useSendZC = fd.SendZCSupported()
-		useSendMSGZC = fd.SendMsgZCSupported()
+		fd.EnableSendZC(true)
+		fd.EnableSendMSGZC(true)
 	}
 	// conn
 	c := &UnixConn{
 		conn{
 			fd:            fd,
+			vortex:        vortexRC,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  !lc.DisableMultishotIO,
-			useSendZC:     useSendZC,
 		},
-		vortexRC,
-		useSendMSGZC,
 	}
 	return c, nil
 }
@@ -222,7 +216,6 @@ type UnixListener struct {
 	vortex       *reference.Pointer[*aio.Vortex]
 	acceptFuture *aio.AcceptFuture
 	directAlloc  bool
-	useSendZC    bool
 	useMultishot bool
 	deadline     time.Time
 }
@@ -278,10 +271,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  ln.useMultishot,
-			useSendZC:     ln.useSendZC,
 		},
-		nil,
-		false,
 	}
 	return
 }
@@ -303,10 +293,7 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  ln.useMultishot,
-			useSendZC:     ln.useSendZC,
 		},
-		nil,
-		false,
 	}
 	return
 }
@@ -426,40 +413,15 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 // to Unix domain sockets.
 type UnixConn struct {
 	conn
-	vortex       *reference.Pointer[*aio.Vortex]
-	useSendMSGZC bool
 }
 
-// Close unix conn.
-func (c *UnixConn) Close() error {
-	if !c.ok() {
-		return syscall.EINVAL
-	}
-
-	if err := c.fd.Close(); err != nil {
-		if c.vortex != nil {
-			_ = c.vortex.Close()
-		}
-		return err
-	}
-	if c.vortex != nil {
-		if err := c.vortex.Close(); err != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: nil, Addr: c.fd.LocalAddr(), Err: err}
-		}
-	}
-	return nil
-}
-
-// UseSendMSGZC try to enable sendmsg_zc.
-func (c *UnixConn) UseSendMSGZC(use bool) bool {
+// EnableSendMSGZC try to enable sendmsg_zc.
+func (c *UnixConn) EnableSendMSGZC(enable bool) bool {
 	if !c.ok() {
 		return false
 	}
-	if use {
-		use = c.fd.SendMsgZCSupported()
-	}
-	c.useSendMSGZC = use
-	return use
+	c.fd.EnableSendMSGZC(enable)
+	return c.fd.SendMSGZCEnabled()
 }
 
 // ReadFrom implements the [net.PacketConn] ReadFrom method.
@@ -558,7 +520,7 @@ func (c *UnixConn) WriteToUnix(b []byte, addr *net.UnixAddr) (int, error) {
 }
 
 func (c *UnixConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
-	if c.useSendMSGZC {
+	if c.fd.SendMSGZCEnabled() {
 		n, err = c.fd.SendToZC(b, addr, c.writeDeadline)
 	} else {
 		n, err = c.fd.SendTo(b, addr, c.writeDeadline)
@@ -597,7 +559,7 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 		b = []byte{0}
 	}
 
-	if c.useSendMSGZC {
+	if c.fd.SendMSGZCEnabled() {
 		n, oobn, err = c.fd.SendMsgZC(b, oob, addr, c.writeDeadline)
 	} else {
 		n, oobn, err = c.fd.SendMsg(b, oob, addr, c.writeDeadline)

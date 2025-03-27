@@ -96,11 +96,33 @@ func OpenNetFd(
 
 type NetFd struct {
 	Fd
-	family int
-	sotype int
-	net    string
-	laddr  net.Addr
-	raddr  net.Addr
+	sendZCEnabled    bool
+	sendMSGZCEnabled bool
+	family           int
+	sotype           int
+	net              string
+	laddr            net.Addr
+	raddr            net.Addr
+}
+
+func (fd *NetFd) SendZCEnabled() bool {
+	return fd.sendZCEnabled
+}
+
+func (fd *NetFd) EnableSendZC(enable bool) {
+	if enable && fd.vortex.OpSupported(liburing.IORING_OP_SEND_ZC) {
+		fd.sendZCEnabled = true
+	}
+}
+
+func (fd *NetFd) SendMSGZCEnabled() bool {
+	return fd.sendMSGZCEnabled
+}
+
+func (fd *NetFd) EnableSendMSGZC(enable bool) {
+	if enable && fd.vortex.OpSupported(liburing.IORING_OP_SENDMSG_ZC) {
+		fd.sendZCEnabled = true
+	}
 }
 
 func (fd *NetFd) Name() string {

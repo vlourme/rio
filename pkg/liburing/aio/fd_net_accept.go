@@ -17,11 +17,13 @@ func newAcceptedNetFd(ln *NetFd, accepted int, directAllocated bool) (fd *NetFd,
 			zeroReadIsEOF: ln.zeroReadIsEOF,
 			vortex:        vortex,
 		},
-		family: ln.family,
-		sotype: ln.sotype,
-		net:    ln.net,
-		laddr:  nil,
-		raddr:  nil,
+		sendZCEnabled:    ln.sendZCEnabled,
+		sendMSGZCEnabled: ln.sendMSGZCEnabled,
+		family:           ln.family,
+		sotype:           ln.sotype,
+		net:              ln.net,
+		laddr:            nil,
+		raddr:            nil,
 	}
 	if directAllocated {
 		fd.direct = accepted

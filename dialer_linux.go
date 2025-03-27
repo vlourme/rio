@@ -169,20 +169,18 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// send zc
-	useSendZC := false
 	if d.SendZC {
-		useSendZC = fd.SendZCSupported()
+		fd.EnableSendZC(true)
 	}
 	// conn
 	c := &TCPConn{
 		conn{
 			fd:            fd,
+			vortex:        vortexRC,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  !d.DisableMultishotIO,
-			useSendZC:     useSendZC,
 		},
-		vortexRC,
 	}
 
 	return c, nil
@@ -271,23 +269,19 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	fd.SetRemoteAddr(raddr)
 
 	// send zc
-	useSendZC := false
-	useSendMSGZC := false
 	if d.SendZC {
-		useSendZC = fd.SendZCSupported()
-		useSendMSGZC = fd.SendMsgZCSupported()
+		fd.EnableSendZC(true)
+		fd.EnableSendMSGZC(true)
 	}
 	// conn
 	c := &UDPConn{
 		conn{
 			fd:            fd,
+			vortex:        vortexRC,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  !d.DisableMultishotIO,
-			useSendZC:     useSendZC,
 		},
-		vortexRC,
-		useSendMSGZC,
 	}
 	return c, nil
 }
@@ -390,23 +384,19 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	fd.SetRemoteAddr(raddr)
 
 	// send zc
-	useSendZC := false
-	useSendMSGZC := false
 	if d.SendZC {
-		useSendZC = fd.SendZCSupported()
-		useSendMSGZC = fd.SendMsgZCSupported()
+		fd.EnableSendZC(true)
+		fd.EnableSendMSGZC(true)
 	}
 	// conn
 	c := &UnixConn{
 		conn{
 			fd:            fd,
+			vortex:        vortexRC,
 			readDeadline:  time.Time{},
 			writeDeadline: time.Time{},
 			useMultishot:  !d.DisableMultishotIO,
-			useSendZC:     useSendZC,
 		},
-		vortexRC,
-		useSendMSGZC,
 	}
 
 	return c, nil
