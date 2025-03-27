@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"golang.org/x/sys/unix"
 	"net"
 	"os"
@@ -45,14 +46,15 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
 	// vortex
-	vortex := lc.Vortex
-	if vortex == nil {
+	vortexRC := lc.Vortex
+	if vortexRC == nil {
 		var vortexErr error
-		vortex, vortexErr = getVortex()
+		vortexRC, vortexErr = getVortex()
 		if vortexErr != nil {
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	vortex := vortexRC.Value()
 	// directAlloc
 	directAlloc := !lc.DisableDirectAlloc
 	if directAlloc {
@@ -93,16 +95,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	// set socket addr
 	fd.SetLocalAddr(addr)
 
-	// install fixed fd
-	if directAlloc && !fd.Registered() && vortex.RegisterFixedFdEnabled() {
-		if regErr := fd.Register(); regErr != nil {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
-			}
-		}
-	}
-
 	// send zc
 	useSendZC := false
 	if lc.SendZC {
@@ -114,7 +106,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		path:         fd.LocalAddr().String(),
 		unlink:       true,
 		unlinkOnce:   sync.Once{},
-		vortex:       vortex,
+		vortex:       vortexRC,
 		acceptFuture: nil,
 		directAlloc:  directAlloc,
 		useSendZC:    useSendZC,
@@ -154,14 +146,15 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
 	// vortex
-	vortex := lc.Vortex
-	if vortex == nil {
+	vortexRC := lc.Vortex
+	if vortexRC == nil {
 		var vortexErr error
-		vortex, vortexErr = getVortex()
+		vortexRC, vortexErr = getVortex()
 		if vortexErr != nil {
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	vortex := vortexRC.Value()
 	// directAlloc
 	directAlloc := !lc.DisableDirectAlloc
 	if directAlloc {
@@ -196,16 +189,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	// set socket addr
 	fd.SetLocalAddr(addr)
 
-	// install fixed fd
-	if directAlloc && !fd.Registered() && vortex.RegisterFixedFdEnabled() {
-		if regErr := fd.Register(); regErr != nil {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
-			}
-		}
-	}
-
 	// send zc
 	useSendZC := false
 	useSendMSGZC := false
@@ -222,6 +205,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 			useMultishot:  !lc.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
+		vortexRC,
 		useSendMSGZC,
 	}
 	return c, nil
@@ -235,7 +219,7 @@ type UnixListener struct {
 	path         string
 	unlink       bool
 	unlinkOnce   sync.Once
-	vortex       *aio.Vortex
+	vortex       *reference.Pointer[*aio.Vortex]
 	acceptFuture *aio.AcceptFuture
 	directAlloc  bool
 	useSendZC    bool
@@ -296,6 +280,7 @@ func (ln *UnixListener) acceptOneshot() (c *UnixConn, err error) {
 			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
+		nil,
 		false,
 	}
 	return
@@ -320,6 +305,7 @@ func (ln *UnixListener) acceptMultishot() (c *UnixConn, err error) {
 			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
+		nil,
 		false,
 	}
 	return
@@ -350,6 +336,10 @@ func (ln *UnixListener) Close() error {
 		_ = ln.acceptFuture.Cancel()
 	}
 	if err := ln.fd.Close(); err != nil {
+		_ = ln.vortex.Close()
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+	}
+	if err := ln.vortex.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil
@@ -436,7 +426,28 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 // to Unix domain sockets.
 type UnixConn struct {
 	conn
+	vortex       *reference.Pointer[*aio.Vortex]
 	useSendMSGZC bool
+}
+
+// Close unix conn.
+func (c *UnixConn) Close() error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+
+	if err := c.fd.Close(); err != nil {
+		if c.vortex != nil {
+			_ = c.vortex.Close()
+		}
+		return err
+	}
+	if c.vortex != nil {
+		if err := c.vortex.Close(); err != nil {
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: nil, Addr: c.fd.LocalAddr(), Err: err}
+		}
+	}
+	return nil
 }
 
 // UseSendMSGZC try to enable sendmsg_zc.

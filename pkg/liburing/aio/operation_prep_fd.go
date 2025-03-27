@@ -37,9 +37,6 @@ func (op *Operation) PrepareCloseRead(nfd *NetFd) {
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
-	}
 	op.code = liburing.IORING_OP_SHUTDOWN
 	op.fd = fd
 	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_RD))
@@ -50,9 +47,6 @@ func (op *Operation) PrepareCloseWrite(nfd *NetFd) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
 	op.code = liburing.IORING_OP_SHUTDOWN
 	op.fd = fd

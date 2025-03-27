@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"net/netip"
 	"os"
@@ -104,14 +105,15 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		addr = &net.UDPAddr{}
 	}
 	// vortex
-	vortex := lc.Vortex
-	if vortex == nil {
+	vortexRC := lc.Vortex
+	if vortexRC == nil {
 		var vortexErr error
-		vortex, vortexErr = getVortex()
+		vortexRC, vortexErr = getVortex()
 		if vortexErr != nil {
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	vortex := vortexRC.Value()
 	// directAlloc
 	directAlloc := !lc.DisableDirectAlloc
 	if directAlloc {
@@ -120,12 +122,14 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	// fd
 	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAlloc)
 	if fdErr != nil {
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// broadcast
 	if err := fd.SetBroadcast(true); err != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 
@@ -133,6 +137,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	if addr.IP != nil && addr.IP.IsMulticast() {
 		if err := fd.SetReuseAddr(true); err != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 		localUdpAddr := *addr
@@ -185,6 +190,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 	}
@@ -192,21 +198,12 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	bindErr := fd.Bind(addr)
 	if bindErr != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		bindErr = os.NewSyscallError("bind", bindErr)
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: bindErr}
 	}
 	// set socket addr
 	fd.SetLocalAddr(addr)
-
-	// install fixed fd
-	if directAlloc && !fd.Registered() && vortex.RegisterFixedFdEnabled() {
-		if regErr := fd.Register(); regErr != nil {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
-			}
-		}
-	}
 
 	// send zc
 	useSendZC := false
@@ -224,6 +221,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 			useMultishot:  !lc.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
+		vortexRC,
 		useSendMSGZC,
 	}
 	return c, nil
@@ -233,7 +231,24 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 // for UDP network connections.
 type UDPConn struct {
 	conn
+	vortex       *reference.Pointer[*aio.Vortex]
 	useSendMSGZC bool
+}
+
+// Close udp conn.
+func (c *UDPConn) Close() error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+
+	if err := c.fd.Close(); err != nil {
+		_ = c.vortex.Close()
+		return err
+	}
+	if err := c.vortex.Close(); err != nil {
+		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: nil, Addr: c.fd.LocalAddr(), Err: err}
+	}
+	return nil
 }
 
 // UseSendMSGZC try to enable sendmsg_zc.

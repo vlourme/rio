@@ -33,9 +33,7 @@ func (op *Operation) PrepareSetSocketoptInt(nfd *NetFd, level int, optName int, 
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
-	}
+
 	op.code = liburing.IORING_OP_URING_CMD
 	op.cmd = liburing.SOCKET_URING_OP_SETSOCKOPT
 
@@ -62,9 +60,6 @@ func (op *Operation) PrepareGetSocketoptInt(nfd *NetFd, level int, optName int, 
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
 
 	op.code = liburing.IORING_OP_URING_CMD

@@ -3,6 +3,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"syscall"
 	"time"
@@ -191,7 +192,7 @@ type Dialer struct {
 	// If ControlContext is not nil, Control is ignored.
 	ControlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
 	// Vortex customize [aio.Vortex]
-	Vortex *aio.Vortex
+	Vortex *reference.Pointer[*aio.Vortex]
 }
 
 // SetMultipathTCP set multi-path tcp.

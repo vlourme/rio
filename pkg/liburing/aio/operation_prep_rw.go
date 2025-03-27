@@ -12,9 +12,6 @@ func (op *Operation) PrepareRead(nfd *Fd, b []byte) {
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
-	}
 	op.code = liburing.IORING_OP_READ
 	op.fd = fd
 	op.addr = unsafe.Pointer(&b[0])
@@ -35,9 +32,6 @@ func (op *Operation) PrepareWrite(nfd *Fd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
 	op.code = liburing.IORING_OP_WRITE
 	op.fd = fd
@@ -60,9 +54,6 @@ func (op *Operation) PrepareReadFixed(nfd *Fd, buf *FixedBuffer) {
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
-	}
 	op.code = liburing.IORING_OP_READ_FIXED
 	op.fd = fd
 	op.addr = unsafe.Pointer(buf)
@@ -84,9 +75,6 @@ func (op *Operation) PrepareWriteFixed(nfd *Fd, buf *FixedBuffer) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
-	if nfd.Async() {
-		op.sqeFlags |= liburing.IOSQE_ASYNC
 	}
 	op.code = liburing.IORING_OP_WRITE_FIXED
 	op.fd = fd

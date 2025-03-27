@@ -25,9 +25,6 @@ func (fd *Fd) Cancel() {
 func (fd *Fd) Close() error {
 	if fd.direct != -1 {
 		err := fd.closeDirectFd()
-		if !fd.allocated {
-			_ = fd.vortex.UnregisterFixedFd(fd.direct)
-		}
 		if fd.regular != -1 {
 			_ = syscall.Close(fd.regular)
 		}

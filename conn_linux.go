@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"io"
 	"net"
 	"os"
 	"syscall"
@@ -19,14 +18,6 @@ type conn struct {
 	writeDeadline time.Time
 	useMultishot  bool
 	useSendZC     bool
-}
-
-func (c *conn) SetAsync(async bool) error {
-	if !c.ok() {
-		return syscall.EINVAL
-	}
-	c.fd.SetAsync(async)
-	return nil
 }
 
 // Read implements the net.Conn Read method.
@@ -72,85 +63,6 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return
 	}
 	return
-}
-
-// AcquireRegisteredBuffer implements the FixedReaderWriter AcquireRegisteredBuffer method.
-func (c *conn) AcquireRegisteredBuffer() *aio.FixedBuffer {
-	if !c.ok() {
-		return nil
-	}
-	return c.fd.AcquireBuffer()
-}
-
-// ReleaseRegisteredBuffer implements the FixedReaderWriter ReleaseRegisteredBuffer method.
-func (c *conn) ReleaseRegisteredBuffer(buf *aio.FixedBuffer) {
-	if !c.ok() {
-		return
-	}
-	c.fd.ReleaseBuffer(buf)
-}
-
-// ReadFixed implements the FixedReaderWriter ReadFixed method.
-func (c *conn) ReadFixed(buf *aio.FixedBuffer) (n int, err error) {
-	if !c.ok() {
-		return 0, syscall.EINVAL
-	}
-	if buf == nil {
-		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-	if !buf.Validate() {
-		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-
-	n, err = c.fd.ReadFixed(buf, c.readDeadline)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			err = net.ErrClosed
-		}
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-		return
-	}
-
-	if n == 0 && c.fd.ZeroReadIsEOF() {
-		err = io.EOF
-		return
-	}
-	return
-}
-
-// WriteFixed implements the FixedReaderWriter WriteFixed method.
-func (c *conn) WriteFixed(buf *aio.FixedBuffer) (n int, err error) {
-	if !c.ok() {
-		return 0, syscall.EINVAL
-	}
-	if buf == nil {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-	if !buf.Validate() {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
-	}
-
-	n, err = c.fd.WriteFixed(buf, c.writeDeadline)
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			err = net.ErrClosed
-		}
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-		return
-	}
-	return
-}
-
-// RegisterDirectFd implements the FixedConn RegisterDirectFd method.
-func (c *conn) RegisterDirectFd() error {
-	if !c.ok() {
-		return syscall.EINVAL
-	}
-	if err := c.fd.Register(); err != nil {
-		return &net.OpError{Op: "register_fixed_fd", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
-	}
-
-	return nil
 }
 
 // Close implements the net.Conn Close method.

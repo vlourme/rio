@@ -5,27 +5,137 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 func Open(options ...Option) (v *Vortex, err error) {
+	// version check
+	if !liburing.VersionEnable(5, 13, 0) { // support recv_send
+		err = NewRingErr(errors.New("kernel version must >= 5.13"))
+		return
+	}
+	// probe
+	probe, probeErr := liburing.GetProbe()
+	if probeErr != nil {
+		err = NewRingErr(probeErr)
+	}
+
 	// options
 	opt := Options{}
 	for _, option := range options {
 		option(&opt)
 	}
 	// ring
-	ring, ringErr := OpenIOURing(opt)
+	if opt.Flags&liburing.IORING_SETUP_SQPOLL != 0 && opt.SQThreadIdle == 0 { // set default idle
+		opt.SQThreadIdle = 10000
+	}
+	if opt.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
+		if err = sys.MaskCPU(int(opt.SQThreadCPU)); err != nil { // mask cpu when sq_aff set
+			err = NewRingErr(err)
+			return
+		}
+	}
+	opts := make([]liburing.Option, 0, 1)
+	opts = append(opts, liburing.WithEntries(opt.Entries))
+	opts = append(opts, liburing.WithFlags(opt.Flags))
+	opts = append(opts, liburing.WithSQThreadIdle(opt.SQThreadIdle))
+	opts = append(opts, liburing.WithSQThreadCPU(opt.SQThreadCPU))
+	if opt.AttachRingFd > 0 {
+		opts = append(opts, liburing.WithAttachWQFd(uint32(opt.AttachRingFd)))
+	}
+	ring, ringErr := liburing.New(opts...)
 	if ringErr != nil {
-		err = ringErr
+		err = NewRingErr(ringErr)
 		return
+	}
+	// register files
+	var (
+		directAllocEnabled = liburing.GenericVersion() && // must be enabled in generic
+			liburing.VersionEnable(6, 7, 0) && // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT)
+			probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // io_uring_prep_fixed_fd_install
+	)
+	if directAllocEnabled {
+		if opt.RegisterFixedFiles < 1024 {
+			opt.RegisterFixedFiles = 65535
+		}
+		if opt.RegisterFixedFiles > 65535 {
+			soft, _, limitErr := sys.GetRLimit()
+			if limitErr != nil {
+				_ = ring.Close()
+				err = NewRingErr(os.NewSyscallError("getrlimit", err))
+				return
+			}
+			if soft < uint64(opt.RegisterFixedFiles) {
+				_ = ring.Close()
+				err = NewRingErr(errors.New("register fixed files too big, must smaller than " + strconv.FormatUint(soft, 10)))
+				return
+			}
+		}
+		if _, regErr := ring.RegisterFilesSparse(opt.RegisterFixedFiles); regErr != nil {
+			_ = ring.Close()
+			err = NewRingErr(regErr)
+			return
+		}
+	}
+
+	// producer
+	var (
+		producerLockOSThread    = opt.SQEProducerLockOSThread
+		producerBatchSize       = opt.SQEProducerBatchSize
+		producerBatchTimeWindow = opt.SQEProducerBatchTimeWindow
+		producerBatchIdleTime   = opt.SQEProducerBatchIdleTime
+	)
+	if ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
+		producerLockOSThread = true
+	}
+	producer := newSQEChanProducer(ring, producerLockOSThread, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)
+	// consumer
+	consumerType := strings.ToUpper(strings.TrimSpace(opt.CQEConsumerType))
+	var consumer OperationConsumer
+	switch consumerType {
+	case CQEConsumerPushType:
+		consumer, err = newPushTypedOperationConsumer(ring)
+		break
+	default:
+		consumer, err = newPollTypedOperationConsumer(ring, opt.CQEPullTypedConsumeIdleTime, opt.CQEConsumeTimeCurve)
+		break
+	}
+	if err != nil {
+		_ = producer.Close()
+		_ = ring.Close()
+		err = NewRingErr(err)
+		return
+	}
+	// heartbeat
+	heartbeatTimeout := opt.HeartbeatTimeout
+	if heartbeatTimeout < 1 {
+		heartbeatTimeout = defaultHeartbeatTimeout
+	}
+	// multishotEnabledOps
+	multishotEnabledOps := make(map[uint8]struct{})
+	if liburing.VersionEnable(5, 19, 0) {
+		multishotEnabledOps[liburing.IORING_OP_ACCEPT] = struct{}{}
+	}
+	if liburing.VersionEnable(6, 0, 0) {
+		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
+		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
 	}
 	// vortex
 	v = &Vortex{
-		IOURing: ring,
+		ring:                ring,
+		heartbeatTimeout:    heartbeatTimeout,
+		done:                make(chan struct{}),
+		producer:            producer,
+		consumer:            consumer,
+		directAllocEnabled:  directAllocEnabled,
+		multishotEnabledOps: multishotEnabledOps,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
@@ -41,13 +151,46 @@ func Open(options ...Option) (v *Vortex, err error) {
 			},
 		},
 	}
+	// heartbeat
+	go v.heartbeat()
 	return
 }
 
 type Vortex struct {
-	IOURing
-	operations sync.Pool
-	msgs       sync.Pool
+	ring                *liburing.Ring
+	heartbeatTimeout    time.Duration
+	done                chan struct{}
+	producer            SQEProducer
+	consumer            OperationConsumer
+	directAllocEnabled  bool
+	multishotEnabledOps map[uint8]struct{}
+	operations          sync.Pool
+	msgs                sync.Pool
+}
+
+func (vortex *Vortex) Fd() int {
+	return vortex.ring.Fd()
+}
+
+func (vortex *Vortex) DirectAllocEnabled() bool {
+	return vortex.directAllocEnabled
+}
+
+func (vortex *Vortex) MultishotEnabled(op uint8) bool {
+	_, has := vortex.multishotEnabledOps[op]
+	return has
+}
+
+func (vortex *Vortex) AcceptMultishotEnabled() bool {
+	return vortex.MultishotEnabled(liburing.IORING_OP_ACCEPT)
+}
+
+func (vortex *Vortex) ReceiveMultishotEnabled() bool {
+	return vortex.MultishotEnabled(liburing.IORING_OP_RECV)
+}
+
+func (vortex *Vortex) Submit(op *Operation) bool {
+	return vortex.producer.Produce(op)
 }
 
 func (vortex *Vortex) FixedFdInstall(directFd int) (regularFd int, err error) {
@@ -69,6 +212,41 @@ func (vortex *Vortex) CancelOperation(target *Operation) (err error) {
 		}
 	}
 	return
+}
+
+func (vortex *Vortex) Close() (err error) {
+	// done
+	close(vortex.done)
+	// close producer
+	_ = vortex.producer.Close()
+	// close consumer
+	_ = vortex.consumer.Close()
+
+	// unregister files
+	if vortex.DirectAllocEnabled() {
+		_, _ = vortex.ring.UnregisterFiles()
+	}
+	// close
+	err = vortex.ring.Close()
+	return
+}
+
+func (vortex *Vortex) heartbeat() {
+	ticker := time.NewTicker(vortex.heartbeatTimeout)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-vortex.done:
+			return
+		case <-ticker.C:
+			op := &Operation{}
+			_ = op.PrepareNop()
+			if ok := vortex.Submit(op); !ok {
+				break
+			}
+			break
+		}
+	}
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {

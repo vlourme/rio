@@ -5,9 +5,11 @@ package rio
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/cbpf"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"io"
 	"net"
 	"os"
@@ -57,14 +59,15 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		addr = &net.TCPAddr{}
 	}
 	// vortex
-	vortex := lc.Vortex
-	if vortex == nil {
+	vortexRC := lc.Vortex
+	if vortexRC == nil {
 		var vortexErr error
-		vortex, vortexErr = getVortex()
+		vortexRC, vortexErr = getVortex()
 		if vortexErr != nil {
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
 		}
 	}
+	vortex := vortexRC.Value()
 	// directAlloc
 	directAlloc := !lc.DisableDirectAlloc
 	if directAlloc {
@@ -80,6 +83,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// fd (use regular fd only)
 	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, directAlloc)
 	if fdErr != nil {
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
@@ -91,22 +95,26 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		raw, rawErr := fd.SyscallConn()
 		if rawErr != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
 		}
 		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 	}
 	// reuse addr
 	if err := fd.SetReuseAddr(true); err != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// reuse port
 	if lc.ReusePort {
 		if err := fd.SetReusePort(addr.Port); err != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 		// cbpf (dep reuse port)
@@ -114,6 +122,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			filter := cbpf.NewFilter(uint32(runtime.NumCPU()))
 			if err := filter.ApplyTo(fd.RegularFd()); err != nil {
 				_ = fd.Close()
+				_ = vortexRC.Close()
 				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 			}
 		}
@@ -121,33 +130,27 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// defer accept
 	if err := fd.SetTcpDeferAccept(true); err != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 
 	// bind
 	if err := fd.Bind(addr); err != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 
 	// listen
 	if err := fd.Listen(); err != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 
 	// set socket addr
 	fd.SetLocalAddr(addr)
 
-	// install fixed fd
-	if directAlloc && !fd.Registered() && vortex.RegisterFixedFdEnabled() {
-		if regErr := fd.Register(); regErr != nil {
-			if !errors.Is(regErr, aio.ErrFixedFileUnavailable) {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: regErr}
-			}
-		}
-	}
 	// send zc
 	useSendZC := false
 	if lc.SendZC {
@@ -158,7 +161,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	ln := &TCPListener{
 		fd:              fd,
 		directAlloc:     directAlloc,
-		vortex:          vortex,
+		vortex:          vortexRC,
 		acceptFuture:    nil,
 		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
@@ -171,6 +174,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if ln.useMultishot {
 		if err := ln.prepareMultishotAccepting(); err != nil {
 			_ = ln.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 		}
 	}
@@ -183,7 +187,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 type TCPListener struct {
 	fd              *aio.NetFd
 	directAlloc     bool
-	vortex          *aio.Vortex
+	vortex          *reference.Pointer[*aio.Vortex]
 	acceptFuture    *aio.AcceptFuture
 	multipathTCP    bool
 	keepAlive       time.Duration
@@ -243,6 +247,7 @@ func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
 			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
+		nil,
 	}
 	return
 }
@@ -266,6 +271,7 @@ func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 			useMultishot:  ln.useMultishot,
 			useSendZC:     ln.useSendZC,
 		},
+		nil,
 	}
 	return
 }
@@ -295,6 +301,11 @@ func (ln *TCPListener) Close() error {
 		_ = ln.acceptFuture.Cancel()
 	}
 	if err := ln.fd.Close(); err != nil {
+		_ = ln.vortex.Close()
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+	}
+	if err := ln.vortex.Close(); err != nil {
+		fmt.Println("ln close")
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil
@@ -400,6 +411,27 @@ func genericWriteTo(c *TCPConn, w io.Writer) (n int64, err error) {
 // connections.
 type TCPConn struct {
 	conn
+	vortex *reference.Pointer[*aio.Vortex]
+}
+
+// Close udp conn.
+func (c *TCPConn) Close() error {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+
+	if err := c.fd.Close(); err != nil {
+		if c.vortex != nil {
+			_ = c.vortex.Close()
+		}
+		return err
+	}
+	if c.vortex != nil {
+		if err := c.vortex.Close(); err != nil {
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: nil, Addr: c.fd.LocalAddr(), Err: err}
+		}
+	}
+	return nil
 }
 
 // ReadFrom implements the [io.ReaderFrom] ReadFrom method.

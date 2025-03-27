@@ -3,6 +3,7 @@ package rio
 import (
 	"context"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"syscall"
 	"time"
@@ -110,7 +111,7 @@ type ListenConfig struct {
 	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
 	DisableDirectAlloc bool
 	// Vortex customize [aio.Vortex]
-	Vortex *aio.Vortex
+	Vortex *reference.Pointer[*aio.Vortex]
 }
 
 // SetMultipathTCP set multi-path tcp.

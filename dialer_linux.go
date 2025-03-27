@@ -94,21 +94,23 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if raddr == nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: errors.New("missing address")}
 	}
-	// vortex
-	vortex := d.Vortex
-	if vortex == nil {
-		var vortexErr error
-		vortex, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
-		}
-	}
 	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
+
+	// vortex
+	vortexRC := d.Vortex
+	if vortexRC == nil {
+		var vortexErr error
+		vortexRC, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+		}
+	}
+	vortex := vortexRC.Value()
 
 	// control
 	var control sys.ControlContextFn = d.ControlContext
@@ -127,6 +129,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	// fd
 	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.DisableDirectAlloc, control)
 	if fdErr != nil {
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
@@ -134,16 +137,19 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	sa, saErr := sys.AddrToSockaddr(raddr)
 	if saErr != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
 	}
 	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
 	if rsaErr != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 	}
 	_, err := fd.Connect(rsa, int(rsaLen), deadline)
 	if err != nil {
 		_ = fd.Close()
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 	}
 
@@ -176,6 +182,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 			useMultishot:  !d.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
+		vortexRC,
 	}
 
 	return c, nil
@@ -207,21 +214,23 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	default:
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: net.UnknownNetworkError(network)}
 	}
-	// vortex
-	vortex := d.Vortex
-	if vortex == nil {
-		var vortexErr error
-		vortex, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
-		}
-	}
 	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
+
+	// vortex
+	vortexRC := d.Vortex
+	if vortexRC == nil {
+		var vortexErr error
+		vortexRC, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+		}
+	}
+	vortex := vortexRC.Value()
 
 	// control
 	var control sys.ControlContextFn = d.ControlContext
@@ -233,6 +242,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	// fd
 	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
@@ -240,16 +250,19 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		sa, saErr := sys.AddrToSockaddr(raddr)
 		if saErr != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
 		}
 		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
 		if rsaErr != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
 		_, err := fd.Connect(rsa, int(rsaLen), deadline)
 		if err != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 		}
 	}
@@ -273,6 +286,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 			useMultishot:  !d.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
+		vortexRC,
 		useSendMSGZC,
 	}
 	return c, nil
@@ -319,21 +333,23 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	if raddr == nil && (sotype != syscall.SOCK_DGRAM || laddr == nil) {
 		return nil, errors.New("missing address")
 	}
-	// vortex
-	vortex := d.Vortex
-	if vortex == nil {
-		var vortexErr error
-		vortex, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
-		}
-	}
 	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
 	if deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
+
+	// vortex
+	vortexRC := d.Vortex
+	if vortexRC == nil {
+		var vortexErr error
+		vortexRC, vortexErr = getVortex()
+		if vortexErr != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+		}
+	}
+	vortex := vortexRC.Value()
 
 	// control
 	var control sys.ControlContextFn = d.ControlContext
@@ -345,6 +361,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	// fd
 	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
 	if fdErr != nil {
+		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
@@ -352,16 +369,19 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		sa, saErr := sys.AddrToSockaddr(raddr)
 		if saErr != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
 		}
 		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
 		if rsaErr != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
 		}
 		_, err := fd.Connect(rsa, int(rsaLen), deadline)
 		if err != nil {
 			_ = fd.Close()
+			_ = vortexRC.Close()
 			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 		}
 	}
@@ -385,6 +405,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 			useMultishot:  !d.DisableMultishotIO,
 			useSendZC:     useSendZC,
 		},
+		vortexRC,
 		useSendMSGZC,
 	}
 

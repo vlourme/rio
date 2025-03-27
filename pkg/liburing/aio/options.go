@@ -10,8 +10,6 @@ type Options struct {
 	Flags                       uint32
 	SQThreadCPU                 uint32
 	SQThreadIdle                uint32
-	RegisterFixedBufferSize     uint32
-	RegisterFixedBufferCount    uint32
 	RegisterFixedFiles          uint32
 	RegisterFixedFilesReserved  uint32
 	SQEProducerAffinityCPU      int
@@ -169,18 +167,6 @@ func WithCQEPullTypedConsumeIdleTime(d time.Duration) Option {
 			d = defaultCQEPullTypedConsumeIdleTime
 		}
 		opts.CQEPullTypedConsumeIdleTime = d
-	}
-}
-
-// WithRegisterFixedBuffer
-// setup register fixed buffer of iouring.
-func WithRegisterFixedBuffer(size uint32, count uint32) Option {
-	return func(opts *Options) {
-		if size == 0 || count == 0 {
-			return
-		}
-		opts.RegisterFixedBufferSize = size
-		opts.RegisterFixedBufferCount = count
 	}
 }
 

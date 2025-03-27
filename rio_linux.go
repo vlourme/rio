@@ -5,6 +5,7 @@ package rio
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"github.com/brickingsoft/rio/pkg/reference"
 	"os"
 	"runtime"
 	"strconv"
@@ -13,14 +14,8 @@ import (
 	"time"
 )
 
-// Presets
-// preset aio options, must be called before Pin, Dial and Listen.
-func Presets(options ...aio.Option) {
-	vortexInstanceOptions = append(vortexInstanceOptions, options...)
-}
-
 var (
-	vortexInstance        *aio.Vortex
+	vortexInstance        *reference.Pointer[*aio.Vortex]
 	vortexInstanceOptions []aio.Option
 	vortexInstanceErr     error
 	vortexInstanceOnce    sync.Once
@@ -31,7 +26,6 @@ const (
 	envFlags                       = "RIO_IOURING_SETUP_FLAGS"
 	envSQThreadCPU                 = "RIO_IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle                = "RIO_IOURING_SQ_THREAD_IDLE"
-	envRegisterFixedBuffers        = "RIO_IOURING_REG_FIXED_BUFFERS"
 	envRegisterFixedFiles          = "RIO_IOURING_REG_FIXED_FILES"
 	envRegisterFixedFilesReserved  = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
 	envIOURingHeartbeatTimeout     = "RIO_IOURING_HEARTBEAT_TIMEOUT"
@@ -44,7 +38,7 @@ const (
 	envCQEPullTypedConsumeIdleTime = "RIO_CQE_POLL_TYPED_CONS_IDLE_TIME"
 )
 
-func getVortex() (*aio.Vortex, error) {
+func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 	vortexInstanceOnce.Do(func() {
 		if len(vortexInstanceOptions) == 0 { // use env
 			vortexInstanceOptions = make([]aio.Option, 0, 1)
@@ -77,9 +71,6 @@ func getVortex() (*aio.Vortex, error) {
 			// ring <<<
 
 			// fixed >>>
-			if v0, v1, has := envLoadUint32Coop(envRegisterFixedBuffers); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedBuffer(v0, v1))
-			}
 			if v, has := envLoadUint32(envRegisterFixedFiles); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(v))
 			}
@@ -123,7 +114,12 @@ func getVortex() (*aio.Vortex, error) {
 
 		}
 		// open
-		vortexInstance, vortexInstanceErr = aio.Open(vortexInstanceOptions...)
+		vortex, vortexErr := aio.Open(vortexInstanceOptions...)
+		if vortexErr != nil {
+			vortexInstanceErr = vortexErr
+			return
+		}
+		vortexInstance = reference.Make(vortex)
 	})
 	return vortexInstance, vortexInstanceErr
 }
@@ -160,29 +156,6 @@ func envLoadBool(name string) bool {
 	default:
 		return false
 	}
-}
-
-func envLoadUint32Coop(name string) (uint32, uint32, bool) {
-	s, has := os.LookupEnv(name)
-	if !has {
-		return 0, 0, false
-	}
-	idx := strings.IndexByte(s, ',')
-	if idx < 1 {
-		return 0, 0, false
-	}
-	ss := strings.TrimSpace(s[:idx])
-	u0, parseSizeErr := strconv.ParseUint(ss, 10, 32)
-	if parseSizeErr != nil {
-		return 0, 0, false
-	}
-
-	cs := strings.TrimSpace(s[idx+1:])
-	u1, parseCountErr := strconv.ParseUint(cs, 10, 32)
-	if parseCountErr != nil {
-		return 0, 0, false
-	}
-	return uint32(u0), uint32(u1), true
 }
 
 func envLoadFlags(name string) (uint32, bool) {

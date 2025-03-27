@@ -69,10 +69,8 @@ func OpenNetFd(
 		Fd: Fd{
 			regular:       regular,
 			direct:        direct,
-			allocated:     directAlloc,
 			isStream:      sotype == syscall.SOCK_STREAM,
 			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-			async:         false,
 			vortex:        vortex,
 		},
 		family: family,

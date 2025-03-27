@@ -15,10 +15,8 @@ const maxRW = 1 << 30
 type Fd struct {
 	regular       int
 	direct        int
-	allocated     bool
 	isStream      bool
 	zeroReadIsEOF bool
-	async         bool
 	locker        sync.Mutex
 	vortex        *Vortex
 }
@@ -33,7 +31,7 @@ func (fd *Fd) FileDescriptor() (n int, direct bool) {
 }
 
 func (fd *Fd) Name() string {
-	return fmt.Sprintf("[fd:%d][direct:%d][allocated:%t][async:%t]", fd.regular, fd.direct, fd.allocated, fd.async)
+	return fmt.Sprintf("[fd:%d][direct:%d]", fd.regular, fd.direct)
 }
 
 func (fd *Fd) IsStream() bool {
@@ -42,14 +40,6 @@ func (fd *Fd) IsStream() bool {
 
 func (fd *Fd) ZeroReadIsEOF() bool {
 	return fd.zeroReadIsEOF
-}
-
-func (fd *Fd) Async() bool {
-	return fd.async
-}
-
-func (fd *Fd) SetAsync(async bool) {
-	fd.async = async
 }
 
 func (fd *Fd) Vortex() *Vortex {
@@ -70,19 +60,6 @@ func (fd *Fd) Dup() (int, string, error) {
 
 func (fd *Fd) Registered() bool {
 	return fd.direct != -1
-}
-
-func (fd *Fd) Register() error {
-	if fd.direct > -1 {
-		return nil
-	}
-	direct, regErr := fd.vortex.RegisterFixedFd(fd.regular)
-	if regErr != nil {
-		return regErr
-	}
-	fd.direct = direct
-	fd.allocated = false
-	return nil
 }
 
 func (fd *Fd) Installed() bool {
