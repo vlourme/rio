@@ -57,7 +57,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 	}
 	// register files
 	var (
-		directAllocEnabled = liburing.GenericVersion() && // must be enabled in generic liburing.GenericVersion() todo: use black flavor list
+		directAllocEnabled = !liburing.VersionMatchFlavor(opt.DisableDirectAllocFeatKernelFlavorBlackList) && // disabled by black list
 			liburing.VersionEnable(6, 7, 0) && // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT)
 			probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // io_uring_prep_fixed_fd_install
 	)
@@ -104,7 +104,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 		consumer, err = newPushTypedOperationConsumer(ring)
 		break
 	default:
-		consumer, err = newPollTypedOperationConsumer(ring, opt.CQEPullTypedConsumeIdleTime, opt.CQEConsumeTimeCurve)
+		consumer, err = newPullTypedOperationConsumer(ring, opt.CQEPullTypedConsumeIdleTime, opt.CQEPullTypedConsumeTimeCurve)
 		break
 	}
 	if err != nil {

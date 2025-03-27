@@ -22,20 +22,20 @@ var (
 )
 
 const (
-	envEntries                     = "RIO_IOURING_ENTRIES"
-	envFlags                       = "RIO_IOURING_SETUP_FLAGS"
-	envSQThreadCPU                 = "RIO_IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle                = "RIO_IOURING_SQ_THREAD_IDLE"
-	envRegisterFixedFiles          = "RIO_IOURING_REG_FIXED_FILES"
-	envRegisterFixedFilesReserved  = "RIO_IOURING_REG_FIXED_FILES_RESERVED"
-	envIOURingHeartbeatTimeout     = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envSQEProducerLockOSThread     = "RIO_SQE_PROD_LOCK_OSTHREAD"
-	envSQEProducerBatchSize        = "RIO_SQE_PROD_BATCH_SIZE"
-	envSQEProducerBatchTimeWindow  = "RIO_SQE_PROD_BATCH_TIME_WINDOW"
-	envSQEProducerBatchIdleTime    = "RIO_SQE_PROD_BATCH_IDLE_TIME"
-	envCQEConsumerType             = "RIO_CQE_CONS_TYPE"
-	envCQEConsumeTimeCurve         = "RIO_CQE_CONS_CURVE"
-	envCQEPullTypedConsumeIdleTime = "RIO_CQE_POLL_TYPED_CONS_IDLE_TIME"
+	envEntries                            = "RIO_IOURING_ENTRIES"
+	envFlags                              = "RIO_IOURING_SETUP_FLAGS"
+	envSQThreadCPU                        = "RIO_IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle                       = "RIO_IOURING_SQ_THREAD_IDLE"
+	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST"
+	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
+	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
+	envSQEProducerLockOSThread            = "RIO_SQE_PROD_LOCK_OSTHREAD"
+	envSQEProducerBatchSize               = "RIO_SQE_PROD_BATCH_SIZE"
+	envSQEProducerBatchTimeWindow         = "RIO_SQE_PROD_BATCH_TIME_WINDOW"
+	envSQEProducerBatchIdleTime           = "RIO_SQE_PROD_BATCH_IDLE_TIME"
+	envCQEConsumerType                    = "RIO_CQE_CONS_TYPE"
+	envCQEPullTypedConsumeTimeCurve       = "RIO_CQE_POLL_TYPED_CONS_CURVE"
+	envCQEPullTypedConsumeIdleTime        = "RIO_CQE_POLL_TYPED_CONS_IDLE_TIME"
 )
 
 func getVortex() (*reference.Pointer[*aio.Vortex], error) {
@@ -68,14 +68,18 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			if v, has := envLoadDuration(envSQThreadIdle); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadIdle(v))
 			}
+
+			if v, has := envLoadStrings(envDisableIOURingDirectAllocBlackList); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
+			} else {
+				v = []string{"microsoft-standard-WSL2"}
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
+			}
 			// ring <<<
 
 			// fixed >>>
 			if v, has := envLoadUint32(envRegisterFixedFiles); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(v))
-			}
-			if v, has := envLoadUint32(envRegisterFixedFilesReserved); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFilesReserved(v))
 			}
 			// fixed <<<
 
@@ -101,14 +105,14 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			// sqe <<<
 
 			// cqe >>>
-			if v, has := envLoadString(envCQEConsumerType); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithCQEConsumerType(v))
-			}
-			if v, has := envLoadCurve(envCQEConsumeTimeCurve); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithCQEConsumeTimeCurve(v))
-			}
-			if v, has := envLoadDuration(envCQEPullTypedConsumeIdleTime); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithCQEPullTypedConsumeIdleTime(v))
+			cqeConsumerType, _ := envLoadString(envCQEConsumerType)
+			cqeConsumerType = strings.ToUpper(strings.TrimSpace(cqeConsumerType))
+			if cqeConsumerType == aio.CQEConsumerPushType {
+				aio.WithCQEPushTypedConsumer()
+			} else {
+				curve, _ := envLoadCurve(envCQEPullTypedConsumeTimeCurve)
+				idleTimeout, _ := envLoadDuration(envCQEPullTypedConsumeIdleTime)
+				aio.WithCQEPullTypedConsumer(curve, idleTimeout)
 			}
 			// cqe <<<
 
@@ -172,6 +176,18 @@ func envLoadFlags(name string) (uint32, bool) {
 		}
 	}
 	return flags, true
+}
+
+func envLoadStrings(name string) ([]string, bool) {
+	s, has := os.LookupEnv(name)
+	if !has {
+		return nil, false
+	}
+	ss := strings.Split(s, ",")
+	for i := range ss {
+		ss[i] = strings.TrimSpace(ss[i])
+	}
+	return ss, len(ss) > 0
 }
 
 func envLoadDuration(name string) (time.Duration, bool) {

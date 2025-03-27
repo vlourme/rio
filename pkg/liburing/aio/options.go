@@ -1,27 +1,26 @@
 package aio
 
 import (
-	"strings"
 	"time"
 )
 
 type Options struct {
-	Entries                     uint32
-	Flags                       uint32
-	SQThreadCPU                 uint32
-	SQThreadIdle                uint32
-	RegisterFixedFiles          uint32
-	RegisterFixedFilesReserved  uint32
-	SQEProducerAffinityCPU      int
-	SQEProducerLockOSThread     bool
-	SQEProducerBatchSize        uint32
-	SQEProducerBatchTimeWindow  time.Duration
-	SQEProducerBatchIdleTime    time.Duration
-	CQEConsumerType             string
-	CQEConsumeTimeCurve         Curve
-	CQEPullTypedConsumeIdleTime time.Duration
-	HeartbeatTimeout            time.Duration
-	AttachRingFd                int
+	Entries                                     uint32
+	Flags                                       uint32
+	SQThreadCPU                                 uint32
+	SQThreadIdle                                uint32
+	DisableDirectAllocFeatKernelFlavorBlackList []string
+	RegisterFixedFiles                          uint32
+	SQEProducerAffinityCPU                      int
+	SQEProducerLockOSThread                     bool
+	SQEProducerBatchSize                        uint32
+	SQEProducerBatchTimeWindow                  time.Duration
+	SQEProducerBatchIdleTime                    time.Duration
+	CQEConsumerType                             string
+	CQEPullTypedConsumeTimeCurve                Curve
+	CQEPullTypedConsumeIdleTime                 time.Duration
+	HeartbeatTimeout                            time.Duration
+	AttachRingFd                                int
 }
 
 type Option func(*Options)
@@ -82,6 +81,14 @@ func WithSQThreadIdle(idle time.Duration) Option {
 	}
 }
 
+// WithDisableDirectAllocFeatKernelFlavorBlackList
+// setup disable iouring direct alloc feat kernel flavor black list.
+func WithDisableDirectAllocFeatKernelFlavorBlackList(list []string) Option {
+	return func(opts *Options) {
+		opts.DisableDirectAllocFeatKernelFlavorBlackList = list
+	}
+}
+
 // WithSQEProducerLockOSThread
 // setup lock os thread of producing sqe.
 func WithSQEProducerLockOSThread(lock bool) Option {
@@ -133,40 +140,25 @@ func WithSQEProducerBatchIdleTime(d time.Duration) Option {
 
 const (
 	CQEConsumerPushType = "PUSH"
-	CQEConsumerPollType = "PULL"
+	CQEConsumerPullType = "PULL"
 )
 
-// WithCQEConsumerType
-// setup mode of wait cqe, default is [CQEConsumerPushType]
-func WithCQEConsumerType(mode string) Option {
+// WithCQEPushTypedConsumer use push typed cqe consumer
+func WithCQEPushTypedConsumer() Option {
 	return func(opts *Options) {
-		mode = strings.ToUpper(strings.TrimSpace(mode))
-		if mode == CQEConsumerPushType || mode == CQEConsumerPollType {
-			opts.CQEConsumerType = mode
-		}
+		opts.CQEConsumerType = CQEConsumerPushType
 	}
 }
 
-// WithCQEConsumeTimeCurve
-// setup time curve for waiting cqe.
-func WithCQEConsumeTimeCurve(curve Curve) Option {
+// WithCQEPullTypedConsumer use pull typed cqe consumer
+func WithCQEPullTypedConsumer(curve Curve, idleTime time.Duration) Option {
 	return func(opts *Options) {
-		opts.CQEConsumeTimeCurve = curve
-	}
-}
-
-const (
-	defaultCQEPullTypedConsumeIdleTime = 15 * time.Second
-)
-
-// WithCQEPullTypedConsumeIdleTime
-// setup idle time for pull wait mode.
-func WithCQEPullTypedConsumeIdleTime(d time.Duration) Option {
-	return func(opts *Options) {
-		if d < 1 {
-			d = defaultCQEPullTypedConsumeIdleTime
+		opts.CQEConsumerType = CQEConsumerPullType
+		opts.CQEPullTypedConsumeTimeCurve = curve
+		if idleTime < 1 {
+			idleTime = defaultCQEPullTypedConsumeIdleTime
 		}
-		opts.CQEPullTypedConsumeIdleTime = d
+		opts.CQEPullTypedConsumeIdleTime = idleTime
 	}
 }
 
@@ -175,14 +167,6 @@ func WithCQEPullTypedConsumeIdleTime(d time.Duration) Option {
 func WithRegisterFixedFiles(files uint32) Option {
 	return func(opts *Options) {
 		opts.RegisterFixedFiles = files
-	}
-}
-
-// WithRegisterFixedFilesReserved
-// setup register reserved fixed fd for not generic kernel of iouring, such as WSL2.
-func WithRegisterFixedFilesReserved(files uint32) Option {
-	return func(opts *Options) {
-		opts.RegisterFixedFilesReserved = files
 	}
 }
 

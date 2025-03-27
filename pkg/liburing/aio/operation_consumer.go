@@ -174,7 +174,11 @@ func (c *pushTypedOperationConsumer) Close() (err error) {
 	return
 }
 
-func newPollTypedOperationConsumer(ring *liburing.Ring, idleTime time.Duration, curve Curve) (OperationConsumer, error) {
+const (
+	defaultCQEPullTypedConsumeIdleTime = 15 * time.Second
+)
+
+func newPullTypedOperationConsumer(ring *liburing.Ring, idleTime time.Duration, curve Curve) (OperationConsumer, error) {
 	// idle
 	if idleTime < 1 {
 		idleTime = defaultCQEPullTypedConsumeIdleTime
@@ -191,7 +195,7 @@ func newPollTypedOperationConsumer(ring *liburing.Ring, idleTime time.Duration, 
 		}
 	}
 
-	c := &pollTypedOperationConsumer{
+	c := &pullTypedOperationConsumer{
 		ring:          ring,
 		idleTime:      idleTime,
 		wg:            new(sync.WaitGroup),
@@ -203,14 +207,14 @@ func newPollTypedOperationConsumer(ring *liburing.Ring, idleTime time.Duration, 
 	return c, nil
 }
 
-type pollTypedOperationConsumer struct {
+type pullTypedOperationConsumer struct {
 	ring          *liburing.Ring
 	wg            *sync.WaitGroup
 	idleTime      time.Duration
 	waitTimeCurve Curve
 }
 
-func (c *pollTypedOperationConsumer) handle() {
+func (c *pullTypedOperationConsumer) handle() {
 	defer c.wg.Done()
 
 	var (
@@ -292,7 +296,7 @@ func (c *pollTypedOperationConsumer) handle() {
 	return
 }
 
-func (c *pollTypedOperationConsumer) Close() (err error) {
+func (c *pullTypedOperationConsumer) Close() (err error) {
 	for i := 0; i < 10; i++ {
 		sqe := c.ring.GetSQE()
 		if sqe == nil {

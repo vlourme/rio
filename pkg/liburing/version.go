@@ -63,8 +63,17 @@ func (v Version) String() string {
 	return fmt.Sprintf("%d.%d.%d%s", v.Major, v.Minor, v.Patch, v.Flavor)
 }
 
-func GenericVersion() bool {
-	return GetVersion().IsGeneric()
+func VersionMatchFlavor(flavors []string) bool {
+	if len(flavors) == 0 {
+		return false
+	}
+	v := GetVersion()
+	for _, flavor := range flavors {
+		if strings.Contains(strings.ToLower(v.Flavor), strings.ToLower(flavor)) {
+			return true
+		}
+	}
+	return false
 }
 
 func VersionEnable(major, minor, patch int) bool {
