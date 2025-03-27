@@ -11,18 +11,17 @@ import (
 
 var (
 	DefaultDialer = Dialer{
-		Timeout:            15 * time.Second,
-		Deadline:           time.Time{},
-		KeepAlive:          0,
-		KeepAliveConfig:    net.KeepAliveConfig{Enable: true},
-		LocalAddr:          nil,
-		FallbackDelay:      0,
-		MultipathTCP:       false,
-		SendZC:             false,
-		DisableDirectAlloc: false,
-		Control:            nil,
-		ControlContext:     nil,
-		Vortex:             nil,
+		Timeout:         15 * time.Second,
+		Deadline:        time.Time{},
+		KeepAlive:       0,
+		KeepAliveConfig: net.KeepAliveConfig{Enable: true},
+		LocalAddr:       nil,
+		FallbackDelay:   0,
+		MultipathTCP:    false,
+		SendZC:          false,
+		Control:         nil,
+		ControlContext:  nil,
+		Vortex:          nil,
 	}
 )
 
@@ -167,8 +166,6 @@ type Dialer struct {
 	SendZC bool
 	// DisableMultishotIO disable to use multi op
 	DisableMultishotIO bool
-	// DisableDirectAlloc disable using iouring direct allocated socket to dial.
-	DisableDirectAlloc bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//

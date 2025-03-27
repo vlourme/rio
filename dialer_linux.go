@@ -8,7 +8,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
-	"reflect"
 	"syscall"
 	"time"
 )
@@ -127,34 +126,11 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_STREAM, proto, d.DisableDirectAlloc, control)
+	fd, fdErr := aio.Connect(ctx, vortex, deadline, network, proto, laddr, raddr, control)
 	if fdErr != nil {
 		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
-
-	// connect
-	sa, saErr := sys.AddrToSockaddr(raddr)
-	if saErr != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
-	}
-	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-	if rsaErr != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
-	}
-	_, err := fd.Connect(rsa, int(rsaLen), deadline)
-	if err != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
-	}
-
-	// addr
-	fd.SetRemoteAddr(raddr)
 
 	// keepalive
 	keepAliveConfig := d.KeepAliveConfig
@@ -238,35 +214,11 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, syscall.SOCK_DGRAM, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := aio.Connect(ctx, vortex, deadline, network, 0, laddr, raddr, control)
 	if fdErr != nil {
 		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
-
-	if raddr != nil { // connect
-		sa, saErr := sys.AddrToSockaddr(raddr)
-		if saErr != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
-		}
-		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-		if rsaErr != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
-		}
-		_, err := fd.Connect(rsa, int(rsaLen), deadline)
-		if err != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
-		}
-	}
-
-	// addr
-	fd.SetRemoteAddr(raddr)
 
 	// send zc
 	if d.SendZC {
@@ -353,35 +305,11 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		}
 	}
 	// fd
-	fd, fdErr := newDialerFd(ctx, vortex, network, laddr, raddr, sotype, 0, d.DisableDirectAlloc, control)
+	fd, fdErr := aio.Connect(ctx, vortex, deadline, network, 0, laddr, raddr, control)
 	if fdErr != nil {
 		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
-
-	if raddr != nil { // connect
-		sa, saErr := sys.AddrToSockaddr(raddr)
-		if saErr != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: saErr}
-		}
-		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-		if rsaErr != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: rsaErr}
-		}
-		_, err := fd.Connect(rsa, int(rsaLen), deadline)
-		if err != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
-		}
-	}
-
-	// addr
-	fd.SetRemoteAddr(raddr)
 
 	// send zc
 	if d.SendZC {
@@ -427,59 +355,4 @@ func (d *Dialer) DialIP(_ context.Context, network string, laddr, raddr *net.IPA
 		return nil, err
 	}
 	return &IPConn{c}, nil
-}
-
-func newDialerFd(ctx context.Context, vortex *aio.Vortex, network string, laddr net.Addr, raddr net.Addr, sotype int, proto int, disableDirectAlloc bool, control sys.ControlContextFn) (fd *aio.NetFd, err error) {
-	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
-		laddr = nil
-	}
-	if raddr != nil && reflect.ValueOf(raddr).IsNil() {
-		raddr = nil
-	}
-	if laddr == nil && raddr == nil {
-		err = errors.New("missing address")
-		return
-	}
-	// directAlloc
-	directAlloc := !disableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
-	}
-	fd, err = aio.OpenNetFd(vortex, aio.DialMode, network, sotype, proto, laddr, raddr, directAlloc)
-	if err != nil {
-		return
-	}
-
-	// broadcast
-	if err = fd.SetBroadcast(true); err != nil {
-		_ = fd.Close()
-		return
-	}
-
-	// control
-	if control != nil {
-		raw, rawErr := fd.SyscallConn()
-		if rawErr != nil {
-			_ = fd.Close()
-			err = rawErr
-			return
-		}
-		address := ""
-		if raddr != nil {
-			address = raddr.String()
-		}
-		if err = control(ctx, network, address, raw); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// bind
-	if laddr != nil {
-		if err = fd.Bind(laddr); err != nil {
-			_ = fd.Close()
-			return
-		}
-		fd.SetLocalAddr(laddr)
-	}
-	return
 }

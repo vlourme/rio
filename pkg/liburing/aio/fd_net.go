@@ -3,96 +3,15 @@
 package aio
 
 import (
-	"errors"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"golang.org/x/sys/unix"
 	"net"
 	"os"
-	"reflect"
 	"syscall"
 	"time"
 )
-
-type OpenNetFdMode string
-
-const (
-	ListenMode OpenNetFdMode = "listen"
-	DialMode   OpenNetFdMode = "dial"
-)
-
-func OpenNetFd(
-	vortex *Vortex,
-	mode OpenNetFdMode,
-	network string, sotype int, proto int,
-	laddr net.Addr, raddr net.Addr,
-	directAlloc bool,
-) (fd *NetFd, err error) {
-	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
-		laddr = nil
-	}
-	if raddr != nil && reflect.ValueOf(raddr).IsNil() {
-		raddr = nil
-	}
-	if laddr == nil && raddr == nil {
-		err = errors.New("missing address")
-		return
-	}
-	// sock
-	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, string(mode))
-	var (
-		regular = -1
-		direct  = -1
-		sockErr error
-	)
-	if directAlloc && mode == ListenMode {
-		directAlloc = liburing.GenericVersion()
-	}
-	if directAlloc {
-		op := vortex.acquireOperation()
-		op.WithDirect(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
-		direct, _, sockErr = vortex.submitAndWait(op)
-		vortex.releaseOperation(op)
-		if sockErr == nil && mode == ListenMode {
-			regular, sockErr = vortex.FixedFdInstall(direct)
-		}
-	} else {
-		regular, sockErr = syscall.Socket(family, sotype|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, proto)
-	}
-	if sockErr != nil {
-		err = sockErr
-		return
-	}
-	// fd
-	fd = &NetFd{
-		Fd: Fd{
-			regular:       regular,
-			direct:        direct,
-			isStream:      sotype == syscall.SOCK_STREAM,
-			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-			vortex:        vortex,
-		},
-		family: family,
-		sotype: sotype,
-		net:    network,
-		laddr:  laddr,
-		raddr:  raddr,
-	}
-	// ipv6
-	if ipv6only {
-		if err = fd.SetIpv6only(true); err != nil {
-			_ = fd.Close()
-			return
-		}
-	}
-	// zero copy
-	if err = fd.SetZeroCopy(true); err != nil {
-		_ = fd.Close()
-		return
-	}
-	return
-}
 
 type NetFd struct {
 	Fd
@@ -443,7 +362,7 @@ func (fd *NetFd) SetReuseAddr(ok bool) error {
 	return nil
 }
 
-func (fd *NetFd) SetTcpDeferAccept(ok bool) error {
+func (fd *NetFd) SetTCPDeferAccept(ok bool) error {
 	if fd.Installed() {
 		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok)); err != nil {
 			return os.NewSyscallError("setsockopt", err)

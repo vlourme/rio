@@ -8,6 +8,6 @@ func (vortex *Vortex) Fd() int {
 	return -1
 }
 
-func (vortex *Vortex) Shutdown() (err error) {
+func (vortex *Vortex) Close() (err error) {
 	return
 }

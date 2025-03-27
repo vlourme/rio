@@ -5,14 +5,12 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/cbpf"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"github.com/brickingsoft/rio/pkg/reference"
 	"io"
 	"net"
 	"os"
-	"runtime"
 	"syscall"
 	"time"
 )
@@ -67,11 +65,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 	}
 	vortex := vortexRC.Value()
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
-	}
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if lc.MultipathTCP {
@@ -79,76 +72,19 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 			proto = mp
 		}
 	}
-	// fd (use regular fd only)
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_STREAM, proto, addr, nil, directAlloc)
+	// control
+	var control sys.ControlContextFn = nil
+	if lc.Control != nil {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return lc.Control(network, address, raw)
+		}
+	}
+	// listen
+	fd, fdErr := aio.Listen(ctx, vortex, network, proto, addr, lc.ReusePort, control)
 	if fdErr != nil {
 		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-
-	// control
-	if lc.Control != nil {
-		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
-			return lc.Control(network, address, raw)
-		}
-		raw, rawErr := fd.SyscallConn()
-		if rawErr != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
-		}
-		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-	}
-	// reuse addr
-	if err := fd.SetReuseAddr(true); err != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-	}
-	// reuse port
-	if lc.ReusePort {
-		if err := fd.SetReusePort(addr.Port); err != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-		// cbpf (dep reuse port)
-		if fd.Installed() {
-			filter := cbpf.NewFilter(uint32(runtime.NumCPU()))
-			if err := filter.ApplyTo(fd.RegularFd()); err != nil {
-				_ = fd.Close()
-				_ = vortexRC.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-		}
-	}
-	// defer accept
-	if err := fd.SetTcpDeferAccept(true); err != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-	}
-
-	// bind
-	if err := fd.Bind(addr); err != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-	}
-
-	// listen
-	if err := fd.Listen(); err != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-	}
-
-	// set socket addr
-	fd.SetLocalAddr(addr)
 
 	// send zc
 	if lc.SendZC {
@@ -158,10 +94,9 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// ln
 	ln := &TCPListener{
 		fd:              fd,
-		directAlloc:     directAlloc,
+		directAlloc:     vortex.DirectAllocEnabled(),
 		vortex:          vortexRC,
 		acceptFuture:    nil,
-		multipathTCP:    lc.MultipathTCP,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 		useMultishot:    !lc.DisableMultishotIO,
@@ -186,7 +121,6 @@ type TCPListener struct {
 	directAlloc     bool
 	vortex          *reference.Pointer[*aio.Vortex]
 	acceptFuture    *aio.AcceptFuture
-	multipathTCP    bool
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
 	useMultishot    bool

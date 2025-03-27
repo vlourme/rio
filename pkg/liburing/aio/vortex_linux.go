@@ -57,7 +57,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 	}
 	// register files
 	var (
-		directAllocEnabled = liburing.GenericVersion() && // must be enabled in generic
+		directAllocEnabled = liburing.GenericVersion() && // must be enabled in generic liburing.GenericVersion() todo: use black flavor list
 			liburing.VersionEnable(6, 7, 0) && // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT)
 			probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // io_uring_prep_fixed_fd_install
 	)

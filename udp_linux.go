@@ -9,7 +9,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
 	"net/netip"
-	"os"
 	"reflect"
 	"syscall"
 	"time"
@@ -113,96 +112,19 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 	}
 	vortex := vortexRC.Value()
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
+	// control
+	var control sys.ControlContextFn = nil
+	if lc.Control != nil {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+			return lc.Control(network, address, raw)
+		}
 	}
-	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAlloc)
+	// listen
+	fd, fdErr := aio.ListenPacket(ctx, vortex, network, 0, addr, ifi, control)
 	if fdErr != nil {
 		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-
-	// broadcast
-	if err := fd.SetBroadcast(true); err != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-	}
-
-	// multicast
-	if addr.IP != nil && addr.IP.IsMulticast() {
-		if err := fd.SetReuseAddr(true); err != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-		localUdpAddr := *addr
-		switch fd.Family() {
-		case syscall.AF_INET:
-			localUdpAddr.IP = net.IPv4zero.To4()
-		case syscall.AF_INET6:
-			localUdpAddr.IP = net.IPv6zero
-		}
-		addr = &localUdpAddr
-	}
-	if ifi != nil {
-		if ip4 := addr.IP.To4(); ip4 != nil {
-			if err := fd.SetIPv4MulticastInterface(ifi); err != nil {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-			if err := fd.SetIPv4MulticastLoopback(false); err != nil {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-			if err := fd.JoinIPv4Group(ifi, ip4); err != nil {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-		} else {
-			if err := fd.SetIPv6MulticastInterface(ifi); err != nil {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-			if err := fd.SetIPv6MulticastLoopback(false); err != nil {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-			if err := fd.JoinIPv6Group(ifi, addr.IP); err != nil {
-				_ = fd.Close()
-				return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-			}
-		}
-	}
-	// control
-	if lc.Control != nil {
-		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
-			return lc.Control(network, address, raw)
-		}
-		raw, rawErr := fd.SyscallConn()
-		if rawErr != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
-		}
-		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
-			_ = fd.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-	}
-	// bind
-	bindErr := fd.Bind(addr)
-	if bindErr != nil {
-		_ = fd.Close()
-		_ = vortexRC.Close()
-		bindErr = os.NewSyscallError("bind", bindErr)
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: bindErr}
-	}
-	// set socket addr
-	fd.SetLocalAddr(addr)
 
 	// send zc
 	if lc.SendZC {

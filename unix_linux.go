@@ -31,13 +31,8 @@ func ListenUnix(network string, addr *net.UnixAddr) (*UnixListener, error) {
 // The network must be "unix" or "unixpacket".
 func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *net.UnixAddr) (*UnixListener, error) {
 	// network
-	sotype := 0
 	switch network {
-	case "unix":
-		sotype = syscall.SOCK_STREAM
-		break
-	case "unixpacket":
-		sotype = syscall.SOCK_SEQPACKET
+	case "unix", "unixpacket":
 		break
 	default:
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: net.UnknownNetworkError(network)}
@@ -55,45 +50,20 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		}
 	}
 	vortex := vortexRC.Value()
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
-	}
-	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, sotype, 0, addr, nil, directAlloc)
-	if fdErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
-	}
 
 	// control
+	var control sys.ControlContextFn = nil
 	if lc.Control != nil {
-		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw, rawErr := fd.SyscallConn()
-		if rawErr != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
-		}
-		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-	}
-	// bind
-	if err := fd.Bind(addr); err != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
 	}
 	// listen
-	if err := fd.Listen(); err != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	fd, fdErr := aio.Listen(ctx, vortex, network, 0, addr, false, control)
+	if fdErr != nil {
+		_ = vortexRC.Close()
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-
-	// set socket addr
-	fd.SetLocalAddr(addr)
 
 	// send zc
 	if lc.SendZC {
@@ -107,7 +77,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		unlinkOnce:   sync.Once{},
 		vortex:       vortexRC,
 		acceptFuture: nil,
-		directAlloc:  directAlloc,
+		directAlloc:  vortex.DirectAllocEnabled(),
 		useMultishot: !lc.DisableMultishotIO,
 		deadline:     time.Time{},
 	}
@@ -153,39 +123,19 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		}
 	}
 	vortex := vortexRC.Value()
-	// directAlloc
-	directAlloc := !lc.DisableDirectAlloc
-	if directAlloc {
-		directAlloc = vortex.DirectAllocEnabled()
-	}
-	// fd
-	fd, fdErr := aio.OpenNetFd(vortex, aio.ListenMode, network, syscall.SOCK_DGRAM, 0, addr, nil, directAlloc)
-	if fdErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
-	}
-
 	// control
+	var control sys.ControlContextFn = nil
 	if lc.Control != nil {
-		control := func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
+		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
-		raw, rawErr := fd.SyscallConn()
-		if rawErr != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: rawErr}
-		}
-		if err := control(ctx, fd.CtrlNetwork(), addr.String(), raw); err != nil {
-			_ = fd.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
 	}
-	// bind
-	if err := fd.Bind(addr); err != nil {
-		_ = fd.Close()
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
+	// listen
+	fd, fdErr := aio.ListenPacket(ctx, vortex, network, 0, addr, nil, control)
+	if fdErr != nil {
+		_ = vortexRC.Close()
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
-	// set socket addr
-	fd.SetLocalAddr(addr)
 
 	// send zc
 	if lc.SendZC {

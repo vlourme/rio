@@ -108,8 +108,6 @@ type ListenConfig struct {
 	SendZC bool
 	// DisableMultishotIO disable to use multi op
 	DisableMultishotIO bool
-	// DisableDirectAlloc disable to use iouring direct allocated socket to accept.
-	DisableDirectAlloc bool
 	// Vortex customize [aio.Vortex]
 	Vortex *reference.Pointer[*aio.Vortex]
 }
