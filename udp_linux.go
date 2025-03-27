@@ -209,8 +209,8 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	useSendZC := false
 	useSendMSGZC := false
 	if lc.SendZC {
-		useSendZC = aio.CheckSendZCEnable()
-		useSendMSGZC = aio.CheckSendMsdZCEnable()
+		useSendZC = fd.SendZCSupported()
+		useSendMSGZC = fd.SendMsgZCSupported()
 	}
 	// conn
 	c := &UDPConn{
@@ -257,7 +257,7 @@ func (c *UDPConn) UseSendMSGZC(use bool) bool {
 		return false
 	}
 	if use {
-		use = aio.CheckSendMsdZCEnable()
+		use = c.fd.SendMsgZCSupported()
 	}
 	c.useSendMSGZC = use
 	return use

@@ -98,7 +98,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	// send zc
 	useSendZC := false
 	if lc.SendZC {
-		useSendZC = aio.CheckSendZCEnable()
+		useSendZC = fd.SendZCSupported()
 	}
 	// ln
 	ln := &UnixListener{
@@ -193,8 +193,8 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	useSendZC := false
 	useSendMSGZC := false
 	if lc.SendZC {
-		useSendZC = aio.CheckSendZCEnable()
-		useSendMSGZC = aio.CheckSendMsdZCEnable()
+		useSendZC = fd.SendZCSupported()
+		useSendMSGZC = fd.SendMsgZCSupported()
 	}
 	// conn
 	c := &UnixConn{
@@ -456,7 +456,7 @@ func (c *UnixConn) UseSendMSGZC(use bool) bool {
 		return false
 	}
 	if use {
-		use = aio.CheckSendMsdZCEnable()
+		use = c.fd.SendMsgZCSupported()
 	}
 	c.useSendMSGZC = use
 	return use

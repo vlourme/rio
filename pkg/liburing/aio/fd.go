@@ -5,6 +5,7 @@ package aio
 import (
 	"errors"
 	"fmt"
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
 	"syscall"
@@ -30,8 +31,12 @@ func (fd *Fd) FileDescriptor() (n int, direct bool) {
 	return fd.regular, false
 }
 
-func (fd *Fd) Name() string {
-	return fmt.Sprintf("[fd:%d][direct:%d]", fd.regular, fd.direct)
+func (fd *Fd) RegularFd() int {
+	return fd.regular
+}
+
+func (fd *Fd) DirectFd() int {
+	return fd.direct
 }
 
 func (fd *Fd) IsStream() bool {
@@ -42,20 +47,20 @@ func (fd *Fd) ZeroReadIsEOF() bool {
 	return fd.zeroReadIsEOF
 }
 
-func (fd *Fd) Vortex() *Vortex {
-	return fd.vortex
+func (fd *Fd) Name() string {
+	return fmt.Sprintf("[fd:%d][direct:%d]", fd.regular, fd.direct)
 }
 
-func (fd *Fd) RegularFd() int {
-	return fd.regular
+func (fd *Fd) OperationSupported(op uint8) bool {
+	return fd.vortex.OpSupported(op)
 }
 
-func (fd *Fd) DirectFd() int {
-	return fd.direct
+func (fd *Fd) SendZCSupported() bool {
+	return fd.vortex.OpSupported(liburing.IORING_OP_SEND_ZC)
 }
 
-func (fd *Fd) Dup() (int, string, error) {
-	return sys.DupCloseOnExec(fd.regular)
+func (fd *Fd) SendMsgZCSupported() bool {
+	return fd.vortex.OpSupported(liburing.IORING_OP_SENDMSG_ZC)
 }
 
 func (fd *Fd) Registered() bool {
@@ -85,6 +90,10 @@ func (fd *Fd) Install() (err error) {
 	return
 }
 
+func (fd *Fd) Vortex() *Vortex {
+	return fd.vortex
+}
+
 func (fd *Fd) SyscallConn() (syscall.RawConn, error) {
 	if !fd.Installed() {
 		if err := fd.Install(); err != nil {
@@ -94,9 +103,11 @@ func (fd *Fd) SyscallConn() (syscall.RawConn, error) {
 	return sys.NewRawConn(fd.RegularFd()), nil
 }
 
-func boolint(b bool) int {
-	if b {
-		return 1
+func (fd *Fd) Dup() (int, string, error) {
+	if !fd.Installed() {
+		if err := fd.Install(); err != nil {
+			return 0, "", err
+		}
 	}
-	return 0
+	return sys.DupCloseOnExec(fd.regular)
 }

@@ -232,7 +232,7 @@ func (fd *NetFd) SetZeroCopy(ok bool) (err error) {
 }
 
 func (fd *NetFd) SetNoDelay(noDelay bool) error {
-	if fd.sotype&syscall.SOCK_STREAM != 0 {
+	if fd.sotype == syscall.SOCK_STREAM {
 		if fd.Installed() {
 			if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_NODELAY, boolint(noDelay)); err != nil {
 				return os.NewSyscallError("setsockopt", err)
@@ -363,7 +363,7 @@ func (fd *NetFd) SetKeepAliveConfig(config net.KeepAliveConfig) error {
 }
 
 func (fd *NetFd) CloseRead() error {
-	if fd.direct > -1 {
+	if fd.Registered() {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCloseRead(fd)
 		_, _, err := fd.vortex.submitAndWait(op)
@@ -374,7 +374,7 @@ func (fd *NetFd) CloseRead() error {
 }
 
 func (fd *NetFd) CloseWrite() error {
-	if fd.direct > -1 {
+	if fd.Registered() {
 		op := fd.vortex.acquireOperation()
 		op.PrepareCloseWrite(fd)
 		_, _, err := fd.vortex.submitAndWait(op)
@@ -385,7 +385,7 @@ func (fd *NetFd) CloseWrite() error {
 }
 
 func (fd *NetFd) SetIpv6only(ipv6only bool) error {
-	if fd.family == syscall.AF_INET6 && fd.sotype&syscall.SOCK_RAW == 0 {
+	if fd.family == syscall.AF_INET6 && fd.sotype != syscall.SOCK_RAW {
 		if fd.Installed() {
 			if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, boolint(ipv6only)); err != nil {
 				return os.NewSyscallError("setsockopt", err)
@@ -398,7 +398,7 @@ func (fd *NetFd) SetIpv6only(ipv6only bool) error {
 }
 
 func (fd *NetFd) SetBroadcast(ok bool) error {
-	if (fd.sotype == syscall.SOCK_DGRAM || fd.sotype&syscall.SOCK_RAW == 0) && fd.family != syscall.AF_UNIX && fd.family != syscall.AF_INET6 {
+	if (fd.sotype == syscall.SOCK_DGRAM || fd.sotype == syscall.SOCK_RAW) && fd.family != syscall.AF_UNIX && fd.family != syscall.AF_INET6 {
 		if fd.Installed() {
 			if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_BROADCAST, boolint(ok)); err != nil {
 				return os.NewSyscallError("setsockopt", err)

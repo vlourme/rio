@@ -153,7 +153,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// send zc
 	useSendZC := false
 	if lc.SendZC {
-		useSendZC = aio.CheckSendZCEnable()
+		useSendZC = fd.SendZCSupported()
 	}
 
 	// ln

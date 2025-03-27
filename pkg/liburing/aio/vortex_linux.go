@@ -130,6 +130,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 	// vortex
 	v = &Vortex{
 		ring:                ring,
+		probe:               probe,
 		heartbeatTimeout:    heartbeatTimeout,
 		done:                make(chan struct{}),
 		producer:            producer,
@@ -158,6 +159,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 
 type Vortex struct {
 	ring                *liburing.Ring
+	probe               *liburing.Probe
 	heartbeatTimeout    time.Duration
 	done                chan struct{}
 	producer            SQEProducer
@@ -181,12 +183,16 @@ func (vortex *Vortex) MultishotEnabled(op uint8) bool {
 	return has
 }
 
-func (vortex *Vortex) AcceptMultishotEnabled() bool {
+func (vortex *Vortex) MultishotAcceptEnabled() bool {
 	return vortex.MultishotEnabled(liburing.IORING_OP_ACCEPT)
 }
 
-func (vortex *Vortex) ReceiveMultishotEnabled() bool {
+func (vortex *Vortex) MultishotReceiveEnabled() bool {
 	return vortex.MultishotEnabled(liburing.IORING_OP_RECV)
+}
+
+func (vortex *Vortex) OpSupported(op uint8) bool {
+	return vortex.probe.IsSupported(op)
 }
 
 func (vortex *Vortex) Submit(op *Operation) bool {

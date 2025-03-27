@@ -246,7 +246,7 @@ func (c *conn) SetSendZC(use bool) bool {
 		return false
 	}
 	if use {
-		use = aio.CheckSendZCEnable()
+		use = c.fd.SendZCSupported()
 	}
 	c.useSendZC = use
 	return use
