@@ -23,6 +23,14 @@ func (pointer *Pointer[E]) Value() E {
 	return pointer.value
 }
 
+func (pointer *Pointer[E]) Pin() {
+	pointer.count.Add(1)
+}
+
+func (pointer *Pointer[E]) Unpin() {
+	pointer.count.Add(-1)
+}
+
 func (pointer *Pointer[E]) Count() int64 {
 	return pointer.count.Load()
 }

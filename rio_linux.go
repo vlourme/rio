@@ -15,10 +15,8 @@ import (
 )
 
 var (
-	vortexInstance        *reference.Pointer[*aio.Vortex]
-	vortexInstanceOptions []aio.Option
-	vortexInstanceErr     error
-	vortexInstanceOnce    sync.Once
+	vortexInstanceErr  error
+	vortexInstanceOnce sync.Once
 )
 
 const (
