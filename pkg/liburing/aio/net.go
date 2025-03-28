@@ -41,7 +41,7 @@ func (fd *NetFd) SendMSGZCEnabled() bool {
 
 func (fd *NetFd) EnableSendMSGZC(enable bool) {
 	if enable && fd.vortex.OpSupported(liburing.IORING_OP_SENDMSG_ZC) {
-		fd.sendZCEnabled = true
+		fd.sendMSGZCEnabled = true
 	}
 }
 

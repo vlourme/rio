@@ -5,7 +5,6 @@ package aio
 import (
 	"errors"
 	"fmt"
-	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
 	"syscall"
@@ -64,14 +63,6 @@ func (fd *Fd) SetWriteDeadline(t time.Time) {
 
 func (fd *Fd) OperationSupported(op uint8) bool {
 	return fd.vortex.OpSupported(op)
-}
-
-func (fd *Fd) SendZCSupported() bool {
-	return fd.vortex.OpSupported(liburing.IORING_OP_SEND_ZC)
-}
-
-func (fd *Fd) SendMsgZCSupported() bool {
-	return fd.vortex.OpSupported(liburing.IORING_OP_SENDMSG_ZC)
 }
 
 func (fd *Fd) Registered() bool {
