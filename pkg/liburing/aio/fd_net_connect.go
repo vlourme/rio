@@ -12,26 +12,6 @@ import (
 	"time"
 )
 
-func (fd *NetFd) Connect(addr net.Addr, deadline time.Time) (n int, err error) {
-	var (
-		sa     syscall.Sockaddr
-		rsa    *syscall.RawSockaddrAny
-		rsaLen int32
-	)
-
-	if sa, err = sys.AddrToSockaddr(addr); err != nil {
-		return
-	}
-	if rsa, rsaLen, err = sys.SockaddrToRawSockaddrAny(sa); err != nil {
-		return
-	}
-	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareConnect(fd, rsa, int(rsaLen))
-	n, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
-	return
-}
-
 func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network string, proto int, laddr net.Addr, raddr net.Addr, control sys.ControlContextFn) (fd *NetFd, err error) {
 	// addr
 	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
@@ -84,7 +64,6 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 	if err != nil {
 		return
 	}
-	// fd
 	// fd
 	fd = &NetFd{
 		Fd: Fd{
@@ -152,7 +131,23 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 	}
 	// connect
 	if raddr != nil {
-		if _, err = fd.Connect(raddr, deadline); err != nil {
+		var (
+			sa     syscall.Sockaddr
+			rsa    *syscall.RawSockaddrAny
+			rsaLen int32
+		)
+
+		if sa, err = sys.AddrToSockaddr(raddr); err != nil {
+			return
+		}
+		if rsa, rsaLen, err = sys.SockaddrToRawSockaddrAny(sa); err != nil {
+			return
+		}
+		op := fd.vortex.acquireOperation()
+		op.WithDeadline(deadline).PrepareConnect(fd, rsa, int(rsaLen))
+		_, _, err = fd.vortex.submitAndWait(op)
+		fd.vortex.releaseOperation(op)
+		if err != nil {
 			_ = fd.Close()
 			return
 		}
