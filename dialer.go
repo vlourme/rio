@@ -18,7 +18,6 @@ var (
 		LocalAddr:       nil,
 		FallbackDelay:   0,
 		MultipathTCP:    false,
-		SendZC:          false,
 		Control:         nil,
 		ControlContext:  nil,
 		Vortex:          nil,
@@ -162,10 +161,6 @@ type Dialer struct {
 	// used, any call to Dial with "tcp(4|6)" as network will use MPTCP if
 	// supported by the operating system.
 	MultipathTCP bool
-	// SendZC is set IOURING.OP_SENDZC
-	SendZC bool
-	// DisableMultishotIO disable to use multi op
-	DisableMultishotIO bool
 	// If Control is not nil, it is called after creating the network
 	// connection but before actually dialing.
 	//

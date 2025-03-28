@@ -42,6 +42,7 @@ const (
 	envFlags                              = "RIO_IOURING_SETUP_FLAGS"
 	envSQThreadCPU                        = "RIO_IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle                       = "RIO_IOURING_SQ_THREAD_IDLE"
+	envSendZC                             = "RIO_IOURING_SENDZC"
 	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST"
 	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
 	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
@@ -84,7 +85,9 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			if v, has := envLoadDuration(envSQThreadIdle); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadIdle(v))
 			}
-
+			if ok := envLoadBool(envSendZC); ok {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSendZC(ok))
+			}
 			if v, has := envLoadStrings(envDisableIOURingDirectAllocBlackList); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
 			} else {

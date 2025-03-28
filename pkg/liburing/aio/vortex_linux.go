@@ -127,11 +127,23 @@ func Open(options ...Option) (v *Vortex, err error) {
 		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
 		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
 	}
+	// sendZC
+	var (
+		sendZC    bool
+		sendMSGZC bool
+	)
+	if opt.SendZC {
+		sendZC = probe.IsSupported(liburing.IORING_OP_SEND_ZC)
+		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
+	}
+
 	// vortex
 	v = &Vortex{
 		ring:                ring,
 		probe:               probe,
 		heartbeatTimeout:    heartbeatTimeout,
+		sendZC:              sendZC,
+		sendMSGZC:           sendMSGZC,
 		done:                make(chan struct{}),
 		producer:            producer,
 		consumer:            consumer,
@@ -161,6 +173,8 @@ type Vortex struct {
 	ring                *liburing.Ring
 	probe               *liburing.Probe
 	heartbeatTimeout    time.Duration
+	sendZC              bool
+	sendMSGZC           bool
 	done                chan struct{}
 	producer            SQEProducer
 	consumer            OperationConsumer
@@ -176,6 +190,14 @@ func (vortex *Vortex) Fd() int {
 
 func (vortex *Vortex) DirectAllocEnabled() bool {
 	return vortex.directAllocEnabled
+}
+
+func (vortex *Vortex) SendZCEnabled() bool {
+	return vortex.sendZC
+}
+
+func (vortex *Vortex) SendMSGZCEnabled() bool {
+	return vortex.sendMSGZC
 }
 
 func (vortex *Vortex) MultishotEnabled(op uint8) bool {

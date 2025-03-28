@@ -65,10 +65,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// send zc
-	if lc.SendZC {
-		fd.EnableSendZC(true)
-	}
 	// ln
 	ln := &UnixListener{
 		fd:         fd,
@@ -127,11 +123,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// send zc
-	if lc.SendZC {
-		fd.EnableSendZC(true)
-		fd.EnableSendMSGZC(true)
-	}
 	// conn
 	c := &UnixConn{
 		conn{
@@ -284,12 +275,11 @@ type UnixConn struct {
 	conn
 }
 
-// EnableSendMSGZC try to enable sendmsg_zc.
-func (c *UnixConn) EnableSendMSGZC(enable bool) bool {
+// SendMSGZCEnable check sendmsg_zc enabled
+func (c *UnixConn) SendMSGZCEnable() bool {
 	if !c.ok() {
 		return false
 	}
-	c.fd.EnableSendMSGZC(enable)
 	return c.fd.SendMSGZCEnabled()
 }
 

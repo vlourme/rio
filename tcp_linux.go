@@ -86,11 +86,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// send zc
-	if lc.SendZC {
-		fd.EnableSendZC(true)
-	}
-
 	// ln
 	ln := &TCPListener{
 		fd:              fd,

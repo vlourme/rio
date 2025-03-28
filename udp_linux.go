@@ -125,11 +125,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
-	// send zc
-	if lc.SendZC {
-		fd.EnableSendZC(true)
-		fd.EnableSendMSGZC(true)
-	}
 	// conn
 	c := &UDPConn{
 		conn{
@@ -146,12 +141,11 @@ type UDPConn struct {
 	conn
 }
 
-// EnableSendMSGZC try to enable sendmsg_zc.
-func (c *UDPConn) EnableSendMSGZC(enable bool) bool {
+// SendMSGZCEnable check sendmsg_zc enabled
+func (c *UDPConn) SendMSGZCEnable() bool {
 	if !c.ok() {
 		return false
 	}
-	c.fd.EnableSendMSGZC(enable)
 	return c.fd.SendMSGZCEnabled()
 }
 

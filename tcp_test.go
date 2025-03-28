@@ -19,9 +19,8 @@ import (
 func TestTCP(t *testing.T) {
 	ctx := context.Background()
 	config := rio.ListenConfig{
-		MultipathTCP:       false,
-		ReusePort:          false,
-		DisableMultishotIO: false,
+		MultipathTCP: false,
+		ReusePort:    false,
 	}
 	ln, lnErr := config.Listen(ctx, "tcp", ":9000")
 	if lnErr != nil {
@@ -281,7 +280,7 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 				return
 			}
 			rc := conn.(rio.Conn)
-			rc.EnableSendZC(false)
+			t.Log(rc.SendZCEnable())
 			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
 			b := make([]byte, 1024)

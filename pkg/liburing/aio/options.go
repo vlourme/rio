@@ -9,6 +9,7 @@ type Options struct {
 	Flags                                       uint32
 	SQThreadCPU                                 uint32
 	SQThreadIdle                                uint32
+	SendZC                                      bool
 	DisableDirectAllocFeatKernelFlavorBlackList []string
 	RegisterFixedFiles                          uint32
 	SQEProducerAffinityCPU                      int
@@ -78,6 +79,14 @@ func WithSQThreadIdle(idle time.Duration) Option {
 			idle = defaultSQThreadIdle * time.Millisecond
 		}
 		opts.SQThreadIdle = uint32(idle.Milliseconds())
+	}
+}
+
+// WithSendZC
+// setup to use send_zc and sendmsg_zc op insteadof send and sendmsg
+func WithSendZC(ok bool) Option {
+	return func(options *Options) {
+		options.SendZC = ok
 	}
 }
 

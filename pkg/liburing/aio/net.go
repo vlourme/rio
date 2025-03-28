@@ -29,20 +29,8 @@ func (fd *NetFd) SendZCEnabled() bool {
 	return fd.sendZCEnabled
 }
 
-func (fd *NetFd) EnableSendZC(enable bool) {
-	if enable && fd.vortex.OpSupported(liburing.IORING_OP_SEND_ZC) {
-		fd.sendZCEnabled = true
-	}
-}
-
 func (fd *NetFd) SendMSGZCEnabled() bool {
 	return fd.sendMSGZCEnabled
-}
-
-func (fd *NetFd) EnableSendMSGZC(enable bool) {
-	if enable && fd.vortex.OpSupported(liburing.IORING_OP_SENDMSG_ZC) {
-		fd.sendMSGZCEnabled = true
-	}
 }
 
 func (fd *NetFd) Name() string {

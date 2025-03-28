@@ -194,6 +194,14 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	return nil
 }
 
+// SendZCEnable check sendzc enabled
+func (c *conn) SendZCEnable() bool {
+	if !c.ok() {
+		return false
+	}
+	return c.fd.SendZCEnabled()
+}
+
 // File returns a copy of the underlying [os.File].
 // It is the caller's responsibility to close f when finished.
 // Closing c does not affect f, and closing f does not affect c.
@@ -245,12 +253,3 @@ func (c *conn) SyscallConn() (syscall.RawConn, error) {
 }
 
 func (c *conn) ok() bool { return c != nil && c.fd != nil }
-
-// EnableSendZC try to enable send_zc.
-func (c *conn) EnableSendZC(enable bool) bool {
-	if !c.ok() {
-		return false
-	}
-	c.fd.EnableSendZC(enable)
-	return c.fd.SendZCEnabled()
-}

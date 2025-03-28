@@ -104,10 +104,6 @@ type ListenConfig struct {
 	MultipathTCP bool
 	// ReusePort is set SO_REUSEPORT
 	ReusePort bool
-	// SendZC is set IOURING.OP_SENDZC
-	SendZC bool
-	// DisableMultishotIO disable to use multi op
-	DisableMultishotIO bool
 	// Vortex customize [aio.Vortex]
 	Vortex *reference.Pointer[*aio.Vortex]
 }

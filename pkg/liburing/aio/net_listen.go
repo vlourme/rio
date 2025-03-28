@@ -73,11 +73,13 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 			vortex:        vortex,
 		},
-		family: family,
-		sotype: sotype,
-		net:    network,
-		laddr:  addr,
-		raddr:  nil,
+		sendZCEnabled:    vortex.SendZCEnabled(),
+		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
+		family:           family,
+		sotype:           sotype,
+		net:              network,
+		laddr:            addr,
+		raddr:            nil,
 	}
 	// ipv6
 	if ipv6only {
@@ -247,11 +249,13 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 			vortex:        vortex,
 		},
-		family: family,
-		sotype: sotype,
-		net:    network,
-		laddr:  addr,
-		raddr:  nil,
+		sendZCEnabled:    vortex.SendZCEnabled(),
+		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
+		family:           family,
+		sotype:           sotype,
+		net:              network,
+		laddr:            addr,
+		raddr:            nil,
 	}
 	// ipv6
 	if ipv6only {

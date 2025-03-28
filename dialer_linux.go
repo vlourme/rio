@@ -143,11 +143,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	if keepAliveConfig.Enable {
 		_ = fd.SetKeepAliveConfig(keepAliveConfig)
 	}
-
-	// send zc
-	if d.SendZC {
-		fd.EnableSendZC(true)
-	}
 	// conn
 	c := &TCPConn{
 		conn{
@@ -217,11 +212,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
-	// send zc
-	if d.SendZC {
-		fd.EnableSendZC(true)
-		fd.EnableSendMSGZC(true)
-	}
 	// conn
 	c := &UDPConn{
 		conn{
@@ -305,11 +295,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
-	// send zc
-	if d.SendZC {
-		fd.EnableSendZC(true)
-		fd.EnableSendMSGZC(true)
-	}
 	// conn
 	c := &UnixConn{
 		conn{
