@@ -45,13 +45,13 @@ const (
 	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST"
 	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
 	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envSQEProducerLockOSThread            = "RIO_SQE_PROD_LOCK_OSTHREAD"
-	envSQEProducerBatchSize               = "RIO_SQE_PROD_BATCH_SIZE"
-	envSQEProducerBatchTimeWindow         = "RIO_SQE_PROD_BATCH_TIME_WINDOW"
-	envSQEProducerBatchIdleTime           = "RIO_SQE_PROD_BATCH_IDLE_TIME"
-	envCQEConsumerType                    = "RIO_CQE_CONS_TYPE"
-	envCQEPullTypedConsumeTimeCurve       = "RIO_CQE_POLL_TYPED_CONS_CURVE"
-	envCQEPullTypedConsumeIdleTime        = "RIO_CQE_POLL_TYPED_CONS_IDLE_TIME"
+	envSQEProducerLockOSThread            = "RIO_PRODUCER_LOCK_OSTHREAD"
+	envSQEProducerBatchSize               = "RIO_PRODUCER_BATCH_SIZE"
+	envSQEProducerBatchTimeWindow         = "RIO_PRODUCER_BATCH_TIME_WINDOW"
+	envSQEProducerBatchIdleTime           = "RIO_PRODUCER_BATCH_IDLE_TIME"
+	envCQEConsumerType                    = "RIO_CONSUMER_TYPE"
+	envCQEPullTypedConsumeTimeCurve       = "RIO_PULL_TYPED_CONSUMER_CURVE"
+	envCQEPullTypedConsumeIdleTime        = "RIO_PULL_TYPED_CONSUMER_IDLE_TIME"
 )
 
 func getVortex() (*reference.Pointer[*aio.Vortex], error) {
