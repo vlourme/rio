@@ -55,7 +55,7 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 	)
 	if vortex.DirectAllocEnabled() {
 		op := vortex.acquireOperation()
-		op.WithDirect(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
+		op.WithDirectAlloc(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
 		direct, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
 	} else {

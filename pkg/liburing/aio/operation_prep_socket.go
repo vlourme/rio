@@ -19,7 +19,7 @@ func (op *Operation) packingSocket(sqe *liburing.SubmissionQueueEntry) (err erro
 	family := op.fd
 	sotype := int(uintptr(op.addr))
 	proto := int(op.addrLen)
-	if op.flags&directFd != 0 {
+	if op.flags&directAlloc != 0 {
 		sqe.PrepareSocketDirectAlloc(family, sotype, proto, 0)
 	} else {
 		sqe.PrepareSocket(family, sotype, proto, 0)

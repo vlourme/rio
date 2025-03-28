@@ -77,7 +77,7 @@ func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addr
 	op.fd = fd
 	op.addr = unsafe.Pointer(addr)
 	op.addr2 = unsafe.Pointer(addrLen)
-	if op.flags&directFd != 0 {
+	if op.flags&directAlloc != 0 {
 		op.addrLen = uint32(syscall.SOCK_NONBLOCK)
 	} else {
 		op.addrLen = uint32(syscall.SOCK_NONBLOCK | syscall.SOCK_CLOEXEC)
@@ -95,7 +95,7 @@ func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddr
 	op.flags |= multishot
 	op.addr = unsafe.Pointer(addr)
 	op.addr2 = unsafe.Pointer(addrLen)
-	if op.flags&directFd != 0 {
+	if op.flags&directAlloc != 0 {
 		op.addrLen = uint32(syscall.SOCK_NONBLOCK)
 	} else {
 		op.addrLen = uint32(syscall.SOCK_NONBLOCK | syscall.SOCK_CLOEXEC)
@@ -108,13 +108,13 @@ func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err erro
 	addrLenPtr := uint64(uintptr(op.addr2))
 	flags := int(op.addrLen)
 	if op.flags&multishot != 0 {
-		if op.flags&directFd != 0 {
+		if op.flags&directAlloc != 0 {
 			sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, flags)
 		} else {
 			sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, flags)
 		}
 	} else {
-		if op.flags&directFd != 0 {
+		if op.flags&directAlloc != 0 {
 			sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, flags, liburing.IORING_FILE_INDEX_ALLOC)
 		} else {
 			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, flags)

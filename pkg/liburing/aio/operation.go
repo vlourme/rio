@@ -37,7 +37,7 @@ func NewOperation(resultChanBuffer int) *Operation {
 const (
 	borrowed uint8 = 1 << iota
 	discard
-	directFd
+	directAlloc
 	multishot
 )
 
@@ -83,9 +83,9 @@ func (op *Operation) WithDeadline(deadline time.Time) *Operation {
 	return op
 }
 
-func (op *Operation) WithDirect(direct bool) *Operation {
+func (op *Operation) WithDirectAlloc(direct bool) *Operation {
 	if direct {
-		op.flags |= directFd
+		op.flags |= directAlloc
 	}
 	return op
 }

@@ -15,14 +15,14 @@ type ListenerFd struct {
 
 func (fd *ListenerFd) Accept() (nfd *NetFd, err error) {
 	if fd.acceptFuture == nil {
-		direct := fd.Registered()
+		alloc := fd.Registered()
 		deadline := fd.readDeadline
 		acceptAddr := &syscall.RawSockaddrAny{}
 		acceptAddrLen := syscall.SizeofSockaddrAny
 		acceptAddrLenPtr := &acceptAddrLen
 
 		op := fd.vortex.acquireOperation()
-		op.WithDeadline(deadline).WithDirect(direct).PrepareAccept(fd.NetFd, acceptAddr, acceptAddrLenPtr)
+		op.WithDeadline(deadline).WithDirectAlloc(alloc).PrepareAccept(fd.NetFd, acceptAddr, acceptAddrLenPtr)
 		accepted, _, acceptErr := fd.vortex.submitAndWait(op)
 		fd.vortex.releaseOperation(op)
 		if acceptErr != nil {
@@ -87,10 +87,10 @@ type AcceptFuture struct {
 
 func (f *AcceptFuture) submit() error {
 	f.submitOnce.Do(func() {
-		direct := f.ln.Registered()
+		alloc := f.ln.Registered()
 		op := NewOperation(f.buffer)
 		op.Hijack()
-		op.WithDirect(direct).PrepareAcceptMultishot(f.ln.NetFd, f.addr, f.addrLen)
+		op.WithDirectAlloc(alloc).PrepareAcceptMultishot(f.ln.NetFd, f.addr, f.addrLen)
 		if ok := f.ln.vortex.Submit(op); ok {
 			f.op = op
 		} else {

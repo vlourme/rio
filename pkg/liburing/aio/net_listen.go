@@ -55,7 +55,7 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 	)
 	if vortex.DirectAllocEnabled() {
 		op := vortex.acquireOperation()
-		op.WithDirect(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
+		op.WithDirectAlloc(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
 		direct, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
 	} else {
@@ -229,7 +229,7 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 	)
 	if vortex.DirectAllocEnabled() {
 		op := vortex.acquireOperation()
-		op.WithDirect(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
+		op.WithDirectAlloc(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
 		direct, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
 	} else {
