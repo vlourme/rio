@@ -165,7 +165,7 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 	return
 }
 
-func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, ifi *net.Interface, control sys.ControlContextFn) (fd *NetFd, err error) {
+func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, ifi *net.Interface, reusePort bool, control sys.ControlContextFn) (fd *NetFd, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -176,6 +176,7 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 	}
 	// network
 	sotype := 0
+	addrPort := 0
 	switch network {
 	case "udp", "udp4", "udp6":
 		sotype = syscall.SOCK_DGRAM
@@ -189,6 +190,7 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 			}
 			addr = &localUdpAddr
 		}
+		addrPort = udpAddr.Port
 		break
 	case "unixgram":
 		sotype = syscall.SOCK_DGRAM
@@ -252,6 +254,17 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 	if err = fd.SetBroadcast(true); err != nil {
 		_ = fd.Close()
 		return
+	}
+	// reuse port
+	if reusePort && addrPort > 0 {
+		if err = fd.SetReusePort(addrPort); err != nil {
+			_ = fd.Close()
+			return
+		}
+		if err = fd.SetCBPF(runtime.NumCPU()); err != nil {
+			_ = fd.Close()
+			return
+		}
 	}
 	// multicast
 	if ifi != nil {

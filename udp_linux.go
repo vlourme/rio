@@ -120,7 +120,7 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 	}
 	// listen
-	fd, fdErr := aio.ListenPacket(ctx, vortex, network, 0, addr, ifi, control)
+	fd, fdErr := aio.ListenPacket(ctx, vortex, network, 0, addr, ifi, lc.ReusePort, control)
 	if fdErr != nil {
 		_ = vortexRC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}

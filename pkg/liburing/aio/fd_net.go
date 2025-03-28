@@ -158,20 +158,22 @@ func (fd *NetFd) SetWriteBuffer(bytes int) error {
 }
 
 func (fd *NetFd) SetCBPF(cpus int) (err error) {
-	filter := sys.NewCBPFFilter(uint32(cpus))
-	var (
-		program *unix.SockFprog
-	)
-	if program, err = filter.Program(); err != nil {
-		return
-	}
-	if fd.Installed() {
-		if err = unix.SetsockoptSockFprog(fd.regular, syscall.SOL_SOCKET, unix.SO_ATTACH_REUSEPORT_CBPF, program); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if fd.family == syscall.AF_INET || fd.family == syscall.AF_INET6 {
+		filter := sys.NewCBPFFilter(uint32(cpus))
+		var (
+			program *unix.SockFprog
+		)
+		if program, err = filter.Program(); err != nil {
+			return
 		}
-	} else {
-		b := (*[unix.SizeofSockFprog]byte)(unsafe.Pointer(program))[:unix.SizeofSockFprog]
-		return fd.SetSocketopt(syscall.SOL_SOCKET, unix.SO_ATTACH_REUSEPORT_CBPF, unsafe.Pointer(&b[0]), int32(len(b)))
+		if fd.Installed() {
+			if err = unix.SetsockoptSockFprog(fd.regular, syscall.SOL_SOCKET, unix.SO_ATTACH_REUSEPORT_CBPF, program); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			b := (*[unix.SizeofSockFprog]byte)(unsafe.Pointer(program))[:unix.SizeofSockFprog]
+			return fd.SetSocketopt(syscall.SOL_SOCKET, unix.SO_ATTACH_REUSEPORT_CBPF, unsafe.Pointer(&b[0]), int32(len(b)))
+		}
 	}
 	return
 }
@@ -383,23 +385,27 @@ func (fd *NetFd) SetReuseAddr(ok bool) error {
 }
 
 func (fd *NetFd) SetTCPDeferAccept(ok bool) error {
-	if fd.Installed() {
-		if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok)); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if fd.family == syscall.AF_INET || fd.family == syscall.AF_INET6 {
+		if fd.Installed() {
+			if err := syscall.SetsockoptInt(fd.regular, syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok)); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok))
 		}
-	} else {
-		return fd.SetSocketoptInt(syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, boolint(ok))
 	}
 	return nil
 }
 
 func (fd *NetFd) SetReusePort(reusePort int) error {
-	if fd.Installed() {
-		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if fd.family == syscall.AF_INET || fd.family == syscall.AF_INET6 {
+		if fd.Installed() {
+			if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			return fd.SetSocketoptInt(syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort)
 		}
-	} else {
-		return fd.SetSocketoptInt(syscall.SOL_SOCKET, unix.SO_REUSEPORT, reusePort)
 	}
 	return nil
 }
