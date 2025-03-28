@@ -9,6 +9,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const maxRW = 1 << 30
@@ -19,6 +20,8 @@ type Fd struct {
 	isStream      bool
 	zeroReadIsEOF bool
 	locker        sync.Mutex
+	readDeadline  time.Time
+	writeDeadline time.Time
 	vortex        *Vortex
 }
 
@@ -49,6 +52,14 @@ func (fd *Fd) ZeroReadIsEOF() bool {
 
 func (fd *Fd) Name() string {
 	return fmt.Sprintf("[fd:%d][direct:%d]", fd.regular, fd.direct)
+}
+
+func (fd *Fd) SetReadDeadline(t time.Time) {
+	fd.readDeadline = t
+}
+
+func (fd *Fd) SetWriteDeadline(t time.Time) {
+	fd.writeDeadline = t
 }
 
 func (fd *Fd) OperationSupported(op uint8) bool {

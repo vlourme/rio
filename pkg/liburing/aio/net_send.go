@@ -7,15 +7,14 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
-	"time"
 )
 
-func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
+func (fd *NetFd) Send(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSend(fd, b)
+	op.WithDeadline(fd.writeDeadline).PrepareSend(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {
@@ -24,10 +23,10 @@ func (fd *NetFd) Send(b []byte, deadline time.Time) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) SendZC(b []byte, deadline time.Time) (n int, err error) {
+func (fd *NetFd) SendZC(b []byte) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.Hijack()
-	op.WithDeadline(deadline).PrepareSendZC(fd, b)
+	op.WithDeadline(fd.writeDeadline).PrepareSendZC(fd, b)
 	var (
 		cqeFlags uint32
 	)
@@ -54,7 +53,7 @@ func (fd *NetFd) SendZC(b []byte, deadline time.Time) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err error) {
+func (fd *NetFd) SendTo(b []byte, addr net.Addr) (n int, err error) {
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		err = saErr
@@ -69,18 +68,18 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr, deadline time.Time) (n int, err
 	defer fd.vortex.releaseMsg(msg)
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSendMsg(fd, msg)
+	op.WithDeadline(fd.writeDeadline).PrepareSendMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	return
 }
 
-func (fd *NetFd) SendToZC(b []byte, addr net.Addr, deadline time.Time) (n int, err error) {
-	n, _, err = fd.SendMsgZC(b, nil, addr, deadline)
+func (fd *NetFd) SendToZC(b []byte, addr net.Addr) (n int, err error) {
+	n, _, err = fd.SendMsgZC(b, nil, addr)
 	return
 }
 
-func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time) (n int, oobn int, err error) {
+func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		err = saErr
@@ -95,7 +94,7 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 	defer fd.vortex.releaseMsg(msg)
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareSendMsg(fd, msg)
+	op.WithDeadline(fd.writeDeadline).PrepareSendMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(op)
 	if err == nil {
 		oobn = int(msg.Controllen)
@@ -104,7 +103,7 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr, deadline time.Time
 	return
 }
 
-func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Time) (n int, oobn int, err error) {
+func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		err = saErr
@@ -120,7 +119,7 @@ func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr, deadline time.Ti
 
 	op := fd.vortex.acquireOperation()
 	op.Hijack()
-	op.WithDeadline(deadline).PrepareSendMsgZC(fd, msg)
+	op.WithDeadline(fd.writeDeadline).PrepareSendMsgZC(fd, msg)
 	var (
 		cqeFlags uint32
 	)

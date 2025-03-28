@@ -11,7 +11,7 @@ func (fd *Fd) Read(b []byte) (n int, err error) {
 		b = b[:maxRW]
 	}
 	op := fd.vortex.acquireOperation()
-	op.PrepareRead(fd, b)
+	op.WithDeadline(fd.readDeadline).PrepareRead(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
@@ -25,7 +25,7 @@ func (fd *Fd) Write(b []byte) (n int, err error) {
 		b = b[:maxRW]
 	}
 	op := fd.vortex.acquireOperation()
-	op.PrepareWrite(fd, b)
+	op.WithDeadline(fd.writeDeadline).PrepareWrite(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {

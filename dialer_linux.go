@@ -151,11 +151,8 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	// conn
 	c := &TCPConn{
 		conn{
-			fd:            fd,
-			vortex:        vortexRC,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			useMultishot:  !d.DisableMultishotIO,
+			fd:     fd,
+			vortex: vortexRC,
 		},
 	}
 
@@ -228,11 +225,8 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	// conn
 	c := &UDPConn{
 		conn{
-			fd:            fd,
-			vortex:        vortexRC,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			useMultishot:  !d.DisableMultishotIO,
+			fd:     fd,
+			vortex: vortexRC,
 		},
 	}
 	return c, nil
@@ -319,11 +313,8 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	// conn
 	c := &UnixConn{
 		conn{
-			fd:            fd,
-			vortex:        vortexRC,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			useMultishot:  !d.DisableMultishotIO,
+			fd:     fd,
+			vortex: vortexRC,
 		},
 	}
 

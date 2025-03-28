@@ -7,16 +7,15 @@ import (
 	"io"
 	"net"
 	"syscall"
-	"time"
 )
 
-func (fd *NetFd) Receive(b []byte, deadline time.Time) (n int, err error) {
+func (fd *NetFd) Receive(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceive(fd, b)
+	op.WithDeadline(fd.readDeadline).PrepareReceive(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
@@ -25,7 +24,7 @@ func (fd *NetFd) Receive(b []byte, deadline time.Time) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr, err error) {
+func (fd *NetFd) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
@@ -33,7 +32,7 @@ func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr
 	defer fd.vortex.releaseMsg(msg)
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceiveMsg(fd, msg)
+	op.WithDeadline(fd.readDeadline).PrepareReceiveMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if err != nil {
@@ -48,15 +47,15 @@ func (fd *NetFd) ReceiveFrom(b []byte, deadline time.Time) (n int, addr net.Addr
 	return
 }
 
-func (fd *NetFd) ReceiveMsg(b []byte, oob []byte, flags int, deadline time.Time) (n int, oobn int, flag int, addr net.Addr, err error) {
+func (fd *NetFd) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, flag int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	msg := fd.vortex.acquireMsg(b, oob, rsa, rsaLen, 0)
+	msg := fd.vortex.acquireMsg(b, oob, rsa, rsaLen, int32(flags))
 	defer fd.vortex.releaseMsg(msg)
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareReceiveMsg(fd, msg)
+	op.WithDeadline(fd.readDeadline).PrepareReceiveMsg(fd, msg)
 	n, _, err = fd.vortex.submitAndWait(op)
 	if err == nil {
 		oobn = int(msg.Controllen)

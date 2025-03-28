@@ -14,11 +14,8 @@ import (
 )
 
 type conn struct {
-	fd            *aio.NetFd
-	vortex        *reference.Pointer[*aio.Vortex]
-	readDeadline  time.Time
-	writeDeadline time.Time
-	useMultishot  bool
+	fd     *aio.NetFd
+	vortex *reference.Pointer[*aio.Vortex]
 }
 
 // Read implements the net.Conn Read method.
@@ -31,7 +28,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	n, err = c.fd.Receive(b, c.readDeadline)
+	n, err = c.fd.Receive(b)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -52,9 +49,9 @@ func (c *conn) Write(b []byte) (n int, err error) {
 	}
 
 	if c.fd.SendZCEnabled() {
-		n, err = c.fd.SendZC(b, c.writeDeadline)
+		n, err = c.fd.SendZC(b)
 	} else {
-		n, err = c.fd.Send(b, c.writeDeadline)
+		n, err = c.fd.Send(b)
 	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -122,13 +119,13 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 		return syscall.EINVAL
 	}
 	if t.IsZero() {
-		c.readDeadline = t
+		c.fd.SetReadDeadline(time.Time{})
 		return nil
 	}
 	if t.Before(time.Now()) {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
 	}
-	c.readDeadline = t
+	c.fd.SetReadDeadline(time.Time{})
 	return nil
 }
 
@@ -138,13 +135,13 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 		return syscall.EINVAL
 	}
 	if t.IsZero() {
-		c.writeDeadline = t
+		c.fd.SetWriteDeadline(time.Time{})
 		return nil
 	}
 	if t.Before(time.Now()) {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
 	}
-	c.writeDeadline = t
+	c.fd.SetWriteDeadline(time.Time{})
 	return nil
 }
 

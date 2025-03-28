@@ -94,36 +94,21 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	// ln
 	ln := &TCPListener{
 		fd:              fd,
-		directAlloc:     vortex.DirectAllocEnabled(),
 		vortex:          vortexRC,
-		acceptFuture:    nil,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
-		useMultishot:    !lc.DisableMultishotIO,
 		deadline:        time.Time{},
 	}
-	// prepare multishot accept
-	if ln.useMultishot {
-		if err := ln.prepareMultishotAccepting(); err != nil {
-			_ = ln.Close()
-			_ = vortexRC.Close()
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: err}
-		}
-	}
-
 	return ln, nil
 }
 
 // TCPListener is a TCP network listener. Clients should typically
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
-	fd              *aio.NetFd
-	directAlloc     bool
+	fd              *aio.ListenerFd
 	vortex          *reference.Pointer[*aio.Vortex]
-	acceptFuture    *aio.AcceptFuture
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
-	useMultishot    bool
 	deadline        time.Time
 }
 
@@ -140,48 +125,7 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 		return nil, syscall.EINVAL
 	}
 
-	if ln.useMultishot {
-		c, err = ln.acceptMultishot()
-	} else {
-		c, err = ln.acceptOneshot()
-	}
-	return
-}
-
-func (ln *TCPListener) acceptOneshot() (c *TCPConn, err error) {
-	// accept
-	var (
-		cfd     *aio.NetFd
-		addr    = &syscall.RawSockaddrAny{}
-		addrLen = syscall.SizeofSockaddrAny
-	)
-	if ln.directAlloc {
-		cfd, err = ln.fd.AcceptDirectAlloc(addr, &addrLen, ln.deadline)
-	} else {
-		cfd, err = ln.fd.Accept(addr, &addrLen, ln.deadline)
-	}
-	if err != nil {
-		if aio.IsCanceled(err) {
-			err = net.ErrClosed
-		}
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
-		return
-	}
-
-	// conn
-	c = &TCPConn{
-		conn{
-			fd:            cfd,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			useMultishot:  ln.useMultishot,
-		},
-	}
-	return
-}
-
-func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
-	cfd, _, acceptErr := ln.acceptFuture.Await()
+	cfd, acceptErr := ln.fd.Accept()
 	if acceptErr != nil {
 		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
@@ -189,30 +133,11 @@ func (ln *TCPListener) acceptMultishot() (c *TCPConn, err error) {
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
 		return
 	}
-
-	// tcp conn
+	// conn
 	c = &TCPConn{
 		conn{
-			fd:            cfd,
-			readDeadline:  time.Time{},
-			writeDeadline: time.Time{},
-			useMultishot:  ln.useMultishot,
+			fd: cfd,
 		},
-	}
-	return
-}
-
-func (ln *TCPListener) prepareMultishotAccepting() (err error) {
-	backlog := sys.MaxListenerBacklog()
-	if backlog < 1024 {
-		backlog = 1024
-	}
-	if ln.directAlloc {
-		future := ln.fd.AcceptMultishotDirectAsync(backlog)
-		ln.acceptFuture = future
-	} else {
-		future := ln.fd.AcceptMultishotAsync(backlog)
-		ln.acceptFuture = future
 	}
 	return
 }
@@ -223,9 +148,7 @@ func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-	if ln.acceptFuture != nil {
-		_ = ln.acceptFuture.Cancel()
-	}
+
 	if err := ln.fd.Close(); err != nil {
 		_ = ln.vortex.Close()
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
@@ -253,7 +176,7 @@ func (ln *TCPListener) SetDeadline(t time.Time) error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-	ln.deadline = t
+	ln.fd.SetReadDeadline(t)
 	return nil
 }
 

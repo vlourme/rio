@@ -12,10 +12,11 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 )
 
-func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, reusePort bool, control sys.ControlContextFn) (fd *NetFd, err error) {
+func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, reusePort bool, control sys.ControlContextFn) (ln *ListenerFd, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -64,7 +65,7 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 		return
 	}
 	// fd
-	fd = &NetFd{
+	fd := &NetFd{
 		Fd: Fd{
 			regular:       regular,
 			direct:        direct,
@@ -160,6 +161,25 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 			_ = fd.Close()
 			err = os.NewSyscallError("listen", err)
 			return
+		}
+	}
+	// listener
+	ln = &ListenerFd{
+		NetFd:        fd,
+		acceptFuture: nil,
+	}
+	if fd.vortex.MultishotAcceptEnabled() {
+		acceptAddr := &syscall.RawSockaddrAny{}
+		acceptAddrLen := syscall.SizeofSockaddrAny
+		acceptAddrLenPtr := &acceptAddrLen
+		ln.acceptFuture = &AcceptFuture{
+			op:         nil,
+			ln:         ln,
+			addr:       acceptAddr,
+			addrLen:    acceptAddrLenPtr,
+			buffer:     backlog,
+			submitOnce: sync.Once{},
+			err:        nil,
 		}
 	}
 	return
