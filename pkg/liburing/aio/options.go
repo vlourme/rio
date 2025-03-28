@@ -150,6 +150,10 @@ func WithCQEPushTypedConsumer() Option {
 	}
 }
 
+const (
+	defaultCQEPullTypedConsumeIdleTime = 15 * time.Second
+)
+
 // WithCQEPullTypedConsumer use pull typed cqe consumer
 func WithCQEPullTypedConsumer(curve Curve, idleTime time.Duration) Option {
 	return func(opts *Options) {

@@ -174,10 +174,6 @@ func (c *pushTypedOperationConsumer) Close() (err error) {
 	return
 }
 
-const (
-	defaultCQEPullTypedConsumeIdleTime = 15 * time.Second
-)
-
 func newPullTypedOperationConsumer(ring *liburing.Ring, idleTime time.Duration, curve Curve) (OperationConsumer, error) {
 	// idle
 	if idleTime < 1 {
