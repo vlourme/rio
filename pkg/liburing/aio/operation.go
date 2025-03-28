@@ -46,15 +46,14 @@ type Operation struct {
 	cmd      uint8
 	flags    uint8
 	sqeFlags uint8
-	pad0_4   [4]byte
 	timeout  *syscall.Timespec
 	status   atomic.Int64
 	resultCh chan Result
 	fd       int
 	addr     unsafe.Pointer
 	addrLen  uint32
-	pad1_4   [4]byte
 	addr2    unsafe.Pointer
+	addr2Len uint32
 }
 
 func (op *Operation) Close() {

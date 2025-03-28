@@ -230,13 +230,29 @@ func (entry *SubmissionQueueEntry) PrepareSetsockoptInt(fd int, level int, optNa
 	entry.Off = SOCKET_URING_OP_SETSOCKOPT                           // cmd_op
 }
 
-func (entry *SubmissionQueueEntry) PrepareGetsockoptInt(fd int, level int, optName int, optValue *int) {
+func (entry *SubmissionQueueEntry) PrepareSetsockopt(fd int, level int, optName int, optValue unsafe.Pointer, optValueLen int32) {
 	entry.prepareRW(IORING_OP_URING_CMD, fd, 0, 0, 0)
-	entry.Addr3 = uint64(uintptr(unsafe.Pointer(optValue)))          // optval
+	entry.Addr3 = uint64(uintptr(optValue))                          // optval
 	entry.Addr = mergeUint32ToUint64(uint32(level), uint32(optName)) // level, optname
+	entry.SpliceFdIn = optValueLen                                   // optlen
+	entry.Off = SOCKET_URING_OP_SETSOCKOPT                           // cmd_op
+}
+
+func (entry *SubmissionQueueEntry) PrepareGetsockoptInt(fd int, level int, optName int, optValue *int) {
 	optValueLen := unsafe.Sizeof(optValue)
+	entry.prepareRW(IORING_OP_URING_CMD, fd, 0, 0, 0)
+	entry.Addr3 = uint64(uintptr(unsafe.Pointer(optValue)))               // optval
+	entry.Addr = mergeUint32ToUint64(uint32(level), uint32(optName))      // level, optname
 	entry.SpliceFdIn = int32(unsafe.Sizeof(unsafe.Pointer(&optValueLen))) // optlen
 	entry.Off = SOCKET_URING_OP_GETSOCKOPT                                // cmd_op
+}
+
+func (entry *SubmissionQueueEntry) PrepareGetsockopt(fd int, level int, optName int, optValue unsafe.Pointer, optValueLen *int32) {
+	entry.prepareRW(IORING_OP_URING_CMD, fd, 0, 0, 0)
+	entry.Addr3 = uint64(uintptr(optValue))                          // optval
+	entry.Addr = mergeUint32ToUint64(uint32(level), uint32(optName)) // level, optname
+	entry.SpliceFdIn = int32(unsafe.Sizeof(&optValueLen))            // optlen
+	entry.Off = SOCKET_URING_OP_GETSOCKOPT                           // cmd_op
 }
 
 func (entry *SubmissionQueueEntry) PrepareBind(fd int, addr *syscall.RawSockaddrAny, addrLen uint64) {

@@ -10,10 +10,10 @@ import (
 func (op *Operation) packingURingCMD(sqe *liburing.SubmissionQueueEntry) (err error) {
 	switch op.cmd {
 	case liburing.SOCKET_URING_OP_SETSOCKOPT:
-		err = op.packingSetSocketoptInt(sqe)
+		err = op.packingSetSocketopt(sqe)
 		break
 	case liburing.SOCKET_URING_OP_GETSOCKOPT:
-		err = op.packingGetSocketoptInt(sqe)
+		err = op.packingGetSocketopt(sqe)
 		break
 	default:
 		err = NewInvalidOpErr(errors.New("unsupported iouring command"))

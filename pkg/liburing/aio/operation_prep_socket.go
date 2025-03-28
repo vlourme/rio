@@ -29,6 +29,17 @@ func (op *Operation) packingSocket(sqe *liburing.SubmissionQueueEntry) (err erro
 }
 
 func (op *Operation) PrepareSetSocketoptInt(nfd *NetFd, level int, optName int, optValue *int) {
+	op.PrepareSetSocketopt(nfd, level, optName, unsafe.Pointer(optValue), 4)
+	return
+}
+
+func (op *Operation) PrepareGetSocketoptInt(nfd *NetFd, level int, optName int, optValue *int) {
+	optValueLen := int32(4)
+	op.PrepareGetSocketopt(nfd, level, optName, unsafe.Pointer(optValue), &optValueLen)
+	return
+}
+
+func (op *Operation) PrepareSetSocketopt(nfd *NetFd, level int, optName int, optValue unsafe.Pointer, optValueLen int32) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -40,23 +51,24 @@ func (op *Operation) PrepareSetSocketoptInt(nfd *NetFd, level int, optName int, 
 	op.fd = fd
 	op.addr = unsafe.Pointer(uintptr(level))
 	op.addrLen = uint32(optName)
-	op.addr2 = unsafe.Pointer(optValue)
+	op.addr2 = optValue
+	op.addr2Len = uint32(optValueLen)
 	return
 }
 
-func (op *Operation) packingSetSocketoptInt(sqe *liburing.SubmissionQueueEntry) (err error) {
+func (op *Operation) packingSetSocketopt(sqe *liburing.SubmissionQueueEntry) (err error) {
 	fd := op.fd
 	level := int(uintptr(op.addr))
 	optName := int(op.addrLen)
-	optValue := (*int)(op.addr2)
-
-	sqe.PrepareSetsockoptInt(fd, level, optName, optValue)
+	optValue := op.addr2
+	optValueLen := int32(op.addr2Len)
+	sqe.PrepareSetsockopt(fd, level, optName, optValue, optValueLen)
 	sqe.SetFlags(op.sqeFlags)
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
-func (op *Operation) PrepareGetSocketoptInt(nfd *NetFd, level int, optName int, optValue *int) {
+func (op *Operation) PrepareGetSocketopt(nfd *NetFd, level int, optName int, optValue unsafe.Pointer, optValueLen *int32) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -68,17 +80,18 @@ func (op *Operation) PrepareGetSocketoptInt(nfd *NetFd, level int, optName int, 
 	op.fd = fd
 	op.addr = unsafe.Pointer(uintptr(level))
 	op.addrLen = uint32(optName)
-	op.addr2 = unsafe.Pointer(optValue)
+	op.addr2 = optValue
+	op.addr2Len = uint32(uintptr(unsafe.Pointer(optValueLen)))
 	return
 }
 
-func (op *Operation) packingGetSocketoptInt(sqe *liburing.SubmissionQueueEntry) (err error) {
+func (op *Operation) packingGetSocketopt(sqe *liburing.SubmissionQueueEntry) (err error) {
 	fd := op.fd
 	level := int(uintptr(op.addr))
 	optName := int(op.addrLen)
-	optValue := (*int)(op.addr2)
-
-	sqe.PrepareGetsockoptInt(fd, level, optName, optValue)
+	optValue := op.addr2
+	optValueLen := (*int32)(unsafe.Pointer(uintptr(op.addr2Len)))
+	sqe.PrepareGetsockopt(fd, level, optName, optValue, optValueLen)
 	sqe.SetFlags(op.sqeFlags)
 	sqe.SetData(unsafe.Pointer(op))
 	return err

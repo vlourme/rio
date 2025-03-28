@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 )
@@ -104,6 +105,10 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 	// reuse port
 	if reusePort && addrPort > 0 {
 		if err = fd.SetReusePort(addrPort); err != nil {
+			_ = fd.Close()
+			return
+		}
+		if err = fd.SetCBPF(runtime.NumCPU()); err != nil {
 			_ = fd.Close()
 			return
 		}

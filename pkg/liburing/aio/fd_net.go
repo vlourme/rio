@@ -11,6 +11,7 @@ import (
 	"os"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 type NetFd struct {
@@ -154,6 +155,25 @@ func (fd *NetFd) SetWriteBuffer(bytes int) error {
 		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_SNDBUF, bytes)
 	}
 	return nil
+}
+
+func (fd *NetFd) SetCBPF(cpus int) (err error) {
+	filter := sys.NewCBPFFilter(uint32(cpus))
+	var (
+		program *unix.SockFprog
+	)
+	if program, err = filter.Program(); err != nil {
+		return
+	}
+	if fd.Installed() {
+		if err = unix.SetsockoptSockFprog(fd.regular, syscall.SOL_SOCKET, unix.SO_ATTACH_REUSEPORT_CBPF, program); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
+	} else {
+		b := (*[unix.SizeofSockFprog]byte)(unsafe.Pointer(program))[:unix.SizeofSockFprog]
+		return fd.SetSocketopt(syscall.SOL_SOCKET, unix.SO_ATTACH_REUSEPORT_CBPF, unsafe.Pointer(&b[0]), int32(len(b)))
+	}
+	return
 }
 
 func (fd *NetFd) SetZeroCopy(ok bool) (err error) {
