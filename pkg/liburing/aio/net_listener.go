@@ -84,7 +84,7 @@ type AcceptFuture struct {
 	err        error
 }
 
-func (f *AcceptFuture) submit() error {
+func (f *AcceptFuture) submit() {
 	f.submitOnce.Do(func() {
 		alloc := f.ln.Registered()
 		op := f.op
@@ -95,13 +95,10 @@ func (f *AcceptFuture) submit() error {
 			op.Close()
 		}
 	})
-	return f.err
 }
 
 func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
-	if err = f.submit(); err != nil {
-		return
-	}
+	f.submit()
 	if f.err != nil {
 		err = f.err
 		return
@@ -115,6 +112,7 @@ func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
 	)
 	accepted, cqeFlags, err = vortex.awaitOperationWithDeadline(op, deadline)
 	if err != nil {
+		f.err = err
 		return
 	}
 	fd = ln.newAcceptedNetFd(accepted)
