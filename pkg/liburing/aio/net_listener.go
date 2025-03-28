@@ -3,12 +3,9 @@
 package aio
 
 import (
-	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"os"
 	"sync"
 	"syscall"
-	"time"
 )
 
 type ListenerFd struct {
@@ -112,56 +109,16 @@ func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
 	var (
 		op       = f.op
 		ln       = f.ln
-		timer    *time.Timer
+		deadline = ln.readDeadline
+		vortex   = f.ln.vortex
 		accepted = -1
 	)
-	if !ln.readDeadline.IsZero() {
-		timeout := time.Until(f.ln.readDeadline)
-		timer = ln.vortex.acquireTimer(timeout)
-		defer ln.vortex.releaseTimer(timer)
-	}
-	if timer == nil {
-		r, ok := <-op.resultCh
-		if !ok {
-			op.Close()
-			err = ErrCanceled
-			return
-		}
-		accepted, cqeFlags, err = r.N, r.Flags, r.Err
-		if err != nil {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = ErrCanceled
-			} else {
-				err = os.NewSyscallError(op.Name(), err)
-			}
-			return
-		}
-		fd = ln.newAcceptedNetFd(accepted)
+	accepted, cqeFlags, err = vortex.awaitOperationWithDeadline(op, deadline)
+	if err != nil {
 		return
 	}
-	// with timeout
-	select {
-	case r, ok := <-op.resultCh:
-		if !ok {
-			op.Close()
-			err = ErrCanceled
-			return
-		}
-		accepted, cqeFlags, err = r.N, r.Flags, r.Err
-		if err != nil {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = ErrCanceled
-			} else {
-				err = os.NewSyscallError(op.Name(), err)
-			}
-			return
-		}
-		fd = ln.newAcceptedNetFd(accepted)
-		return
-	case <-timer.C:
-		err = ErrTimeout
-		return
-	}
+	fd = ln.newAcceptedNetFd(accepted)
+	return
 }
 
 func (f *AcceptFuture) Cancel() (err error) {
