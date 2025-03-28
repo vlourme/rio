@@ -181,6 +181,7 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 	case "udp", "udp4", "udp6":
 		sotype = syscall.SOCK_DGRAM
 		udpAddr := addr.(*net.UDPAddr)
+		addrPort = udpAddr.Port
 		if udpAddr.IP != nil && udpAddr.IP.IsMulticast() {
 			localUdpAddr := *udpAddr
 			if strings.HasSuffix(network, "6") {
@@ -190,7 +191,6 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 			}
 			addr = &localUdpAddr
 		}
-		addrPort = udpAddr.Port
 		break
 	case "unixgram":
 		sotype = syscall.SOCK_DGRAM
