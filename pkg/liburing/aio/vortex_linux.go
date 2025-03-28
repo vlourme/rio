@@ -163,6 +163,11 @@ func Open(options ...Option) (v *Vortex, err error) {
 				return &syscall.Msghdr{}
 			},
 		},
+		timers: sync.Pool{
+			New: func() interface{} {
+				return time.NewTimer(0)
+			},
+		},
 	}
 	// heartbeat
 	go v.heartbeat()
@@ -182,6 +187,7 @@ type Vortex struct {
 	multishotEnabledOps map[uint8]struct{}
 	operations          sync.Pool
 	msgs                sync.Pool
+	timers              sync.Pool
 }
 
 func (vortex *Vortex) Fd() int {
@@ -287,6 +293,17 @@ func (vortex *Vortex) releaseOperation(op *Operation) {
 		op.reset()
 		vortex.operations.Put(op)
 	}
+}
+
+func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
+	timer := vortex.timers.Get().(*time.Timer)
+	timer.Reset(timeout)
+	return timer
+}
+
+func (vortex *Vortex) releaseTimer(timer *time.Timer) {
+	timer.Stop()
+	vortex.timers.Put(timer)
 }
 
 func (vortex *Vortex) acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {

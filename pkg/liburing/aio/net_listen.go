@@ -175,11 +175,10 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 		acceptAddrLen := syscall.SizeofSockaddrAny
 		acceptAddrLenPtr := &acceptAddrLen
 		ln.acceptFuture = &AcceptFuture{
-			op:         nil,
+			op:         NewOperation(backlog),
 			ln:         ln,
 			addr:       acceptAddr,
 			addrLen:    acceptAddrLenPtr,
-			buffer:     backlog,
 			submitOnce: sync.Once{},
 			err:        nil,
 		}
