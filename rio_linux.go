@@ -14,6 +14,24 @@ import (
 	"time"
 )
 
+func Pin() {
+	rc, rcErr := getVortex()
+	if rcErr != nil {
+		panic(rcErr)
+		return
+	}
+	rc.Pin()
+}
+
+func Unpin() {
+	rc, rcErr := getVortex()
+	if rcErr != nil {
+		panic(rcErr)
+		return
+	}
+	rc.Unpin()
+}
+
 var (
 	vortexInstanceErr  error
 	vortexInstanceOnce sync.Once
