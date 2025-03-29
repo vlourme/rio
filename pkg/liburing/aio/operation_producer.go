@@ -17,48 +17,41 @@ var (
 	ErrIOURingSQBusy = errors.New("submission queue is busy")
 )
 
-type SQEProducer interface {
-	Produce(op *Operation) bool
-	Close() error
-}
+func newOperationProducer(ring *liburing.Ring, producerLockOSThread bool, batchSize int, batchTimeWindow time.Duration, batchIdleTime time.Duration) *operationProducer {
+	if ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
+		producerLockOSThread = true
+	}
+	if ring.Flags()&liburing.IORING_SETUP_SQPOLL == 0 && batchSize < 1 {
+		batchSize = 64
+	}
 
-func newSQEChanProducer(ring *liburing.Ring, producerLockOSThread bool, batchSize int, batchTimeWindow time.Duration, batchIdleTime time.Duration) SQEProducer {
-
-	p := &SQEChanProducer{
-		running:              atomic.Bool{},
-		ring:                 ring,
-		ch:                   make(chan *Operation, ring.SQEntries()),
-		producerLockOSThread: producerLockOSThread,
-		batchSize:            batchSize,
-		batchTimeWindow:      batchTimeWindow,
-		batchIdleTime:        batchIdleTime,
-		wg:                   new(sync.WaitGroup),
+	p := &operationProducer{
+		running: atomic.Bool{},
+		ring:    ring,
+		ch:      make(chan *Operation, ring.SQEntries()),
+		wg:      new(sync.WaitGroup),
 	}
 
 	p.running.Store(true)
 
-	if ring.Flags()&liburing.IORING_SETUP_SQPOLL != 0 {
-		go p.handleImmediately()
+	if batchSize < 1 {
+		go p.handleImmediately(producerLockOSThread)
 	} else {
-		go p.handleBatch()
+		go p.handleBatch(producerLockOSThread, batchSize, batchTimeWindow, batchIdleTime)
 	}
 
 	p.wg.Add(1)
 	return p
 }
 
-type SQEChanProducer struct {
-	running              atomic.Bool
-	ring                 *liburing.Ring
-	ch                   chan *Operation
-	producerLockOSThread bool
-	batchSize            int
-	batchTimeWindow      time.Duration
-	batchIdleTime        time.Duration
-	wg                   *sync.WaitGroup
+type operationProducer struct {
+	running atomic.Bool
+	ring    *liburing.Ring
+	ch      chan *Operation
+	wg      *sync.WaitGroup
 }
 
-func (producer *SQEChanProducer) Produce(op *Operation) bool {
+func (producer *operationProducer) Produce(op *Operation) bool {
 	if producer.running.Load() {
 		producer.ch <- op
 		return true
@@ -66,7 +59,7 @@ func (producer *SQEChanProducer) Produce(op *Operation) bool {
 	return false
 }
 
-func (producer *SQEChanProducer) Close() (err error) {
+func (producer *operationProducer) Close() (err error) {
 	producer.running.Store(false)
 	time.Sleep(50 * time.Millisecond)
 	close(producer.ch)
@@ -74,10 +67,10 @@ func (producer *SQEChanProducer) Close() (err error) {
 	return
 }
 
-func (producer *SQEChanProducer) handleImmediately() {
+func (producer *operationProducer) handleImmediately(producerLockOSThread bool) {
 	defer producer.wg.Done()
 
-	if producer.producerLockOSThread {
+	if producerLockOSThread {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 	}
@@ -125,32 +118,31 @@ func (producer *SQEChanProducer) handleImmediately() {
 	}
 }
 
-func (producer *SQEChanProducer) handleBatch() {
+const (
+	defaultProduceBatchIdleTime   = 30 * time.Second
+	defaultProduceBatchTimeWindow = 100 * time.Microsecond
+)
+
+func (producer *operationProducer) handleBatch(producerLockOSThread bool, batchSize int, batchTimeWindow time.Duration, batchIdleTime time.Duration) {
 	defer producer.wg.Done()
 
-	if producer.producerLockOSThread {
+	if producerLockOSThread {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 	}
 	ring := producer.ring
 	operations := producer.ch
 
-	idleTime := producer.batchIdleTime
-	if idleTime < 1 {
-		idleTime = defaultSQEProduceBatchIdleTime
+	if batchIdleTime < 1 {
+		batchIdleTime = defaultProduceBatchIdleTime
 	}
-	batchTimeWindow := producer.batchTimeWindow
 	if batchTimeWindow < 1 {
-		batchTimeWindow = defaultSQEProduceBatchTimeWindow
+		batchTimeWindow = defaultProduceBatchTimeWindow
 	}
 
 	batchTimer := time.NewTimer(batchTimeWindow)
 	defer batchTimer.Stop()
 
-	batchSize := producer.batchSize
-	if batchSize < 1 {
-		batchSize = 64
-	}
 	batchOps := make([]*Operation, batchSize)
 	batchSQEs := make([]*liburing.SubmissionQueueEntry, batchSize*2)
 
@@ -191,7 +183,7 @@ func (producer *SQEChanProducer) handleBatch() {
 		}
 		if batchIdx == 0 { // when no request, use idle time
 			idle = true
-			batchTimer.Reset(idleTime)
+			batchTimer.Reset(batchIdleTime)
 			continue
 		}
 		if needToSubmit { // go to prepare

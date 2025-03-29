@@ -1,13 +1,14 @@
 package aio
 
 import (
+	"syscall"
 	"time"
 )
 
 type Transmission interface {
-	Up() (uint32, time.Duration)
-	Down() (uint32, time.Duration)
-	Match(n uint32) (uint32, time.Duration)
+	Up() (uint32, *syscall.Timespec)
+	Down() (uint32, *syscall.Timespec)
+	Match(n uint32) (uint32, *syscall.Timespec)
 }
 
 type Curve []struct {
@@ -17,28 +18,19 @@ type Curve []struct {
 
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
-		curve = Curve{
-			{8, 1 * time.Microsecond},
-			{16, 10 * time.Microsecond},
-			{32, 200 * time.Microsecond},
-			{64, 300 * time.Microsecond},
-			{96, 500 * time.Microsecond},
-		}
+		curve = Curve{{1, 15 * time.Second}}
 	}
-	times := make([]WaitNTime, len(curve))
-	for i, t := range curve {
+	times := make([]WaitNTime, 0, 1)
+	for _, t := range curve {
 		n := t.N
-		if n == 0 {
-			n = 1
+		if n < 1 || t.Timeout < 1 {
+			continue
 		}
-		timeout := t.Timeout
-		if timeout < 1 {
-			timeout = 1 * time.Millisecond
-		}
-		times[i] = WaitNTime{
+		timeout := syscall.NsecToTimespec(t.Timeout.Nanoseconds())
+		times = append(times, WaitNTime{
 			n:    n,
-			time: timeout,
-		}
+			time: &timeout,
+		})
 	}
 	return &CurveTransmission{
 		curve: times,
@@ -49,7 +41,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 
 type WaitNTime struct {
 	n    uint32
-	time time.Duration
+	time *syscall.Timespec
 }
 
 type CurveTransmission struct {
@@ -58,7 +50,7 @@ type CurveTransmission struct {
 	idx   int
 }
 
-func (tran *CurveTransmission) Up() (uint32, time.Duration) {
+func (tran *CurveTransmission) Up() (uint32, *syscall.Timespec) {
 	if tran.idx == tran.size-1 {
 		return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 	}
@@ -66,7 +58,7 @@ func (tran *CurveTransmission) Up() (uint32, time.Duration) {
 	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 }
 
-func (tran *CurveTransmission) Down() (uint32, time.Duration) {
+func (tran *CurveTransmission) Down() (uint32, *syscall.Timespec) {
 	if tran.idx == 0 {
 		return tran.curve[0].n, tran.curve[0].time
 	}
@@ -74,18 +66,17 @@ func (tran *CurveTransmission) Down() (uint32, time.Duration) {
 	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
 }
 
-func (tran *CurveTransmission) Match(n uint32) (uint32, time.Duration) {
-	head := tran.curve[0]
-	if n < head.n {
-		return 0, 0
+func (tran *CurveTransmission) Match(n uint32) (uint32, *syscall.Timespec) {
+	if n == 0 || tran.size == 1 {
+		return tran.curve[0].n, tran.curve[0].time
 	}
-
-	for i := tran.size - 1; i > -1; i-- {
-		node := tran.curve[i]
-		if n >= node.n {
-			return node.n, node.time
+	for i := 1; i < tran.size; i++ {
+		ln := tran.curve[i-1]
+		rn := tran.curve[i]
+		if ln.n <= n && n < rn.n {
+			return ln.n, ln.time
 		}
 	}
-
-	return head.n, head.time
+	tail := tran.curve[tran.size-1]
+	return tail.n, tail.time
 }

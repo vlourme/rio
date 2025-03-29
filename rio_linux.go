@@ -46,13 +46,11 @@ const (
 	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST"
 	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
 	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envSQEProducerLockOSThread            = "RIO_PRODUCER_LOCK_OSTHREAD"
-	envSQEProducerBatchSize               = "RIO_PRODUCER_BATCH_SIZE"
-	envSQEProducerBatchTimeWindow         = "RIO_PRODUCER_BATCH_TIME_WINDOW"
-	envSQEProducerBatchIdleTime           = "RIO_PRODUCER_BATCH_IDLE_TIME"
-	envCQEConsumerType                    = "RIO_CONSUMER_TYPE"
-	envCQEPullTypedConsumeTimeCurve       = "RIO_PULL_TYPED_CONSUMER_CURVE"
-	envCQEPullTypedConsumeIdleTime        = "RIO_PULL_TYPED_CONSUMER_IDLE_TIME"
+	envProducerLockOSThread               = "RIO_PRODUCER_LOCK_OSTHREAD"
+	envProducerBatchSize                  = "RIO_PRODUCER_BATCH_SIZE"
+	envProducerBatchTimeWindow            = "RIO_PRODUCER_BATCH_TIME_WINDOW"
+	envProducerBatchIdleTime              = "RIO_PRODUCER_BATCH_IDLE_TIME"
+	envConsumeBatchTimeCurve              = "RIO_CONSUMER_BATCH_TIME_CURVE"
 )
 
 func getVortex() (*reference.Pointer[*aio.Vortex], error) {
@@ -108,30 +106,16 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			}
 
 			// sqe >>>
-			if v := envLoadBool(envSQEProducerLockOSThread); v {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerLockOSThread(v))
-			}
-
-			if v, has := envLoadUint32(envSQEProducerBatchSize); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchSize(v))
-			}
-			if v, has := envLoadDuration(envSQEProducerBatchTimeWindow); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchTimeWindow(v))
-			}
-			if v, has := envLoadDuration(envSQEProducerBatchIdleTime); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQEProducerBatchIdleTime(v))
-			}
+			producerOSThreadLock := envLoadBool(envProducerLockOSThread)
+			producerBatchSize, _ := envLoadUint32(envProducerBatchSize)
+			producerBatchTimeWindow, _ := envLoadDuration(envProducerBatchTimeWindow)
+			producerBatchIdleTime, _ := envLoadDuration(envProducerBatchIdleTime)
+			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithProducer(producerOSThreadLock, producerBatchSize, producerBatchTimeWindow, producerBatchIdleTime))
 			// sqe <<<
 
 			// cqe >>>
-			cqeConsumerType, _ := envLoadString(envCQEConsumerType)
-			cqeConsumerType = strings.ToUpper(strings.TrimSpace(cqeConsumerType))
-			if cqeConsumerType == aio.CQEConsumerPushType {
-				aio.WithCQEPushTypedConsumer()
-			} else {
-				curve, _ := envLoadCurve(envCQEPullTypedConsumeTimeCurve)
-				idleTimeout, _ := envLoadDuration(envCQEPullTypedConsumeIdleTime)
-				aio.WithCQEPullTypedConsumer(curve, idleTimeout)
+			if v, has := envLoadCurve(envConsumeBatchTimeCurve); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithConsumer(v))
 			}
 			// cqe <<<
 

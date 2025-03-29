@@ -12,14 +12,11 @@ type Options struct {
 	SendZC                                      bool
 	DisableDirectAllocFeatKernelFlavorBlackList []string
 	RegisterFixedFiles                          uint32
-	SQEProducerAffinityCPU                      int
-	SQEProducerLockOSThread                     bool
-	SQEProducerBatchSize                        uint32
-	SQEProducerBatchTimeWindow                  time.Duration
-	SQEProducerBatchIdleTime                    time.Duration
-	CQEConsumerType                             string
-	CQEPullTypedConsumeTimeCurve                Curve
-	CQEPullTypedConsumeIdleTime                 time.Duration
+	ProducerLockOSThread                        bool
+	ProducerBatchSize                           uint32
+	ProducerBatchTimeWindow                     time.Duration
+	ProducerBatchIdleTime                       time.Duration
+	ConsumeBatchTimeCurve                       Curve
 	HeartbeatTimeout                            time.Duration
 	AttachRingFd                                int
 }
@@ -67,16 +64,12 @@ func WithSQThreadCPU(cpuId uint32) Option {
 	}
 }
 
-const (
-	defaultSQThreadIdle = 10000
-)
-
 // WithSQThreadIdle
 // setup iouring's sq thread idle, the unit is millisecond.
 func WithSQThreadIdle(idle time.Duration) Option {
 	return func(opts *Options) {
 		if idle < time.Millisecond {
-			idle = defaultSQThreadIdle * time.Millisecond
+			idle = 10000 * time.Millisecond
 		}
 		opts.SQThreadIdle = uint32(idle.Milliseconds())
 	}
@@ -98,80 +91,20 @@ func WithDisableDirectAllocFeatKernelFlavorBlackList(list []string) Option {
 	}
 }
 
-// WithSQEProducerLockOSThread
-// setup lock os thread of producing sqe.
-func WithSQEProducerLockOSThread(lock bool) Option {
+// WithProducer setup operation producer
+func WithProducer(osThreadLock bool, batch uint32, batchTimeWindow time.Duration, batchIdleTimeout time.Duration) Option {
 	return func(opts *Options) {
-		opts.SQEProducerLockOSThread = lock
+		opts.ProducerLockOSThread = osThreadLock
+		opts.ProducerBatchSize = batch
+		opts.ProducerBatchTimeWindow = batchTimeWindow
+		opts.ProducerBatchIdleTime = batchIdleTimeout
 	}
 }
 
-// WithSQEProducerBatchSize
-// setup min batch for preparing sqe.
-func WithSQEProducerBatchSize(size uint32) Option {
+// WithConsumer setup operation consumer
+func WithConsumer(curve Curve) Option {
 	return func(opts *Options) {
-		if size < 1 {
-			size = 64
-		}
-		opts.SQEProducerBatchSize = size
-	}
-}
-
-const (
-	defaultSQEProduceBatchTimeWindow = 100 * time.Microsecond
-)
-
-// WithSQEProducerBatchTimeWindow
-// setup time window of batch for preparing sqe without SQ_POLL.
-func WithSQEProducerBatchTimeWindow(window time.Duration) Option {
-	return func(opts *Options) {
-		if window < 1 {
-			window = defaultSQEProduceBatchTimeWindow
-		}
-		opts.SQEProducerBatchTimeWindow = window
-	}
-}
-
-const (
-	defaultSQEProduceBatchIdleTime = 30 * time.Second
-)
-
-// WithSQEProducerBatchIdleTime
-// setup idle time for preparing sqe without SQ_POLL.
-func WithSQEProducerBatchIdleTime(d time.Duration) Option {
-	return func(opts *Options) {
-		if d < 1 {
-			d = defaultSQEProduceBatchIdleTime
-		}
-		opts.SQEProducerBatchIdleTime = d
-	}
-}
-
-const (
-	CQEConsumerPushType = "PUSH"
-	CQEConsumerPullType = "PULL"
-)
-
-// WithCQEPushTypedConsumer use push typed cqe consumer
-func WithCQEPushTypedConsumer() Option {
-	return func(opts *Options) {
-		opts.CQEConsumerType = CQEConsumerPushType
-	}
-}
-
-const (
-	defaultCQEPullTypedConsumeIdleTime = 15 * time.Second
-)
-
-// WithCQEPullTypedConsumer use pull typed cqe consumer
-func WithCQEPullTypedConsumer(curve Curve, idleTime time.Duration) Option {
-	return func(opts *Options) {
-		opts.CQEConsumerType = CQEConsumerPullType
-		opts.CQEPullTypedConsumeTimeCurve = curve
-		if idleTime < 1 {
-			idleTime = defaultCQEPullTypedConsumeIdleTime
-		}
-		opts.CQEPullTypedConsumeIdleTime = idleTime
+		opts.ConsumeBatchTimeCurve = curve
 	}
 }
 
@@ -183,17 +116,10 @@ func WithRegisterFixedFiles(files uint32) Option {
 	}
 }
 
-const (
-	defaultHeartbeatTimeout = 30 * time.Second
-)
-
 // WithHeartBeatTimeout
 // setup heartbeat timeout.
 func WithHeartBeatTimeout(d time.Duration) Option {
 	return func(opts *Options) {
-		if d < 1 {
-			d = defaultHeartbeatTimeout
-		}
 		opts.HeartbeatTimeout = d
 	}
 }

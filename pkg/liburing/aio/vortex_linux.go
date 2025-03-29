@@ -8,7 +8,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -85,39 +84,6 @@ func Open(options ...Option) (v *Vortex, err error) {
 		}
 	}
 
-	// producer
-	var (
-		producerLockOSThread    = opt.SQEProducerLockOSThread
-		producerBatchSize       = opt.SQEProducerBatchSize
-		producerBatchTimeWindow = opt.SQEProducerBatchTimeWindow
-		producerBatchIdleTime   = opt.SQEProducerBatchIdleTime
-	)
-	if ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
-		producerLockOSThread = true
-	}
-	producer := newSQEChanProducer(ring, producerLockOSThread, int(producerBatchSize), producerBatchTimeWindow, producerBatchIdleTime)
-	// consumer
-	consumerType := strings.ToUpper(strings.TrimSpace(opt.CQEConsumerType))
-	var consumer OperationConsumer
-	switch consumerType {
-	case CQEConsumerPushType:
-		consumer, err = newPushTypedOperationConsumer(ring)
-		break
-	default:
-		consumer, err = newPullTypedOperationConsumer(ring, opt.CQEPullTypedConsumeIdleTime, opt.CQEPullTypedConsumeTimeCurve)
-		break
-	}
-	if err != nil {
-		_ = producer.Close()
-		_ = ring.Close()
-		err = NewRingErr(err)
-		return
-	}
-	// heartbeat
-	heartbeatTimeout := opt.HeartbeatTimeout
-	if heartbeatTimeout < 1 {
-		heartbeatTimeout = defaultHeartbeatTimeout
-	}
 	// multishotEnabledOps
 	multishotEnabledOps := make(map[uint8]struct{})
 	if liburing.VersionEnable(5, 19, 0) {
@@ -137,14 +103,20 @@ func Open(options ...Option) (v *Vortex, err error) {
 		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
 	}
 
+	// producer
+	producer := newOperationProducer(ring, opt.ProducerLockOSThread, int(opt.ProducerBatchSize), opt.ProducerBatchTimeWindow, opt.ProducerBatchIdleTime)
+	// consumer
+	consumer := newOperationConsumer(ring, opt.ConsumeBatchTimeCurve)
+	// heartbeat
+	hb := newHeartbeat(opt.HeartbeatTimeout, producer)
+
 	// vortex
 	v = &Vortex{
 		ring:                ring,
 		probe:               probe,
-		heartbeatTimeout:    heartbeatTimeout,
+		heartbeat:           hb,
 		sendZC:              sendZC,
 		sendMSGZC:           sendMSGZC,
-		done:                make(chan struct{}),
 		producer:            producer,
 		consumer:            consumer,
 		directAllocEnabled:  directAllocEnabled,
@@ -169,20 +141,17 @@ func Open(options ...Option) (v *Vortex, err error) {
 			},
 		},
 	}
-	// heartbeat
-	go v.heartbeat()
 	return
 }
 
 type Vortex struct {
 	ring                *liburing.Ring
 	probe               *liburing.Probe
-	heartbeatTimeout    time.Duration
 	sendZC              bool
 	sendMSGZC           bool
-	done                chan struct{}
-	producer            SQEProducer
-	consumer            OperationConsumer
+	producer            *operationProducer
+	consumer            *operationConsumer
+	heartbeat           *heartbeat
 	directAllocEnabled  bool
 	multishotEnabledOps map[uint8]struct{}
 	operations          sync.Pool
@@ -249,13 +218,12 @@ func (vortex *Vortex) CancelOperation(target *Operation) (err error) {
 }
 
 func (vortex *Vortex) Close() (err error) {
-	// done
-	close(vortex.done)
+	// heartbeat
+	_ = vortex.heartbeat.Close()
 	// close producer
 	_ = vortex.producer.Close()
 	// close consumer
 	_ = vortex.consumer.Close()
-
 	// unregister files
 	if vortex.DirectAllocEnabled() {
 		_, _ = vortex.ring.UnregisterFiles()
@@ -263,24 +231,6 @@ func (vortex *Vortex) Close() (err error) {
 	// close
 	err = vortex.ring.Close()
 	return
-}
-
-func (vortex *Vortex) heartbeat() {
-	ticker := time.NewTicker(vortex.heartbeatTimeout)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-vortex.done:
-			return
-		case <-ticker.C:
-			op := &Operation{}
-			_ = op.PrepareNop()
-			if ok := vortex.Submit(op); !ok {
-				break
-			}
-			break
-		}
-	}
 }
 
 func (vortex *Vortex) acquireOperation() *Operation {
@@ -435,4 +385,53 @@ func (vortex *Vortex) awaitTimeoutOp(timeoutOp *Operation) (err error) {
 		}
 	}
 	return
+}
+
+const (
+	defaultHeartbeatTimeout = 30 * time.Second
+)
+
+func newHeartbeat(timeout time.Duration, producer *operationProducer) *heartbeat {
+	if timeout < 1 {
+		timeout = defaultHeartbeatTimeout
+	}
+	hb := &heartbeat{
+		producer: producer,
+		ticker:   time.NewTicker(timeout),
+		wg:       new(sync.WaitGroup),
+		done:     make(chan struct{}),
+	}
+	go hb.start()
+	return hb
+}
+
+type heartbeat struct {
+	producer *operationProducer
+	ticker   *time.Ticker
+	wg       *sync.WaitGroup
+	done     chan struct{}
+}
+
+func (hb *heartbeat) start() {
+	hb.wg.Add(1)
+	defer hb.wg.Done()
+
+	op := &Operation{}
+	_ = op.PrepareNop()
+	for {
+		select {
+		case <-hb.done:
+			hb.ticker.Stop()
+			return
+		case <-hb.ticker.C:
+			hb.producer.Produce(op)
+			break
+		}
+	}
+}
+
+func (hb *heartbeat) Close() error {
+	close(hb.done)
+	hb.wg.Wait()
+	return nil
 }
