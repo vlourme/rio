@@ -9,11 +9,17 @@ import (
 	"syscall"
 )
 
-func (fd *NetFd) Receive(b []byte) (n int, err error) {
+func (fd *ConnFd) Receive(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-
+	// todo
+	// multishot
+	//if fd.recvFuture != nil {
+	//
+	//	return
+	//}
+	// oneshot
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(fd.readDeadline).PrepareReceive(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)
@@ -24,7 +30,7 @@ func (fd *NetFd) Receive(b []byte) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
+func (fd *ConnFd) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
@@ -47,7 +53,7 @@ func (fd *NetFd) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
 	return
 }
 
-func (fd *NetFd) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, flag int, addr net.Addr, err error) {
+func (fd *ConnFd) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, flag int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 

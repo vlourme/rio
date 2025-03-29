@@ -79,6 +79,12 @@ func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) 
 	case liburing.IORING_OP_SPLICE:
 		err = op.packingSplice(sqe)
 		break
+	case liburing.IORING_OP_PROVIDE_BUFFERS:
+		err = op.packingProvideBuffers(sqe)
+		break
+	case liburing.IORING_OP_REMOVE_BUFFERS:
+		err = op.packingRemoveBuffers(sqe)
+		break
 	default:
 		return NewInvalidOpErr(errors.New("unsupported"))
 	}

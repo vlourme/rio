@@ -6,7 +6,77 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"syscall"
 	"testing"
+	"unsafe"
 )
+
+func TestSubmissionQueueEntry_PrepareProvideBuffers(t *testing.T) {
+	ring, ringErr := liburing.New(liburing.WithEntries(4))
+	if ringErr != nil {
+		t.Error(ringErr)
+		return
+	}
+	defer ring.Close()
+
+	var (
+		sqe    *liburing.SubmissionQueueEntry
+		sn     uint
+		sErr   error
+		cqe    *liburing.CompletionQueueEvent
+		cqeErr error
+	)
+
+	buffers := make([]syscall.Iovec, 4)
+	for i := range buffers {
+		b := make([]byte, 4096)
+		buffers[i] = syscall.Iovec{
+			Base: &b[0],
+			Len:  uint64(len(b)),
+		}
+	}
+
+	addr := uintptr(unsafe.Pointer(&buffers[0]))
+	addrLen := uint32(len(buffers))
+	nr := 4
+
+	sqe = ring.GetSQE()
+	sqe.PrepareProvideBuffers(addr, addrLen, nr, 0, 0)
+	sn, sErr = ring.SubmitAndWait(1)
+	if sErr != nil {
+		t.Error(sErr)
+		return
+	}
+	t.Log("submitted:", sn)
+	cqe, cqeErr = ring.PeekCQE()
+	if cqeErr != nil {
+		t.Error(cqeErr)
+		return
+	}
+	t.Log("cqe:", cqe.Res, cqe.Flags)
+	if cqe.Res < 0 {
+		t.Error(syscall.Errno(-cqe.Res))
+	}
+	ring.CQAdvance(1)
+
+	// remove
+	sqe = ring.GetSQE()
+	sqe.PrepareRemoveBuffers(4, 0)
+	sn, sErr = ring.SubmitAndWait(1)
+	if sErr != nil {
+		t.Error(sErr)
+		return
+	}
+	t.Log("submitted:", sn)
+	cqe, cqeErr = ring.PeekCQE()
+	if cqeErr != nil {
+		t.Error(cqeErr)
+		return
+	}
+	t.Log("cqe:", cqe.Res, cqe.Flags)
+	if cqe.Res < 0 {
+		t.Error(syscall.Errno(-cqe.Res))
+	}
+	ring.CQAdvance(1)
+}
 
 func TestRing_RegisterFileAllocRange(t *testing.T) {
 	t.Log("kernel:", liburing.GetVersion())
@@ -146,8 +216,6 @@ func TestSubmissionQueueEntry_PrepareFilesUpdate(t *testing.T) {
 
 	// update
 	sqe = ring.GetSQE()
-	sqe.PrepareRecvMultishot()
-	sqe.SetFlags()
 	sock, _ := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	fds := []int{0, sock, 0, 0, 0}
 	sqe.PrepareFilesUpdate(fds, 0)

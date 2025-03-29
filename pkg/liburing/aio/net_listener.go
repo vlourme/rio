@@ -3,17 +3,35 @@
 package aio
 
 import (
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
 	"syscall"
 )
 
 type ListenerFd struct {
-	*NetFd
+	NetFd
 	acceptFuture *AcceptFuture
 }
 
-func (fd *ListenerFd) Accept() (nfd *NetFd, err error) {
+func (fd *ListenerFd) init() {
+	if fd.vortex.MultishotAcceptEnabled() {
+		acceptAddr := &syscall.RawSockaddrAny{}
+		acceptAddrLen := syscall.SizeofSockaddrAny
+		acceptAddrLenPtr := &acceptAddrLen
+		backlog := sys.MaxListenerBacklog()
+		fd.acceptFuture = &AcceptFuture{
+			op:         NewOperation(backlog),
+			ln:         fd,
+			addr:       acceptAddr,
+			addrLen:    acceptAddrLenPtr,
+			submitOnce: sync.Once{},
+			err:        nil,
+		}
+	}
+}
+
+func (fd *ListenerFd) Accept() (nfd *ConnFd, err error) {
 	if fd.acceptFuture == nil {
 		alloc := fd.Registered()
 		deadline := fd.readDeadline
@@ -22,7 +40,7 @@ func (fd *ListenerFd) Accept() (nfd *NetFd, err error) {
 		acceptAddrLenPtr := &acceptAddrLen
 
 		op := fd.vortex.acquireOperation()
-		op.WithDeadline(deadline).WithDirectAlloc(alloc).PrepareAccept(fd.NetFd, acceptAddr, acceptAddrLenPtr)
+		op.WithDeadline(deadline).WithDirectAlloc(alloc).PrepareAccept(fd, acceptAddr, acceptAddrLenPtr)
 		accepted, _, acceptErr := fd.vortex.submitAndWait(op)
 		fd.vortex.releaseOperation(op)
 		if acceptErr != nil {
@@ -30,7 +48,7 @@ func (fd *ListenerFd) Accept() (nfd *NetFd, err error) {
 			return
 		}
 
-		nfd = fd.newAcceptedNetFd(accepted)
+		nfd = fd.newAcceptedConnFd(accepted)
 
 		sa, saErr := sys.RawSockaddrAnyToSockaddr(acceptAddr)
 		if saErr == nil {
@@ -50,28 +68,32 @@ func (fd *ListenerFd) Close() error {
 	return fd.NetFd.Close()
 }
 
-func (fd *ListenerFd) newAcceptedNetFd(accepted int) (cfd *NetFd) {
-	cfd = &NetFd{
-		Fd: Fd{
-			regular:       -1,
-			direct:        -1,
-			isStream:      fd.isStream,
-			zeroReadIsEOF: fd.zeroReadIsEOF,
-			vortex:        fd.vortex,
+func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *ConnFd) {
+	cfd = &ConnFd{
+		NetFd: NetFd{
+			Fd: Fd{
+				regular:       -1,
+				direct:        -1,
+				isStream:      fd.isStream,
+				zeroReadIsEOF: fd.zeroReadIsEOF,
+				vortex:        fd.vortex,
+			},
+
+			family: fd.family,
+			sotype: fd.sotype,
+			net:    fd.net,
+			laddr:  nil,
+			raddr:  nil,
 		},
-		sendZCEnabled:    fd.sendZCEnabled,
-		sendMSGZCEnabled: fd.sendMSGZCEnabled,
-		family:           fd.family,
-		sotype:           fd.sotype,
-		net:              fd.net,
-		laddr:            nil,
-		raddr:            nil,
+		sendZCEnabled:    fd.vortex.SendZCEnabled(),
+		sendMSGZCEnabled: fd.vortex.SendMSGZCEnabled(),
 	}
 	if fd.Registered() {
 		cfd.direct = accepted
 	} else {
 		cfd.regular = accepted
 	}
+	cfd.init()
 	return
 }
 
@@ -89,15 +111,16 @@ func (f *AcceptFuture) submit() {
 		alloc := f.ln.Registered()
 		op := f.op
 		op.Hijack()
-		op.WithDirectAlloc(alloc).PrepareAcceptMultishot(f.ln.NetFd, f.addr, f.addrLen)
+		op.WithDirectAlloc(alloc).PrepareAcceptMultishot(f.ln, f.addr, f.addrLen)
 		if ok := f.ln.vortex.Submit(op); !ok {
-			f.err = ErrCanceled
 			op.Close()
+			f.err = ErrCanceled
+			f.op = nil
 		}
 	})
 }
 
-func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
+func (f *AcceptFuture) Await() (fd *ConnFd, cqeFlags uint32, err error) {
 	f.submit()
 	if f.err != nil {
 		err = f.err
@@ -115,11 +138,21 @@ func (f *AcceptFuture) Await() (fd *NetFd, cqeFlags uint32, err error) {
 		f.err = err
 		return
 	}
-	fd = ln.newAcceptedNetFd(accepted)
+	if cqeFlags&liburing.IORING_CQE_F_MORE == 0 {
+		f.err = ErrCanceled
+		err = f.err
+		return
+	}
+	fd = ln.newAcceptedConnFd(accepted)
 	return
 }
 
 func (f *AcceptFuture) Cancel() (err error) {
-	err = f.ln.vortex.CancelOperation(f.op)
+	if f.op != nil {
+		op := f.op
+		f.op = nil
+		err = f.ln.vortex.CancelOperation(op)
+		op.Close()
+	}
 	return
 }

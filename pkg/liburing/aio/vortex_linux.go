@@ -5,9 +5,7 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/queue"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"math"
 	"os"
 	"strconv"
 	"sync"
@@ -96,23 +94,9 @@ func Open(options ...Option) (v *Vortex, err error) {
 		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
 	}
 	// bufferProviderSettings alloc
-	var bufferSettings *bufferProviderSettings
-	var bufferBgids *queue.Queue[int]
 	bufferAllocEnabled := probe.IsSupported(liburing.IORING_OP_PROVIDE_BUFFERS) && probe.IsSupported(liburing.IORING_OP_REMOVE_BUFFERS)
-	if bufferAllocEnabled {
-		bufferSettings = &opt.BufferProvider
-		if bufferSettings.Length < 1 {
-			bufferSettings.Length = 4095
-		}
-		if bufferSettings.Count < 1 {
-			bufferSettings.Count = 16
-		}
-		bufferBgids = queue.New[int]()
-		for i := 0; i < math.MaxUint16; i++ {
-			idx := i
-			bufferBgids.Enqueue(&idx)
-		}
-	}
+	bufferConfig := newBufferConfig(bufferAllocEnabled, opt.ProvideBufferSize, opt.ProvideBufferCount)
+
 	// multishotEnabledOps
 	multishotEnabledOps := make(map[uint8]struct{})
 	if liburing.VersionEnable(5, 19, 0) {
@@ -132,24 +116,31 @@ func Open(options ...Option) (v *Vortex, err error) {
 
 	// vortex
 	v = &Vortex{
-		ring:                   ring,
-		probe:                  probe,
-		sendZC:                 sendZC,
-		sendMSGZC:              sendMSGZC,
-		producer:               producer,
-		consumer:               consumer,
-		heartbeat:              hb,
-		directAllocEnabled:     directAllocEnabled,
-		bufferAllocEnabled:     bufferAllocEnabled,
-		bufferBgids:            bufferBgids,
-		bufferProviderSettings: bufferSettings,
-		multishotEnabledOps:    multishotEnabledOps,
+		ring:                ring,
+		probe:               probe,
+		sendZC:              sendZC,
+		sendMSGZC:           sendMSGZC,
+		producer:            producer,
+		consumer:            consumer,
+		heartbeat:           hb,
+		directAllocEnabled:  directAllocEnabled,
+		bufferConfig:        bufferConfig,
+		multishotEnabledOps: multishotEnabledOps,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
 					code:     liburing.IORING_OP_LAST,
 					flags:    borrowed,
 					resultCh: make(chan Result, 1),
+				}
+			},
+		},
+		multishotOperations: sync.Pool{
+			New: func() interface{} {
+				return &Operation{
+					code:     liburing.IORING_OP_LAST,
+					flags:    borrowed,
+					resultCh: make(chan Result, bufferConfig.count),
 				}
 			},
 		},
@@ -167,27 +158,21 @@ func Open(options ...Option) (v *Vortex, err error) {
 	return
 }
 
-type bufferProviderSettings struct {
-	Length int
-	Count  int
-}
-
 type Vortex struct {
-	ring                   *liburing.Ring
-	probe                  *liburing.Probe
-	sendZC                 bool
-	sendMSGZC              bool
-	producer               *operationProducer
-	consumer               *operationConsumer
-	heartbeat              *heartbeat
-	directAllocEnabled     bool
-	bufferAllocEnabled     bool
-	bufferBgids            *queue.Queue[int]
-	bufferProviderSettings *bufferProviderSettings
-	multishotEnabledOps    map[uint8]struct{}
-	operations             sync.Pool
-	msgs                   sync.Pool
-	timers                 sync.Pool
+	ring                *liburing.Ring
+	probe               *liburing.Probe
+	sendZC              bool
+	sendMSGZC           bool
+	producer            *operationProducer
+	consumer            *operationConsumer
+	heartbeat           *heartbeat
+	directAllocEnabled  bool
+	bufferConfig        *BufferConfig
+	multishotEnabledOps map[uint8]struct{}
+	operations          sync.Pool
+	multishotOperations sync.Pool
+	msgs                sync.Pool
+	timers              sync.Pool
 }
 
 func (vortex *Vortex) Fd() int {
@@ -217,6 +202,10 @@ func (vortex *Vortex) MultishotAcceptEnabled() bool {
 
 func (vortex *Vortex) MultishotReceiveEnabled() bool {
 	return vortex.MultishotEnabled(liburing.IORING_OP_RECV)
+}
+
+func (vortex *Vortex) MultishotReceiveMSGEnabled() bool {
+	return vortex.MultishotEnabled(liburing.IORING_OP_RECVMSG)
 }
 
 func (vortex *Vortex) OpSupported(op uint8) bool {
@@ -276,6 +265,18 @@ func (vortex *Vortex) releaseOperation(op *Operation) {
 	}
 }
 
+func (vortex *Vortex) acquireMultishotOperation() *Operation {
+	op := vortex.multishotOperations.Get().(*Operation)
+	return op
+}
+
+func (vortex *Vortex) releaseMultishotOperation(op *Operation) {
+	if op.releaseAble() {
+		op.reset()
+		vortex.multishotOperations.Put(op)
+	}
+}
+
 func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
 	timer := vortex.timers.Get().(*time.Timer)
 	timer.Reset(timeout)
@@ -285,22 +286,6 @@ func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
 func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	timer.Stop()
 	vortex.timers.Put(timer)
-}
-
-func (vortex *Vortex) acquireBufferBgid() int {
-	if vortex.bufferAllocEnabled {
-		if idx := vortex.bufferBgids.Dequeue(); idx != nil {
-			return *idx
-		}
-	}
-	return -1
-}
-
-func (vortex *Vortex) releaseBufferBgid(bgid int) {
-	if bgid > -1 && vortex.bufferBgids != nil {
-		idx := bgid
-		vortex.bufferBgids.Enqueue(&idx)
-	}
 }
 
 func (vortex *Vortex) acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {

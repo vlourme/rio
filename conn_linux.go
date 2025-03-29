@@ -14,7 +14,7 @@ import (
 )
 
 type conn struct {
-	fd     *aio.NetFd
+	fd     *aio.ConnFd
 	vortex *reference.Pointer[*aio.Vortex]
 }
 
@@ -48,11 +48,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
 	}
 
-	if c.fd.SendZCEnabled() {
-		n, err = c.fd.SendZC(b)
-	} else {
-		n, err = c.fd.Send(b)
-	}
+	n, err = c.fd.Send(b)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed

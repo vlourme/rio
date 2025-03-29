@@ -379,11 +379,7 @@ func (c *UnixConn) WriteToUnix(b []byte, addr *net.UnixAddr) (int, error) {
 }
 
 func (c *UnixConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
-	if c.fd.SendMSGZCEnabled() {
-		n, err = c.fd.SendToZC(b, addr)
-	} else {
-		n, err = c.fd.SendTo(b, addr)
-	}
+	n, err = c.fd.SendTo(b, addr)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
@@ -418,11 +414,7 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 		b = []byte{0}
 	}
 
-	if c.fd.SendMSGZCEnabled() {
-		n, oobn, err = c.fd.SendMsgZC(b, oob, addr)
-	} else {
-		n, oobn, err = c.fd.SendMsg(b, oob, addr)
-	}
+	n, oobn, err = c.fd.SendMsg(b, oob, addr)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed

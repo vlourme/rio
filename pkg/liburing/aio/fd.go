@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -18,7 +17,6 @@ type Fd struct {
 	direct        int
 	isStream      bool
 	zeroReadIsEOF bool
-	locker        sync.Mutex
 	readDeadline  time.Time
 	writeDeadline time.Time
 	vortex        *Vortex
@@ -74,8 +72,6 @@ func (fd *Fd) Installed() bool {
 }
 
 func (fd *Fd) Install() (err error) {
-	fd.locker.Lock()
-	defer fd.locker.Unlock()
 	if fd.regular != -1 {
 		return nil
 	}

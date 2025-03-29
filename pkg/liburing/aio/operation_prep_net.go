@@ -8,7 +8,7 @@ import (
 	"unsafe"
 )
 
-func (op *Operation) PrepareConnect(nfd *NetFd, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) PrepareConnect(nfd *ConnFd, addr *syscall.RawSockaddrAny, addrLen int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -29,7 +29,7 @@ func (op *Operation) packingConnect(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareListen(nfd *NetFd, backlog int) {
+func (op *Operation) PrepareListen(nfd *ListenerFd, backlog int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -68,7 +68,7 @@ func (op *Operation) packingBind(sqe *liburing.SubmissionQueueEntry) (err error)
 	return
 }
 
-func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen *int) {
+func (op *Operation) PrepareAccept(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -85,7 +85,7 @@ func (op *Operation) PrepareAccept(ln *NetFd, addr *syscall.RawSockaddrAny, addr
 	return
 }
 
-func (op *Operation) PrepareAcceptMultishot(ln *NetFd, addr *syscall.RawSockaddrAny, addrLen *int) {
+func (op *Operation) PrepareAcceptMultishot(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -125,7 +125,7 @@ func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err erro
 	return
 }
 
-func (op *Operation) PrepareReceive(nfd *NetFd, b []byte) {
+func (op *Operation) PrepareReceive(nfd *ConnFd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -137,16 +137,35 @@ func (op *Operation) PrepareReceive(nfd *NetFd, b []byte) {
 	return
 }
 
+func (op *Operation) PrepareReceiveMultishot(nfd *ConnFd, bgid int) {
+	fd, direct := nfd.FileDescriptor()
+	if direct {
+		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
+	}
+	op.sqeFlags |= liburing.IOSQE_BUFFER_SELECT
+	op.flags |= multishot
+	op.code = liburing.IORING_OP_RECV
+	op.fd = fd
+	op.addrLen = uint32(bgid)
+	return
+}
+
 func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err error) {
-	b := uintptr(op.addr)
-	bLen := op.addrLen
-	sqe.PrepareRecv(op.fd, b, bLen, 0)
+	if op.flags&multishot != 0 {
+		bgid := uint16(op.addrLen)
+		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
+		sqe.SetBufferGroup(bgid)
+	} else {
+		b := uintptr(op.addr)
+		bLen := op.addrLen
+		sqe.PrepareRecv(op.fd, b, bLen, 0)
+	}
 	sqe.SetFlags(op.sqeFlags)
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
-func (op *Operation) PrepareSend(nfd *NetFd, b []byte) {
+func (op *Operation) PrepareSend(nfd *ConnFd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -171,7 +190,7 @@ func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error)
 	return
 }
 
-func (op *Operation) PrepareSendZC(nfd *NetFd, b []byte) {
+func (op *Operation) PrepareSendZC(nfd *ConnFd, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -196,7 +215,7 @@ func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err erro
 	return
 }
 
-func (op *Operation) PrepareReceiveMsg(nfd *NetFd, msg *syscall.Msghdr) {
+func (op *Operation) PrepareReceiveMsg(nfd *ConnFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -215,7 +234,7 @@ func (op *Operation) packingReceiveMsg(sqe *liburing.SubmissionQueueEntry) (err 
 	return
 }
 
-func (op *Operation) PrepareSendMsg(nfd *NetFd, msg *syscall.Msghdr) {
+func (op *Operation) PrepareSendMsg(nfd *ConnFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -234,7 +253,7 @@ func (op *Operation) packingSendMsg(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareSendMsgZC(nfd *NetFd, msg *syscall.Msghdr) {
+func (op *Operation) PrepareSendMsgZC(nfd *ConnFd, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE

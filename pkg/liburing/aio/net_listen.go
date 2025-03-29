@@ -12,11 +12,10 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 )
 
-func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, reusePort bool, control sys.ControlContextFn) (ln *ListenerFd, err error) {
+func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, reusePort bool, control sys.ControlContextFn) (fd *ListenerFd, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -65,21 +64,22 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 		return
 	}
 	// fd
-	fd := &NetFd{
-		Fd: Fd{
-			regular:       regular,
-			direct:        direct,
-			isStream:      sotype == syscall.SOCK_STREAM,
-			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-			vortex:        vortex,
+	fd = &ListenerFd{
+		NetFd: NetFd{
+			Fd: Fd{
+				regular:       regular,
+				direct:        direct,
+				isStream:      sotype == syscall.SOCK_STREAM,
+				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
+				vortex:        vortex,
+			},
+			family: family,
+			sotype: sotype,
+			net:    network,
+			laddr:  addr,
+			raddr:  nil,
 		},
-		sendZCEnabled:    vortex.SendZCEnabled(),
-		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
-		family:           family,
-		sotype:           sotype,
-		net:              network,
-		laddr:            addr,
-		raddr:            nil,
+		acceptFuture: nil,
 	}
 	// ipv6
 	if ipv6only {
@@ -166,27 +166,11 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 		}
 	}
 	// listener
-	ln = &ListenerFd{
-		NetFd:        fd,
-		acceptFuture: nil,
-	}
-	if fd.vortex.MultishotAcceptEnabled() {
-		acceptAddr := &syscall.RawSockaddrAny{}
-		acceptAddrLen := syscall.SizeofSockaddrAny
-		acceptAddrLenPtr := &acceptAddrLen
-		ln.acceptFuture = &AcceptFuture{
-			op:         NewOperation(backlog),
-			ln:         ln,
-			addr:       acceptAddr,
-			addrLen:    acceptAddrLenPtr,
-			submitOnce: sync.Once{},
-			err:        nil,
-		}
-	}
+	fd.init()
 	return
 }
 
-func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, ifi *net.Interface, reusePort bool, control sys.ControlContextFn) (fd *NetFd, err error) {
+func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int, addr net.Addr, ifi *net.Interface, reusePort bool, control sys.ControlContextFn) (fd *ConnFd, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -240,22 +224,25 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 		return
 	}
 	// fd
-	fd = &NetFd{
-		Fd: Fd{
-			regular:       regular,
-			direct:        direct,
-			isStream:      sotype == syscall.SOCK_STREAM,
-			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-			vortex:        vortex,
+	fd = &ConnFd{
+		NetFd: NetFd{
+			Fd: Fd{
+				regular:       regular,
+				direct:        direct,
+				isStream:      sotype == syscall.SOCK_STREAM,
+				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
+				vortex:        vortex,
+			},
+			family: family,
+			sotype: sotype,
+			net:    network,
+			laddr:  addr,
+			raddr:  nil,
 		},
 		sendZCEnabled:    vortex.SendZCEnabled(),
 		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
-		family:           family,
-		sotype:           sotype,
-		net:              network,
-		laddr:            addr,
-		raddr:            nil,
 	}
+
 	// ipv6
 	if ipv6only {
 		if err = fd.SetIpv6only(true); err != nil {
@@ -350,5 +337,7 @@ func ListenPacket(ctx context.Context, vortex *Vortex, network string, proto int
 		_ = fd.Close()
 		return
 	}
+	// init
+	fd.init()
 	return
 }

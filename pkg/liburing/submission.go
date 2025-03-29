@@ -706,8 +706,8 @@ func (entry *SubmissionQueueEntry) PrepareMadvise(addr uintptr, length uint, adv
 
 // [Kernel Buffer] *****************************************************************************************************
 
-func (entry *SubmissionQueueEntry) PrepareProvideBuffers(addr uintptr, length, nr, bgid, bid int) {
-	entry.prepareRW(IORING_OP_PROVIDE_BUFFERS, nr, addr, uint32(length), uint64(bid))
+func (entry *SubmissionQueueEntry) PrepareProvideBuffers(addr uintptr, addrLength uint32, nr, bgid, bid int) {
+	entry.prepareRW(IORING_OP_PROVIDE_BUFFERS, nr, addr, addrLength, uint64(bid))
 	entry.BufIG = uint16(bgid)
 }
 

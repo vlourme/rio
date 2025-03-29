@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network string, proto int, laddr net.Addr, raddr net.Addr, control sys.ControlContextFn) (fd *NetFd, err error) {
+func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network string, proto int, laddr net.Addr, raddr net.Addr, control sys.ControlContextFn) (fd *ConnFd, err error) {
 	// addr
 	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
 		laddr = nil
@@ -65,21 +65,23 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 		return
 	}
 	// fd
-	fd = &NetFd{
-		Fd: Fd{
-			regular:       regular,
-			direct:        direct,
-			isStream:      sotype == syscall.SOCK_STREAM,
-			zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-			vortex:        vortex,
+	fd = &ConnFd{
+		NetFd: NetFd{
+			Fd: Fd{
+				regular:       regular,
+				direct:        direct,
+				isStream:      sotype == syscall.SOCK_STREAM,
+				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
+				vortex:        vortex,
+			},
+			family: family,
+			sotype: sotype,
+			net:    network,
+			laddr:  laddr,
+			raddr:  raddr,
 		},
 		sendZCEnabled:    vortex.SendZCEnabled(),
 		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
-		family:           family,
-		sotype:           sotype,
-		net:              network,
-		laddr:            laddr,
-		raddr:            raddr,
 	}
 	// ipv6
 	if ipv6only {
@@ -154,5 +156,7 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 			return
 		}
 	}
+	// init
+	fd.init()
 	return
 }

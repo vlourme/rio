@@ -9,9 +9,13 @@ import (
 	"net"
 )
 
-func (fd *NetFd) Send(b []byte) (n int, err error) {
+func (fd *ConnFd) Send(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
+	}
+	if fd.sendMSGZCEnabled {
+		n, err = fd.sendZC(b)
+		return
 	}
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(fd.writeDeadline).PrepareSend(fd, b)
@@ -23,7 +27,7 @@ func (fd *NetFd) Send(b []byte) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) SendZC(b []byte) (n int, err error) {
+func (fd *ConnFd) sendZC(b []byte) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.Hijack()
 	op.WithDeadline(fd.writeDeadline).PrepareSendZC(fd, b)
@@ -53,7 +57,11 @@ func (fd *NetFd) SendZC(b []byte) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) SendTo(b []byte, addr net.Addr) (n int, err error) {
+func (fd *ConnFd) SendTo(b []byte, addr net.Addr) (n int, err error) {
+	if fd.sendMSGZCEnabled {
+		n, err = fd.sendToZC(b, addr)
+		return
+	}
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		err = saErr
@@ -74,12 +82,16 @@ func (fd *NetFd) SendTo(b []byte, addr net.Addr) (n int, err error) {
 	return
 }
 
-func (fd *NetFd) SendToZC(b []byte, addr net.Addr) (n int, err error) {
-	n, _, err = fd.SendMsgZC(b, nil, addr)
+func (fd *ConnFd) sendToZC(b []byte, addr net.Addr) (n int, err error) {
+	n, _, err = fd.sendMsgZC(b, nil, addr)
 	return
 }
 
-func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
+func (fd *ConnFd) SendMsg(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
+	if fd.sendMSGZCEnabled {
+		n, oobn, err = fd.sendMsgZC(b, oob, addr)
+		return
+	}
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		err = saErr
@@ -103,7 +115,7 @@ func (fd *NetFd) SendMsg(b []byte, oob []byte, addr net.Addr) (n int, oobn int, 
 	return
 }
 
-func (fd *NetFd) SendMsgZC(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
+func (fd *ConnFd) sendMsgZC(b []byte, oob []byte, addr net.Addr) (n int, oobn int, err error) {
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		err = saErr

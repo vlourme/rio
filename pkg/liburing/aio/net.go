@@ -16,21 +16,11 @@ import (
 
 type NetFd struct {
 	Fd
-	sendZCEnabled    bool
-	sendMSGZCEnabled bool
-	family           int
-	sotype           int
-	net              string
-	laddr            net.Addr
-	raddr            net.Addr
-}
-
-func (fd *NetFd) SendZCEnabled() bool {
-	return fd.sendZCEnabled
-}
-
-func (fd *NetFd) SendMSGZCEnabled() bool {
-	return fd.sendMSGZCEnabled
+	family int
+	sotype int
+	net    string
+	laddr  net.Addr
+	raddr  net.Addr
 }
 
 func (fd *NetFd) Name() string {

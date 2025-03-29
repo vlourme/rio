@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-func (fd *NetFd) Bind(addr net.Addr) error {
+func (fd *NetFd) bind(addr net.Addr) error {
 	sa, saErr := sys.AddrToSockaddr(addr)
 	if saErr != nil {
 		return saErr
@@ -36,4 +36,12 @@ func (fd *NetFd) Bind(addr net.Addr) error {
 		}
 	}
 	return nil
+}
+
+func (fd *ConnFd) Bind(addr net.Addr) error {
+	return fd.bind(addr)
+}
+
+func (fd *ListenerFd) Bind(addr net.Addr) error {
+	return fd.bind(addr)
 }
