@@ -62,7 +62,7 @@ func (f *receiveFuture) Cancel() (err error) {
 	buffer := f.buffer
 	f.buffer = nil
 	op := f.fd.vortex.acquireOperation()
-	_ = op.PrepareRemoveBuffers(buffer.bgid, buffer.iovecs)
+	_ = op.PrepareRemoveBuffers(buffer.bgid, len(buffer.iovecs))
 	_, _, _ = f.fd.vortex.submitAndWait(op)
 	f.fd.vortex.releaseOperation(op)
 	// release buffer

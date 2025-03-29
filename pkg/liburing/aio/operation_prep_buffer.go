@@ -121,10 +121,10 @@ func (op *Operation) packingProvideBuffers(sqe *liburing.SubmissionQueueEntry) (
 	return
 }
 
-func (op *Operation) PrepareRemoveBuffers(bgid int, buffers []syscall.Iovec) (err error) {
+func (op *Operation) PrepareRemoveBuffers(bgid int, nr int) (err error) {
 	op.code = liburing.IORING_OP_REMOVE_BUFFERS
 	op.fd = bgid
-	op.addrLen = uint32(len(buffers))
+	op.addrLen = uint32(nr)
 	return
 }
 
