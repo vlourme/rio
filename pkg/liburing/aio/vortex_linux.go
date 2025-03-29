@@ -5,7 +5,9 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/queue"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"math"
 	"os"
 	"strconv"
 	"sync"
@@ -84,15 +86,6 @@ func Open(options ...Option) (v *Vortex, err error) {
 		}
 	}
 
-	// multishotEnabledOps
-	multishotEnabledOps := make(map[uint8]struct{})
-	if liburing.VersionEnable(5, 19, 0) {
-		multishotEnabledOps[liburing.IORING_OP_ACCEPT] = struct{}{}
-	}
-	if liburing.VersionEnable(6, 0, 0) {
-		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
-		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
-	}
 	// sendZC
 	var (
 		sendZC    bool
@@ -101,6 +94,33 @@ func Open(options ...Option) (v *Vortex, err error) {
 	if opt.SendZC {
 		sendZC = probe.IsSupported(liburing.IORING_OP_SEND_ZC)
 		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
+	}
+	// bufferProviderSettings alloc
+	var bufferSettings *bufferProviderSettings
+	var bufferBgids *queue.Queue[int]
+	bufferAllocEnabled := probe.IsSupported(liburing.IORING_OP_PROVIDE_BUFFERS) && probe.IsSupported(liburing.IORING_OP_REMOVE_BUFFERS)
+	if bufferAllocEnabled {
+		bufferSettings = &opt.BufferProvider
+		if bufferSettings.Length < 1 {
+			bufferSettings.Length = 4095
+		}
+		if bufferSettings.Count < 1 {
+			bufferSettings.Count = 16
+		}
+		bufferBgids = queue.New[int]()
+		for i := 0; i < math.MaxUint16; i++ {
+			idx := i
+			bufferBgids.Enqueue(&idx)
+		}
+	}
+	// multishotEnabledOps
+	multishotEnabledOps := make(map[uint8]struct{})
+	if liburing.VersionEnable(5, 19, 0) {
+		multishotEnabledOps[liburing.IORING_OP_ACCEPT] = struct{}{}
+	}
+	if bufferAllocEnabled && liburing.VersionEnable(6, 0, 0) {
+		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
+		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
 	}
 
 	// producer
@@ -112,15 +132,18 @@ func Open(options ...Option) (v *Vortex, err error) {
 
 	// vortex
 	v = &Vortex{
-		ring:                ring,
-		probe:               probe,
-		heartbeat:           hb,
-		sendZC:              sendZC,
-		sendMSGZC:           sendMSGZC,
-		producer:            producer,
-		consumer:            consumer,
-		directAllocEnabled:  directAllocEnabled,
-		multishotEnabledOps: multishotEnabledOps,
+		ring:                   ring,
+		probe:                  probe,
+		sendZC:                 sendZC,
+		sendMSGZC:              sendMSGZC,
+		producer:               producer,
+		consumer:               consumer,
+		heartbeat:              hb,
+		directAllocEnabled:     directAllocEnabled,
+		bufferAllocEnabled:     bufferAllocEnabled,
+		bufferBgids:            bufferBgids,
+		bufferProviderSettings: bufferSettings,
+		multishotEnabledOps:    multishotEnabledOps,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
@@ -144,19 +167,27 @@ func Open(options ...Option) (v *Vortex, err error) {
 	return
 }
 
+type bufferProviderSettings struct {
+	Length int
+	Count  int
+}
+
 type Vortex struct {
-	ring                *liburing.Ring
-	probe               *liburing.Probe
-	sendZC              bool
-	sendMSGZC           bool
-	producer            *operationProducer
-	consumer            *operationConsumer
-	heartbeat           *heartbeat
-	directAllocEnabled  bool
-	multishotEnabledOps map[uint8]struct{}
-	operations          sync.Pool
-	msgs                sync.Pool
-	timers              sync.Pool
+	ring                   *liburing.Ring
+	probe                  *liburing.Probe
+	sendZC                 bool
+	sendMSGZC              bool
+	producer               *operationProducer
+	consumer               *operationConsumer
+	heartbeat              *heartbeat
+	directAllocEnabled     bool
+	bufferAllocEnabled     bool
+	bufferBgids            *queue.Queue[int]
+	bufferProviderSettings *bufferProviderSettings
+	multishotEnabledOps    map[uint8]struct{}
+	operations             sync.Pool
+	msgs                   sync.Pool
+	timers                 sync.Pool
 }
 
 func (vortex *Vortex) Fd() int {
@@ -254,6 +285,22 @@ func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
 func (vortex *Vortex) releaseTimer(timer *time.Timer) {
 	timer.Stop()
 	vortex.timers.Put(timer)
+}
+
+func (vortex *Vortex) acquireBufferBgid() int {
+	if vortex.bufferAllocEnabled {
+		if idx := vortex.bufferBgids.Dequeue(); idx != nil {
+			return *idx
+		}
+	}
+	return -1
+}
+
+func (vortex *Vortex) releaseBufferBgid(bgid int) {
+	if bgid > -1 && vortex.bufferBgids != nil {
+		idx := bgid
+		vortex.bufferBgids.Enqueue(&idx)
+	}
 }
 
 func (vortex *Vortex) acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {

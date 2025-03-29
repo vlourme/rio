@@ -12,6 +12,7 @@ type Options struct {
 	SendZC                                      bool
 	DisableDirectAllocFeatKernelFlavorBlackList []string
 	RegisterFixedFiles                          uint32
+	BufferProvider                              bufferProviderSettings
 	ProducerLockOSThread                        bool
 	ProducerBatchSize                           uint32
 	ProducerBatchTimeWindow                     time.Duration
@@ -80,6 +81,21 @@ func WithSQThreadIdle(idle time.Duration) Option {
 func WithSendZC(ok bool) Option {
 	return func(options *Options) {
 		options.SendZC = ok
+	}
+}
+
+// WithBufferProvider
+// setup one connection buffer provider settings
+func WithBufferProvider(size int, count int) Option {
+	return func(opts *Options) {
+		if size < 1 {
+			size = 4096
+		}
+		if count < 1 {
+			count = 16
+		}
+		opts.BufferProvider.Length = size
+		opts.BufferProvider.Count = count
 	}
 }
 

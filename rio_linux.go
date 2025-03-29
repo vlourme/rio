@@ -43,14 +43,15 @@ const (
 	envSQThreadCPU                        = "RIO_IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle                       = "RIO_IOURING_SQ_THREAD_IDLE"
 	envSendZC                             = "RIO_IOURING_SENDZC"
-	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST"
+	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST" // a, b, c
 	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
+	envBufferProvider                     = "RIO_IOURING_BUFFER_PROVIDER" // 4096x16
 	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
 	envProducerLockOSThread               = "RIO_PRODUCER_LOCK_OSTHREAD"
 	envProducerBatchSize                  = "RIO_PRODUCER_BATCH_SIZE"
 	envProducerBatchTimeWindow            = "RIO_PRODUCER_BATCH_TIME_WINDOW"
 	envProducerBatchIdleTime              = "RIO_PRODUCER_BATCH_IDLE_TIME"
-	envConsumeBatchTimeCurve              = "RIO_CONSUMER_BATCH_TIME_CURVE"
+	envConsumeBatchTimeCurve              = "RIO_CONSUMER_BATCH_TIME_CURVE" // 1:15s, 2:1us, 8:10us
 )
 
 func getVortex() (*reference.Pointer[*aio.Vortex], error) {
@@ -100,6 +101,12 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			}
 			// fixed <<<
 
+			// buffer >>>
+			if size, count, has := envLoadBufferProvider(envBufferProvider); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithBufferProvider(size, count))
+			}
+			// buffer <<<
+
 			// heartbeat
 			if v, has := envLoadDuration(envIOURingHeartbeatTimeout); has {
 				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithHeartBeatTimeout(v))
@@ -129,14 +136,6 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 		vortexInstance = reference.Make(vortex)
 	})
 	return vortexInstance, vortexInstanceErr
-}
-
-func envLoadString(name string) (string, bool) {
-	s, has := os.LookupEnv(name)
-	if !has {
-		return "", false
-	}
-	return strings.TrimSpace(s), true
 }
 
 func envLoadUint32(name string) (uint32, bool) {
@@ -235,4 +234,23 @@ func envLoadCurve(name string) (aio.Curve, bool) {
 		}{N: uint32(n), Timeout: t})
 	}
 	return curve, true
+}
+
+func envLoadBufferProvider(name string) (size int, count int, has bool) {
+	s, ok := os.LookupEnv(name)
+	if !ok {
+		return
+	}
+	s = strings.TrimSpace(s)
+	s = strings.ToLower(s)
+	idx := strings.Index(s, "x")
+	if idx == -1 || idx == len(s)-1 {
+		return
+	}
+	ss := s[:idx]
+	size, _ = strconv.Atoi(ss)
+	cs := s[idx+1:]
+	count, _ = strconv.Atoi(cs)
+	has = true
+	return
 }
