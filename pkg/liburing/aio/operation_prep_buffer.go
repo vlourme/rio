@@ -38,6 +38,7 @@ func newBufferConfig(enabled bool, size uint32, count uint32) *BufferConfig {
 		for i := 0; i < math.MaxUint16; i++ {
 			config.bufferQueue.Enqueue(&Buffer{
 				bgid:   i,
+				size:   config.size,
 				b:      nil,
 				iovecs: nil,
 			})
@@ -91,13 +92,15 @@ func (config *BufferConfig) ReleaseBuffer(buf *Buffer) {
 
 type Buffer struct {
 	bgid   int
+	size   int
 	b      []byte
 	iovecs []syscall.Iovec
 }
 
-func (buf *Buffer) Read(bid int, n int, b []byte) {
-
-	return
+func (buf *Buffer) Read(bid int, n int, b []byte) int {
+	beg := bid * buf.size
+	end := beg + n
+	return copy(b, buf.b[beg:end])
 }
 
 func (op *Operation) PrepareProvideBuffers(bgid int, buffers []syscall.Iovec) (err error) {
