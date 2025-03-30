@@ -42,7 +42,24 @@ func (f *receiveFuture) submit() (err error) {
 }
 
 func (f *receiveFuture) receive(b []byte) (n int, err error) {
-
+	// read inbound
+	// read full, return
+	//
+	// check err
+	// if err not nil
+	// case EOF, if n == 0 , return EOF
+	// case not eof, if n > 0, return n, if n == 0, return err
+	//
+	// if err is nil
+	// read ch
+	//
+	// if not read full from ch, write remains into inbound
+	//
+	// advance ring buffer
+	//
+	// if read err, set err
+	//
+	// return n
 	return
 }
 
