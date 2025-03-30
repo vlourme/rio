@@ -140,6 +140,18 @@ func (op *Operation) completed() bool {
 	return op.status.Load() == CompletedOperationStatus && len(op.resultCh) == 0
 }
 
+func (op *Operation) Clean() bool {
+	if ok := op.status.Load() == CompletedOperationStatus; ok {
+		if rLen := len(op.resultCh); rLen > 0 {
+			for i := 0; i < rLen; i++ {
+				<-op.resultCh
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func (op *Operation) cancelAble() bool {
 	return op.status.Load() != CompletedOperationStatus
 }
@@ -159,12 +171,8 @@ func (op *Operation) releaseAble() bool {
 		return false
 	}
 	ok := op.flags&borrowed != 0 && op.flags&discard == 0
-	if ok && !op.completed() && op.status.Load() == CompletedOperationStatus {
-		if rLen := len(op.resultCh); rLen > 0 {
-			for i := 0; i < rLen; i++ {
-				<-op.resultCh
-			}
-		}
+	if ok {
+		ok = op.Clean()
 	}
 	return ok
 }
