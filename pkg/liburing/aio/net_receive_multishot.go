@@ -2,50 +2,53 @@
 
 package aio
 
-import (
-	"sync"
-)
+func newReceiveFuture(fd *ConnFd) (future *receiveFuture, err error) {
+	f := &receiveFuture{
+		fd: fd,
+	}
+	err = f.submit()
+	if err == nil {
+		future = f
+	}
+	return
+}
 
 type receiveFuture struct {
-	fd         *ConnFd
-	op         *Operation
-	buffer     *Buffer
-	submitOnce sync.Once
-	err        error
+	fd *ConnFd
+	op *Operation
+	rb *RingBuffer
 }
 
-func (f *receiveFuture) submit() {
-	f.submitOnce.Do(func() {
-		// provide buffer
-		op := f.fd.vortex.acquireOperation()
-		_ = op.PrepareProvideBuffers(f.buffer.bgid, f.buffer.iovecs)
-		_, _, provideErr := f.fd.vortex.submitAndWait(op)
-		f.fd.vortex.releaseOperation(op)
-		if provideErr != nil {
-			f.err = provideErr
-			return
-		}
-		// recv multishot
-		recvOp := f.fd.vortex.acquireMultishotOperation()
-		f.op = recvOp
-		recvOp.Hijack()
-		recvOp.PrepareReceiveMultishot(f.fd, f.buffer.bgid)
-		if ok := f.fd.vortex.Submit(recvOp); !ok {
-			f.err = ErrCanceled
-			recvOp.Close()
-			f.op = nil
-			f.fd.vortex.releaseMultishotOperation(recvOp)
-		}
-	})
-}
-
-func (f *receiveFuture) Await() (n int, bid int, err error) {
-	f.submit()
-	if f.err != nil {
-		err = f.err
+func (f *receiveFuture) submit() (err error) {
+	// rb
+	buffer, bufferErr := f.fd.vortex.ringBufferConfig.AcquireRingBuffer(&f.fd.Fd)
+	if bufferErr != nil {
+		err = bufferErr
 		return
 	}
+	f.rb = buffer
+	// recv multishot
+	recvOp := f.fd.vortex.acquireMultishotOperation()
+	f.op = recvOp
+	recvOp.Hijack()
+	recvOp.PrepareReceiveMultishot(f.fd, int(f.rb.bgid))
+	if ok := f.fd.vortex.Submit(recvOp); !ok {
+		recvOp.Close()
+		f.op = nil
+		f.fd.vortex.releaseMultishotOperation(recvOp)
+		err = ErrCanceled
+	}
+	return
+}
+
+func (f *receiveFuture) receive(b []byte) (n int, err error) {
+
+	return
+}
+
+func (f *receiveFuture) await() (n int, bid int, err error) {
 	// todo
+
 	return
 }
 
@@ -58,14 +61,12 @@ func (f *receiveFuture) Cancel() (err error) {
 		op.Close()
 		f.fd.vortex.releaseMultishotOperation(op)
 	}
-	// remove buffer
-	buffer := f.buffer
-	f.buffer = nil
-	op := f.fd.vortex.acquireOperation()
-	_ = op.PrepareRemoveBuffers(buffer.bgid, len(buffer.iovecs))
-	_, _, _ = f.fd.vortex.submitAndWait(op)
-	f.fd.vortex.releaseOperation(op)
-	// release buffer
-	f.fd.vortex.bufferConfig.ReleaseBuffer(buffer)
+	// release ring buffer
+	if f.rb != nil {
+		buffer := f.rb
+		f.rb = nil
+		_ = f.fd.vortex.ringBufferConfig.ReleaseRingBuffer(buffer)
+	}
+
 	return
 }

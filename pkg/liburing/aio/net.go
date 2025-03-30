@@ -303,28 +303,6 @@ func (fd *NetFd) SetKeepAliveConfig(config net.KeepAliveConfig) error {
 	return nil
 }
 
-func (fd *NetFd) CloseRead() error {
-	if fd.Registered() {
-		op := fd.vortex.acquireOperation()
-		op.PrepareCloseRead(fd)
-		_, _, err := fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
-		return err
-	}
-	return syscall.Shutdown(fd.regular, syscall.SHUT_RD)
-}
-
-func (fd *NetFd) CloseWrite() error {
-	if fd.Registered() {
-		op := fd.vortex.acquireOperation()
-		op.PrepareCloseWrite(fd)
-		_, _, err := fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
-		return err
-	}
-	return syscall.Shutdown(fd.regular, syscall.SHUT_WR)
-}
-
 func (fd *NetFd) SetIpv6only(ipv6only bool) error {
 	if fd.family == syscall.AF_INET6 && fd.sotype != syscall.SOCK_RAW {
 		if fd.Installed() {

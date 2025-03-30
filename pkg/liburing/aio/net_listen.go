@@ -63,6 +63,8 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 	if err != nil {
 		return
 	}
+	// backlog
+	backlog := sys.MaxListenerBacklog()
 	// fd
 	fd = &ListenerFd{
 		NetFd: NetFd{
@@ -79,6 +81,7 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 			laddr:  addr,
 			raddr:  nil,
 		},
+		backlog:      backlog,
 		acceptFuture: nil,
 	}
 	// ipv6
@@ -142,7 +145,6 @@ func Listen(ctx context.Context, vortex *Vortex, network string, proto int, addr
 		return
 	}
 	// listen
-	backlog := sys.MaxListenerBacklog()
 	if liburing.VersionEnable(6, 11, 0) && fd.Registered() {
 		op := fd.vortex.acquireOperation()
 		op.PrepareListen(fd, backlog)

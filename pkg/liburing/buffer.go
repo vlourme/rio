@@ -3,70 +3,9 @@
 package liburing
 
 import (
-	"errors"
 	"sync/atomic"
 	"unsafe"
 )
-
-func NewBufferAndRingConfig(ring *Ring, bgid uint16, entries uint16, flags uint32, buffer []byte) (config *BufferAndRingConfig, err error) {
-	bLen := len(buffer)
-	if bLen == 0 {
-		err = errors.New("buffer is empty")
-		return
-	}
-	if entries == 0 || int(entries) > bLen || bLen%int(entries) != 0 {
-		err = errors.New("invalid entries")
-		return
-	}
-
-	br, brErr := ring.SetupBufRing(uint32(entries), bgid, flags)
-	if brErr != nil {
-		err = brErr
-		return
-	}
-	br.BufRingInit()
-
-	size := bLen / int(entries)
-	for i := uint16(0); i < entries; i++ {
-		addr := unsafe.Pointer(&buffer[int(i)*size : int(i+1)*size][0])
-		mask := BufferRingMask(uint32(entries))
-		br.BufRingAdd(uintptr(addr), uint32(size), i, mask, int(i))
-	}
-	br.BufRingAdvance(int(entries))
-
-	config = &BufferAndRingConfig{
-		ring:    ring,
-		entries: entries,
-		bgid:    bgid,
-		br:      br,
-	}
-	return
-}
-
-type BufferAndRingConfig struct {
-	ring    *Ring
-	entries uint16
-	bgid    uint16
-	br      *BufferAndRing
-}
-
-func (config *BufferAndRingConfig) Bid(cqe *CompletionQueueEvent) (bid uint16) {
-	bid = uint16(cqe.Flags >> IORING_CQE_BUFFER_SHIFT)
-	return
-}
-
-func (config *BufferAndRingConfig) Advance(count int) {
-	config.br.BufRingAdvance(count)
-}
-
-func (config *BufferAndRingConfig) Close() (err error) {
-	// munmap
-	ringSizeAddr := uintptr(config.entries) * unsafe.Sizeof(BufferAndRing{})
-	_ = munmap(uintptr(unsafe.Pointer(config.br)), ringSizeAddr)
-	// unregister
-	_, err = config.ring.UnregisterBufferRing(int(config.bgid))
-	return
-}
 
 var bufferAndRingStructSize = uint16(unsafe.Sizeof(BufferAndRing{}))
 

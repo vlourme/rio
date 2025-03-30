@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"sync"
 	"syscall"
 )
 
@@ -11,6 +10,7 @@ type ConnFd struct {
 	NetFd
 	sendZCEnabled    bool
 	sendMSGZCEnabled bool
+	recvFn           func([]byte) (int, error)
 	recvFuture       *receiveFuture
 }
 
@@ -18,17 +18,15 @@ func (fd *ConnFd) init() {
 	switch fd.sotype {
 	case syscall.SOCK_STREAM: // multi recv
 		if fd.vortex.MultishotReceiveEnabled() {
-			buffer := fd.vortex.bufferConfig.AcquireBuffer()
-			if buffer == nil {
-				break
+			future, futureErr := newReceiveFuture(fd)
+			if futureErr == nil {
+				fd.recvFuture = future
+				fd.recvFn = fd.recvFuture.receive
+			} else {
+				fd.recvFn = fd.receive
 			}
-			fd.recvFuture = &receiveFuture{
-				fd:         fd,
-				op:         nil,
-				buffer:     buffer,
-				submitOnce: sync.Once{},
-				err:        nil,
-			}
+		} else {
+			fd.recvFn = fd.receive
 		}
 		break
 	case syscall.SOCK_DGRAM: // todo multi recv msg
@@ -45,4 +43,36 @@ func (fd *ConnFd) SendZCEnabled() bool {
 
 func (fd *ConnFd) SendMSGZCEnabled() bool {
 	return fd.sendMSGZCEnabled
+}
+
+func (fd *ConnFd) Close() error {
+	if fd.recvFuture != nil {
+		_ = fd.recvFuture.Cancel()
+	}
+	return fd.Fd.Close()
+}
+
+func (fd *ConnFd) CloseRead() error {
+	if fd.recvFuture != nil {
+		_ = fd.recvFuture.Cancel()
+	}
+	if fd.Registered() {
+		op := fd.vortex.acquireOperation()
+		op.PrepareCloseRead(fd)
+		_, _, err := fd.vortex.submitAndWait(op)
+		fd.vortex.releaseOperation(op)
+		return err
+	}
+	return syscall.Shutdown(fd.regular, syscall.SHUT_RD)
+}
+
+func (fd *ConnFd) CloseWrite() error {
+	if fd.Registered() {
+		op := fd.vortex.acquireOperation()
+		op.PrepareCloseWrite(fd)
+		_, _, err := fd.vortex.submitAndWait(op)
+		fd.vortex.releaseOperation(op)
+		return err
+	}
+	return syscall.Shutdown(fd.regular, syscall.SHUT_WR)
 }

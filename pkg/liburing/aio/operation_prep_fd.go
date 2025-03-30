@@ -32,7 +32,7 @@ func (op *Operation) packingClose(sqe *liburing.SubmissionQueueEntry) (err error
 	return
 }
 
-func (op *Operation) PrepareCloseRead(nfd *NetFd) {
+func (op *Operation) PrepareCloseRead(nfd *ConnFd) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -43,7 +43,7 @@ func (op *Operation) PrepareCloseRead(nfd *NetFd) {
 	return
 }
 
-func (op *Operation) PrepareCloseWrite(nfd *NetFd) {
+func (op *Operation) PrepareCloseWrite(nfd *ConnFd) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE

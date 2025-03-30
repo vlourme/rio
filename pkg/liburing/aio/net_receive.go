@@ -13,13 +13,11 @@ func (fd *ConnFd) Receive(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	// todo
-	// multishot
-	//if fd.recvFuture != nil {
-	//
-	//	return
-	//}
-	// oneshot
+	n, err = fd.recvFn(b)
+	return
+}
+
+func (fd *ConnFd) receive(b []byte) (n int, err error) {
 	op := fd.vortex.acquireOperation()
 	op.WithDeadline(fd.readDeadline).PrepareReceive(fd, b)
 	n, _, err = fd.vortex.submitAndWait(op)

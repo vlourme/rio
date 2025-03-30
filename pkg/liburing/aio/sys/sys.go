@@ -121,6 +121,14 @@ func Munmap(b []byte) (err error) {
 	return
 }
 
+func MunmapPtr(addr uintptr, length uintptr) (err error) {
+	_, _, e1 := syscall.Syscall(syscall.SYS_MUNMAP, addr, length, 0)
+	if e1 != 0 {
+		return errnoErr(e1)
+	}
+	return nil
+}
+
 func Madvise(b []byte, advice int) (err error) {
 	var _p0 unsafe.Pointer
 	if len(b) > 0 {

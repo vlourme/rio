@@ -16,8 +16,8 @@ import (
 
 func Open(options ...Option) (v *Vortex, err error) {
 	// version check
-	if !liburing.VersionEnable(5, 13, 0) { // support recv_send
-		err = NewRingErr(errors.New("kernel version must >= 5.13"))
+	if !liburing.VersionEnable(5, 19, 0) { // support io_uring_setup_buf_ring
+		err = NewRingErr(errors.New("kernel version must >= 5.19"))
 		return
 	}
 	// probe
@@ -94,15 +94,14 @@ func Open(options ...Option) (v *Vortex, err error) {
 		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
 	}
 	// bufferProviderSettings alloc
-	bufferAllocEnabled := probe.IsSupported(liburing.IORING_OP_PROVIDE_BUFFERS) && probe.IsSupported(liburing.IORING_OP_REMOVE_BUFFERS)
-	bufferConfig := newBufferConfig(bufferAllocEnabled, opt.ProvideBufferSize, opt.ProvideBufferCount)
+	ringBufferConfig := newRingBufferConfig(ring, opt.ProvideBufferSize, opt.ProvideBufferCount)
 
 	// multishotEnabledOps
 	multishotEnabledOps := make(map[uint8]struct{})
 	if liburing.VersionEnable(5, 19, 0) {
 		multishotEnabledOps[liburing.IORING_OP_ACCEPT] = struct{}{}
 	}
-	if bufferAllocEnabled && liburing.VersionEnable(6, 0, 0) {
+	if liburing.VersionEnable(6, 0, 0) {
 		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
 		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
 	}
@@ -124,7 +123,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 		consumer:            consumer,
 		heartbeat:           hb,
 		directAllocEnabled:  directAllocEnabled,
-		bufferConfig:        bufferConfig,
+		ringBufferConfig:    ringBufferConfig,
 		multishotEnabledOps: multishotEnabledOps,
 		operations: sync.Pool{
 			New: func() interface{} {
@@ -140,7 +139,7 @@ func Open(options ...Option) (v *Vortex, err error) {
 				return &Operation{
 					code:     liburing.IORING_OP_LAST,
 					flags:    borrowed,
-					resultCh: make(chan Result, bufferConfig.count),
+					resultCh: make(chan Result, ringBufferConfig.count),
 				}
 			},
 		},
@@ -167,7 +166,7 @@ type Vortex struct {
 	consumer            *operationConsumer
 	heartbeat           *heartbeat
 	directAllocEnabled  bool
-	bufferConfig        *BufferConfig
+	ringBufferConfig    *RingBufferConfig
 	multishotEnabledOps map[uint8]struct{}
 	operations          sync.Pool
 	multishotOperations sync.Pool
