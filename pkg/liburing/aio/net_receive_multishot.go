@@ -21,7 +21,7 @@ type receiveFuture struct {
 
 func (f *receiveFuture) submit() (err error) {
 	// rb
-	buffer, bufferErr := f.fd.vortex.ringBufferConfig.AcquireRingBuffer(&f.fd.Fd)
+	buffer, bufferErr := f.fd.vortex.connRingBufferConfig.AcquireRingBuffer(&f.fd.Fd)
 	if bufferErr != nil {
 		err = bufferErr
 		return
@@ -65,7 +65,7 @@ func (f *receiveFuture) Cancel() (err error) {
 	if f.rb != nil {
 		buffer := f.rb
 		f.rb = nil
-		_ = f.fd.vortex.ringBufferConfig.ReleaseRingBuffer(buffer)
+		_ = f.fd.vortex.connRingBufferConfig.ReleaseRingBuffer(buffer)
 	}
 
 	return

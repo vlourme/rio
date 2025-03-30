@@ -45,8 +45,8 @@ const (
 	envSendZC                             = "RIO_IOURING_SENDZC"
 	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST" // a, b, c
 	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
-	envProvideBuffer                      = "RIO_IOURING_PROVIDE_BUFFER" // 4096x16
 	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
+	envConnRingBuffer                     = "RIO_CONN_RING_BUFFER" // 4096x8
 	envProducerLockOSThread               = "RIO_PRODUCER_LOCK_OSTHREAD"
 	envProducerBatchSize                  = "RIO_PRODUCER_BATCH_SIZE"
 	envProducerBatchTimeWindow            = "RIO_PRODUCER_BATCH_TIME_WINDOW"
@@ -102,8 +102,8 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			// fixed <<<
 
 			// buffer >>>
-			if size, count, has := envLoadProvideBuffer(envProvideBuffer); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithProvideBuffer(size, count))
+			if size, count, has := envLoadConnRingBuffer(envConnRingBuffer); has {
+				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithConnRingBufferConfig(size, count))
 			}
 			// buffer <<<
 
@@ -236,7 +236,7 @@ func envLoadCurve(name string) (aio.Curve, bool) {
 	return curve, true
 }
 
-func envLoadProvideBuffer(name string) (size uint32, count uint32, has bool) {
+func envLoadConnRingBuffer(name string) (size uint32, count uint32, has bool) {
 	s, ok := os.LookupEnv(name)
 	if !ok {
 		return

@@ -82,7 +82,7 @@ func newRingBufferConfig(ring *liburing.Ring, size uint32, count uint32) *RingBu
 		size = 4096
 	}
 	if count == 0 {
-		count = 16
+		count = 8
 	}
 
 	config := &RingBufferConfig{

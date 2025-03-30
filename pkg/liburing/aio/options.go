@@ -12,8 +12,8 @@ type Options struct {
 	SendZC                                      bool
 	DisableDirectAllocFeatKernelFlavorBlackList []string
 	RegisterFixedFiles                          uint32
-	ProvideBufferSize                           uint32
-	ProvideBufferCount                          uint32
+	ConnRingBufferSize                          uint32
+	ConnRingBufferCount                         uint32
 	ProducerLockOSThread                        bool
 	ProducerBatchSize                           uint32
 	ProducerBatchTimeWindow                     time.Duration
@@ -85,18 +85,12 @@ func WithSendZC(ok bool) Option {
 	}
 }
 
-// WithProvideBuffer
-// setup one connection buffer provider settings
-func WithProvideBuffer(size uint32, count uint32) Option {
+// WithConnRingBufferConfig
+// setup one connection ring buffer config
+func WithConnRingBufferConfig(size uint32, count uint32) Option {
 	return func(opts *Options) {
-		if size < 1 {
-			size = 4096
-		}
-		if count < 1 {
-			count = 16
-		}
-		opts.ProvideBufferSize = size
-		opts.ProvideBufferCount = count
+		opts.ConnRingBufferSize = size
+		opts.ConnRingBufferCount = count
 	}
 }
 
