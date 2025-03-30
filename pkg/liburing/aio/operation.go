@@ -136,6 +136,10 @@ func (op *Operation) complete(n int, flags uint32, err error) {
 	return
 }
 
+func (op *Operation) completed() bool {
+	return op.status.Load() == CompletedOperationStatus && len(op.resultCh) == 0
+}
+
 func (op *Operation) cancelAble() bool {
 	return op.status.Load() != CompletedOperationStatus
 }
@@ -154,5 +158,13 @@ func (op *Operation) releaseAble() bool {
 	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
 		return false
 	}
-	return op.flags&borrowed != 0 && op.flags&discard == 0
+	ok := op.flags&borrowed != 0 && op.flags&discard == 0
+	if ok && !op.completed() && op.status.Load() == CompletedOperationStatus {
+		if rLen := len(op.resultCh); rLen > 0 {
+			for i := 0; i < rLen; i++ {
+				<-op.resultCh
+			}
+		}
+	}
+	return ok
 }

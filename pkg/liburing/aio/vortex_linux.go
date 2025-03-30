@@ -337,11 +337,12 @@ RETRY:
 				goto RETRY
 			}
 			if errors.Is(err, syscall.ECANCELED) && op.timeout != nil && op.addr2 != nil {
-				op.timeout = nil // clean timeout for CQE_F_MORE, such as sendzc
 				timeoutOp := (*Operation)(op.addr2)
-				if timeoutErr := vortex.awaitTimeoutOp(timeoutOp); timeoutErr != nil {
-					if errors.Is(timeoutErr, ErrTimeout) {
-						err = ErrTimeout
+				if !timeoutOp.completed() {
+					if timeoutErr := vortex.awaitTimeoutOp(timeoutOp); timeoutErr != nil {
+						if errors.Is(timeoutErr, ErrTimeout) {
+							err = ErrTimeout
+						}
 					}
 				}
 			}
