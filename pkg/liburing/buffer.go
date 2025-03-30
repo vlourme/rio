@@ -51,8 +51,6 @@ func BufferRingMask(entries uint32) int {
 	return int(entries - 1)
 }
 
-const PbufRingMMap = 1
-
 type BufReg struct {
 	RingAddr    uint64
 	RingEntries uint32
