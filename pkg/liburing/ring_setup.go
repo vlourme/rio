@@ -81,8 +81,8 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	return nil
 }
 
-func (ring *Ring) SetupBufRing(entries uint32, bgid int, flags uint32) (*BufferAndRing, error) {
-	br, err := ring.bufAndRingSetup(entries, uint16(bgid), flags)
+func (ring *Ring) SetupBufRing(entries uint32, bgid uint16, flags uint32) (*BufferAndRing, error) {
+	br, err := ring.bufAndRingSetup(entries, bgid, flags)
 	if br != nil {
 		br.BufRingInit()
 	}
