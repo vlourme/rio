@@ -106,10 +106,16 @@ type RingBufferConfig struct {
 }
 
 func (config *RingBufferConfig) AcquireRingBuffer(fd *Fd) (*RingBuffer, error) {
+	flag := uint32(0)
+
+	if liburing.VersionEnable(6, 12, 0) {
+		flag = liburing.IOU_PBUF_RING_INC
+	}
+
 	bgid, _ := fd.FileDescriptor()
 
 	b := config.buffers.Get().([]byte)
-	rb, rbErr := newRingBuffer(config.ring, uint16(bgid), config.count, 0, b)
+	rb, rbErr := newRingBuffer(config.ring, uint16(bgid), config.count, flag, b)
 
 	if rbErr != nil {
 		return nil, rbErr
