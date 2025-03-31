@@ -100,19 +100,19 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	// vortex
-	vortexRC := d.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := d.AsyncIO
+	if asyncIORC == nil {
+		var asyncIOErr error
+		asyncIORC, asyncIOErr = getAsyncIO()
+		if asyncIOErr != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 
 	// control
-	var control sys.ControlContextFn = d.ControlContext
+	var control aio.Control = d.ControlContext
 	if control == nil && d.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return d.Control(network, address, raw)
@@ -126,9 +126,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := aio.Connect(ctx, vortex, deadline, network, proto, laddr, raddr, control)
+	fd, fdErr := asyncIO.Connect(ctx, deadline, network, proto, laddr, raddr, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
@@ -146,8 +146,8 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	// conn
 	c := &TCPConn{
 		conn{
-			fd:     fd,
-			vortex: vortexRC,
+			fd:      fd,
+			asyncIO: asyncIORC,
 		},
 	}
 
@@ -187,36 +187,36 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	// vortex
-	vortexRC := d.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := d.AsyncIO
+	if asyncIORC == nil {
+		var asyncIOErr error
+		asyncIORC, asyncIOErr = getAsyncIO()
+		if asyncIOErr != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 
 	// control
-	var control sys.ControlContextFn = d.ControlContext
+	var control aio.Control = d.ControlContext
 	if control == nil && d.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return d.Control(network, address, raw)
 		}
 	}
 	// fd
-	fd, fdErr := aio.Connect(ctx, vortex, deadline, network, 0, laddr, raddr, control)
+	fd, fdErr := asyncIO.Connect(ctx, deadline, network, 0, laddr, raddr, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
 	// conn
 	c := &UDPConn{
 		conn{
-			fd:     fd,
-			vortex: vortexRC,
+			fd:      fd,
+			asyncIO: asyncIORC,
 		},
 	}
 	return c, nil
@@ -270,36 +270,36 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	// vortex
-	vortexRC := d.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := d.AsyncIO
+	if asyncIORC == nil {
+		var asyncIOErr error
+		asyncIORC, asyncIOErr = getAsyncIO()
+		if asyncIOErr != nil {
+			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 
 	// control
-	var control sys.ControlContextFn = d.ControlContext
+	var control aio.Control = d.ControlContext
 	if control == nil && d.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return d.Control(network, address, raw)
 		}
 	}
 	// fd
-	fd, fdErr := aio.Connect(ctx, vortex, deadline, network, 0, laddr, raddr, control)
+	fd, fdErr := asyncIO.Connect(ctx, deadline, network, 0, laddr, raddr, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
 	// conn
 	c := &UnixConn{
 		conn{
-			fd:     fd,
-			vortex: vortexRC,
+			fd:      fd,
+			asyncIO: asyncIORC,
 		},
 	}
 

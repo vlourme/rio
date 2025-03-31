@@ -55,16 +55,16 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if addr == nil {
 		addr = &net.TCPAddr{}
 	}
-	// vortex
-	vortexRC := lc.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := lc.AsyncIO
+	if asyncIORC == nil {
+		var asyncIORCErr error
+		asyncIORC, asyncIORCErr = getAsyncIO()
+		if asyncIORCErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if lc.MultipathTCP {
@@ -73,23 +73,23 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 	}
 	// control
-	var control sys.ControlContextFn = nil
+	var control aio.Control = nil
 	if lc.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
 	}
 	// listen
-	fd, fdErr := aio.Listen(ctx, vortex, network, proto, addr, lc.ReusePort, control)
+	fd, fdErr := asyncIO.Listen(ctx, network, proto, addr, lc.ReusePort, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// ln
 	ln := &TCPListener{
 		fd:              fd,
-		vortex:          vortexRC,
+		asyncIO:         asyncIORC,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 		deadline:        time.Time{},
@@ -101,7 +101,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
 	fd              *aio.ListenerFd
-	vortex          *reference.Pointer[*aio.Vortex]
+	asyncIO         *reference.Pointer[aio.AsyncIO]
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
 	deadline        time.Time
@@ -145,10 +145,10 @@ func (ln *TCPListener) Close() error {
 	}
 
 	if err := ln.fd.Close(); err != nil {
-		_ = ln.vortex.Close()
+		_ = ln.asyncIO.Close()
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
-	if err := ln.vortex.Close(); err != nil {
+	if err := ln.asyncIO.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil

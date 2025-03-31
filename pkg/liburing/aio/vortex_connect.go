@@ -12,7 +12,11 @@ import (
 	"time"
 )
 
-func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network string, proto int, laddr net.Addr, raddr net.Addr, control sys.ControlContextFn) (fd *ConnFd, err error) {
+func (vortex *Vortex) Connect(
+	ctx context.Context, deadline time.Time,
+	network string, proto int, laddr net.Addr, raddr net.Addr,
+	control Control,
+) (conn *Conn, err error) {
 	// addr
 	if laddr != nil && reflect.ValueOf(laddr).IsNil() {
 		laddr = nil
@@ -64,8 +68,8 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 	if err != nil {
 		return
 	}
-	// fd
-	fd = &ConnFd{
+	// conn
+	conn = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
 				regular:       regular,
@@ -85,33 +89,33 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 	}
 	// ipv6
 	if ipv6only {
-		if err = fd.SetIpv6only(true); err != nil {
-			_ = fd.Close()
+		if err = conn.SetIpv6only(true); err != nil {
+			_ = conn.Close()
 			return
 		}
 	}
 	// zero copy
-	if err = fd.SetZeroCopy(true); err != nil {
-		_ = fd.Close()
+	if err = conn.SetZeroCopy(true); err != nil {
+		_ = conn.Close()
 		return
 	}
 	//  broadcast
-	if err = fd.SetBroadcast(true); err != nil {
-		_ = fd.Close()
+	if err = conn.SetBroadcast(true); err != nil {
+		_ = conn.Close()
 		return
 	}
 	// control
 	if control != nil {
 		if regular == -1 {
 			if regular, err = vortex.FixedFdInstall(direct); err == nil {
-				_ = fd.Close()
+				_ = conn.Close()
 				return
 			}
-			fd.regular = regular
+			conn.regular = regular
 		}
-		raw, rawErr := fd.SyscallConn()
+		raw, rawErr := conn.SyscallConn()
 		if rawErr != nil {
-			_ = fd.Close()
+			_ = conn.Close()
 			err = rawErr
 			return
 		}
@@ -121,15 +125,15 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 		} else if laddr != nil {
 			ctrlAddr = laddr.String()
 		}
-		if err = control(ctx, fd.CtrlNetwork(), ctrlAddr, raw); err != nil {
-			_ = fd.Close()
+		if err = control(ctx, conn.CtrlNetwork(), ctrlAddr, raw); err != nil {
+			_ = conn.Close()
 			return
 		}
 	}
 	// bind
 	if laddr != nil {
-		if err = fd.Bind(laddr); err != nil {
-			_ = fd.Close()
+		if err = conn.Bind(laddr); err != nil {
+			_ = conn.Close()
 			return
 		}
 	}
@@ -147,16 +151,16 @@ func Connect(ctx context.Context, vortex *Vortex, deadline time.Time, network st
 		if rsa, rsaLen, err = sys.SockaddrToRawSockaddrAny(sa); err != nil {
 			return
 		}
-		op := fd.vortex.acquireOperation()
-		op.WithDeadline(deadline).PrepareConnect(fd, rsa, int(rsaLen))
-		_, _, err = fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
+		op := conn.vortex.acquireOperation()
+		op.WithDeadline(deadline).PrepareConnect(conn, rsa, int(rsaLen))
+		_, _, err = conn.vortex.submitAndWait(op)
+		conn.vortex.releaseOperation(op)
 		if err != nil {
-			_ = fd.Close()
+			_ = conn.Close()
 			return
 		}
 	}
 	// init
-	fd.init()
+	conn.init()
 	return
 }

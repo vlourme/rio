@@ -15,7 +15,7 @@ import (
 )
 
 func Pin() {
-	rc, rcErr := getVortex()
+	rc, rcErr := getAsyncIO()
 	if rcErr != nil {
 		panic(rcErr)
 		return
@@ -24,7 +24,7 @@ func Pin() {
 }
 
 func Unpin() {
-	rc, rcErr := getVortex()
+	rc, rcErr := getAsyncIO()
 	if rcErr != nil {
 		panic(rcErr)
 		return
@@ -33,8 +33,8 @@ func Unpin() {
 }
 
 var (
-	vortexInstanceErr  error
-	vortexInstanceOnce sync.Once
+	aioInstanceErr  error
+	aioInstanceOnce sync.Once
 )
 
 const (
@@ -54,18 +54,18 @@ const (
 	envConsumeBatchTimeCurve              = "RIO_CONSUMER_BATCH_TIME_CURVE" // 1:15s, 2:1us, 8:10us
 )
 
-func getVortex() (*reference.Pointer[*aio.Vortex], error) {
-	vortexInstanceOnce.Do(func() {
-		if len(vortexInstanceOptions) == 0 { // use env
-			vortexInstanceOptions = make([]aio.Option, 0, 1)
+func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
+	aioInstanceOnce.Do(func() {
+		if len(aioOptions) == 0 { // use env
+			aioOptions = make([]aio.Option, 0, 1)
 
 			// ring >>>
 			if v, has := envLoadUint32(envEntries); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithEntries(v))
+				aioOptions = append(aioOptions, aio.WithEntries(v))
 			}
 
 			if v, has := envLoadFlags(envFlags); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
+				aioOptions = append(aioOptions, aio.WithFlags(v))
 			} else {
 				if cpus := runtime.NumCPU(); cpus > 1 { // use sq_poll
 					v = liburing.IORING_SETUP_SQPOLL | liburing.IORING_SETUP_SINGLE_ISSUER
@@ -75,41 +75,41 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 				} else { // use coop task run
 					v = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_TASKRUN_FLAG
 				}
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithFlags(v))
+				aioOptions = append(aioOptions, aio.WithFlags(v))
 			}
 
 			if v, has := envLoadUint32(envSQThreadCPU); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadCPU(v))
+				aioOptions = append(aioOptions, aio.WithSQThreadCPU(v))
 			}
 			if v, has := envLoadDuration(envSQThreadIdle); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSQThreadIdle(v))
+				aioOptions = append(aioOptions, aio.WithSQThreadIdle(v))
 			}
 			if ok := envLoadBool(envSendZC); ok {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithSendZC(ok))
+				aioOptions = append(aioOptions, aio.WithSendZC(ok))
 			}
 			if v, has := envLoadStrings(envDisableIOURingDirectAllocBlackList); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
+				aioOptions = append(aioOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
 			} else {
 				v = []string{"microsoft-standard-WSL2"}
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
+				aioOptions = append(aioOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
 			}
 			// ring <<<
 
 			// fixed >>>
 			if v, has := envLoadUint32(envRegisterFixedFiles); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithRegisterFixedFiles(v))
+				aioOptions = append(aioOptions, aio.WithRegisterFixedFiles(v))
 			}
 			// fixed <<<
 
 			// buffer >>>
 			if size, count, has := envLoadConnRingBuffer(envConnRingBuffer); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithConnRingBufferConfig(size, count))
+				aioOptions = append(aioOptions, aio.WithConnRingBufferConfig(size, count))
 			}
 			// buffer <<<
 
 			// heartbeat
 			if v, has := envLoadDuration(envIOURingHeartbeatTimeout); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithHeartBeatTimeout(v))
+				aioOptions = append(aioOptions, aio.WithHeartBeatTimeout(v))
 			}
 
 			// sqe >>>
@@ -117,25 +117,25 @@ func getVortex() (*reference.Pointer[*aio.Vortex], error) {
 			producerBatchSize, _ := envLoadUint32(envProducerBatchSize)
 			producerBatchTimeWindow, _ := envLoadDuration(envProducerBatchTimeWindow)
 			producerBatchIdleTime, _ := envLoadDuration(envProducerBatchIdleTime)
-			vortexInstanceOptions = append(vortexInstanceOptions, aio.WithProducer(producerOSThreadLock, producerBatchSize, producerBatchTimeWindow, producerBatchIdleTime))
+			aioOptions = append(aioOptions, aio.WithProducer(producerOSThreadLock, producerBatchSize, producerBatchTimeWindow, producerBatchIdleTime))
 			// sqe <<<
 
 			// cqe >>>
 			if v, has := envLoadCurve(envConsumeBatchTimeCurve); has {
-				vortexInstanceOptions = append(vortexInstanceOptions, aio.WithConsumer(v))
+				aioOptions = append(aioOptions, aio.WithConsumer(v))
 			}
 			// cqe <<<
 
 		}
 		// open
-		vortex, vortexErr := aio.Open(vortexInstanceOptions...)
-		if vortexErr != nil {
-			vortexInstanceErr = vortexErr
+		asyncIO, openErr := aio.Open(aioOptions...)
+		if openErr != nil {
+			aioInstanceErr = openErr
 			return
 		}
-		vortexInstance = reference.Make(vortex)
+		aioInstance = reference.Make(asyncIO)
 	})
-	return vortexInstance, vortexInstanceErr
+	return aioInstance, aioInstanceErr
 }
 
 func envLoadUint32(name string) (uint32, bool) {

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"github.com/brickingsoft/rio/pkg/reference"
 	"golang.org/x/sys/unix"
 	"net"
@@ -40,28 +39,28 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	if addr == nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
-	// vortex
-	vortexRC := lc.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := lc.AsyncIO
+	if asyncIORC == nil {
+		var asyncIORCErr error
+		asyncIORC, asyncIORCErr = getAsyncIO()
+		if asyncIORCErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 
 	// control
-	var control sys.ControlContextFn = nil
+	var control aio.Control = nil
 	if lc.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
 	}
 	// listen
-	fd, fdErr := aio.Listen(ctx, vortex, network, 0, addr, false, control)
+	fd, fdErr := asyncIO.Listen(ctx, network, 0, addr, false, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
@@ -71,7 +70,7 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		path:       fd.LocalAddr().String(),
 		unlink:     true,
 		unlinkOnce: sync.Once{},
-		vortex:     vortexRC,
+		asyncIO:    asyncIORC,
 		deadline:   time.Time{},
 	}
 	return ln, nil
@@ -99,35 +98,35 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	if addr == nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
-	// vortex
-	vortexRC := lc.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := lc.AsyncIO
+	if asyncIORC == nil {
+		var asyncIORCErr error
+		asyncIORC, asyncIORCErr = getAsyncIO()
+		if asyncIORCErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 	// control
-	var control sys.ControlContextFn = nil
+	var control aio.Control = nil
 	if lc.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
 	}
 	// listen
-	fd, fdErr := aio.ListenPacket(ctx, vortex, network, 0, addr, nil, false, control)
+	fd, fdErr := asyncIO.ListenPacket(ctx, network, 0, addr, nil, false, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// conn
 	c := &UnixConn{
 		conn{
-			fd:     fd,
-			vortex: vortexRC,
+			fd:      fd,
+			asyncIO: asyncIORC,
 		},
 	}
 	return c, nil
@@ -141,7 +140,7 @@ type UnixListener struct {
 	path       string
 	unlink     bool
 	unlinkOnce sync.Once
-	vortex     *reference.Pointer[*aio.Vortex]
+	asyncIO    *reference.Pointer[aio.AsyncIO]
 	deadline   time.Time
 }
 
@@ -183,10 +182,10 @@ func (ln *UnixListener) Close() error {
 	}
 
 	if err := ln.fd.Close(); err != nil {
-		_ = ln.vortex.Close()
+		_ = ln.asyncIO.Close()
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
-	if err := ln.vortex.Close(); err != nil {
+	if err := ln.asyncIO.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
 	}
 	return nil

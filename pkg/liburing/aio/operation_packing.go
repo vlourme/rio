@@ -37,12 +37,6 @@ func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) 
 	case liburing.IORING_OP_WRITE:
 		err = op.packingWrite(sqe)
 		break
-	case liburing.IORING_OP_READ_FIXED:
-		err = op.packingReadFixed(sqe)
-		break
-	case liburing.IORING_OP_WRITE_FIXED:
-		err = op.packingWriteFixed(sqe)
-		break
 	case liburing.IORING_OP_SOCKET:
 		err = op.packingSocket(sqe)
 		break

@@ -5,13 +5,14 @@ package aio
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"net"
 	"syscall"
 )
 
 type ListenerFd struct {
 	NetFd
 	backlog      int
-	acceptFn     func() (nfd *ConnFd, err error)
+	acceptFn     func() (nfd *Conn, err error)
 	acceptFuture *acceptFuture
 }
 
@@ -27,12 +28,16 @@ func (fd *ListenerFd) init() {
 	}
 }
 
-func (fd *ListenerFd) Accept() (nfd *ConnFd, err error) {
+func (fd *ListenerFd) Bind(addr net.Addr) error {
+	return fd.bind(addr)
+}
+
+func (fd *ListenerFd) Accept() (nfd *Conn, err error) {
 	nfd, err = fd.acceptFn()
 	return
 }
 
-func (fd *ListenerFd) accept() (nfd *ConnFd, err error) {
+func (fd *ListenerFd) accept() (nfd *Conn, err error) {
 	alloc := fd.Registered()
 	deadline := fd.readDeadline
 	acceptAddr := &syscall.RawSockaddrAny{}
@@ -65,8 +70,8 @@ func (fd *ListenerFd) Close() error {
 	return fd.NetFd.Close()
 }
 
-func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *ConnFd) {
-	cfd = &ConnFd{
+func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *Conn) {
+	cfd = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
 				regular:       -1,
@@ -127,7 +132,7 @@ func (f *acceptFuture) submit() (err error) {
 	return
 }
 
-func (f *acceptFuture) accept() (nfd *ConnFd, err error) {
+func (f *acceptFuture) accept() (nfd *Conn, err error) {
 	var (
 		op       = f.op
 		ln       = f.ln

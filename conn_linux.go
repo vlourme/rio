@@ -14,8 +14,8 @@ import (
 )
 
 type conn struct {
-	fd     *aio.ConnFd
-	vortex *reference.Pointer[*aio.Vortex]
+	fd      *aio.Conn
+	asyncIO *reference.Pointer[aio.AsyncIO]
 }
 
 // Read implements the net.Conn Read method.
@@ -66,13 +66,13 @@ func (c *conn) Close() error {
 	}
 
 	if err := c.fd.Close(); err != nil {
-		if c.vortex != nil {
-			_ = c.vortex.Close()
+		if c.asyncIO != nil {
+			_ = c.asyncIO.Close()
 		}
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 	}
-	if c.vortex != nil {
-		if err := c.vortex.Close(); err != nil {
+	if c.asyncIO != nil {
+		if err := c.asyncIO.Close(); err != nil {
 			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
 		}
 	}

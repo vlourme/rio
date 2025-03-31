@@ -49,50 +49,6 @@ func (op *Operation) packingWrite(sqe *liburing.SubmissionQueueEntry) (err error
 	return
 }
 
-func (op *Operation) PrepareReadFixed(nfd *Fd, buf *FixedBuffer) {
-	fd, direct := nfd.FileDescriptor()
-	if direct {
-		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
-	op.code = liburing.IORING_OP_READ_FIXED
-	op.fd = fd
-	op.addr = unsafe.Pointer(buf)
-	return
-}
-
-func (op *Operation) packingReadFixed(sqe *liburing.SubmissionQueueEntry) (err error) {
-	buf := (*FixedBuffer)(op.addr)
-	b := uintptr(unsafe.Pointer(&buf.value[buf.rPos]))
-	bLen := uint32(len(buf.value) - buf.rPos)
-	idx := uint64(buf.index)
-	sqe.PrepareReadFixed(op.fd, b, bLen, 0, int(idx))
-	sqe.SetFlags(op.sqeFlags)
-	sqe.SetData(unsafe.Pointer(op))
-	return
-}
-
-func (op *Operation) PrepareWriteFixed(nfd *Fd, buf *FixedBuffer) {
-	fd, direct := nfd.FileDescriptor()
-	if direct {
-		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
-	op.code = liburing.IORING_OP_WRITE_FIXED
-	op.fd = fd
-	op.addr = unsafe.Pointer(buf)
-	return
-}
-
-func (op *Operation) packingWriteFixed(sqe *liburing.SubmissionQueueEntry) (err error) {
-	buf := (*FixedBuffer)(op.addr)
-	b := uintptr(unsafe.Pointer(&buf.value[buf.rPos]))
-	bLen := uint32(buf.Length())
-	idx := uint64(buf.index)
-	sqe.PrepareWriteFixed(op.fd, b, bLen, 0, int(idx))
-	sqe.SetFlags(op.sqeFlags)
-	sqe.SetData(unsafe.Pointer(op))
-	return
-}
-
 type SpliceParams struct {
 	FdIn       int
 	FdInFixed  bool

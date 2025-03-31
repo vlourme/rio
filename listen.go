@@ -104,8 +104,8 @@ type ListenConfig struct {
 	MultipathTCP bool
 	// ReusePort is set SO_REUSEPORT
 	ReusePort bool
-	// Vortex customize [aio.Vortex]
-	Vortex *reference.Pointer[*aio.Vortex]
+	// AsyncIO customize [aio.AsyncIO]
+	AsyncIO *reference.Pointer[aio.AsyncIO]
 }
 
 // SetMultipathTCP set multi-path tcp.

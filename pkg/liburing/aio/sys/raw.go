@@ -1,14 +1,9 @@
 package sys
 
 import (
-	"context"
 	"runtime"
 	"syscall"
 )
-
-type ControlContextFn func(ctx context.Context, network string, address string, raw syscall.RawConn) error
-
-type ControlFn func(network string, address string, raw syscall.RawConn) error
 
 func NewRawConn(fd int) syscall.RawConn {
 	return &RawConn{fd: fd}

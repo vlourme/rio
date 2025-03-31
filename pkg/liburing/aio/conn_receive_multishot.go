@@ -2,7 +2,7 @@
 
 package aio
 
-func newReceiveFuture(fd *ConnFd) (future *receiveFuture, err error) {
+func newReceiveFuture(fd *Conn) (future *receiveFuture, err error) {
 	f := &receiveFuture{
 		fd: fd,
 	}
@@ -14,7 +14,7 @@ func newReceiveFuture(fd *ConnFd) (future *receiveFuture, err error) {
 }
 
 type receiveFuture struct {
-	fd *ConnFd
+	fd *Conn
 	op *Operation
 	rb *RingBuffer
 }

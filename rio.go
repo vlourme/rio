@@ -6,10 +6,10 @@ import (
 )
 
 var (
-	vortexInstance        *reference.Pointer[*aio.Vortex]
-	vortexInstanceOptions []aio.Option
+	aioInstance *reference.Pointer[aio.AsyncIO]
+	aioOptions  []aio.Option
 )
 
 func Preset(options ...aio.Option) {
-	vortexInstanceOptions = append(vortexInstanceOptions, options...)
+	aioOptions = append(aioOptions, options...)
 }

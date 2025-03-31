@@ -14,7 +14,7 @@ import (
 	"unsafe"
 )
 
-func Open(options ...Option) (v *Vortex, err error) {
+func Open(options ...Option) (v AsyncIO, err error) {
 	// version check
 	if !liburing.VersionEnable(5, 19, 0) { // support io_uring_setup_buf_ring
 		err = NewRingErr(errors.New("kernel version must >= 5.19"))

@@ -8,7 +8,7 @@ import (
 	"unsafe"
 )
 
-func (op *Operation) PrepareConnect(nfd *ConnFd, addr *syscall.RawSockaddrAny, addrLen int) {
+func (op *Operation) PrepareConnect(nfd *Conn, addr *syscall.RawSockaddrAny, addrLen int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -125,7 +125,7 @@ func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err erro
 	return
 }
 
-func (op *Operation) PrepareReceive(nfd *ConnFd, b []byte) {
+func (op *Operation) PrepareReceive(nfd *Conn, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -137,7 +137,7 @@ func (op *Operation) PrepareReceive(nfd *ConnFd, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMultishot(nfd *ConnFd, bgid int) {
+func (op *Operation) PrepareReceiveMultishot(nfd *Conn, bgid int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -165,7 +165,7 @@ func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareSend(nfd *ConnFd, b []byte) {
+func (op *Operation) PrepareSend(nfd *Conn, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -190,7 +190,7 @@ func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error)
 	return
 }
 
-func (op *Operation) PrepareSendZC(nfd *ConnFd, b []byte) {
+func (op *Operation) PrepareSendZC(nfd *Conn, b []byte) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -215,7 +215,7 @@ func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err erro
 	return
 }
 
-func (op *Operation) PrepareReceiveMsg(nfd *ConnFd, msg *syscall.Msghdr) {
+func (op *Operation) PrepareReceiveMsg(nfd *Conn, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -234,7 +234,7 @@ func (op *Operation) packingReceiveMsg(sqe *liburing.SubmissionQueueEntry) (err 
 	return
 }
 
-func (op *Operation) PrepareSendMsg(nfd *ConnFd, msg *syscall.Msghdr) {
+func (op *Operation) PrepareSendMsg(nfd *Conn, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -253,7 +253,7 @@ func (op *Operation) packingSendMsg(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareSendMsgZC(nfd *ConnFd, msg *syscall.Msghdr) {
+func (op *Operation) PrepareSendMsgZC(nfd *Conn, msg *syscall.Msghdr) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE

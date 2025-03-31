@@ -20,7 +20,7 @@ var (
 		MultipathTCP:    false,
 		Control:         nil,
 		ControlContext:  nil,
-		Vortex:          nil,
+		AsyncIO:         nil,
 	}
 )
 
@@ -183,8 +183,8 @@ type Dialer struct {
 	//
 	// If ControlContext is not nil, Control is ignored.
 	ControlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
-	// Vortex customize [aio.Vortex]
-	Vortex *reference.Pointer[*aio.Vortex]
+	// AsyncIO customize [aio.AsyncIO]
+	AsyncIO *reference.Pointer[aio.AsyncIO]
 }
 
 // SetMultipathTCP set multi-path tcp.

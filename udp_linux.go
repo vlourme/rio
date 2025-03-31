@@ -101,35 +101,35 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	if addr == nil {
 		addr = &net.UDPAddr{}
 	}
-	// vortex
-	vortexRC := lc.Vortex
-	if vortexRC == nil {
-		var vortexErr error
-		vortexRC, vortexErr = getVortex()
-		if vortexErr != nil {
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: vortexErr}
+	// asyncIO
+	asyncIORC := lc.AsyncIO
+	if asyncIORC == nil {
+		var asyncIORCErr error
+		asyncIORC, asyncIORCErr = getAsyncIO()
+		if asyncIORCErr != nil {
+			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
 		}
 	}
-	vortex := vortexRC.Value()
+	asyncIO := asyncIORC.Value()
 	// control
-	var control sys.ControlContextFn = nil
+	var control aio.Control = nil
 	if lc.Control != nil {
 		control = func(ctx context.Context, network string, address string, raw syscall.RawConn) error {
 			return lc.Control(network, address, raw)
 		}
 	}
 	// listen
-	fd, fdErr := aio.ListenPacket(ctx, vortex, network, 0, addr, ifi, lc.ReusePort, control)
+	fd, fdErr := asyncIO.ListenPacket(ctx, network, 0, addr, ifi, lc.ReusePort, control)
 	if fdErr != nil {
-		_ = vortexRC.Close()
+		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// conn
 	c := &UDPConn{
 		conn{
-			fd:     fd,
-			vortex: vortexRC,
+			fd:      fd,
+			asyncIO: asyncIORC,
 		},
 	}
 	return c, nil
