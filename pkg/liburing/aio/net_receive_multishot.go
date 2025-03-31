@@ -57,7 +57,7 @@ func (f *receiveFuture) receive(b []byte) (n int, err error) {
 	//
 	// advance ring buffer
 	//
-	// if read err, set err
+	// if read err, set err (discard syscall.ENOBUFS)
 	//
 	// return n
 	return
