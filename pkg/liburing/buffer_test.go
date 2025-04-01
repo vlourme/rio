@@ -23,7 +23,7 @@ func TestRing_SetupBufRing(t *testing.T) {
 	brn := 4
 	bgid := 0
 
-	br, brErr := ring.SetupBufRing(uint32(brn), uint16(bgid), 0)
+	br, brErr := ring.SetupBufRing(uint16(brn), uint16(bgid), 0)
 	if brErr != nil {
 		t.Error(brErr)
 		return
@@ -32,18 +32,18 @@ func TestRing_SetupBufRing(t *testing.T) {
 	var (
 		byteSize  = 4096
 		byteCount = brn
-		mast      = liburing.BufferRingMask(uint32(brn))
+		mast      = liburing.BufferRingMask(uint16(brn))
 	)
 
 	src := make([]byte, byteSize*byteCount)
 
 	for i := 0; i < brn; i++ {
 		addr := &src[byteSize*i : byteSize*(i+1)][0]
-		br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint32(byteSize), uint16(i), mast, i)
+		br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint16(byteSize), uint16(i), mast, uint16(i))
 	}
-	br.BufRingAdvance(brn)
+	br.BufRingAdvance(uint16(brn))
 
-	defer ring.UnregisterBufferRing(bgid)
+	defer ring.UnregisterBufferRing(uint16(bgid))
 
 	var pipe0 [2]int
 	if pipeErr := syscall.Pipe2(pipe0[:], syscall.O_CLOEXEC|syscall.O_NONBLOCK); pipeErr != nil {
@@ -141,12 +141,12 @@ func TestRing_SetupBufRing(t *testing.T) {
 		copy(rb, src[bid*byteSize:bid*byteSize+rn])
 
 		if !bytes.Equal(rb, p0wbs[i]) {
-			t.Error("p0 read not matched", bid, string(p0wbs[i][0:rn]), string(rb))
+			t.Error("p0 read not matched", bid, cqe.Flags, string(p0wbs[i][0:rn]), string(rb))
 			return
 		}
 		//ring.BufRingCQAdvance(br, 1)
 		ring.CQAdvance(1)
-		t.Log("p0 read matched", bid, string(p0wbs[i][0:rn]), string(rb))
+		t.Log("p0 read matched", bid, cqe.Flags, string(p0wbs[i][0:rn]), string(rb))
 	}
 
 	// read p1 full
@@ -174,7 +174,7 @@ READ_P1:
 		if cqe.Res < 0 {
 			cqeErr = syscall.Errno(-cqe.Res)
 			if errors.Is(cqeErr, syscall.ENOBUFS) {
-				t.Log("p1 read failed for no space, try again after badv", cqeErr, cqe.Flags&liburing.IORING_CQE_F_BUF_MORE)
+				t.Log("p1 read failed for no space, try again after badv", cqe.Flags, cqeErr, cqe.Flags&liburing.IORING_CQE_F_BUF_MORE)
 				p1t--
 				br.BufRingAdvance(1)
 				ring.CQAdvance(1)
@@ -191,12 +191,12 @@ READ_P1:
 		copy(rb, src[bid*byteSize:bid*byteSize+rn])
 
 		if !bytes.Equal(rb, p1wbs[i]) {
-			t.Error("p1 read not matched", bid, string(p1wbs[i][0:rn]), string(rb))
+			t.Error("p1 read not matched", cqe.Flags, bid, string(p1wbs[i][0:rn]), string(rb))
 			return
 		}
-		ring.BufRingCQAdvance(br, 1)
-		//ring.CQAdvance(1)
-		t.Log("p1 read matched", bid, string(p1wbs[i][0:rn]), string(rb))
+		br.BufRingAdvance(1)
+		ring.CQAdvance(1)
+		t.Log("p1 read matched", bid, cqe.Flags, string(p1wbs[i][0:rn]), string(rb))
 		p1r++
 	}
 	if p1r != brn {
@@ -232,12 +232,12 @@ READ_P1:
 		copy(rb, src[bid*byteSize:bid*byteSize+rn])
 
 		if !bytes.Equal(rb, p0wbs[i]) {
-			t.Error("p0 read not matched", bid, string(p0wbs[i][0:rn]), string(rb))
+			t.Error("p0 read not matched", bid, cqe.Flags, string(p0wbs[i][0:rn]), string(rb))
 			return
 		}
-		ring.BufRingCQAdvance(br, 1)
-		//ring.CQAdvance(1)
-		t.Log("p0 read matched", bid, string(p0wbs[i][0:rn]), string(rb))
+		br.BufRingAdvance(1)
+		ring.CQAdvance(1)
+		t.Log("p0 read matched", bid, cqe.Flags, string(p0wbs[i][0:rn]), string(rb))
 	}
 
 }

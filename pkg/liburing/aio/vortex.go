@@ -54,6 +54,15 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		err = NewRingErr(ringErr)
 		return
 	}
+
+	// buffer and rings
+	brs, brsErr := newBufferAndRings(ring, opt.BufferAndRingConfig)
+	if brsErr != nil {
+		_ = ring.Close()
+		err = NewRingErr(brsErr)
+		return
+	}
+
 	// register files
 	var (
 		directAllocEnabled = !liburing.VersionMatchFlavor(opt.DisableDirectAllocFeatKernelFlavorBlackList) && // disabled by black list
@@ -93,8 +102,6 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		sendZC = probe.IsSupported(liburing.IORING_OP_SEND_ZC)
 		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
 	}
-	// conn ring buffer config
-	connRingBufferConfig := newRingBufferConfig(ring, opt.ConnRingBufferSize, opt.ConnRingBufferCount)
 
 	// multishotEnabledOps
 	multishotEnabledOps := make(map[uint8]struct{})
@@ -115,16 +122,16 @@ func Open(options ...Option) (v AsyncIO, err error) {
 
 	// vortex
 	v = &Vortex{
-		ring:                 ring,
-		probe:                probe,
-		sendZC:               sendZC,
-		sendMSGZC:            sendMSGZC,
-		producer:             producer,
-		consumer:             consumer,
-		heartbeat:            hb,
-		directAllocEnabled:   directAllocEnabled,
-		connRingBufferConfig: connRingBufferConfig,
-		multishotEnabledOps:  multishotEnabledOps,
+		ring:                ring,
+		probe:               probe,
+		sendZC:              sendZC,
+		sendMSGZC:           sendMSGZC,
+		producer:            producer,
+		consumer:            consumer,
+		heartbeat:           hb,
+		directAllocEnabled:  directAllocEnabled,
+		bufferAndRings:      brs,
+		multishotEnabledOps: multishotEnabledOps,
 		operations: sync.Pool{
 			New: func() interface{} {
 				return &Operation{
@@ -139,7 +146,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 				return &Operation{
 					code:     liburing.IORING_OP_LAST,
 					flags:    borrowed,
-					resultCh: make(chan Result, connRingBufferConfig.count),
+					resultCh: make(chan Result, 64),
 				}
 			},
 		},
@@ -158,20 +165,20 @@ func Open(options ...Option) (v AsyncIO, err error) {
 }
 
 type Vortex struct {
-	ring                 *liburing.Ring
-	probe                *liburing.Probe
-	sendZC               bool
-	sendMSGZC            bool
-	producer             *operationProducer
-	consumer             *operationConsumer
-	heartbeat            *heartbeat
-	directAllocEnabled   bool
-	connRingBufferConfig *RingBufferConfig
-	multishotEnabledOps  map[uint8]struct{}
-	operations           sync.Pool
-	multishotOperations  sync.Pool
-	msgs                 sync.Pool
-	timers               sync.Pool
+	ring                *liburing.Ring
+	probe               *liburing.Probe
+	sendZC              bool
+	sendMSGZC           bool
+	producer            *operationProducer
+	consumer            *operationConsumer
+	heartbeat           *heartbeat
+	directAllocEnabled  bool
+	bufferAndRings      *BufferAndRings
+	multishotEnabledOps map[uint8]struct{}
+	operations          sync.Pool
+	multishotOperations sync.Pool // todo: remove it, use operations with MultishotBuffer at op.addr2
+	msgs                sync.Pool
+	timers              sync.Pool
 }
 
 func (vortex *Vortex) Fd() int {

@@ -417,9 +417,9 @@ func (ring *Ring) RegisterBufferRing(reg *BufReg, _ uint32) (uint, error) {
 	return result, err
 }
 
-func (ring *Ring) UnregisterBufferRing(bgid int) (uint, error) {
+func (ring *Ring) UnregisterBufferRing(bgid uint16) (uint, error) {
 	reg := &BufReg{
-		Bgid: uint16(bgid),
+		Bgid: bgid,
 	}
 	result, err := ring.doRegister(IORING_UNREGISTER_PBUF_RING, unsafe.Pointer(reg), 1)
 	runtime.KeepAlive(reg)

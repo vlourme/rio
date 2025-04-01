@@ -46,7 +46,7 @@ const (
 	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST" // a, b, c
 	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
 	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envConnRingBuffer                     = "RIO_CONN_RING_BUFFER" // 4096x8
+	envBufferAndBufferConfig              = "RIO_BUFFER_AND_RING_CONFIG" // 4096x16x512, 15s
 	envProducerLockOSThread               = "RIO_PRODUCER_LOCK_OSTHREAD"
 	envProducerBatchSize                  = "RIO_PRODUCER_BATCH_SIZE"
 	envProducerBatchTimeWindow            = "RIO_PRODUCER_BATCH_TIME_WINDOW"
@@ -102,8 +102,8 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 			// fixed <<<
 
 			// buffer >>>
-			if size, count, has := envLoadConnRingBuffer(envConnRingBuffer); has {
-				aioOptions = append(aioOptions, aio.WithConnRingBufferConfig(size, count))
+			if size, count, ref, idleTimeout, has := envLoadBufferAndRingConfig(envBufferAndBufferConfig); has {
+				aioOptions = append(aioOptions, aio.WithRingBufferConfig(size, count, ref, idleTimeout))
 			}
 			// buffer <<<
 
@@ -236,29 +236,57 @@ func envLoadCurve(name string) (aio.Curve, bool) {
 	return curve, true
 }
 
-func envLoadConnRingBuffer(name string) (size uint32, count uint32, has bool) {
+func envLoadBufferAndRingConfig(name string) (size uint16, count uint16, ref uint16, idleTimeout time.Duration, has bool) {
 	s, ok := os.LookupEnv(name)
 	if !ok {
 		return
 	}
+	// {size}x{count}x{ref}, 1ms
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
-	idx := strings.Index(s, "x")
-	if idx == -1 || idx == len(s)-1 {
-		return
+	var (
+		s1 string
+		s2 string
+	)
+
+	idx := strings.Index(s, ",")
+	if idx == -1 {
+		s1 = s
+	} else {
+		s1 = strings.TrimSpace(s[:idx])
+		s2 = strings.TrimSpace(s[idx+1:])
 	}
-	ss := s[:idx]
-	size64, size64Err := strconv.ParseUint(strings.TrimSpace(ss), 10, 32)
-	if size64Err != nil {
-		return
+
+	if s1 != "" {
+		ss := strings.Split(s1, "x")
+		if len(ss) != 3 {
+			return
+		}
+		size64, size64Err := strconv.ParseUint(strings.TrimSpace(ss[0]), 10, 16)
+		if size64Err != nil {
+			return
+		}
+		size = uint16(size64)
+		count64, count64Err := strconv.ParseUint(strings.TrimSpace(ss[1]), 10, 16)
+		if count64Err != nil {
+			return
+		}
+		count = uint16(count64)
+		ref64, ref64Err := strconv.ParseUint(strings.TrimSpace(ss[2]), 10, 16)
+		if ref64Err != nil {
+			return
+		}
+		ref = uint16(ref64)
 	}
-	size = uint32(size64)
-	cs := s[idx+1:]
-	count64, count64Err := strconv.ParseUint(strings.TrimSpace(cs), 10, 32)
-	if count64Err != nil {
-		return
+
+	if s2 != "" {
+		var idleTimeoutErr error
+		idleTimeout, idleTimeoutErr = time.ParseDuration(s2)
+		if idleTimeoutErr != nil {
+			return
+		}
 	}
-	count = uint32(count64)
-	has = true
+
+	has = s1 != "" || s2 != ""
 	return
 }

@@ -81,7 +81,7 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	return nil
 }
 
-func (ring *Ring) SetupBufRing(entries uint32, bgid uint16, flags uint32) (*BufferAndRing, error) {
+func (ring *Ring) SetupBufRing(entries uint16, bgid uint16, flags uint32) (*BufferAndRing, error) {
 	br, err := ring.bufAndRingSetup(entries, bgid, flags)
 	if br != nil {
 		br.BufRingInit()
@@ -89,7 +89,7 @@ func (ring *Ring) SetupBufRing(entries uint32, bgid uint16, flags uint32) (*Buff
 	return br, err
 }
 
-func (ring *Ring) bufAndRingSetup(entries uint32, bgid uint16, flags uint32) (*BufferAndRing, error) {
+func (ring *Ring) bufAndRingSetup(entries uint16, bgid uint16, flags uint32) (*BufferAndRing, error) {
 	var br *BufferAndRing
 	var reg BufReg
 	var ringSizeAddr uintptr
@@ -105,7 +105,7 @@ func (ring *Ring) bufAndRingSetup(entries uint32, bgid uint16, flags uint32) (*B
 	br = (*BufferAndRing)(brPtr)
 
 	reg.RingAddr = uint64(uintptr(unsafe.Pointer(br)))
-	reg.RingEntries = entries
+	reg.RingEntries = uint32(entries)
 	reg.Bgid = bgid
 
 	_, err = ring.RegisterBufferRing(&reg, flags)

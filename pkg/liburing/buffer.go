@@ -16,30 +16,31 @@ type BufferAndRing struct {
 	Tail uint16
 }
 
-func (br *BufferAndRing) BufRingAdd(addr uintptr, length uint32, bid uint16, mask, bufOffset int) {
+func (br *BufferAndRing) BufRingAdd(addr uintptr, length uint16, bid uint16, mask, bufOffset uint16) {
 	buf := (*BufferAndRing)(
 		unsafe.Pointer(uintptr(unsafe.Pointer(br)) +
-			(uintptr(((br.Tail + uint16(bufOffset)) & uint16(mask)) * bufferAndRingStructSize))))
+			(uintptr(((br.Tail + bufOffset) & mask) * bufferAndRingStructSize))))
 	buf.Addr = uint64(addr)
-	buf.Len = length
+	buf.Len = uint32(length)
 	buf.Bid = bid
 }
 
 const bit16offset = 16
 
-func (br *BufferAndRing) BufRingAdvance(count int) {
-	newTail := br.Tail + uint16(count)
+func (br *BufferAndRing) BufRingAdvance(count uint16) {
+	newTail := br.Tail + count
 	bidAndTail := (*uint32)(unsafe.Pointer(&br.Bid))
 	bidAndTailVal := uint32(newTail)<<bit16offset + uint32(br.Bid)
 	atomic.StoreUint32(bidAndTail, bidAndTailVal)
 }
 
 func (ring *Ring) internalBufRingCQAdvance(br *BufferAndRing, bufCount, cqeCount int) {
-	br.Tail += uint16(bufCount)
+	br.BufRingAdvance(uint16(bufCount))
 	ring.CQAdvance(uint32(cqeCount))
 }
 
 func (ring *Ring) BufRingCQAdvance(br *BufferAndRing, count int) {
+	// note: it does not work well for [IORING_RECVSEND_BUNDLE]
 	ring.internalBufRingCQAdvance(br, count, count)
 }
 
@@ -47,8 +48,8 @@ func (br *BufferAndRing) BufRingInit() {
 	br.Tail = 0
 }
 
-func BufferRingMask(entries uint32) int {
-	return int(entries - 1)
+func BufferRingMask(entries uint16) uint16 {
+	return entries - 1
 }
 
 type BufReg struct {
