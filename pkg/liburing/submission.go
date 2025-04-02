@@ -206,6 +206,10 @@ func (entry *SubmissionQueueEntry) SetFlags(flags uint8) {
 	entry.Flags |= flags
 }
 
+func (entry *SubmissionQueueEntry) SetIoPrio(flags uint16) {
+	entry.IoPrio |= flags
+}
+
 func (entry *SubmissionQueueEntry) SetBufferIndex(bid uint16) {
 	entry.BufIG = bid
 }
@@ -439,7 +443,7 @@ func cmsgAlign(length uint64) uint64 {
 	return (length + uint64(unsafe.Sizeof(uintptr(0))) - 1) & ^(uint64(unsafe.Sizeof(uintptr(0))) - 1)
 }
 
-// [CancelOperation] ************************************************************************************************************
+// [cancelOperation] ************************************************************************************************************
 
 func (entry *SubmissionQueueEntry) PrepareCancel(userdata uintptr, flags uint32) {
 	entry.PrepareCancel64(uint64(userdata), flags)
