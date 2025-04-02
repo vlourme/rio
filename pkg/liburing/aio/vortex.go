@@ -11,7 +11,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 )
 
 func Open(options ...Option) (v AsyncIO, err error) {
@@ -95,12 +94,12 @@ func Open(options ...Option) (v AsyncIO, err error) {
 
 	// sendZC
 	var (
-		sendZC    bool
-		sendMSGZC bool
+		sendZCEnabled    bool
+		sendMSGZCEnabled bool
 	)
 	if opt.SendZC {
-		sendZC = probe.IsSupported(liburing.IORING_OP_SEND_ZC)
-		sendMSGZC = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
+		sendZCEnabled = probe.IsSupported(liburing.IORING_OP_SEND_ZC)
+		sendMSGZCEnabled = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
 	}
 
 	// multishotEnabledOps
@@ -124,8 +123,8 @@ func Open(options ...Option) (v AsyncIO, err error) {
 	v = &Vortex{
 		ring:                ring,
 		probe:               probe,
-		sendZC:              sendZC,
-		sendMSGZC:           sendMSGZC,
+		sendZCEnabled:       sendZCEnabled,
+		sendMSGZCEnabled:    sendMSGZCEnabled,
 		producer:            producer,
 		consumer:            consumer,
 		heartbeat:           hb,
@@ -137,16 +136,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 				return &Operation{
 					code:     liburing.IORING_OP_LAST,
 					flags:    borrowed,
-					resultCh: make(chan Result, 1),
-				}
-			},
-		},
-		multishotOperations: sync.Pool{
-			New: func() interface{} {
-				return &Operation{
-					code:     liburing.IORING_OP_LAST,
-					flags:    borrowed,
-					resultCh: make(chan Result, 64),
+					resultCh: make(chan Result, 2),
 				}
 			},
 		},
@@ -160,69 +150,40 @@ func Open(options ...Option) (v AsyncIO, err error) {
 				return time.NewTimer(0)
 			},
 		},
+		recvMultishotInbounds: sync.Pool{
+			New: func() interface{} {
+				return &RecvMultishotInbound{
+					locker: sync.Mutex{},
+					done:   make(chan struct{}, 1),
+				}
+			},
+		},
 	}
 	return
 }
 
 type Vortex struct {
-	ring                *liburing.Ring
-	probe               *liburing.Probe
-	sendZC              bool
-	sendMSGZC           bool
-	producer            *operationProducer
-	consumer            *operationConsumer
-	heartbeat           *heartbeat
-	directAllocEnabled  bool
-	bufferAndRings      *BufferAndRings
-	multishotEnabledOps map[uint8]struct{}
-	operations          sync.Pool
-	multishotOperations sync.Pool // todo: remove it, use operations with MultishotBuffer at op.addr2
-	msgs                sync.Pool
-	timers              sync.Pool
+	ring                  *liburing.Ring
+	probe                 *liburing.Probe
+	sendZCEnabled         bool
+	sendMSGZCEnabled      bool
+	producer              *operationProducer
+	consumer              *operationConsumer
+	heartbeat             *heartbeat
+	directAllocEnabled    bool
+	bufferAndRings        *BufferAndRings
+	multishotEnabledOps   map[uint8]struct{}
+	operations            sync.Pool
+	msgs                  sync.Pool
+	timers                sync.Pool
+	recvMultishotInbounds sync.Pool
 }
 
 func (vortex *Vortex) Fd() int {
 	return vortex.ring.Fd()
 }
 
-func (vortex *Vortex) DirectAllocEnabled() bool {
-	return vortex.directAllocEnabled
-}
-
-func (vortex *Vortex) SendZCEnabled() bool {
-	return vortex.sendZC
-}
-
-func (vortex *Vortex) SendMSGZCEnabled() bool {
-	return vortex.sendMSGZC
-}
-
-func (vortex *Vortex) MultishotEnabled(op uint8) bool {
-	_, has := vortex.multishotEnabledOps[op]
-	return has
-}
-
-func (vortex *Vortex) MultishotAcceptEnabled() bool {
-	return vortex.MultishotEnabled(liburing.IORING_OP_ACCEPT)
-}
-
-func (vortex *Vortex) MultishotReceiveEnabled() bool {
-	return vortex.MultishotEnabled(liburing.IORING_OP_RECV)
-}
-
-func (vortex *Vortex) MultishotReceiveMSGEnabled() bool {
-	return vortex.MultishotEnabled(liburing.IORING_OP_RECVMSG)
-}
-
-func (vortex *Vortex) OpSupported(op uint8) bool {
-	return vortex.probe.IsSupported(op)
-}
-
-func (vortex *Vortex) Submit(op *Operation) bool {
-	return vortex.producer.Produce(op)
-}
-
-func (vortex *Vortex) FixedFdInstall(directFd int) (regularFd int, err error) {
+func (vortex *Vortex) fixedFdInstall(directFd int) (regularFd int, err error) {
 	op := vortex.acquireOperation()
 	op.PrepareFixedFdInstall(directFd)
 	regularFd, _, err = vortex.submitAndWait(op)
@@ -230,7 +191,7 @@ func (vortex *Vortex) FixedFdInstall(directFd int) (regularFd int, err error) {
 	return
 }
 
-func (vortex *Vortex) CancelOperation(target *Operation) (err error) {
+func (vortex *Vortex) cancelOperation(target *Operation) (err error) {
 	if target.cancelAble() {
 		op := vortex.acquireOperation()
 		op.PrepareCancel(target)
@@ -251,7 +212,7 @@ func (vortex *Vortex) Close() (err error) {
 	// close consumer
 	_ = vortex.consumer.Close()
 	// unregister files
-	if vortex.DirectAllocEnabled() {
+	if vortex.directAllocEnabled {
 		_, _ = vortex.ring.UnregisterFiles()
 	}
 	// close
@@ -259,74 +220,8 @@ func (vortex *Vortex) Close() (err error) {
 	return
 }
 
-func (vortex *Vortex) acquireOperation() *Operation {
-	op := vortex.operations.Get().(*Operation)
-	return op
-}
-
-func (vortex *Vortex) releaseOperation(op *Operation) {
-	if op.releaseAble() {
-		op.reset()
-		vortex.operations.Put(op)
-	}
-}
-
-func (vortex *Vortex) acquireMultishotOperation() *Operation {
-	op := vortex.multishotOperations.Get().(*Operation)
-	return op
-}
-
-func (vortex *Vortex) releaseMultishotOperation(op *Operation) {
-	if op.releaseAble() {
-		op.reset()
-		vortex.multishotOperations.Put(op)
-	}
-}
-
-func (vortex *Vortex) acquireTimer(timeout time.Duration) *time.Timer {
-	timer := vortex.timers.Get().(*time.Timer)
-	timer.Reset(timeout)
-	return timer
-}
-
-func (vortex *Vortex) releaseTimer(timer *time.Timer) {
-	timer.Stop()
-	vortex.timers.Put(timer)
-}
-
-func (vortex *Vortex) acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {
-	msg := vortex.msgs.Get().(*syscall.Msghdr)
-	bLen := len(b)
-	if bLen > 0 {
-		msg.Iov = &syscall.Iovec{
-			Base: &b[0],
-			Len:  uint64(bLen),
-		}
-		msg.Iovlen = 1
-	}
-	oobLen := len(oob)
-	if oobLen > 0 {
-		msg.Control = &oob[0]
-		msg.SetControllen(oobLen)
-	}
-	if addr != nil {
-		msg.Name = (*byte)(unsafe.Pointer(addr))
-		msg.Namelen = uint32(addrLen)
-	}
-	msg.Flags = flags
-	return msg
-}
-
-func (vortex *Vortex) releaseMsg(msg *syscall.Msghdr) {
-	msg.Name = nil
-	msg.Namelen = 0
-	msg.Iov = nil
-	msg.Iovlen = 0
-	msg.Control = nil
-	msg.Controllen = 0
-	msg.Flags = 0
-	vortex.msgs.Put(msg)
-	return
+func (vortex *Vortex) submit(op *Operation) bool {
+	return vortex.producer.Produce(op)
 }
 
 func (vortex *Vortex) submitAndWait(op *Operation) (n int, cqeFlags uint32, err error) {
@@ -336,7 +231,7 @@ func (vortex *Vortex) submitAndWait(op *Operation) (n int, cqeFlags uint32, err 
 		timeoutOp.prepareLinkTimeout(op)
 	}
 RETRY:
-	if ok := vortex.Submit(op); ok {
+	if ok := vortex.submit(op); ok {
 		n, cqeFlags, err = vortex.awaitOperation(op)
 		if err != nil {
 			if errors.Is(err, ErrIOURingSQBusy) { // means cannot get sqe
@@ -392,53 +287,4 @@ func (vortex *Vortex) awaitTimeoutOp(timeoutOp *Operation) (err error) {
 		}
 	}
 	return
-}
-
-const (
-	defaultHeartbeatTimeout = 30 * time.Second
-)
-
-func newHeartbeat(timeout time.Duration, producer *operationProducer) *heartbeat {
-	if timeout < 1 {
-		timeout = defaultHeartbeatTimeout
-	}
-	hb := &heartbeat{
-		producer: producer,
-		ticker:   time.NewTicker(timeout),
-		wg:       new(sync.WaitGroup),
-		done:     make(chan struct{}),
-	}
-	go hb.start()
-	return hb
-}
-
-type heartbeat struct {
-	producer *operationProducer
-	ticker   *time.Ticker
-	wg       *sync.WaitGroup
-	done     chan struct{}
-}
-
-func (hb *heartbeat) start() {
-	hb.wg.Add(1)
-	defer hb.wg.Done()
-
-	op := &Operation{}
-	_ = op.PrepareNop()
-	for {
-		select {
-		case <-hb.done:
-			hb.ticker.Stop()
-			return
-		case <-hb.ticker.C:
-			hb.producer.Produce(op)
-			break
-		}
-	}
-}
-
-func (hb *heartbeat) Close() error {
-	close(hb.done)
-	hb.wg.Wait()
-	return nil
 }

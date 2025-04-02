@@ -57,7 +57,7 @@ func (vortex *Vortex) Connect(
 		regular = -1
 		direct  = -1
 	)
-	if vortex.DirectAllocEnabled() {
+	if vortex.directAllocEnabled {
 		op := vortex.acquireOperation()
 		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
 		direct, _, err = vortex.submitAndWait(op)
@@ -84,8 +84,8 @@ func (vortex *Vortex) Connect(
 			laddr:  laddr,
 			raddr:  raddr,
 		},
-		sendZCEnabled:    vortex.SendZCEnabled(),
-		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
+		sendZCEnabled:    vortex.sendZCEnabled,
+		sendMSGZCEnabled: vortex.sendMSGZCEnabled,
 	}
 	// ipv6
 	if ipv6only {
@@ -107,7 +107,7 @@ func (vortex *Vortex) Connect(
 	// control
 	if control != nil {
 		if regular == -1 {
-			if regular, err = vortex.FixedFdInstall(direct); err == nil {
+			if regular, err = vortex.fixedFdInstall(direct); err == nil {
 				_ = conn.Close()
 				return
 			}

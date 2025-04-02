@@ -52,7 +52,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		regular = -1
 		direct  = -1
 	)
-	if vortex.DirectAllocEnabled() {
+	if vortex.directAllocEnabled {
 		op := vortex.acquireOperation()
 		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
 		direct, _, err = vortex.submitAndWait(op)
@@ -122,7 +122,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	// control
 	if control != nil {
 		if regular == -1 {
-			if regular, err = vortex.FixedFdInstall(direct); err == nil {
+			if regular, err = vortex.fixedFdInstall(direct); err == nil {
 				_ = ln.Close()
 				return
 			}
@@ -214,7 +214,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 		regular = -1
 		direct  = -1
 	)
-	if vortex.DirectAllocEnabled() {
+	if vortex.directAllocEnabled {
 		op := vortex.acquireOperation()
 		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
 		direct, _, err = vortex.submitAndWait(op)
@@ -241,8 +241,8 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 			laddr:  addr,
 			raddr:  nil,
 		},
-		sendZCEnabled:    vortex.SendZCEnabled(),
-		sendMSGZCEnabled: vortex.SendMSGZCEnabled(),
+		sendZCEnabled:    vortex.sendZCEnabled,
+		sendMSGZCEnabled: vortex.sendMSGZCEnabled,
 	}
 
 	// ipv6
@@ -317,7 +317,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	// control
 	if control != nil {
 		if regular == -1 {
-			if regular, err = vortex.FixedFdInstall(direct); err == nil {
+			if regular, err = vortex.fixedFdInstall(direct); err == nil {
 				_ = conn.Close()
 				return
 			}
