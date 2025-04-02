@@ -68,7 +68,7 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 				aioOptions = append(aioOptions, aio.WithFlags(v))
 			} else {
 				if cpus := runtime.NumCPU(); cpus > 1 { // use sq_poll
-					v = liburing.IORING_SETUP_SQPOLL | liburing.IORING_SETUP_SINGLE_ISSUER
+					v = liburing.IORING_SETUP_SQPOLL
 					if cpus > 3 {
 						v |= liburing.IORING_SETUP_SQ_AFF
 					}

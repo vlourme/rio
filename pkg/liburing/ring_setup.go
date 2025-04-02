@@ -81,42 +81,6 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 	return nil
 }
 
-func (ring *Ring) SetupBufRing(entries uint16, bgid uint16, flags uint32) (*BufferAndRing, error) {
-	br, err := ring.bufAndRingSetup(entries, bgid, flags)
-	if br != nil {
-		br.BufRingInit()
-	}
-	return br, err
-}
-
-func (ring *Ring) bufAndRingSetup(entries uint16, bgid uint16, flags uint32) (*BufferAndRing, error) {
-	var br *BufferAndRing
-	var reg BufReg
-	var ringSizeAddr uintptr
-	var brPtr unsafe.Pointer
-	var err error
-
-	reg = BufReg{}
-	ringSizeAddr = uintptr(entries) * unsafe.Sizeof(BufferAndRing{})
-	brPtr, err = mmap(0, ringSizeAddr, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_ANONYMOUS|syscall.MAP_PRIVATE, -1, 0)
-	if err != nil {
-		return nil, err
-	}
-	br = (*BufferAndRing)(brPtr)
-
-	reg.RingAddr = uint64(uintptr(unsafe.Pointer(br)))
-	reg.RingEntries = uint32(entries)
-	reg.Bgid = bgid
-
-	_, err = ring.RegisterBufferRing(&reg, flags)
-	if err != nil {
-		_ = munmap(uintptr(unsafe.Pointer(br)), ringSizeAddr)
-		return nil, err
-	}
-
-	return br, nil
-}
-
 func MLockSizeParams(entries uint32, p *Params) (uint64, error) {
 	lp := &Params{}
 	ring := &Ring{

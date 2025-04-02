@@ -215,6 +215,8 @@ func (vortex *Vortex) Close() (err error) {
 	if vortex.directAllocEnabled {
 		_, _ = vortex.ring.UnregisterFiles()
 	}
+	// unregister buffer and rings
+	_ = vortex.bufferAndRings.Close()
 	// close
 	err = vortex.ring.Close()
 	return

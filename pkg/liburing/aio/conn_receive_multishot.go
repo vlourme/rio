@@ -27,6 +27,10 @@ func (in *RecvMultishotInbound) Handle(n int, flags uint32, err error) {
 
 	if err != nil {
 		if errors.Is(err, syscall.ENOBUFS) { // discard ENOBUFS
+			if in.waiting {
+				in.waiting = false
+				in.ch <- Result{}
+			}
 			in.locker.Unlock()
 			return
 		}
@@ -86,11 +90,10 @@ func (in *RecvMultishotInbound) Read(b []byte) (n int, err error) {
 		in.locker.Unlock()
 		return
 	}
-
+	in.waiting = true
+	in.locker.Unlock()
 	// read no full, try to wait more
-	if n < bLen {
-		in.waiting = true
-		in.locker.Unlock()
+	if 0 < n && n < bLen {
 		select {
 		case <-in.ch:
 			in.locker.Lock()
@@ -107,9 +110,6 @@ func (in *RecvMultishotInbound) Read(b []byte) (n int, err error) {
 		return
 	}
 	// read nothing, wait more
-	in.waiting = true
-	in.locker.Unlock()
-
 	<-in.ch
 	in.locker.Lock()
 	n, _ = in.buffer.Read(b)
@@ -208,7 +208,9 @@ RETRY:
 	n, err = f.in.Read(b)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
-			err = nil
+			if !f.fd.ZeroReadIsEOF() {
+				err = nil
+			}
 			return
 		}
 		if errors.Is(err, ErrIOURingSQBusy) { // not submitted, try to submit again
@@ -217,6 +219,7 @@ RETRY:
 			}
 			goto RETRY
 		}
+		return
 	}
 	return
 }

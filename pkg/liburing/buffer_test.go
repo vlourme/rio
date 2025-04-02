@@ -7,21 +7,85 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"strconv"
+	"sync"
 	"syscall"
 	"testing"
 	"unsafe"
 )
 
-func TestRing_SetupBufRing(t *testing.T) {
-	ring, ringErr := liburing.New(liburing.WithEntries(512))
+func TestRing_SetupBufRing2(t *testing.T) {
+	ring, ringErr := liburing.New()
 	if ringErr != nil {
 		t.Error(ringErr)
 		return
 	}
 	defer ring.Close()
 
-	brn := 4
-	bgid := 0
+	wg := new(sync.WaitGroup)
+	wg.Add(4)
+	for i := 0; i < 4; i++ {
+		go func(ring *liburing.Ring, wg *sync.WaitGroup, i int) {
+			defer wg.Done()
+			var (
+				brn       = 4
+				bgid      = i
+				byteSize  = 4096
+				byteCount = brn
+				mask      = liburing.BufferRingMask(uint16(brn))
+			)
+
+			br, brErr := ring.SetupBufRing(uint16(brn), uint16(bgid), 0)
+			if brErr != nil {
+				t.Error(brErr)
+				return
+			}
+
+			src := make([]byte, byteSize*byteCount)
+
+			for j := 0; j < brn; j++ {
+				addr := &src[byteSize*j : byteSize*(j+1)][0]
+				br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint16(byteSize), uint16(j), mask, uint16(j))
+			}
+			br.BufRingAdvance(uint16(brn))
+		}(ring, wg, i)
+	}
+
+	wg.Wait()
+	wg.Add(4)
+	for i := 0; i < 4; i++ {
+		go func(ring *liburing.Ring, wg *sync.WaitGroup, i int) {
+			defer wg.Done()
+			n, err := ring.UnregisterBufferRing(uint16(i))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			t.Log("unregister", n, i)
+		}(ring, wg, i)
+	}
+	wg.Wait()
+	t.Log("done")
+
+}
+
+func TestRing_SetupBufRing(t *testing.T) {
+	ring, ringErr := liburing.New()
+	if ringErr != nil {
+		t.Error(ringErr)
+		return
+	}
+	defer ring.Close()
+
+	t.Log(ring.RegisterFilesSparse(65535))
+	defer ring.UnregisterFiles()
+
+	var (
+		brn       = 4
+		bgid      = 0
+		byteSize  = 4096
+		byteCount = brn
+		mask      = liburing.BufferRingMask(uint16(brn))
+	)
 
 	br, brErr := ring.SetupBufRing(uint16(brn), uint16(bgid), 0)
 	if brErr != nil {
@@ -29,17 +93,11 @@ func TestRing_SetupBufRing(t *testing.T) {
 		return
 	}
 
-	var (
-		byteSize  = 4096
-		byteCount = brn
-		mast      = liburing.BufferRingMask(uint16(brn))
-	)
-
 	src := make([]byte, byteSize*byteCount)
 
 	for i := 0; i < brn; i++ {
 		addr := &src[byteSize*i : byteSize*(i+1)][0]
-		br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint16(byteSize), uint16(i), mast, uint16(i))
+		br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint16(byteSize), uint16(i), mask, uint16(i))
 	}
 	br.BufRingAdvance(uint16(brn))
 

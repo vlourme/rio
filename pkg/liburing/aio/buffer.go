@@ -3,7 +3,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"io"
 	"math"
 	"os"
@@ -39,13 +38,13 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 		return
 	}
 
-	bid := uint16(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
+	bid := int(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
 	if length == 0 {
 		br.value.BufRingAdvance(1)
 		return
 	}
 
-	idx := int(bid * br.size)
+	idx := bid * int(br.size)
 	b := br.buffer[idx : idx+length]
 	nn := 0
 	for {
@@ -118,8 +117,8 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 		return
 	}
 
-	bLen := size * count * ref
-	if int(bLen) > maxBufferSize {
+	bLen := int(size) * int(count) * int(ref)
+	if bLen > maxBufferSize {
 		err = errors.New("size, count and ref is too large for BufferAndRings")
 		return
 	}
@@ -138,9 +137,6 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 		values:     make([]*BufferAndRing, 0, 8),
 		bufferPool: sync.Pool{},
 	}
-	brs.bufferPool.New = func() interface{} {
-		return make([]byte, brs.config.Size*brs.config.Count*brs.config.Reference)
-	}
 
 	brs.start()
 	return
@@ -155,6 +151,21 @@ type BufferAndRings struct {
 	bgids      []uint16
 	values     []*BufferAndRing
 	bufferPool sync.Pool
+}
+
+func (brs *BufferAndRings) getBuffer() []byte {
+	v := brs.bufferPool.Get()
+	if v == nil {
+		return make([]byte, int(brs.config.Size)*int(brs.config.Count)*int(brs.config.Reference))
+	}
+	return v.([]byte)
+}
+
+func (brs *BufferAndRings) putBuffer(buf []byte) {
+	if len(buf) == 0 {
+		return
+	}
+	brs.bufferPool.Put(buf)
 }
 
 func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
@@ -208,12 +219,12 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 		return
 	}
 	mask := liburing.BufferRingMask(entries)
-	buffer := brs.bufferPool.Get().([]byte)
-	for i := uint16(0); i < entries; i++ {
-		beg := brs.config.Size * i
-		end := beg + brs.config.Size
+	buffer := brs.getBuffer()
+	for i := 0; i < int(entries); i++ {
+		beg := int(brs.config.Size) * i
+		end := beg + int(brs.config.Size)
 		addr := &buffer[beg:end][0]
-		br0.BufRingAdd(uintptr(unsafe.Pointer(addr)), brs.config.Size, i, mask, i)
+		br0.BufRingAdd(uintptr(unsafe.Pointer(addr)), brs.config.Size, uint16(i), mask, uint16(i))
 	}
 	br0.BufRingAdvance(entries)
 
@@ -280,15 +291,13 @@ func (brs *BufferAndRings) start() {
 		brs.locker.Lock()
 
 		for _, br := range brs.values {
+			// free buffer
+			entries := brs.config.Count * brs.config.Reference
+			_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
 			// release buffer
 			buffer := br.buffer
-			brs.bufferPool.Put(buffer)
-			// munmap
-			entries := brs.config.Count * brs.config.Reference
-			ringSizeAddr := uintptr(entries) * unsafe.Sizeof(liburing.BufferAndRing{})
-			_ = sys.MunmapPtr(uintptr(unsafe.Pointer(br.value)), ringSizeAddr)
-			// unregister
-			_, _ = brs.ring.UnregisterBufferRing(br.bgid)
+			br.buffer = nil
+			brs.putBuffer(buffer)
 		}
 		brs.values = nil
 		brs.bgids = nil
@@ -314,13 +323,15 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 
 	for i := 0; i < n; i++ {
 		br := brs.values[i]
+		if br == nil {
+			continue
+		}
 		if br.idle() {
 			if criticalTime.After(br.lastIdleTime) {
 				brs.values[i] = nil
 				if bgidIdx, has := slices.BinarySearch(brs.bgids, br.bgid); has {
 					brs.bgids = append(brs.bgids[:bgidIdx], brs.bgids[bgidIdx+1:]...)
 				}
-				brs.bgids = append(brs.bgids[:1], brs.bgids[2:]...)
 				*scratch = append(*scratch, br)
 			}
 		}
@@ -329,17 +340,14 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 	tmp := *scratch
 	for i := range tmp {
 		br := tmp[i]
+		// free buffer
+		entries := brs.config.Count * brs.config.Reference
+		_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
 		// release buffer
 		buffer := br.buffer
-		brs.bufferPool.Put(buffer)
-		// munmap
-		entries := brs.config.Count * brs.config.Reference
-		ringSizeAddr := uintptr(entries) * unsafe.Sizeof(liburing.BufferAndRing{})
-		_ = sys.MunmapPtr(uintptr(unsafe.Pointer(br.value)), ringSizeAddr)
-		// unregister
-		_, _ = brs.ring.UnregisterBufferRing(br.bgid)
+		br.buffer = nil
+		brs.putBuffer(buffer)
 	}
-
 	brs.locker.Unlock()
 	return
 
