@@ -18,7 +18,7 @@ type Conn struct {
 func (c *Conn) init() {
 	switch c.sotype {
 	case syscall.SOCK_STREAM: // multi recv
-		if c.vortex.MultishotReceiveEnabled() {
+		if c.vortex.multishotReceiveEnabled() {
 			future, futureErr := newReceiveFuture(c)
 			if futureErr == nil {
 				c.recvFuture = future

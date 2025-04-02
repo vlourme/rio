@@ -23,17 +23,6 @@ const (
 	CompletedOperationStatus
 )
 
-func NewOperation(resultChanBuffer int) *Operation {
-	if resultChanBuffer < 0 {
-		resultChanBuffer = 0
-	}
-	return &Operation{
-		code:     liburing.IORING_OP_LAST,
-		flags:    0,
-		resultCh: make(chan Result, resultChanBuffer),
-	}
-}
-
 const (
 	borrowed uint8 = 1 << iota
 	discard
