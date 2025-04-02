@@ -59,7 +59,7 @@ func (vortex *Vortex) Connect(
 	)
 	if vortex.DirectAllocEnabled() {
 		op := vortex.acquireOperation()
-		op.WithDirectAlloc(true).PrepareSocket(family, sotype|syscall.SOCK_NONBLOCK, proto)
+		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
 		direct, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
 	} else {

@@ -122,7 +122,7 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 
 	cfd, acceptErr := ln.fd.Accept()
 	if acceptErr != nil {
-		if aio.IsCanceled(acceptErr) {
+		if aio.IsCancelled(acceptErr) {
 			acceptErr = net.ErrClosed
 		}
 		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}

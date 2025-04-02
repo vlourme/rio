@@ -7,13 +7,13 @@ import (
 )
 
 var (
-	ErrCanceled  = &CanceledError{}
+	ErrCancelled = &CancelledError{}
 	ErrTimeout   = &TimeoutError{}
 	ErrOpInvalid = errors.New("invalid operation")
 )
 
-func IsCanceled(err error) bool {
-	return errors.Is(err, ErrCanceled)
+func IsCancelled(err error) bool {
+	return errors.Is(err, ErrCancelled)
 }
 
 func IsTimeout(err error) bool {
@@ -27,7 +27,7 @@ func IsOperationInvalid(err error) bool {
 func MapErr(err error) error {
 	switch err {
 	case context.Canceled:
-		return ErrCanceled
+		return ErrCancelled
 	case context.DeadlineExceeded:
 		return ErrTimeout
 	default:
@@ -35,12 +35,12 @@ func MapErr(err error) error {
 	}
 }
 
-type CanceledError struct{}
+type CancelledError struct{}
 
-func (e *CanceledError) Error() string   { return "operation was canceled" }
-func (e *CanceledError) Timeout() bool   { return false }
-func (e *CanceledError) Temporary() bool { return true }
-func (e *CanceledError) Is(err error) bool {
+func (e *CancelledError) Error() string   { return "operation was cancelled" }
+func (e *CancelledError) Timeout() bool   { return false }
+func (e *CancelledError) Temporary() bool { return true }
+func (e *CancelledError) Is(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return true
 	}

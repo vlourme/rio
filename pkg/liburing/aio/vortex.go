@@ -361,7 +361,7 @@ RETRY:
 		}
 		return
 	}
-	err = ErrCanceled
+	err = ErrCancelled
 	return
 }
 
@@ -369,49 +369,17 @@ func (vortex *Vortex) awaitOperation(op *Operation) (n int, cqeFlags uint32, err
 	r, ok := <-op.resultCh
 	if !ok {
 		op.Close()
-		err = ErrCanceled
+		err = ErrCancelled
 		return
 	}
 	n, cqeFlags, err = r.N, r.Flags, r.Err
 
 	if err != nil {
 		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrCanceled
+			err = ErrCancelled
 		} else {
 			err = os.NewSyscallError(op.Name(), err)
 		}
-	}
-	return
-}
-
-func (vortex *Vortex) awaitOperationWithDeadline(op *Operation, deadline time.Time) (n int, cqeFlags uint32, err error) {
-	if deadline.IsZero() {
-		n, cqeFlags, err = vortex.awaitOperation(op)
-		return
-	}
-	timeout := time.Until(deadline)
-	timer := vortex.acquireTimer(timeout)
-	defer vortex.releaseTimer(timer)
-
-	select {
-	case r, ok := <-op.resultCh:
-		if !ok {
-			op.Close()
-			err = ErrCanceled
-			return
-		}
-		n, cqeFlags, err = r.N, r.Flags, r.Err
-		if err != nil {
-			if errors.Is(err, syscall.ECANCELED) {
-				err = ErrCanceled
-			} else {
-				err = os.NewSyscallError(op.Name(), err)
-			}
-		}
-		break
-	case <-timer.C:
-		err = ErrTimeout
-		break
 	}
 	return
 }
