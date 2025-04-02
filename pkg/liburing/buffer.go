@@ -35,6 +35,7 @@ func (ring *Ring) bufAndRingSetup(entries uint16, bgid uint16, flags uint32) (*B
 	reg.RingAddr = uint64(uintptr(unsafe.Pointer(br)))
 	reg.RingEntries = uint32(entries)
 	reg.Bgid = bgid
+	reg.Flags = uint16(flags)
 
 	_, err = ring.RegisterBufferRing(reg, flags)
 	if err != nil {
@@ -101,6 +102,6 @@ type BufReg struct {
 	RingAddr    uint64
 	RingEntries uint32
 	Bgid        uint16
-	Pad         uint16
+	Flags       uint16
 	Resv        [3]uint64
 }
