@@ -23,6 +23,7 @@ func (fd *Fd) Cancel() {
 }
 
 func (fd *Fd) Close() error {
+	fd.Cancel()
 	if fd.direct != -1 {
 		err := fd.closeDirectFd()
 		if fd.regular != -1 {

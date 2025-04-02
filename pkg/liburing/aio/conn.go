@@ -52,10 +52,7 @@ func (c *Conn) SendMSGZCEnabled() bool {
 }
 
 func (c *Conn) Close() error {
-	if c.recvFuture != nil {
-		_ = c.recvFuture.Cancel()
-	}
-	return c.Fd.Close()
+	return c.NetFd.Close()
 }
 
 func (c *Conn) CloseRead() error {

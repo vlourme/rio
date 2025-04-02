@@ -67,9 +67,6 @@ func (fd *ListenerFd) accept() (nfd *Conn, err error) {
 }
 
 func (fd *ListenerFd) Close() error {
-	if fd.acceptFuture != nil {
-		_ = fd.acceptFuture.Cancel()
-	}
 	return fd.NetFd.Close()
 }
 
@@ -155,7 +152,7 @@ func (f *acceptFuture) submit() (err error) {
 	if ok := f.ln.vortex.submit(f.op); !ok {
 		f.clean()
 		// return cancelled
-		err = ErrCancelled
+		err = ErrCanceled
 		return
 	}
 	return
@@ -178,7 +175,7 @@ RETRY:
 	if timer == nil {
 		result, ok := <-handler.ch
 		if !ok {
-			err = ErrCancelled
+			err = ErrCanceled
 			return
 		}
 		accepted, err = result.N, result.Err
@@ -186,7 +183,7 @@ RETRY:
 		select {
 		case result, ok := <-handler.ch:
 			if !ok {
-				err = ErrCancelled
+				err = ErrCanceled
 				return
 			}
 			accepted, err = result.N, result.Err
@@ -229,14 +226,14 @@ func (h *acceptOperationHandler) Handle(n int, flags uint32, err error) {
 	if err != nil {
 		if errors.Is(err, syscall.ECANCELED) {
 			h.done <- struct{}{}
-			err = ErrCancelled
+			err = ErrCanceled
 		}
 		h.ch <- Result{n, flags, err}
 		return
 	}
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
 		h.done <- struct{}{}
-		h.ch <- Result{n, flags, ErrCancelled}
+		h.ch <- Result{n, flags, ErrCanceled}
 		return
 	}
 	h.ch <- Result{n, flags, nil}
