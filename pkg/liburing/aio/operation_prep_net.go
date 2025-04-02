@@ -73,25 +73,25 @@ type prepareAcceptParam struct {
 	addrLen *int
 }
 
-func (op *Operation) PrepareAccept(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int) {
+func (op *Operation) PrepareAccept(ln *ListenerFd, param *prepareAcceptParam) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	op.code = liburing.IORING_OP_ACCEPT
 	op.fd = fd
-	op.addr = unsafe.Pointer(&prepareAcceptParam{addr, addrLen})
+	op.addr = unsafe.Pointer(param)
 	return
 }
 
-func (op *Operation) PrepareAcceptMultishot(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int, handler OperationHandler) {
+func (op *Operation) PrepareAcceptMultishot(ln *ListenerFd, param *prepareAcceptParam, handler OperationHandler) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	op.code = liburing.IORING_OP_ACCEPT
 	op.fd = fd
-	op.addr = unsafe.Pointer(&prepareAcceptParam{addr, addrLen})
+	op.addr = unsafe.Pointer(param)
 	op.WithMultiShot().WithHandler(handler)
 	return
 }
@@ -130,7 +130,7 @@ func (op *Operation) PrepareReceive(nfd *Conn, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMultishot(nfd *Conn, bgid int) {
+func (op *Operation) PrepareReceiveMultishot(nfd *Conn, in *RecvMultishotInbound) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -138,8 +138,8 @@ func (op *Operation) PrepareReceiveMultishot(nfd *Conn, bgid int) {
 	op.sqeFlags |= liburing.IOSQE_BUFFER_SELECT
 	op.code = liburing.IORING_OP_RECV
 	op.fd = fd
-	op.addrLen = uint32(bgid)
-	op.WithMultiShot()
+	op.addrLen = uint32(in.br.bgid)
+	op.WithMultiShot().WithHandler(in)
 	return
 }
 
@@ -147,6 +147,9 @@ func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err err
 	if op.flags&multishot != 0 {
 		bgid := uint16(op.addrLen)
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
+		if liburing.VersionEnable(6, 10, 0) {
+			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
+		}
 		sqe.SetBufferGroup(bgid)
 	} else {
 		b := uintptr(op.addr)

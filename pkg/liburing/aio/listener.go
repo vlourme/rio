@@ -19,7 +19,7 @@ type ListenerFd struct {
 }
 
 func (fd *ListenerFd) init() {
-	if fd.vortex.MultishotAcceptEnabled() {
+	if fd.vortex.multishotAcceptEnabled() {
 		future, futureErr := newAcceptFuture(fd)
 		if futureErr == nil {
 			fd.acceptFuture = future
@@ -43,10 +43,13 @@ func (fd *ListenerFd) accept() (nfd *Conn, err error) {
 	deadline := fd.readDeadline
 	acceptAddr := &syscall.RawSockaddrAny{}
 	acceptAddrLen := syscall.SizeofSockaddrAny
-	acceptAddrLenPtr := &acceptAddrLen
+	param := &prepareAcceptParam{
+		addr:    acceptAddr,
+		addrLen: &acceptAddrLen,
+	}
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareAccept(fd, acceptAddr, acceptAddrLenPtr)
+	op.WithDeadline(deadline).PrepareAccept(fd, param)
 	accepted, _, acceptErr := fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if acceptErr != nil {
@@ -88,8 +91,8 @@ func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *Conn) {
 			laddr:  nil,
 			raddr:  nil,
 		},
-		sendZCEnabled:    fd.vortex.SendZCEnabled(),
-		sendMSGZCEnabled: fd.vortex.SendMSGZCEnabled(),
+		sendZCEnabled:    fd.vortex.sendZCEnabled,
+		sendMSGZCEnabled: fd.vortex.sendMSGZCEnabled,
 	}
 	if fd.Registered() {
 		cfd.direct = accepted
@@ -104,6 +107,7 @@ func newAcceptFuture(ln *ListenerFd) (future *acceptFuture, err error) {
 	f := &acceptFuture{
 		ln: ln,
 	}
+	f.prepare()
 	if err = f.submit(); err == nil {
 		future = f
 	}
@@ -115,30 +119,41 @@ type acceptFuture struct {
 	op      *Operation
 	handler *acceptOperationHandler
 	timer   *time.Timer
-	addr    *syscall.RawSockaddrAny
-	addrLen *int
+	param   *prepareAcceptParam
 }
 
-func (f *acceptFuture) submit() (err error) {
+func (f *acceptFuture) prepare() {
 	f.handler = &acceptOperationHandler{
-		ch: make(chan Result, f.ln.backlog),
+		ch:   make(chan Result, f.ln.backlog),
+		done: make(chan struct{}, 1),
 	}
 
 	acceptAddrLen := syscall.SizeofSockaddrAny
-	f.addr = &syscall.RawSockaddrAny{}
-	f.addrLen = &acceptAddrLen
+	f.param = &prepareAcceptParam{
+		addr:    &syscall.RawSockaddrAny{},
+		addrLen: &acceptAddrLen,
+	}
 
 	f.op = f.ln.vortex.acquireOperation()
 	f.op.Hijack()
-	f.op.PrepareAcceptMultishot(f.ln, f.addr, f.addrLen, f.handler)
-	if ok := f.ln.vortex.Submit(f.op); !ok {
-		// release op
+	f.op.PrepareAcceptMultishot(f.ln, f.param, f.handler)
+	return
+}
+
+func (f *acceptFuture) clean() {
+	if f.op != nil {
 		op := f.op
 		f.op = nil
 		op.Complete()
 		f.ln.vortex.releaseOperation(op)
 		// close handler
 		_ = f.handler.Close()
+	}
+}
+
+func (f *acceptFuture) submit() (err error) {
+	if ok := f.ln.vortex.submit(f.op); !ok {
+		f.clean()
 		// return cancelled
 		err = ErrCancelled
 		return
@@ -159,7 +174,7 @@ func (f *acceptFuture) accept() (nfd *Conn, err error) {
 		timer = vortex.acquireTimer(time.Until(deadline))
 		defer vortex.releaseTimer(timer)
 	}
-
+RETRY:
 	if timer == nil {
 		result, ok := <-handler.ch
 		if !ok {
@@ -183,6 +198,12 @@ func (f *acceptFuture) accept() (nfd *Conn, err error) {
 	}
 
 	if err != nil {
+		if errors.Is(err, ErrIOURingSQBusy) {
+			if err = f.submit(); err != nil {
+				return
+			}
+			goto RETRY
+		}
 		return
 	}
 
@@ -192,29 +213,29 @@ func (f *acceptFuture) accept() (nfd *Conn, err error) {
 
 func (f *acceptFuture) Cancel() (err error) {
 	if f.op != nil {
-		op := f.op
-		f.op = nil
-		err = f.ln.vortex.CancelOperation(op)
-		op.Complete()
-		f.ln.vortex.releaseOperation(op)
-		_ = f.handler.Close()
+		err = f.ln.vortex.cancelOperation(f.op)
+		<-f.handler.done
+		f.clean()
 	}
 	return
 }
 
 type acceptOperationHandler struct {
-	ch chan Result
+	ch   chan Result
+	done chan struct{}
 }
 
 func (h *acceptOperationHandler) Handle(n int, flags uint32, err error) {
 	if err != nil {
 		if errors.Is(err, syscall.ECANCELED) {
+			h.done <- struct{}{}
 			err = ErrCancelled
 		}
 		h.ch <- Result{n, flags, err}
 		return
 	}
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		h.done <- struct{}{}
 		h.ch <- Result{n, flags, ErrCancelled}
 		return
 	}
@@ -224,5 +245,6 @@ func (h *acceptOperationHandler) Handle(n int, flags uint32, err error) {
 
 func (h *acceptOperationHandler) Close() error {
 	close(h.ch)
+	close(h.done)
 	return nil
 }
