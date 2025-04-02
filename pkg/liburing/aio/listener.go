@@ -20,9 +20,8 @@ type ListenerFd struct {
 
 func (fd *ListenerFd) init() {
 	if fd.vortex.multishotAcceptEnabled() {
-		future, futureErr := newAcceptFuture(fd)
+		futureErr := newAcceptFuture(fd)
 		if futureErr == nil {
-			fd.acceptFuture = future
 			fd.acceptFn = fd.acceptFuture.accept
 		} else {
 			fd.acceptFn = fd.accept
@@ -103,14 +102,15 @@ func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *Conn) {
 	return
 }
 
-func newAcceptFuture(ln *ListenerFd) (future *acceptFuture, err error) {
+func newAcceptFuture(ln *ListenerFd) (err error) {
 	f := &acceptFuture{
 		ln: ln,
 	}
 	f.prepare()
-	if err = f.submit(); err == nil {
-		future = f
+	if err = f.submit(); err != nil {
+		return
 	}
+	ln.acceptFuture = f
 	return
 }
 

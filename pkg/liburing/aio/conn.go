@@ -19,9 +19,8 @@ func (c *Conn) init() {
 	switch c.sotype {
 	case syscall.SOCK_STREAM: // multi recv
 		if c.vortex.multishotReceiveEnabled() {
-			future, futureErr := newReceiveFuture(c)
+			futureErr := newReceiveFuture(c)
 			if futureErr == nil {
-				c.recvFuture = future
 				c.recvFn = c.recvFuture.receive
 			} else {
 				c.recvFn = c.receive

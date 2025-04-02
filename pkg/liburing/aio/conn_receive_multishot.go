@@ -137,7 +137,7 @@ func (in *RecvMultishotInbound) waitDone() {
 	<-in.done
 }
 
-func newReceiveFuture(fd *Conn) (future *receiveFuture, err error) {
+func newReceiveFuture(fd *Conn) (err error) {
 	f := &receiveFuture{
 		fd: fd,
 	}
@@ -147,7 +147,7 @@ func newReceiveFuture(fd *Conn) (future *receiveFuture, err error) {
 	if err = f.submit(); err != nil {
 		return
 	}
-	future = f
+	fd.recvFuture = f
 	return
 }
 
