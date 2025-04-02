@@ -50,17 +50,25 @@ func TestTCP(t *testing.T) {
 				t.Error("accept", err)
 				return
 			}
-			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
-			b := make([]byte, 1024)
-			rn, rErr := conn.Read(b)
-			t.Log("srv read", rn, string(b[:rn]), rErr)
-			if rErr != nil {
+			wg.Add(1)
+			go func(conn net.Conn, wg *sync.WaitGroup) {
+				defer wg.Done()
+				t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
+				b := make([]byte, 4096)
+				for {
+					rn, rErr := conn.Read(b)
+					t.Log("srv read", rn, rErr)
+					if rErr != nil {
+						break
+					}
+					wn, wErr := conn.Write(b[:rn])
+					t.Log("srv write", wn, wErr)
+					if wErr != nil {
+						break
+					}
+				}
 				_ = conn.Close()
-				return
-			}
-			wn, wErr := conn.Write(b[:rn])
-			t.Log("srv write", wn, wErr)
-			_ = conn.Close()
+			}(conn, wg)
 			return
 		}
 	}(ln, wg)
@@ -75,12 +83,11 @@ func TestTCP(t *testing.T) {
 	defer conn.Close()
 
 	wn, wErr := conn.Write([]byte("hello world"))
+	t.Log("cli write", wn, wErr)
 	if wErr != nil {
-		t.Error(wErr)
+		t.Error(wn, wErr)
 		return
 	}
-	t.Log("cli write:", wn)
-
 	b := make([]byte, 1024)
 	rn, rErr := conn.Read(b)
 	t.Log("cli read", rn, string(b[:rn]), rErr)
@@ -88,6 +95,7 @@ func TestTCP(t *testing.T) {
 		t.Error(rErr)
 		return
 	}
+
 }
 
 func TestTCPMultiAccept(t *testing.T) {
