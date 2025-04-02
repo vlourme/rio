@@ -3,10 +3,12 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
 	"syscall"
+	"time"
 )
 
 type ListenerFd struct {
@@ -38,14 +40,13 @@ func (fd *ListenerFd) Accept() (nfd *Conn, err error) {
 }
 
 func (fd *ListenerFd) accept() (nfd *Conn, err error) {
-	alloc := fd.Registered()
 	deadline := fd.readDeadline
 	acceptAddr := &syscall.RawSockaddrAny{}
 	acceptAddrLen := syscall.SizeofSockaddrAny
 	acceptAddrLenPtr := &acceptAddrLen
 
 	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).WithDirectAlloc(alloc).PrepareAccept(fd, acceptAddr, acceptAddrLenPtr)
+	op.WithDeadline(deadline).PrepareAccept(fd, acceptAddr, acceptAddrLenPtr)
 	accepted, _, acceptErr := fd.vortex.submitAndWait(op)
 	fd.vortex.releaseOperation(op)
 	if acceptErr != nil {
@@ -112,43 +113,79 @@ func newAcceptFuture(ln *ListenerFd) (future *acceptFuture, err error) {
 type acceptFuture struct {
 	ln      *ListenerFd
 	op      *Operation
+	handler *acceptOperationHandler
+	timer   *time.Timer
 	addr    *syscall.RawSockaddrAny
 	addrLen *int
 }
 
 func (f *acceptFuture) submit() (err error) {
+	f.handler = &acceptOperationHandler{
+		ch: make(chan Result, f.ln.backlog),
+	}
+
 	acceptAddrLen := syscall.SizeofSockaddrAny
 	f.addr = &syscall.RawSockaddrAny{}
 	f.addrLen = &acceptAddrLen
-	alloc := f.ln.Registered()
-	f.op = NewOperation(f.ln.backlog)
+
+	f.op = f.ln.vortex.acquireOperation()
 	f.op.Hijack()
-	f.op.WithDirectAlloc(alloc).PrepareAcceptMultishot(f.ln, f.addr, f.addrLen)
+	f.op.PrepareAcceptMultishot(f.ln, f.addr, f.addrLen, f.handler)
 	if ok := f.ln.vortex.Submit(f.op); !ok {
-		f.op.Close()
+		// release op
+		op := f.op
 		f.op = nil
-		err = ErrCanceled
+		op.Complete()
+		f.ln.vortex.releaseOperation(op)
+		// close handler
+		_ = f.handler.Close()
+		// return cancelled
+		err = ErrCancelled
+		return
 	}
 	return
 }
 
 func (f *acceptFuture) accept() (nfd *Conn, err error) {
 	var (
-		op       = f.op
+		handler  = f.handler
 		ln       = f.ln
+		timer    = f.timer
 		deadline = ln.readDeadline
 		vortex   = f.ln.vortex
 		accepted = -1
-		cqeFlags uint32
 	)
-	accepted, cqeFlags, err = vortex.awaitOperationWithDeadline(op, deadline)
+	if !deadline.IsZero() {
+		timer = vortex.acquireTimer(time.Until(deadline))
+		defer vortex.releaseTimer(timer)
+	}
+
+	if timer == nil {
+		result, ok := <-handler.ch
+		if !ok {
+			err = ErrCancelled
+			return
+		}
+		accepted, err = result.N, result.Err
+	} else {
+		select {
+		case result, ok := <-handler.ch:
+			if !ok {
+				err = ErrCancelled
+				return
+			}
+			accepted, err = result.N, result.Err
+			break
+		case <-timer.C:
+			err = ErrTimeout
+			break
+		}
+	}
+
 	if err != nil {
 		return
 	}
-	if cqeFlags&liburing.IORING_CQE_F_MORE == 0 {
-		err = ErrCanceled
-		return
-	}
+
 	nfd = ln.newAcceptedConnFd(accepted)
 	return
 }
@@ -158,7 +195,34 @@ func (f *acceptFuture) Cancel() (err error) {
 		op := f.op
 		f.op = nil
 		err = f.ln.vortex.CancelOperation(op)
-		op.Close()
+		op.Complete()
+		f.ln.vortex.releaseOperation(op)
+		_ = f.handler.Close()
 	}
 	return
+}
+
+type acceptOperationHandler struct {
+	ch chan Result
+}
+
+func (h *acceptOperationHandler) Handle(n int, flags uint32, err error) {
+	if err != nil {
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrCancelled
+		}
+		h.ch <- Result{n, flags, err}
+		return
+	}
+	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		h.ch <- Result{n, flags, ErrCancelled}
+		return
+	}
+	h.ch <- Result{n, flags, nil}
+	return
+}
+
+func (h *acceptOperationHandler) Close() error {
+	close(h.ch)
+	return nil
 }

@@ -11,6 +11,10 @@ import (
 	"unsafe"
 )
 
+type OperationHandler interface {
+	Handle(n int, flags uint32, err error)
+}
+
 func newOperationConsumer(ring *liburing.Ring, curve Curve) *operationConsumer {
 	// curve
 	if len(curve) == 0 {
@@ -65,13 +69,16 @@ func (c *operationConsumer) handle() {
 				cqes[i] = nil
 
 				if cqe.UserData == 0 { // no userdata means no op
+					ring.CQAdvance(1)
 					continue
 				}
 				if cqe.IsInternalUpdateTimeoutUserdata() { // userdata means not op
+					ring.CQAdvance(1)
 					continue
 				}
 				if cqe.UserData == c.closeUserdata {
 					stopped = true
+					ring.CQAdvance(1)
 					continue
 				}
 
@@ -90,9 +97,9 @@ func (c *operationConsumer) handle() {
 					opN = int(cqe.Res)
 				}
 				cop.complete(opN, opFlags, opErr)
+
+				ring.CQAdvance(1)
 			}
-			// CQAdvance
-			ring.CQAdvance(peeked)
 			// mark completed
 			completed += peeked
 			continue

@@ -39,6 +39,7 @@ const (
 	discard
 	directAlloc
 	multishot
+	withHandler
 )
 
 type Operation struct {
@@ -90,6 +91,24 @@ func (op *Operation) WithDirectAlloc(direct bool) *Operation {
 	return op
 }
 
+func (op *Operation) WithMultiShot() *Operation {
+	op.flags |= multishot
+	return op
+}
+
+func (op *Operation) WithHandler(handler OperationHandler) *Operation {
+	op.flags |= withHandler
+	op.addr2 = unsafe.Pointer(&handler)
+	return op
+}
+
+func (op *Operation) handler() (handler OperationHandler) {
+	if op.flags&withHandler != 0 {
+		handler = *(*OperationHandler)(op.addr2)
+	}
+	return
+}
+
 func (op *Operation) reset() {
 	op.code = liburing.IORING_OP_LAST
 	op.cmd = 0
@@ -106,50 +125,48 @@ func (op *Operation) reset() {
 	op.addr = nil
 	op.addrLen = 0
 	op.addr2 = nil
+	op.addr2Len = 0
 	return
 }
 
 func (op *Operation) failed(err error) {
 	if op.status.CompareAndSwap(ReadyOperationStatus, CompletedOperationStatus) {
-		op.resultCh <- Result{0, 0, err}
+		op.handle(0, 0, err)
 		return
 	}
 	if op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus) {
-		op.resultCh <- Result{0, 0, err}
+		op.handle(0, 0, err)
 		return
 	}
 	if op.status.Load() == HijackedOperationStatus {
-		op.resultCh <- Result{0, 0, err}
+		op.handle(0, 0, err)
 		return
 	}
 }
 
 func (op *Operation) complete(n int, flags uint32, err error) {
 	if ok := op.status.CompareAndSwap(ProcessingOperationStatus, CompletedOperationStatus); ok {
-		op.resultCh <- Result{n, flags, err}
+		op.handle(n, flags, err)
 		return
 	}
 	if ok := op.status.Load() == HijackedOperationStatus; ok {
-		op.resultCh <- Result{n, flags, err}
+		op.handle(n, flags, err)
 		return
 	}
 	return
 }
 
-func (op *Operation) completed() bool {
-	return op.status.Load() == CompletedOperationStatus && len(op.resultCh) == 0
+func (op *Operation) handle(n int, flags uint32, err error) {
+	if handler := op.handler(); handler != nil {
+		handler.Handle(n, flags, err)
+		return
+	}
+	op.resultCh <- Result{n, flags, err}
+	return
 }
 
-func (op *Operation) Clean() bool {
-	if ok := op.status.Load() == CompletedOperationStatus; ok {
-		if rLen := len(op.resultCh); rLen > 0 {
-			for i := 0; i < rLen; i++ {
-				<-op.resultCh
-			}
-		}
-		return true
-	}
-	return false
+func (op *Operation) completed() bool {
+	return op.status.Load() == CompletedOperationStatus && len(op.resultCh) == 0
 }
 
 func (op *Operation) cancelAble() bool {
@@ -172,7 +189,19 @@ func (op *Operation) releaseAble() bool {
 	}
 	ok := op.flags&borrowed != 0 && op.flags&discard == 0
 	if ok {
-		ok = op.Clean()
+		ok = op.clean()
 	}
 	return ok
+}
+
+func (op *Operation) clean() bool {
+	if ok := op.status.Load() == CompletedOperationStatus; ok {
+		if rLen := len(op.resultCh); rLen > 0 {
+			for i := 0; i < rLen; i++ {
+				<-op.resultCh
+			}
+		}
+		return true
+	}
+	return false
 }

@@ -68,6 +68,11 @@ func (op *Operation) packingBind(sqe *liburing.SubmissionQueueEntry) (err error)
 	return
 }
 
+type prepareAcceptParam struct {
+	addr    *syscall.RawSockaddrAny
+	addrLen *int
+}
+
 func (op *Operation) PrepareAccept(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
@@ -75,49 +80,37 @@ func (op *Operation) PrepareAccept(ln *ListenerFd, addr *syscall.RawSockaddrAny,
 	}
 	op.code = liburing.IORING_OP_ACCEPT
 	op.fd = fd
-	op.addr = unsafe.Pointer(addr)
-	op.addr2 = unsafe.Pointer(addrLen)
-	if op.flags&directAlloc != 0 {
-		op.addrLen = uint32(syscall.SOCK_NONBLOCK)
-	} else {
-		op.addrLen = uint32(syscall.SOCK_NONBLOCK | syscall.SOCK_CLOEXEC)
-	}
+	op.addr = unsafe.Pointer(&prepareAcceptParam{addr, addrLen})
 	return
 }
 
-func (op *Operation) PrepareAcceptMultishot(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int) {
+func (op *Operation) PrepareAcceptMultishot(ln *ListenerFd, addr *syscall.RawSockaddrAny, addrLen *int, handler OperationHandler) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	op.code = liburing.IORING_OP_ACCEPT
 	op.fd = fd
-	op.flags |= multishot
-	op.addr = unsafe.Pointer(addr)
-	op.addr2 = unsafe.Pointer(addrLen)
-	if op.flags&directAlloc != 0 {
-		op.addrLen = uint32(syscall.SOCK_NONBLOCK)
-	} else {
-		op.addrLen = uint32(syscall.SOCK_NONBLOCK | syscall.SOCK_CLOEXEC)
-	}
+	op.addr = unsafe.Pointer(&prepareAcceptParam{addr, addrLen})
+	op.WithMultiShot().WithHandler(handler)
 	return
 }
 
 func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err error) {
-	addrPtr := (*syscall.RawSockaddrAny)(op.addr)
-	addrLenPtr := uint64(uintptr(op.addr2))
-	flags := int(op.addrLen)
+	param := (*prepareAcceptParam)(op.addr)
+	addrPtr := param.addr
+	addrLenPtr := uint64(uintptr(unsafe.Pointer(param.addrLen)))
 	if op.flags&multishot != 0 {
-		if op.flags&directAlloc != 0 {
-			sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, flags)
+		if op.sqeFlags&liburing.IOSQE_FIXED_FILE != 0 {
+			sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK)
 		} else {
-			sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, flags)
+			sqe.PrepareAcceptMultishot(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 		}
 	} else {
-		if op.flags&directAlloc != 0 {
-			sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, flags, liburing.IORING_FILE_INDEX_ALLOC)
+		if op.sqeFlags&liburing.IOSQE_FIXED_FILE != 0 {
+			sqe.PrepareAcceptDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK, liburing.IORING_FILE_INDEX_ALLOC)
 		} else {
-			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, flags)
+			sqe.PrepareAccept(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC)
 		}
 	}
 	sqe.SetFlags(op.sqeFlags)
@@ -143,10 +136,10 @@ func (op *Operation) PrepareReceiveMultishot(nfd *Conn, bgid int) {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
 	}
 	op.sqeFlags |= liburing.IOSQE_BUFFER_SELECT
-	op.flags |= multishot
 	op.code = liburing.IORING_OP_RECV
 	op.fd = fd
 	op.addrLen = uint32(bgid)
+	op.WithMultiShot()
 	return
 }
 
