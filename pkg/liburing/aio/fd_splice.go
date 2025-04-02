@@ -38,7 +38,7 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 		}
 		opDrain := fd.vortex.acquireOperation()
 		opDrain.PrepareSplice(&drainParams)
-		if ok := fd.vortex.Submit(opDrain); !ok {
+		if ok := fd.vortex.submit(opDrain); !ok {
 			err = ErrCancelled
 			return
 		}
@@ -62,7 +62,7 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 		}
 		opPump := fd.vortex.acquireOperation()
 		opPump.PrepareSplice(&pumpParams)
-		if ok := fd.vortex.Submit(opPump); !ok {
+		if ok := fd.vortex.submit(opPump); !ok {
 			err = ErrCancelled
 			return
 		}
