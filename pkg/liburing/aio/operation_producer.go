@@ -88,8 +88,12 @@ func (producer *operationProducer) handleImmediately(producerLockOSThread bool) 
 		if op.prepareAble() {
 			sqe := ring.GetSQE()
 			if sqe == nil {
-				op.failed(ErrIOURingSQBusy) // when prep err occur, means no sqe left
-				break
+				_, _ = ring.Submit()
+				sqe = ring.GetSQE()
+				if sqe == nil {
+					op.failed(ErrIOURingSQBusy) // when prep err occur, means no sqe left
+					break
+				}
 			}
 			var timeoutSQE *liburing.SubmissionQueueEntry
 			if op.timeout != nil {
@@ -196,8 +200,12 @@ func (producer *operationProducer) handleBatch(producerLockOSThread bool, batchS
 				if op.prepareAble() {
 					sqe := ring.GetSQE()
 					if sqe == nil {
-						op.failed(ErrIOURingSQBusy) // when prep err occur, means no sqe left
-						continue
+						_, _ = ring.Submit()
+						sqe = ring.GetSQE()
+						if sqe == nil {
+							op.failed(ErrIOURingSQBusy) // when prep err occur, means no sqe left
+							continue
+						}
 					}
 					var timeoutSQE *liburing.SubmissionQueueEntry
 					if op.timeout != nil {
