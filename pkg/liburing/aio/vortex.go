@@ -152,10 +152,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		},
 		recvMultishotInbounds: sync.Pool{
 			New: func() interface{} {
-				return &RecvMultishotInbound{
-					locker: sync.Mutex{},
-					done:   make(chan struct{}, 1),
-				}
+				return &RecvMultishotInbound{}
 			},
 		},
 	}
@@ -197,9 +194,6 @@ func (vortex *Vortex) cancelOperation(target *Operation) (err error) {
 		op.PrepareCancel(target)
 		_, _, err = vortex.submitAndWait(op)
 		vortex.releaseOperation(op)
-		if err != nil && !IsOperationInvalid(err) { // discard target missing
-			err = nil
-		}
 	}
 	return
 }
@@ -258,7 +252,7 @@ RETRY:
 		}
 		return
 	}
-	err = ErrCancelled
+	err = ErrCanceled
 	return
 }
 
@@ -266,16 +260,14 @@ func (vortex *Vortex) awaitOperation(op *Operation) (n int, cqeFlags uint32, err
 	r, ok := <-op.resultCh
 	if !ok {
 		op.Close()
-		err = ErrCancelled
+		err = ErrCanceled
 		return
 	}
 	n, cqeFlags, err = r.N, r.Flags, r.Err
 
 	if err != nil {
 		if errors.Is(err, syscall.ECANCELED) {
-			err = ErrCancelled
-		} else {
-			err = os.NewSyscallError(op.Name(), err)
+			err = ErrCanceled
 		}
 	}
 	return

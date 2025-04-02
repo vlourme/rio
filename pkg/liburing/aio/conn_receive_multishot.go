@@ -15,7 +15,6 @@ type RecvMultishotInbound struct {
 	locker  sync.Mutex
 	waiting bool
 	ch      chan Result
-	done    chan struct{}
 	err     error
 	msg     *syscall.Msghdr
 	buffer  *bytebuffer.Buffer
@@ -34,9 +33,6 @@ func (in *RecvMultishotInbound) Handle(n int, flags uint32, err error) {
 			in.locker.Unlock()
 			return
 		}
-		if errors.Is(err, syscall.ECANCELED) { // done
-			in.done <- struct{}{}
-		}
 		in.err = err
 		if in.waiting {
 			in.waiting = false
@@ -46,9 +42,8 @@ func (in *RecvMultishotInbound) Handle(n int, flags uint32, err error) {
 		return
 	}
 
-	if flags&liburing.IORING_CQE_F_MORE == 0 { // done
-		in.done <- struct{}{}
-		err = io.EOF
+	if flags&liburing.IORING_CQE_F_MORE == 0 { // EOF
+		in.err = io.EOF
 		if in.waiting {
 			in.waiting = false
 			in.ch <- Result{}
@@ -111,6 +106,7 @@ func (in *RecvMultishotInbound) Read(b []byte) (n int, err error) {
 	}
 	// read nothing, wait more
 	<-in.ch
+
 	in.locker.Lock()
 	n, _ = in.buffer.Read(b)
 	if in.err != nil {
@@ -131,10 +127,6 @@ func (in *RecvMultishotInbound) reset() {
 	in.br = nil
 	in.msg = nil
 	in.err = nil
-}
-
-func (in *RecvMultishotInbound) waitDone() {
-	<-in.done
 }
 
 func newReceiveFuture(fd *Conn) (err error) {
@@ -197,7 +189,7 @@ func (f *receiveFuture) clean() {
 func (f *receiveFuture) submit() (err error) {
 	if ok := f.fd.vortex.submit(f.op); !ok {
 		f.clean()
-		err = ErrCancelled
+		err = ErrCanceled
 		return
 	}
 	return
@@ -211,6 +203,7 @@ RETRY:
 			if !f.fd.ZeroReadIsEOF() {
 				err = nil
 			}
+			f.clean()
 			return
 		}
 		if errors.Is(err, ErrIOURingSQBusy) { // not submitted, try to submit again
@@ -219,6 +212,7 @@ RETRY:
 			}
 			goto RETRY
 		}
+		f.clean()
 		return
 	}
 	return
@@ -226,9 +220,7 @@ RETRY:
 
 func (f *receiveFuture) Cancel() (err error) {
 	if f.op != nil {
-		err = f.fd.vortex.cancelOperation(f.op)
-		f.in.waitDone()
-		f.clean()
+		_ = f.fd.vortex.cancelOperation(f.op)
 	}
 	return
 }

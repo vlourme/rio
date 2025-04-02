@@ -212,7 +212,7 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 	}
 
 	entries := brs.config.Count * brs.config.Reference
-	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, 0)
+	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, 0) // liburing.IOU_PBUF_RING_INC
 	if setupErr != nil {
 		err = setupErr
 		brs.locker.Unlock()
