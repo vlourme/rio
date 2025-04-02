@@ -60,7 +60,7 @@ func (fd *Fd) SetWriteDeadline(t time.Time) {
 }
 
 func (fd *Fd) OperationSupported(op uint8) bool {
-	return fd.vortex.OpSupported(op)
+	return fd.vortex.opSupported(op)
 }
 
 func (fd *Fd) Registered() bool {
@@ -79,7 +79,7 @@ func (fd *Fd) Install() (err error) {
 		err = errors.New("fd is not directed")
 		return
 	}
-	regular, installErr := fd.vortex.FixedFdInstall(fd.direct)
+	regular, installErr := fd.vortex.fixedFdInstall(fd.direct)
 	if installErr != nil {
 		err = installErr
 		return
