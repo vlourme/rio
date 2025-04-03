@@ -38,20 +38,20 @@ var (
 )
 
 const (
-	envEntries                            = "RIO_IOURING_ENTRIES"
-	envFlags                              = "RIO_IOURING_SETUP_FLAGS"
-	envSQThreadCPU                        = "RIO_IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle                       = "RIO_IOURING_SQ_THREAD_IDLE"
-	envSendZC                             = "RIO_IOURING_SENDZC"
-	envDisableIOURingDirectAllocBlackList = "RIO_IOURING_DISABLE_IOURING_DIRECT_ALLOC_BLACKLIST" // a, b, c
-	envRegisterFixedFiles                 = "RIO_IOURING_REG_FIXED_FILES"
-	envIOURingHeartbeatTimeout            = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envBufferAndBufferConfig              = "RIO_BUFFER_AND_RING_CONFIG" // 4096x16x512, 15s
-	envProducerLockOSThread               = "RIO_PRODUCER_LOCK_OSTHREAD"
-	envProducerBatchSize                  = "RIO_PRODUCER_BATCH_SIZE"
-	envProducerBatchTimeWindow            = "RIO_PRODUCER_BATCH_TIME_WINDOW"
-	envProducerBatchIdleTime              = "RIO_PRODUCER_BATCH_IDLE_TIME"
-	envConsumeBatchTimeCurve              = "RIO_CONSUMER_BATCH_TIME_CURVE" // 1:15s, 2:1us, 8:10us
+	envEntries                 = "RIO_IOURING_ENTRIES"
+	envFlags                   = "RIO_IOURING_SETUP_FLAGS"
+	envSQThreadCPU             = "RIO_IOURING_SQ_THREAD_CPU"
+	envSQThreadIdle            = "RIO_IOURING_SQ_THREAD_IDLE"
+	envSendZC                  = "RIO_IOURING_SENDZC"
+	envKernelFlavorBlackList   = "RIO_IOURING_KERNEL_FLAVOR_BLACKLIST" // a, b, c
+	envRegisterFixedFiles      = "RIO_IOURING_REG_FIXED_FILES"
+	envIOURingHeartbeatTimeout = "RIO_IOURING_HEARTBEAT_TIMEOUT"
+	envBufferAndBufferConfig   = "RIO_BUFFER_AND_RING_CONFIG" // 4096x16x512, 15s
+	envProducerLockOSThread    = "RIO_PRODUCER_LOCK_OSTHREAD"
+	envProducerBatchSize       = "RIO_PRODUCER_BATCH_SIZE"
+	envProducerBatchTimeWindow = "RIO_PRODUCER_BATCH_TIME_WINDOW"
+	envProducerBatchIdleTime   = "RIO_PRODUCER_BATCH_IDLE_TIME"
+	envConsumeBatchTimeCurve   = "RIO_CONSUMER_BATCH_TIME_CURVE" // 1:15s, 2:1us, 8:10us
 )
 
 func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
@@ -87,11 +87,11 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 			if ok := envLoadBool(envSendZC); ok {
 				aioOptions = append(aioOptions, aio.WithSendZC(ok))
 			}
-			if v, has := envLoadStrings(envDisableIOURingDirectAllocBlackList); has {
-				aioOptions = append(aioOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
+			if v, has := envLoadStrings(envKernelFlavorBlackList); has {
+				aioOptions = append(aioOptions, aio.WithKernelFlavorBlackList(v))
 			} else {
 				v = []string{"microsoft-standard-WSL2"}
-				aioOptions = append(aioOptions, aio.WithDisableDirectAllocFeatKernelFlavorBlackList(v))
+				aioOptions = append(aioOptions, aio.WithKernelFlavorBlackList(v))
 			}
 			// ring <<<
 

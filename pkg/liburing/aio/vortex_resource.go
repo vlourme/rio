@@ -4,7 +4,6 @@ package aio
 
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
 	"syscall"
 	"time"
 	"unsafe"
@@ -87,20 +86,4 @@ func (vortex *Vortex) releaseMsg(msg *syscall.Msghdr) {
 	msg.Flags = 0
 	vortex.msgs.Put(msg)
 	return
-}
-
-func (vortex *Vortex) acquireRecvMultishotInbound(op *Operation, br *BufferAndRing, msg *syscall.Msghdr) *RecvMultishotInbound {
-	in := vortex.recvMultishotInbounds.Get().(*RecvMultishotInbound)
-	in.ch = op.resultCh
-	in.buffer = bytebuffer.Acquire()
-	in.br = br
-	in.msg = msg
-	return in
-}
-
-func (vortex *Vortex) releaseRecvMultishotInbound(in *RecvMultishotInbound) {
-	buffer := in.buffer
-	bytebuffer.Release(buffer)
-	in.reset()
-	vortex.recvMultishotInbounds.Put(in)
 }

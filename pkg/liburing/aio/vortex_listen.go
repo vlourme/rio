@@ -15,7 +15,7 @@ import (
 	"syscall"
 )
 
-func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, addr net.Addr, reusePort bool, control Control) (ln *ListenerFd, err error) {
+func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, addr net.Addr, reusePort bool, control Control) (ln *Listener, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -66,7 +66,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	// backlog
 	backlog := sys.MaxListenerBacklog()
 	// ln
-	ln = &ListenerFd{
+	ln = &Listener{
 		NetFd: NetFd{
 			Fd: Fd{
 				regular:       regular,
@@ -81,8 +81,9 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 			laddr:  addr,
 			raddr:  nil,
 		},
-		backlog:      backlog,
-		acceptFuture: nil,
+		backlog:  backlog,
+		acceptFn: nil,
+		handler:  nil,
 	}
 	// ipv6
 	if ipv6only {

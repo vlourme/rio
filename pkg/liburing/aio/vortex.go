@@ -53,6 +53,8 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		err = NewRingErr(ringErr)
 		return
 	}
+	// kernel flavor black list
+	kernelFlavorAvailable := !liburing.VersionMatchFlavor(opt.KernelFlavorBlackList)
 
 	// buffer and rings
 	brs, brsErr := newBufferAndRings(ring, opt.BufferAndRingConfig)
@@ -64,7 +66,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 
 	// register files
 	var (
-		directAllocEnabled = !liburing.VersionMatchFlavor(opt.DisableDirectAllocFeatKernelFlavorBlackList) && // disabled by black list
+		directAllocEnabled = kernelFlavorAvailable && // disabled by black list
 			liburing.VersionEnable(6, 7, 0) && // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT)
 			probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // io_uring_prep_fixed_fd_install
 	)
@@ -107,7 +109,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 	if liburing.VersionEnable(5, 19, 0) {
 		multishotEnabledOps[liburing.IORING_OP_ACCEPT] = struct{}{}
 	}
-	if liburing.VersionEnable(6, 0, 0) {
+	if liburing.VersionEnable(6, 0, 0) && kernelFlavorAvailable {
 		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
 		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
 	}
@@ -150,30 +152,24 @@ func Open(options ...Option) (v AsyncIO, err error) {
 				return time.NewTimer(0)
 			},
 		},
-		recvMultishotInbounds: sync.Pool{
-			New: func() interface{} {
-				return &RecvMultishotInbound{}
-			},
-		},
 	}
 	return
 }
 
 type Vortex struct {
-	ring                  *liburing.Ring
-	probe                 *liburing.Probe
-	sendZCEnabled         bool
-	sendMSGZCEnabled      bool
-	producer              *operationProducer
-	consumer              *operationConsumer
-	heartbeat             *heartbeat
-	directAllocEnabled    bool
-	bufferAndRings        *BufferAndRings
-	multishotEnabledOps   map[uint8]struct{}
-	operations            sync.Pool
-	msgs                  sync.Pool
-	timers                sync.Pool
-	recvMultishotInbounds sync.Pool
+	ring                *liburing.Ring
+	probe               *liburing.Probe
+	sendZCEnabled       bool
+	sendMSGZCEnabled    bool
+	producer            *operationProducer
+	consumer            *operationConsumer
+	heartbeat           *heartbeat
+	directAllocEnabled  bool
+	bufferAndRings      *BufferAndRings
+	multishotEnabledOps map[uint8]struct{}
+	operations          sync.Pool
+	msgs                sync.Pool
+	timers              sync.Pool
 }
 
 func (vortex *Vortex) Fd() int {

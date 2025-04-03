@@ -136,7 +136,7 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 // typically use variables of type [net.Listener] instead of assuming Unix
 // domain sockets.
 type UnixListener struct {
-	fd         *aio.ListenerFd
+	fd         *aio.Listener
 	path       string
 	unlink     bool
 	unlinkOnce sync.Once

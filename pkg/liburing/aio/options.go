@@ -5,21 +5,21 @@ import (
 )
 
 type Options struct {
-	Entries                                     uint32
-	Flags                                       uint32
-	SQThreadCPU                                 uint32
-	SQThreadIdle                                uint32
-	SendZC                                      bool
-	DisableDirectAllocFeatKernelFlavorBlackList []string
-	RegisterFixedFiles                          uint32
-	BufferAndRingConfig                         BufferAndRingConfig
-	ProducerLockOSThread                        bool
-	ProducerBatchSize                           uint32
-	ProducerBatchTimeWindow                     time.Duration
-	ProducerBatchIdleTime                       time.Duration
-	ConsumeBatchTimeCurve                       Curve
-	HeartbeatTimeout                            time.Duration
-	AttachRingFd                                int
+	Entries                 uint32
+	Flags                   uint32
+	SQThreadCPU             uint32
+	SQThreadIdle            uint32
+	SendZC                  bool
+	KernelFlavorBlackList   []string
+	RegisterFixedFiles      uint32
+	BufferAndRingConfig     BufferAndRingConfig
+	ProducerLockOSThread    bool
+	ProducerBatchSize       uint32
+	ProducerBatchTimeWindow time.Duration
+	ProducerBatchIdleTime   time.Duration
+	ConsumeBatchTimeCurve   Curve
+	HeartbeatTimeout        time.Duration
+	AttachRingFd            int
 }
 
 type Option func(*Options)
@@ -97,11 +97,11 @@ func WithRingBufferConfig(size uint16, count uint16, reference uint16, idleTimeo
 	}
 }
 
-// WithDisableDirectAllocFeatKernelFlavorBlackList
+// WithKernelFlavorBlackList
 // setup disable iouring direct alloc feat kernel flavor black list.
-func WithDisableDirectAllocFeatKernelFlavorBlackList(list []string) Option {
+func WithKernelFlavorBlackList(list []string) Option {
 	return func(opts *Options) {
-		opts.DisableDirectAllocFeatKernelFlavorBlackList = list
+		opts.KernelFlavorBlackList = list
 	}
 }
 

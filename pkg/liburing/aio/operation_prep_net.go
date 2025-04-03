@@ -29,7 +29,7 @@ func (op *Operation) packingConnect(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareListen(nfd *ListenerFd, backlog int) {
+func (op *Operation) PrepareListen(nfd *Listener, backlog int) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -73,7 +73,7 @@ type prepareAcceptParam struct {
 	addrLen *int
 }
 
-func (op *Operation) PrepareAccept(ln *ListenerFd, param *prepareAcceptParam) {
+func (op *Operation) PrepareAccept(ln *Listener, param *prepareAcceptParam) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -84,7 +84,7 @@ func (op *Operation) PrepareAccept(ln *ListenerFd, param *prepareAcceptParam) {
 	return
 }
 
-func (op *Operation) PrepareAcceptMultishot(ln *ListenerFd, param *prepareAcceptParam, handler OperationHandler) {
+func (op *Operation) PrepareAcceptMultishot(ln *Listener, param *prepareAcceptParam, handler OperationHandler) {
 	fd, direct := ln.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -130,7 +130,7 @@ func (op *Operation) PrepareReceive(nfd *Conn, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMultishot(nfd *Conn, in *RecvMultishotInbound) {
+func (op *Operation) PrepareReceiveMultishot(nfd *Conn, br *BufferAndRing, handler OperationHandler) {
 	fd, direct := nfd.FileDescriptor()
 	if direct {
 		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
@@ -138,8 +138,8 @@ func (op *Operation) PrepareReceiveMultishot(nfd *Conn, in *RecvMultishotInbound
 	op.sqeFlags |= liburing.IOSQE_BUFFER_SELECT
 	op.code = liburing.IORING_OP_RECV
 	op.fd = fd
-	op.addrLen = uint32(in.br.bgid)
-	op.WithMultiShot().WithHandler(in)
+	op.addrLen = uint32(br.bgid)
+	op.WithMultiShot().WithHandler(handler)
 	return
 }
 
@@ -147,9 +147,10 @@ func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err err
 	if op.flags&multishot != 0 {
 		bgid := uint16(op.addrLen)
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
-		if liburing.VersionEnable(6, 10, 0) {
-			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
-		}
+		// todo: IORING_RECVSEND_BUNDLE works not well for large content, 4096*64 is not worked.
+		//if liburing.VersionEnable(6, 10, 0) {
+		//	sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
+		//}
 		sqe.SetBufferGroup(bgid)
 	} else {
 		b := uintptr(op.addr)

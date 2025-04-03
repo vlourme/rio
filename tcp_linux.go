@@ -100,7 +100,7 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 // TCPListener is a TCP network listener. Clients should typically
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
-	fd              *aio.ListenerFd
+	fd              *aio.Listener
 	asyncIO         *reference.Pointer[aio.AsyncIO]
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
