@@ -240,6 +240,8 @@ func (handler *AcceptMultishotHandler) Close() (err error) {
 	if err = handler.ln.vortex.cancelOperation(op); err != nil {
 		// use cancel fd when cancel op failed
 		handler.ln.Cancel()
+		// reset err when fd was canceled
+		err = nil
 	}
 
 	op.Complete()

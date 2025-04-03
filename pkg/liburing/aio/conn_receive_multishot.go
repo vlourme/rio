@@ -210,14 +210,13 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 		return
 	}
 	op := handler.op
-	if err = handler.conn.vortex.cancelOperation(op); err == nil {
-		handler.locker.Unlock()
-		handler.clean()
-		return
+	if err = handler.conn.vortex.cancelOperation(op); err != nil {
+		// use cancel fd when cancel op failed
+		handler.conn.Cancel()
+		// reset err when fd was canceled
+		err = nil
 	}
 	handler.locker.Unlock()
-	// use cancel fd when cancel op failed
-	handler.conn.Cancel()
 	handler.clean()
 	return
 }
