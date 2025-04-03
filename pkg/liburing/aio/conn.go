@@ -12,16 +12,17 @@ type Conn struct {
 	sendZCEnabled    bool
 	sendMSGZCEnabled bool
 	recvFn           func([]byte) (int, error)
-	recvFuture       *receiveFuture
+	handler          *RecvMultishotHandler
 }
 
 func (c *Conn) init() {
 	switch c.sotype {
 	case syscall.SOCK_STREAM: // multi recv
 		if c.vortex.multishotReceiveEnabled() {
-			futureErr := newReceiveFuture(c)
-			if futureErr == nil {
-				c.recvFn = c.recvFuture.receive
+			handler, handlerErr := newRecvMultishotHandler(c)
+			if handlerErr == nil {
+				c.handler = handler
+				c.recvFn = c.handler.Receive
 			} else {
 				c.recvFn = c.receive
 			}
@@ -52,12 +53,15 @@ func (c *Conn) SendMSGZCEnabled() bool {
 }
 
 func (c *Conn) Close() error {
+	if c.handler != nil {
+		_ = c.handler.Close()
+	}
 	return c.NetFd.Close()
 }
 
 func (c *Conn) CloseRead() error {
-	if c.recvFuture != nil {
-		_ = c.recvFuture.Cancel()
+	if c.handler != nil {
+		_ = c.handler.Close()
 	}
 	if c.Registered() {
 		op := c.vortex.acquireOperation()

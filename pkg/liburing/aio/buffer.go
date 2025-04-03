@@ -12,6 +12,7 @@ import (
 	"unsafe"
 )
 
+// BufferAndRingConfig not work well in WSL
 type BufferAndRingConfig struct {
 	Size        uint16
 	Count       uint16
@@ -35,6 +36,7 @@ func (br *BufferAndRing) Id() uint16 {
 
 func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) (n int, err error) {
 	if cqeFlags == 0 {
+		err = errors.New("invalid cqe flags for buffer and ring")
 		return
 	}
 
@@ -212,7 +214,11 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 	}
 
 	entries := brs.config.Count * brs.config.Reference
-	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, 0) // liburing.IOU_PBUF_RING_INC
+	flags := uint32(0)
+	if liburing.VersionEnable(6, 12, 0) {
+		flags = liburing.IOU_PBUF_RING_INC
+	}
+	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, flags) // liburing.IOU_PBUF_RING_INC
 	if setupErr != nil {
 		err = setupErr
 		brs.locker.Unlock()

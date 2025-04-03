@@ -7,38 +7,40 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
+	"sync"
 	"syscall"
 	"time"
 )
 
-type ListenerFd struct {
+type Listener struct {
 	NetFd
-	backlog      int
-	acceptFn     func() (nfd *Conn, err error)
-	acceptFuture *acceptFuture
+	backlog  int
+	acceptFn func() (nfd *Conn, err error)
+	handler  *AcceptMultishotHandler
 }
 
-func (fd *ListenerFd) init() {
+func (fd *Listener) init() {
 	if fd.vortex.multishotAcceptEnabled() {
-		futureErr := newAcceptFuture(fd)
-		if futureErr == nil {
-			fd.acceptFn = fd.acceptFuture.accept
+		handler, handlerErr := newAcceptMultishotHandler(fd)
+		if handlerErr == nil {
+			fd.handler = handler
+			fd.acceptFn = fd.handler.Accept
 		} else {
 			fd.acceptFn = fd.accept
 		}
 	}
 }
 
-func (fd *ListenerFd) Bind(addr net.Addr) error {
+func (fd *Listener) Bind(addr net.Addr) error {
 	return fd.bind(addr)
 }
 
-func (fd *ListenerFd) Accept() (nfd *Conn, err error) {
+func (fd *Listener) Accept() (nfd *Conn, err error) {
 	nfd, err = fd.acceptFn()
 	return
 }
 
-func (fd *ListenerFd) accept() (nfd *Conn, err error) {
+func (fd *Listener) accept() (nfd *Conn, err error) {
 	deadline := fd.readDeadline
 	acceptAddr := &syscall.RawSockaddrAny{}
 	acceptAddrLen := syscall.SizeofSockaddrAny
@@ -66,11 +68,14 @@ func (fd *ListenerFd) accept() (nfd *Conn, err error) {
 	return
 }
 
-func (fd *ListenerFd) Close() error {
+func (fd *Listener) Close() error {
+	if fd.handler != nil {
+		_ = fd.handler.Close()
+	}
 	return fd.NetFd.Close()
 }
 
-func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *Conn) {
+func (fd *Listener) newAcceptedConnFd(accepted int) (cfd *Conn) {
 	cfd = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
@@ -99,149 +104,155 @@ func (fd *ListenerFd) newAcceptedConnFd(accepted int) (cfd *Conn) {
 	return
 }
 
-func newAcceptFuture(ln *ListenerFd) (err error) {
-	f := &acceptFuture{
-		ln: ln,
-	}
-	f.prepare()
-	if err = f.submit(); err != nil {
-		return
-	}
-	ln.acceptFuture = f
-	return
-}
-
-type acceptFuture struct {
-	ln      *ListenerFd
-	op      *Operation
-	handler *acceptOperationHandler
-	timer   *time.Timer
-	param   *prepareAcceptParam
-}
-
-func (f *acceptFuture) prepare() {
-	f.handler = &acceptOperationHandler{
-		ch:   make(chan Result, f.ln.backlog),
-		done: make(chan struct{}, 1),
-	}
-
+func newAcceptMultishotHandler(ln *Listener) (handler *AcceptMultishotHandler, err error) {
+	ch := make(chan Result, ln.backlog)
+	// param
 	acceptAddrLen := syscall.SizeofSockaddrAny
-	f.param = &prepareAcceptParam{
+	param := &prepareAcceptParam{
 		addr:    &syscall.RawSockaddrAny{},
 		addrLen: &acceptAddrLen,
 	}
-
-	f.op = f.ln.vortex.acquireOperation()
-	f.op.Hijack()
-	f.op.PrepareAcceptMultishot(f.ln, f.param, f.handler)
+	// op
+	op := ln.vortex.acquireOperation()
+	op.Hijack()
+	// handler
+	handler = &AcceptMultishotHandler{
+		ln:     ln,
+		op:     op,
+		param:  param,
+		locker: sync.Mutex{},
+		err:    nil,
+		ch:     ch,
+	}
+	// prepare
+	op.PrepareAcceptMultishot(ln, param, handler)
+	// submit
+	if err = handler.submit(); err != nil {
+		op.Complete()
+		ln.vortex.releaseOperation(op)
+	}
 	return
 }
 
-func (f *acceptFuture) clean() {
-	if f.op != nil {
-		op := f.op
-		f.op = nil
-		op.Complete()
-		f.ln.vortex.releaseOperation(op)
-		// close handler
-		_ = f.handler.Close()
-	}
+type AcceptMultishotHandler struct {
+	ln     *Listener
+	op     *Operation
+	param  *prepareAcceptParam
+	locker sync.Mutex
+	err    error
+	ch     chan Result
 }
 
-func (f *acceptFuture) submit() (err error) {
-	if ok := f.ln.vortex.submit(f.op); !ok {
-		f.clean()
-		// return cancelled
-		err = ErrCanceled
+func (handler *AcceptMultishotHandler) Handle(n int, flags uint32, err error) {
+	if err != nil {
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrCanceled
+		}
+		handler.ch <- Result{n, flags, err}
 		return
 	}
+	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		handler.ch <- Result{n, flags, ErrCanceled}
+		return
+	}
+	handler.ch <- Result{n, flags, nil}
 	return
 }
 
-func (f *acceptFuture) accept() (nfd *Conn, err error) {
+func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
+	handler.locker.Lock()
+	if handler.err != nil {
+		err = handler.err
+		handler.locker.Unlock()
+		return
+	}
+	handler.locker.Unlock()
 	var (
-		handler  = f.handler
-		ln       = f.ln
-		timer    = f.timer
+		ln       = handler.ln
 		deadline = ln.readDeadline
-		vortex   = f.ln.vortex
+		vortex   = handler.ln.vortex
+		timer    *time.Timer
 		accepted = -1
 	)
+	// deadline
 	if !deadline.IsZero() {
 		timer = vortex.acquireTimer(time.Until(deadline))
 		defer vortex.releaseTimer(timer)
 	}
+	// read ch
 RETRY:
 	if timer == nil {
 		result, ok := <-handler.ch
-		if !ok {
+		if ok {
+			accepted, err = result.N, result.Err
+		} else {
 			err = ErrCanceled
-			return
 		}
-		accepted, err = result.N, result.Err
 	} else {
 		select {
 		case result, ok := <-handler.ch:
-			if !ok {
+			if ok {
+				accepted, err = result.N, result.Err
+			} else {
 				err = ErrCanceled
-				return
 			}
-			accepted, err = result.N, result.Err
 			break
 		case <-timer.C:
 			err = ErrTimeout
 			break
 		}
 	}
-
+	// handle err
 	if err != nil {
 		if errors.Is(err, ErrIOURingSQBusy) {
-			if err = f.submit(); err != nil {
+			if err = handler.submit(); err != nil {
 				return
 			}
 			goto RETRY
 		}
-		return
-	}
-
-	nfd = ln.newAcceptedConnFd(accepted)
-	return
-}
-
-func (f *acceptFuture) Cancel() (err error) {
-	if f.op != nil {
-		err = f.ln.vortex.cancelOperation(f.op)
-		<-f.handler.done
-		f.clean()
-	}
-	return
-}
-
-type acceptOperationHandler struct {
-	ch   chan Result
-	done chan struct{}
-}
-
-func (h *acceptOperationHandler) Handle(n int, flags uint32, err error) {
-	if err != nil {
-		if errors.Is(err, syscall.ECANCELED) {
-			h.done <- struct{}{}
-			err = ErrCanceled
+		if errors.Is(err, ErrCanceled) {
+			// set err
+			handler.locker.Lock()
+			handler.err = err
+			if handler.op != nil {
+				// release op
+				op := handler.op
+				handler.op = nil
+				op.Complete()
+				handler.ln.vortex.releaseOperation(op)
+			}
+			handler.locker.Unlock()
 		}
-		h.ch <- Result{n, flags, err}
 		return
 	}
-	if flags&liburing.IORING_CQE_F_MORE == 0 {
-		h.done <- struct{}{}
-		h.ch <- Result{n, flags, ErrCanceled}
-		return
-	}
-	h.ch <- Result{n, flags, nil}
+	// new conn
+	conn = ln.newAcceptedConnFd(accepted)
 	return
 }
 
-func (h *acceptOperationHandler) Close() error {
-	close(h.ch)
-	close(h.done)
-	return nil
+func (handler *AcceptMultishotHandler) Close() (err error) {
+	handler.locker.Lock()
+	defer handler.locker.Unlock()
+	if handler.op == nil {
+		return
+	}
+	op := handler.op
+	if err = handler.ln.vortex.cancelOperation(op); err != nil {
+		// use cancel fd when cancel op failed
+		handler.ln.Cancel()
+	}
+
+	op.Complete()
+	handler.ln.vortex.releaseOperation(op)
+	handler.op = nil
+
+	return
+}
+
+func (handler *AcceptMultishotHandler) submit() (err error) {
+	if ok := handler.ln.vortex.submit(handler.op); !ok {
+		err = ErrCanceled
+		return
+	}
+	return
 }
