@@ -13,7 +13,7 @@ func (c *Conn) Send(b []byte) (n int, err error) {
 	if c.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	if c.sendMSGZCEnabled {
+	if c.sendZCEnabled {
 		n, err = c.sendZC(b)
 		return
 	}
