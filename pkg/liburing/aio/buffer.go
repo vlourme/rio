@@ -50,12 +50,12 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 	b := br.buffer[idx : idx+length]
 	nn := 0
 	for {
-		nn, err = writer.Write(b[nn:])
+		nn, err = writer.Write(b[n:])
 		if err != nil {
 			break
 		}
 		n += nn
-		if n == length {
+		if n >= length {
 			break
 		}
 	}
@@ -63,6 +63,7 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 	used := uint16(math.Ceil(float64(length) / float64(br.size)))
 
 	br.value.BufRingAdvance(used)
+
 	return
 }
 
@@ -131,7 +132,7 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 
 	brs = &BufferAndRings{
 		config:     config,
-		locker:     sync.Mutex{},
+		locker:     new(sync.Mutex),
 		ring:       ring,
 		wg:         &sync.WaitGroup{},
 		done:       make(chan struct{}),
@@ -146,7 +147,7 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 
 type BufferAndRings struct {
 	config     BufferAndRingConfig
-	locker     sync.Mutex
+	locker     sync.Locker
 	ring       *liburing.Ring
 	wg         *sync.WaitGroup
 	done       chan struct{}
@@ -213,12 +214,12 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 		break
 	}
 
-	entries := brs.config.Count * brs.config.Reference
+	entries := uint16(int(brs.config.Count) * int(brs.config.Reference))
 	flags := uint32(0)
 	if liburing.VersionEnable(6, 12, 0) {
 		flags = liburing.IOU_PBUF_RING_INC
 	}
-	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, flags) // liburing.IOU_PBUF_RING_INC
+	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, flags)
 	if setupErr != nil {
 		err = setupErr
 		brs.locker.Unlock()
@@ -229,7 +230,8 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 	for i := 0; i < int(entries); i++ {
 		beg := int(brs.config.Size) * i
 		end := beg + int(brs.config.Size)
-		addr := &buffer[beg:end][0]
+		slice := buffer[beg:end]
+		addr := &slice[0]
 		br0.BufRingAdd(uintptr(unsafe.Pointer(addr)), brs.config.Size, uint16(i), mask, uint16(i))
 	}
 	br0.BufRingAdvance(entries)
@@ -273,6 +275,8 @@ func (brs *BufferAndRings) Release(br *BufferAndRing) {
 func (brs *BufferAndRings) start() {
 	brs.wg.Add(1)
 	go func(brs *BufferAndRings) {
+		defer brs.wg.Done()
+
 		done := brs.done
 		var scratch []*BufferAndRing
 		maxIdleDuration := brs.config.IdleTimeout
@@ -309,18 +313,16 @@ func (brs *BufferAndRings) start() {
 		brs.bgids = nil
 
 		brs.locker.Unlock()
-
-		brs.wg.Done()
 	}(brs)
 
 }
 
 func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 	brs.locker.Lock()
+	defer brs.locker.Unlock()
 
 	n := len(brs.values)
 	if n == 0 {
-		brs.locker.Unlock()
 		return
 	}
 
@@ -354,7 +356,6 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 		br.buffer = nil
 		brs.putBuffer(buffer)
 	}
-	brs.locker.Unlock()
 	return
 
 }

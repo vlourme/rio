@@ -201,13 +201,26 @@ func (vortex *Vortex) Close() (err error) {
 	_ = vortex.producer.Close()
 	// close consumer
 	_ = vortex.consumer.Close()
-	// unregister files
-	if vortex.directAllocEnabled {
-		_, _ = vortex.ring.UnregisterFiles()
-	}
 	// unregister buffer and rings
 	_ = vortex.bufferAndRings.Close()
-	// close
+	// unregister files
+	if vortex.directAllocEnabled {
+		ring := vortex.ring
+		done := make(chan struct{})
+		go func(ring *liburing.Ring, done chan struct{}) {
+			_, _ = vortex.ring.UnregisterFiles()
+			close(done)
+		}(ring, done)
+		timer := vortex.acquireTimer(50 * time.Millisecond)
+		select {
+		case <-done:
+			break
+		case <-timer.C:
+			break
+		}
+		vortex.releaseTimer(timer)
+	}
+	// close ring
 	err = vortex.ring.Close()
 	return
 }

@@ -5,6 +5,7 @@ package aio
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"os"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -49,6 +50,9 @@ type operationConsumer struct {
 func (c *operationConsumer) handle() {
 	defer c.wg.Done()
 
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	var (
 		ring            = c.ring
 		cqes            = make([]*liburing.CompletionQueueEvent, 1024)
@@ -60,9 +64,6 @@ func (c *operationConsumer) handle() {
 	)
 
 	for {
-		if stopped {
-			break
-		}
 		if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
 			for i := uint32(0); i < peeked; i++ {
 				cqe := cqes[i]
@@ -72,11 +73,8 @@ func (c *operationConsumer) handle() {
 					ring.CQAdvance(1)
 					continue
 				}
-				if cqe.IsInternalUpdateTimeoutUserdata() { // userdata means not op
-					ring.CQAdvance(1)
-					continue
-				}
-				if cqe.UserData == c.closeUserdata {
+
+				if cqe.UserData == c.closeUserdata { // consumer closed
 					stopped = true
 					ring.CQAdvance(1)
 					continue
@@ -97,12 +95,15 @@ func (c *operationConsumer) handle() {
 					opN = int(cqe.Res)
 				}
 				cop.complete(opN, opFlags, opErr)
-
+				// cq advance
 				ring.CQAdvance(1)
 			}
 			// mark completed
 			completed += peeked
 			continue
+		}
+		if stopped {
+			break
 		}
 		// wait more cqe
 		cqeWaitMaxCount, cqeWaitTimeout = transmission.Match(completed)

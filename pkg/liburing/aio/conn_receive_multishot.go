@@ -3,11 +3,13 @@
 package aio
 
 import (
+	"bytes"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
 	"io"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -28,12 +30,14 @@ func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err err
 	handler = &RecvMultishotHandler{
 		conn:    conn,
 		op:      op,
-		locker:  sync.Mutex{},
-		waiting: false,
+		locker:  new(sync.Mutex),
+		waiting: new(atomic.Bool),
 		err:     nil,
-		buffer:  buffer,
-		br:      br,
-		ch:      op.resultCh,
+		//buffer:  buffer,
+		buffer: bytes.NewBuffer(nil),
+		br:     br,
+		ch:     op.resultCh,
+		done:   make(chan struct{}),
 	}
 	// prepare
 	op.PrepareReceiveMultishot(conn, br, handler)
@@ -53,12 +57,14 @@ func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err err
 type RecvMultishotHandler struct {
 	conn    *Conn
 	op      *Operation
-	locker  sync.Mutex
-	waiting bool
+	locker  sync.Locker
+	waiting *atomic.Bool
 	err     error
-	buffer  *bytebuffer.Buffer
-	br      *BufferAndRing
-	ch      chan Result
+	//buffer  *bytebuffer.Buffer
+	buffer *bytes.Buffer
+	br     *BufferAndRing
+	ch     chan Result
+	done   chan struct{}
 }
 
 func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
@@ -70,20 +76,22 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 			return
 		}
 		handler.err = err
-		if handler.waiting {
-			handler.waiting = false
+		if handler.waiting.CompareAndSwap(true, false) {
 			handler.ch <- Result{}
 		}
+
+		close(handler.done)
+
 		handler.locker.Unlock()
 		return
 	}
 
 	if flags&liburing.IORING_CQE_F_MORE == 0 { // EOF
 		handler.err = io.EOF
-		if handler.waiting {
-			handler.waiting = false
+		if handler.waiting.CompareAndSwap(true, false) {
 			handler.ch <- Result{}
 		}
+		close(handler.done)
 		handler.locker.Unlock()
 		return
 	}
@@ -92,8 +100,7 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		handler.err = err
 	}
 
-	if handler.waiting {
-		handler.waiting = false
+	if handler.waiting.CompareAndSwap(true, false) {
 		handler.ch <- Result{}
 	}
 
@@ -125,18 +132,17 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 	}
 	// handler err
 	if handler.err != nil {
-		handler.locker.Unlock()
 		if n == 0 {
-			handler.clean()
 			err = handler.err
 			if errors.Is(err, io.EOF) && !handler.conn.zeroReadIsEOF {
 				err = nil
 			}
 		}
+		handler.locker.Unlock()
 		return
 	}
 	// mark waiting more
-	handler.waiting = true
+	handler.waiting.Store(true)
 	handler.locker.Unlock()
 
 	// try read more when read not full
@@ -149,9 +155,13 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 			handler.locker.Unlock()
 			break
 		default:
-			handler.locker.Lock()
-			handler.waiting = false
-			handler.locker.Unlock()
+			if !handler.waiting.CompareAndSwap(true, false) { // means written
+				<-handler.ch
+				handler.locker.Lock()
+				nn, _ := handler.buffer.Read(b[n:])
+				n += nn
+				handler.locker.Unlock()
+			}
 			break
 		}
 		return
@@ -173,8 +183,8 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 		handler.locker.Lock()
 		n, _ = handler.buffer.Read(b)
 		handler.locker.Unlock()
+
 		if n == 0 && handler.err != nil {
-			handler.clean()
 			err = handler.err
 			if errors.Is(err, io.EOF) && !handler.conn.zeroReadIsEOF {
 				err = nil
@@ -187,7 +197,6 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 			n, _ = handler.buffer.Read(b)
 			handler.locker.Unlock()
 			if n == 0 && handler.err != nil {
-				handler.clean()
 				err = handler.err
 				if errors.Is(err, io.EOF) && !handler.conn.zeroReadIsEOF {
 					err = nil
@@ -209,6 +218,8 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 		handler.locker.Unlock()
 		return
 	}
+	handler.locker.Unlock()
+
 	op := handler.op
 	if err = handler.conn.vortex.cancelOperation(op); err != nil {
 		// use cancel fd when cancel op failed
@@ -216,7 +227,9 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 		// reset err when fd was canceled
 		err = nil
 	}
-	handler.locker.Unlock()
+	// wait done to clean
+	<-handler.done
+
 	handler.clean()
 	return
 }
@@ -241,9 +254,9 @@ func (handler *RecvMultishotHandler) clean() {
 		handler.br = nil
 		handler.conn.vortex.bufferAndRings.Release(br)
 		// release buffer
-		buffer := handler.buffer
-		handler.buffer = nil
-		bytebuffer.Release(buffer)
+		//buffer := handler.buffer
+		//handler.buffer = nil
+		//bytebuffer.Release(buffer)
 	}
 	handler.locker.Unlock()
 	return

@@ -147,10 +147,9 @@ func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err err
 	if op.flags&multishot != 0 {
 		bgid := uint16(op.addrLen)
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
-		// todo: IORING_RECVSEND_BUNDLE works not well for large content, 4096*64 is not worked.
-		//if liburing.VersionEnable(6, 10, 0) {
-		//	sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
-		//}
+		if liburing.VersionEnable(6, 10, 0) {
+			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
+		}
 		sqe.SetBufferGroup(bgid)
 	} else {
 		b := uintptr(op.addr)

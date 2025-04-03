@@ -41,7 +41,7 @@ func TestTCP(t *testing.T) {
 		return
 	}()
 
-	src := make([]byte, 64)
+	src := make([]byte, 4096*64)
 	_, _ = rand.Read(src)
 
 	wg.Add(1)
@@ -105,6 +105,7 @@ func TestTCP(t *testing.T) {
 		return
 	}
 	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
+	defer time.Sleep(500 * time.Millisecond)
 	defer conn.Close()
 
 	var wn int
