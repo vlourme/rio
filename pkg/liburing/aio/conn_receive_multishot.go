@@ -272,6 +272,12 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 }
 
 func (handler *RecvMultishotHandler) submit() (err error) {
+	handler.locker.Lock()
+	defer handler.locker.Unlock()
+	if handler.op == nil {
+		err = ErrCanceled
+		return
+	}
 	if ok := handler.conn.vortex.submit(handler.op); !ok {
 		err = ErrCanceled
 		return

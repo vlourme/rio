@@ -90,7 +90,6 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 
 	used := uint16(math.Ceil(float64(length) / float64(br.size)))
 	br.value.BufRingAdvance(used)
-
 	return
 }
 
@@ -130,19 +129,19 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 
 	count := config.Count
 	if count == 0 {
-		count = 256
+		count = 8
 	}
 	count = uint16(liburing.RoundupPow2(uint32(count)))
 	config.Count = count
 
-	ref := config.Reference
+	ref := config.Reference // todo: one conn one br, this is all passed.
 	if ref == 0 {
-		ref = 64
+		ref = 1
 	}
 	ref = uint16(liburing.RoundupPow2(uint32(ref)))
 	config.Reference = ref
 
-	if count*ref > 32768 {
+	if int(count)*int(ref) > 32768 {
 		err = errors.New("count and reference are too large for BufferAndRings, max of count * reference is 32768")
 		return
 	}
