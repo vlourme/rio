@@ -114,7 +114,9 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 	handler.locker.Lock()
 	// check sq busy error
 	if handler.err != nil && errors.Is(handler.err, ErrIOURingSQBusy) {
+		handler.locker.Unlock()
 		if err = handler.submit(); err != nil {
+			handler.locker.Lock()
 			handler.err = err
 			handler.locker.Unlock()
 			return
@@ -138,9 +140,10 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 		handler.locker.Unlock()
 		return
 	}
+	handler.locker.Unlock()
+
 	// mark waiting more
 	handler.waiting.Store(true)
-	handler.locker.Unlock()
 
 	// try read more when read not full
 	if 0 < n && n < bLen {
