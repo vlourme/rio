@@ -229,7 +229,6 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 		if !errors.Is(handler.err, io.EOF) {
 			// use cancel fd when cancel op failed
 			handler.conn.Cancel()
-			handler.locker.Unlock()
 		}
 		handler.locker.Unlock()
 		// reset err when fd was canceled
