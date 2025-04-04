@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"bytes"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
@@ -33,11 +32,10 @@ func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err err
 		locker:  new(sync.Mutex),
 		waiting: new(atomic.Bool),
 		err:     nil,
-		//buffer:  buffer,
-		buffer: bytes.NewBuffer(nil),
-		br:     br,
-		ch:     op.resultCh,
-		done:   make(chan struct{}),
+		buffer:  buffer,
+		br:      br,
+		ch:      op.resultCh,
+		done:    make(chan struct{}),
 	}
 	// prepare
 	op.PrepareReceiveMultishot(conn, br, handler)
@@ -60,11 +58,10 @@ type RecvMultishotHandler struct {
 	locker  sync.Locker
 	waiting *atomic.Bool
 	err     error
-	//buffer  *bytebuffer.Buffer
-	buffer *bytes.Buffer
-	br     *BufferAndRing
-	ch     chan Result
-	done   chan struct{}
+	buffer  *bytebuffer.Buffer
+	br      *BufferAndRing
+	ch      chan Result
+	done    chan struct{}
 }
 
 func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
@@ -254,9 +251,9 @@ func (handler *RecvMultishotHandler) clean() {
 		handler.br = nil
 		handler.conn.vortex.bufferAndRings.Release(br)
 		// release buffer
-		//buffer := handler.buffer
-		//handler.buffer = nil
-		//bytebuffer.Release(buffer)
+		buffer := handler.buffer
+		handler.buffer = nil
+		bytebuffer.Release(buffer)
 	}
 	handler.locker.Unlock()
 	return
