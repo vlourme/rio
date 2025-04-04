@@ -41,7 +41,7 @@ func TestTCP(t *testing.T) {
 		return
 	}()
 
-	src := make([]byte, 64)
+	src := make([]byte, 4096*64)
 	_, _ = rand.Read(src)
 
 	wg.Add(1)

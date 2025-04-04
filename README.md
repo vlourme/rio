@@ -17,6 +17,10 @@
 * 支持 `SEND_ZC` 和 `SENDMSG_ZC`
 * 支持动态调整 `RIO_WAIT_CQE_TIME_CURVE` 控制不同场景的性能
 
+## 注意
+* WSL2中不能开启`networkingMode=mirrored`。
+* 当启用`BUFFER AND RING`时，不要开启`IORING_SETUP_SINGLE_ISSUER`，如`MULTISHOT_RECV`。
+
 
 ## 性能
 
