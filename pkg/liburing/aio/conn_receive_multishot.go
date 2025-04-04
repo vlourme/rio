@@ -227,10 +227,12 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 	if err = handler.conn.vortex.cancelOperation(op); err != nil {
 		handler.locker.Lock()
 		if !errors.Is(handler.err, io.EOF) {
+			handler.locker.Unlock()
 			// use cancel fd when cancel op failed
 			handler.conn.Cancel()
+		} else {
+			handler.locker.Unlock()
 		}
-		handler.locker.Unlock()
 		// reset err when fd was canceled
 		err = nil
 	}
