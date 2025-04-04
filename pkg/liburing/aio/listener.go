@@ -214,13 +214,6 @@ RETRY:
 			// set err
 			handler.locker.Lock()
 			handler.err = err
-			if handler.op != nil {
-				// release op
-				op := handler.op
-				handler.op = nil
-				op.Complete()
-				handler.ln.vortex.releaseOperation(op)
-			}
 			handler.locker.Unlock()
 		}
 		return
@@ -238,8 +231,10 @@ func (handler *AcceptMultishotHandler) Close() (err error) {
 	}
 	op := handler.op
 	if err = handler.ln.vortex.cancelOperation(op); err != nil {
-		// use cancel fd when cancel op failed
-		handler.ln.Cancel()
+		if !errors.Is(handler.err, ErrCanceled) {
+			// use cancel fd when cancel op failed
+			handler.ln.Cancel()
+		}
 		// reset err when fd was canceled
 		err = nil
 	}
@@ -247,7 +242,6 @@ func (handler *AcceptMultishotHandler) Close() (err error) {
 	op.Complete()
 	handler.ln.vortex.releaseOperation(op)
 	handler.op = nil
-
 	return
 }
 
