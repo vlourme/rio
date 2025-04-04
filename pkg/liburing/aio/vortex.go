@@ -53,8 +53,6 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		err = NewRingErr(ringErr)
 		return
 	}
-	// kernel flavor black list
-	kernelFlavorAvailable := !liburing.VersionMatchFlavor(opt.KernelFlavorBlackList)
 
 	// buffer and rings
 	brs, brsErr := newBufferAndRings(ring, opt.BufferAndRingConfig)
@@ -66,8 +64,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 
 	// register files
 	var (
-		directAllocEnabled = kernelFlavorAvailable && // disabled by black list
-			liburing.VersionEnable(6, 7, 0) && // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT)
+		directAllocEnabled = liburing.VersionEnable(6, 7, 0) && // support io_uring_prep_cmd_sock(SOCKET_URING_OP_SETSOCKOPT)
 			probe.IsSupported(liburing.IORING_OP_FIXED_FD_INSTALL) // io_uring_prep_fixed_fd_install
 	)
 	if directAllocEnabled {
@@ -99,7 +96,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		sendZCEnabled    bool
 		sendMSGZCEnabled bool
 	)
-	if opt.SendZC {
+	if opt.SendZCEnabled {
 		sendZCEnabled = probe.IsSupported(liburing.IORING_OP_SEND_ZC)
 		sendMSGZCEnabled = probe.IsSupported(liburing.IORING_OP_SENDMSG_ZC)
 	}
@@ -109,7 +106,7 @@ func Open(options ...Option) (v AsyncIO, err error) {
 	if liburing.VersionEnable(5, 19, 0) {
 		multishotEnabledOps[liburing.IORING_OP_ACCEPT] = struct{}{}
 	}
-	if liburing.VersionEnable(6, 0, 0) && kernelFlavorAvailable {
+	if liburing.VersionEnable(6, 0, 0) {
 		multishotEnabledOps[liburing.IORING_OP_RECV] = struct{}{}
 		multishotEnabledOps[liburing.IORING_OP_RECVMSG] = struct{}{}
 	}

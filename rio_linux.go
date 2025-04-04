@@ -42,8 +42,7 @@ const (
 	envFlags                   = "RIO_IOURING_SETUP_FLAGS"
 	envSQThreadCPU             = "RIO_IOURING_SQ_THREAD_CPU"
 	envSQThreadIdle            = "RIO_IOURING_SQ_THREAD_IDLE"
-	envSendZC                  = "RIO_IOURING_SENDZC"
-	envKernelFlavorBlackList   = "RIO_IOURING_KERNEL_FLAVOR_BLACKLIST" // a, b, c
+	envSendZCEnabled           = "RIO_IOURING_SENDZC_ENABLED"
 	envRegisterFixedFiles      = "RIO_IOURING_REG_FIXED_FILES"
 	envIOURingHeartbeatTimeout = "RIO_IOURING_HEARTBEAT_TIMEOUT"
 	envBufferAndBufferConfig   = "RIO_BUFFER_AND_RING_CONFIG" // 4096x16x512, 15s
@@ -84,14 +83,8 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 			if v, has := envLoadDuration(envSQThreadIdle); has {
 				aioOptions = append(aioOptions, aio.WithSQThreadIdle(v))
 			}
-			if ok := envLoadBool(envSendZC); ok {
-				aioOptions = append(aioOptions, aio.WithSendZC(ok))
-			}
-			if v, has := envLoadStrings(envKernelFlavorBlackList); has {
-				aioOptions = append(aioOptions, aio.WithKernelFlavorBlackList(v))
-			} else {
-				v = []string{"microsoft-standard-WSL2"}
-				aioOptions = append(aioOptions, aio.WithKernelFlavorBlackList(v))
+			if ok := envLoadBool(envSendZCEnabled); ok {
+				aioOptions = append(aioOptions, aio.WithSendZCEnabled(ok))
 			}
 			// ring <<<
 
@@ -178,18 +171,6 @@ func envLoadFlags(name string) (uint32, bool) {
 		}
 	}
 	return flags, true
-}
-
-func envLoadStrings(name string) ([]string, bool) {
-	s, has := os.LookupEnv(name)
-	if !has {
-		return nil, false
-	}
-	ss := strings.Split(s, ",")
-	for i := range ss {
-		ss[i] = strings.TrimSpace(ss[i])
-	}
-	return ss, len(ss) > 0
 }
 
 func envLoadDuration(name string) (time.Duration, bool) {

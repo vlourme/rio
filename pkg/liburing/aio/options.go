@@ -9,8 +9,7 @@ type Options struct {
 	Flags                   uint32
 	SQThreadCPU             uint32
 	SQThreadIdle            uint32
-	SendZC                  bool
-	KernelFlavorBlackList   []string
+	SendZCEnabled           bool
 	RegisterFixedFiles      uint32
 	BufferAndRingConfig     BufferAndRingConfig
 	ProducerLockOSThread    bool
@@ -76,11 +75,11 @@ func WithSQThreadIdle(idle time.Duration) Option {
 	}
 }
 
-// WithSendZC
+// WithSendZCEnabled
 // setup to use send_zc and sendmsg_zc op insteadof send and sendmsg
-func WithSendZC(ok bool) Option {
+func WithSendZCEnabled(ok bool) Option {
 	return func(options *Options) {
-		options.SendZC = ok
+		options.SendZCEnabled = ok
 	}
 }
 
@@ -94,14 +93,6 @@ func WithRingBufferConfig(size uint16, count uint16, reference uint16, idleTimeo
 			Reference:   reference,
 			IdleTimeout: idleTimeout,
 		}
-	}
-}
-
-// WithKernelFlavorBlackList
-// setup disable iouring direct alloc feat kernel flavor black list.
-func WithKernelFlavorBlackList(list []string) Option {
-	return func(opts *Options) {
-		opts.KernelFlavorBlackList = list
 	}
 }
 
