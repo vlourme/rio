@@ -65,10 +65,18 @@ type RecvMultishotHandler struct {
 }
 
 func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
+	// handle ERR
 	if err != nil {
-		if errors.Is(err, syscall.ENOBUFS) { // discard ENOBUFS
+		if errors.Is(err, syscall.ENOBUFS) { // try to submit again
+			if err = handler.submit(); err != nil {
+				handler.locker.Lock()
+				handler.err = err
+				handler.locker.Unlock()
+				close(handler.done)
+			}
 			return
 		}
+		// done when err happened
 		handler.locker.Lock()
 		handler.err = err
 		handler.locker.Unlock()
@@ -81,25 +89,44 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		return
 	}
 
-	if flags&liburing.IORING_CQE_F_MORE == 0 { // EOF
+	// handle CQE_F_BUFFER
+	if flags&liburing.IORING_CQE_F_BUFFER != 0 {
 		handler.locker.Lock()
-		handler.err = io.EOF
+		if _, err = handler.br.WriteTo(n, flags, handler.buffer); err != nil {
+			handler.err = err
+		}
 		handler.locker.Unlock()
+
 		if handler.waiting.CompareAndSwap(true, false) {
 			handler.ch <- Result{}
 		}
-		close(handler.done)
+		if flags&liburing.IORING_CQE_F_MORE == 0 {
+			goto NO_CQE_F_MORE
+		}
 		return
 	}
 
-	handler.locker.Lock()
-	if _, err = handler.br.WriteTo(n, flags, handler.buffer); err != nil {
-		handler.err = err
-	}
-	handler.locker.Unlock()
+NO_CQE_F_MORE:
+	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		if n == 0 { // EOF
+			handler.locker.Lock()
+			handler.err = io.EOF
+			handler.locker.Unlock()
 
-	if handler.waiting.CompareAndSwap(true, false) {
-		handler.ch <- Result{}
+			if handler.waiting.CompareAndSwap(true, false) {
+				handler.ch <- Result{}
+			}
+
+			close(handler.done)
+		} else { // has more data but operation was canceled, to try to submit again
+			if err = handler.submit(); err != nil {
+				handler.locker.Lock()
+				handler.err = err
+				handler.locker.Unlock()
+				close(handler.done)
+			}
+		}
+		return
 	}
 
 	return
@@ -140,10 +167,9 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 		handler.locker.Unlock()
 		return
 	}
-	handler.locker.Unlock()
-
 	// mark waiting more
 	handler.waiting.Store(true)
+	handler.locker.Unlock()
 
 	// try read more when read not full
 	if 0 < n && n < bLen {

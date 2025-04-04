@@ -26,6 +26,7 @@ type BufferAndRing struct {
 	maxReference uint16
 	size         uint16
 	lastIdleTime time.Time
+	bufferSize   int
 	buffer       []byte
 }
 
@@ -34,33 +35,60 @@ func (br *BufferAndRing) Id() uint16 {
 }
 
 func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) (n int, err error) {
-	if cqeFlags == 0 {
-		err = errors.New("invalid cqe flags for buffer and ring")
-		return
-	}
-
-	bid := int(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
 	if length == 0 {
 		br.value.BufRingAdvance(1)
 		return
 	}
 
-	idx := bid * int(br.size)
-	b := br.buffer[idx : idx+length]
+	var (
+		bid = int(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
+		beg = bid * int(br.size)
+		end = beg + length
+	)
+	var (
+		b0    []byte
+		b0Len int
+		b0n   int
+		b1    []byte
+		b1Len int
+		b1n   int
+	)
+
+	if end > br.bufferSize { // over tail
+		b0 = br.buffer[beg:]
+		b0Len = br.bufferSize - beg
+		b1Len = length - b0Len
+		b1 = br.buffer[:b1Len]
+	} else {
+		b0 = br.buffer[beg:end]
+	}
+
 	nn := 0
 	for {
-		nn, err = writer.Write(b[n:])
+		nn, err = writer.Write(b0[b0n:])
 		if err != nil {
 			break
 		}
-		n += nn
-		if n >= length {
+		b0n += nn
+		if b0n >= b0Len {
 			break
 		}
 	}
+	if err != nil && b1Len > 0 {
+		for {
+			nn, err = writer.Write(b1[b1n:])
+			if err != nil {
+				break
+			}
+			b1n += nn
+			if b1n >= b1Len {
+				break
+			}
+		}
+	}
+	n = b0n + b1n
 
 	used := uint16(math.Ceil(float64(length) / float64(br.size)))
-
 	br.value.BufRingAdvance(used)
 
 	return
@@ -102,14 +130,14 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 
 	count := config.Count
 	if count == 0 {
-		count = 16
+		count = 256
 	}
 	count = uint16(liburing.RoundupPow2(uint32(count)))
 	config.Count = count
 
 	ref := config.Reference
 	if ref == 0 {
-		ref = 512
+		ref = 64
 	}
 	ref = uint16(liburing.RoundupPow2(uint32(ref)))
 	config.Reference = ref
@@ -239,6 +267,7 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 		maxReference: brs.config.Reference,
 		size:         brs.config.Size,
 		lastIdleTime: time.Time{},
+		bufferSize:   len(buffer),
 		buffer:       buffer,
 	}
 
