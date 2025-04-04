@@ -65,43 +65,43 @@ type RecvMultishotHandler struct {
 }
 
 func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
-	handler.locker.Lock()
-
 	if err != nil {
 		if errors.Is(err, syscall.ENOBUFS) { // discard ENOBUFS
-			handler.locker.Unlock()
 			return
 		}
+		handler.locker.Lock()
 		handler.err = err
+		handler.locker.Unlock()
+
 		if handler.waiting.CompareAndSwap(true, false) {
 			handler.ch <- Result{}
 		}
 
 		close(handler.done)
-
-		handler.locker.Unlock()
 		return
 	}
 
 	if flags&liburing.IORING_CQE_F_MORE == 0 { // EOF
+		handler.locker.Lock()
 		handler.err = io.EOF
+		handler.locker.Unlock()
 		if handler.waiting.CompareAndSwap(true, false) {
 			handler.ch <- Result{}
 		}
 		close(handler.done)
-		handler.locker.Unlock()
 		return
 	}
 
+	handler.locker.Lock()
 	if _, err = handler.br.WriteTo(n, flags, handler.buffer); err != nil {
 		handler.err = err
 	}
+	handler.locker.Unlock()
 
 	if handler.waiting.CompareAndSwap(true, false) {
 		handler.ch <- Result{}
 	}
 
-	handler.locker.Unlock()
 	return
 }
 
