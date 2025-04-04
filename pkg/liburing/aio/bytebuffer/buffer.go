@@ -263,12 +263,12 @@ func (buf *Buffer) grow(n int) (err error) {
 
 	// has no more place
 	adjustedSize := adjustBufferSize(n)
-	bLen := buf.Len()
-	nb := make([]byte, adjustedSize+bLen)
+	bCap := buf.Cap()
+	nb := make([]byte, adjustedSize+bCap)
 	copy(nb, buf.b[buf.r:buf.w])
 	buf.b = nb
 	buf.r = 0
-	buf.w = bLen
+	buf.w = buf.Len()
 	buf.a = buf.w
 	buf.c += adjustedSize
 	return
