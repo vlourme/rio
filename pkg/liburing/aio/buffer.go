@@ -12,7 +12,6 @@ import (
 	"unsafe"
 )
 
-// BufferAndRingConfig not work well in WSL
 type BufferAndRingConfig struct {
 	Size        uint16
 	Count       uint16
@@ -215,11 +214,8 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 	}
 
 	entries := uint16(int(brs.config.Count) * int(brs.config.Reference))
-	flags := uint32(0)
-	if liburing.VersionEnable(6, 12, 0) {
-		flags = liburing.IOU_PBUF_RING_INC
-	}
-	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, flags)
+	// NOTE! DON'T USE IOU_PBUF_RING_INC
+	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, 0)
 	if setupErr != nil {
 		err = setupErr
 		brs.locker.Unlock()
