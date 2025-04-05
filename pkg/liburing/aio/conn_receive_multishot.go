@@ -108,6 +108,12 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 
 NO_CQE_F_MORE:
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		//fmt.Println("RECV > ", handler.conn.Name(),
+		//	n, err,
+		//	"CQE_F_MORE", flags&liburing.IORING_CQE_F_MORE,
+		//	"CQE_F_SOCK_NONEMPTY", flags&liburing.IORING_CQE_F_SOCK_NONEMPTY,
+		//	"CQE_F_BUFFER", flags&liburing.IORING_CQE_F_BUFFER,
+		//)
 		if n == 0 { // EOF
 			handler.locker.Lock()
 			handler.err = io.EOF

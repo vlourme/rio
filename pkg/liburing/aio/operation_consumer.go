@@ -21,13 +21,13 @@ func newOperationConsumer(ring *liburing.Ring, curve Curve) *operationConsumer {
 	if len(curve) == 0 {
 		curve = Curve{
 			{1, 15 * time.Second},
-			{8, 10 * time.Microsecond},
-			{16, 20 * time.Microsecond},
-			{32, 30 * time.Microsecond},
-			{64, 50 * time.Microsecond},
+			{8, 1 * time.Microsecond},
+			{16, 2 * time.Microsecond},
+			{32, 4 * time.Microsecond},
+			{64, 8 * time.Microsecond},
 
-			//{96, 80 * time.Microsecond},
-			//{128, 100 * time.Microsecond},
+			//{96, 10 * time.Microsecond},
+			//{128, 10 * time.Microsecond},
 			//{192, 150 * time.Microsecond},
 			//{256, 200 * time.Microsecond},
 			//{384, 300 * time.Microsecond},
@@ -118,7 +118,6 @@ func (c *operationConsumer) handle() {
 		}
 		// wait more cqe
 		cqeWaitMaxCount, cqeWaitTimeout = transmission.Match(completed)
-		//fmt.Println("consumer >", cqeWaitMaxCount, time.Duration(cqeWaitTimeout.Nano()))
 		_, _ = ring.WaitCQEs(cqeWaitMaxCount, cqeWaitTimeout, nil)
 		// reset completed
 		completed = 0

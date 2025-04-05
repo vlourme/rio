@@ -15,6 +15,14 @@ func TestNew(t *testing.T) {
 	}
 	defer ring.Close()
 
+	reg, regErr := ring.RegisterRingFd()
+	if regErr != nil {
+		t.Error(regErr)
+		return
+	}
+	defer ring.UnregisterRingFd()
+	t.Log("register ring fd success:", reg)
+
 	t.Log("sq:", ring.SQEntries())
 	t.Log("cq:", ring.CQEntries())
 	probe, probeErr := ring.Probe()

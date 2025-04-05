@@ -45,6 +45,7 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 		beg = bid * int(br.size)
 		end = beg + length
 	)
+
 	var (
 		b0    []byte
 		b0Len int
@@ -243,6 +244,7 @@ func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 	entries := uint16(int(brs.config.Count) * int(brs.config.Reference))
 	// NOTE! DON'T USE IOU_PBUF_RING_INC
 	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, 0)
+	//br0, setupErr := brs.ring.SetupBufRing(entries, bgid, liburing.IOU_PBUF_RING_INC)
 	if setupErr != nil {
 		err = setupErr
 		brs.locker.Unlock()
