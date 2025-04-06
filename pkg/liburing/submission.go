@@ -505,19 +505,19 @@ func (entry *SubmissionQueueEntry) PrepareCloseDirect(fileIndex uint32) {
 
 // [MsgRing] ***********************************************************************************************************
 
-func (entry *SubmissionQueueEntry) PrepareMsgRing(fd int, length uint32, data uint64, flags uint32) {
-	entry.prepareRW(IORING_OP_MSG_RING, fd, 0, length, data)
+func (entry *SubmissionQueueEntry) PrepareMsgRing(fd int, length uint32, userdata unsafe.Pointer, flags uint32) {
+	entry.prepareRW(IORING_OP_MSG_RING, fd, 0, length, uint64(uintptr(userdata)))
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareMsgRingCqeFlags(fd int, length uint32, data uint64, flags, cqeFlags uint32) {
-	entry.prepareRW(IORING_OP_MSG_RING, fd, 0, length, data)
+func (entry *SubmissionQueueEntry) PrepareMsgRingCQEFlags(fd int, length uint32, userdata unsafe.Pointer, flags, cqeFlags uint32) {
+	entry.prepareRW(IORING_OP_MSG_RING, fd, 0, length, uint64(uintptr(userdata)))
 	entry.OpcodeFlags = IORING_MSG_RING_FLAGS_PASS | flags
 	entry.SpliceFdIn = int32(cqeFlags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareMsgRingFd(fd int, sourceFd int, targetFd int, data uint64, flags uint32) {
-	entry.prepareRW(IORING_OP_MSG_RING, fd, uintptr(unsafe.Pointer(&msgDataVar)), 0, data)
+func (entry *SubmissionQueueEntry) PrepareMsgRingFd(fd int, sourceFd int, targetFd int, userdata unsafe.Pointer, flags uint32) {
+	entry.prepareRW(IORING_OP_MSG_RING, fd, uintptr(unsafe.Pointer(&msgDataVar)), 0, uint64(uintptr(userdata)))
 	entry.Addr3 = uint64(sourceFd)
 	if uint32(targetFd) == IORING_FILE_INDEX_ALLOC {
 		targetFd--
@@ -526,8 +526,8 @@ func (entry *SubmissionQueueEntry) PrepareMsgRingFd(fd int, sourceFd int, target
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareMsgRingFdAlloc(fd int, sourceFd int, data uint64, flags uint32) {
-	entry.PrepareMsgRingFd(fd, sourceFd, int(IORING_FILE_INDEX_ALLOC), data, flags)
+func (entry *SubmissionQueueEntry) PrepareMsgRingFdAlloc(fd int, sourceFd int, userdata unsafe.Pointer, flags uint32) {
+	entry.PrepareMsgRingFd(fd, sourceFd, int(IORING_FILE_INDEX_ALLOC), userdata, flags)
 }
 
 // [File] **************************************************************************************************************
