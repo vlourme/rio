@@ -85,12 +85,20 @@ func WithSendZCEnabled(ok bool) Option {
 
 // WithRingBufferConfig
 // setup buffer and ring config
-func WithRingBufferConfig(size uint16, count uint16, reference uint16, idleTimeout time.Duration) Option {
+func WithRingBufferConfig(size int, count int, idleTimeout time.Duration) Option {
 	return func(opts *Options) {
+		if size < 0 {
+			size = 0
+		}
+		if count < 0 {
+			count = 0
+		}
+		if idleTimeout < 0 {
+			idleTimeout = 0
+		}
 		opts.BufferAndRingConfig = BufferAndRingConfig{
 			Size:        size,
 			Count:       count,
-			Reference:   reference,
 			IdleTimeout: idleTimeout,
 		}
 	}

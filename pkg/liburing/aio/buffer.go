@@ -6,28 +6,23 @@ import (
 	"io"
 	"math"
 	"os"
-	"slices"
 	"sync"
 	"time"
 	"unsafe"
 )
 
 type BufferAndRingConfig struct {
-	Size        uint16
-	Count       uint16
-	Reference   uint16
+	Size        int
+	Count       int
 	IdleTimeout time.Duration
 }
 
 type BufferAndRing struct {
-	bgid         uint16
-	value        *liburing.BufferAndRing
-	reference    uint16
-	maxReference uint16
-	size         uint16
-	lastIdleTime time.Time
-	bufferSize   int
-	buffer       []byte
+	bgid        uint16
+	value       *liburing.BufferAndRing
+	lastUseTime time.Time
+	config      BufferAndRingConfig
+	buffer      []byte
 }
 
 func (br *BufferAndRing) Id() uint16 {
@@ -41,79 +36,45 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 	}
 
 	var (
-		bid = int(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg = bid * int(br.size)
-		end = beg + length
+		bid  = cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT
+		beg  = int(bid) * br.config.Size
+		end  = beg + length
+		bLen = len(br.buffer)
+		nn   = 0
 	)
 
-	var (
-		b0    []byte
-		b0Len int
-		b0n   int
-		b1    []byte
-		b1Len int
-		b1n   int
-	)
-
-	if end > br.bufferSize { // over tail
-		b0 = br.buffer[beg:]
-		b0Len = br.bufferSize - beg
-		b1Len = length - b0Len
-		b1 = br.buffer[:b1Len]
-	} else {
-		b0 = br.buffer[beg:end]
-	}
-
-	nn := 0
-	for {
-		nn, err = writer.Write(b0[b0n:])
-		if err != nil {
-			break
-		}
-		b0n += nn
-		if b0n >= b0Len {
-			break
-		}
-	}
-	if err != nil && b1Len > 0 {
+	if remains := end - bLen; remains > 0 { // split
 		for {
-			nn, err = writer.Write(b1[b1n:])
+			nn, err = writer.Write(br.buffer[beg:])
 			if err != nil {
 				break
 			}
-			b1n += nn
-			if b1n >= b1Len {
+			n += nn
+			beg += nn
+			if beg == bLen {
 				break
 			}
 		}
+		beg = 0
+		end = remains
 	}
-	n = b0n + b1n
 
-	used := uint16(math.Ceil(float64(length) / float64(br.size)))
+	for {
+		nn, err = writer.Write(br.buffer[beg:end])
+		if err != nil {
+			break
+		}
+		n += nn
+		beg += nn
+		if beg == end {
+			break
+		}
+	}
+
+	used := uint16(math.Ceil(float64(length) / float64(br.config.Size)))
 	br.value.BufRingAdvance(used)
+
 	return
-}
-
-func (br *BufferAndRing) incrReference() bool {
-	if br.reference == br.maxReference {
-		return false
-	}
-	br.reference++
-	return true
-}
-
-func (br *BufferAndRing) decrReference() {
-	if br.reference == 0 {
-		return
-	}
-	br.reference--
-	if br.reference == 0 {
-		br.lastIdleTime = time.Now()
-	}
-}
-
-func (br *BufferAndRing) idle() bool {
-	return br.reference == 0
 }
 
 const (
@@ -122,34 +83,25 @@ const (
 
 func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *BufferAndRings, err error) {
 	size := config.Size
-	if size == 0 {
-		size = uint16(os.Getpagesize())
+	if size < 1 {
+		size = os.Getpagesize()
 	}
-	size = uint16(liburing.RoundupPow2(uint32(size)))
 	config.Size = size
 
 	count := config.Count
 	if count == 0 {
 		count = 8
 	}
-	count = uint16(liburing.RoundupPow2(uint32(count)))
-	config.Count = count
-
-	ref := config.Reference // todo: one conn one br, this is all passed.
-	if ref == 0 {
-		ref = 1
-	}
-	ref = uint16(liburing.RoundupPow2(uint32(ref)))
-	config.Reference = ref
-
-	if int(count)*int(ref) > 32768 {
-		err = errors.New("count and reference are too large for BufferAndRings, max of count * reference is 32768")
+	count = int(liburing.RoundupPow2(uint32(count)))
+	if count > math.MaxUint16 && config.Count > count {
+		err = errors.New("count is too large for BufferAndRings, max of count * reference is 32768")
 		return
 	}
+	config.Count = count
 
-	bLen := int(size) * int(count) * int(ref)
+	bLen := size * count
 	if bLen > maxBufferSize {
-		err = errors.New("size, count and ref is too large for BufferAndRings")
+		err = errors.New("size and count are too large for BufferAndRings")
 		return
 	}
 
@@ -157,15 +109,21 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 		config.IdleTimeout = 10 * time.Second
 	}
 
+	bgids := make([]uint16, math.MaxUint16)
+	for i := 0; i < len(bgids); i++ {
+		bgids[i] = uint16(i)
+	}
+
 	brs = &BufferAndRings{
-		config:     config,
-		locker:     new(sync.Mutex),
-		ring:       ring,
-		wg:         &sync.WaitGroup{},
-		done:       make(chan struct{}),
-		bgids:      make([]uint16, 0, 8),
-		values:     make([]*BufferAndRing, 0, 8),
-		bufferPool: sync.Pool{},
+		config:       config,
+		locker:       new(sync.Mutex),
+		ring:         ring,
+		wg:           &sync.WaitGroup{},
+		done:         make(chan struct{}),
+		bgids:        bgids,
+		idles:        make([]*BufferAndRing, 0, 8),
+		bufferLength: bLen,
+		bufferPool:   sync.Pool{},
 	}
 
 	brs.start()
@@ -173,20 +131,21 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 }
 
 type BufferAndRings struct {
-	config     BufferAndRingConfig
-	locker     sync.Locker
-	ring       *liburing.Ring
-	wg         *sync.WaitGroup
-	done       chan struct{}
-	bgids      []uint16
-	values     []*BufferAndRing
-	bufferPool sync.Pool
+	config       BufferAndRingConfig
+	locker       sync.Locker
+	ring         *liburing.Ring
+	wg           *sync.WaitGroup
+	done         chan struct{}
+	bgids        []uint16
+	idles        []*BufferAndRing
+	bufferLength int
+	bufferPool   sync.Pool
 }
 
 func (brs *BufferAndRings) getBuffer() []byte {
 	v := brs.bufferPool.Get()
 	if v == nil {
-		return make([]byte, int(brs.config.Size)*int(brs.config.Count)*int(brs.config.Reference))
+		return make([]byte, brs.bufferLength)
 	}
 	return v.([]byte)
 }
@@ -201,85 +160,15 @@ func (brs *BufferAndRings) putBuffer(buf []byte) {
 func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
 	brs.locker.Lock()
 
-	// find one
-	for _, bgid := range brs.bgids {
-		value := brs.values[bgid]
-		if value.incrReference() {
-			br = value
-			brs.locker.Unlock()
-			return
-		}
-	}
-	// find min bgid to setup
-	bgid := uint16(0)
-	bgidsLen := uint16(len(brs.bgids))
-	switch bgidsLen {
-	case 0, 1:
-		bgid = bgidsLen
-		break
-	default:
-		found := false
-		for i := uint16(1); i < bgidsLen; i++ {
-			bgidPrev := brs.bgids[i-1]
-			bgidCurrent := brs.bgids[i]
-
-			if delta := bgidCurrent - bgidPrev; delta == 1 {
-				continue
-			}
-			bgid = bgidPrev + 1
-			found = true
-			break
-		}
-		if !found { // use tail
-			if bgidsLen > math.MaxUint16 {
-				err = errors.New("no remains bgid to setup buffer and ring")
-				brs.locker.Unlock()
-				return
-			}
-			bgid = bgidsLen
-		}
-		break
-	}
-
-	entries := uint16(int(brs.config.Count) * int(brs.config.Reference))
-	// NOTE! DON'T USE IOU_PBUF_RING_INC
-	br0, setupErr := brs.ring.SetupBufRing(entries, bgid, 0)
-	//br0, setupErr := brs.ring.SetupBufRing(entries, bgid, liburing.IOU_PBUF_RING_INC)
-	if setupErr != nil {
-		err = setupErr
+	// no idles
+	if len(brs.idles) == 0 {
+		br, err = brs.createBufferAndRing()
 		brs.locker.Unlock()
 		return
 	}
-	mask := liburing.BufferRingMask(entries)
-	buffer := brs.getBuffer()
-	for i := 0; i < int(entries); i++ {
-		beg := int(brs.config.Size) * i
-		end := beg + int(brs.config.Size)
-		slice := buffer[beg:end]
-		addr := &slice[0]
-		br0.BufRingAdd(uintptr(unsafe.Pointer(addr)), brs.config.Size, uint16(i), mask, uint16(i))
-	}
-	br0.BufRingAdvance(entries)
-
-	br = &BufferAndRing{
-		bgid:         bgid,
-		value:        br0,
-		reference:    1,
-		maxReference: brs.config.Reference,
-		size:         brs.config.Size,
-		lastIdleTime: time.Time{},
-		bufferSize:   len(buffer),
-		buffer:       buffer,
-	}
-
-	if bgid < bgidsLen {
-		brs.values[bgid] = br
-	} else {
-		brs.values = append(brs.values, br)
-	}
-
-	brs.bgids = append(brs.bgids, bgid)
-	slices.Sort(brs.bgids)
+	// use an idle one
+	br = brs.idles[0]
+	brs.idles = brs.idles[1:]
 
 	brs.locker.Unlock()
 	return
@@ -291,10 +180,56 @@ func (brs *BufferAndRings) Release(br *BufferAndRing) {
 	}
 
 	brs.locker.Lock()
-
-	br.decrReference()
-
+	br.lastUseTime = time.Now()
+	brs.idles = append(brs.idles, br)
 	brs.locker.Unlock()
+	return
+}
+
+func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err error) {
+	bgid := brs.bgids[0]
+
+	entries := uint32(brs.config.Count)
+	br, setupErr := brs.ring.SetupBufRing(entries, bgid, 0)
+	if setupErr != nil {
+		err = setupErr
+		return
+	}
+
+	brs.bgids = brs.bgids[1:]
+
+	mask := liburing.BufferRingMask(entries)
+	buffer := brs.getBuffer()
+	bufferUnitLength := uint32(brs.config.Size)
+	for i := uint32(0); i < entries; i++ {
+		beg := bufferUnitLength * i
+		end := beg + bufferUnitLength
+		slice := buffer[beg:end]
+		addr := &slice[0]
+		br.BufRingAdd(unsafe.Pointer(addr), bufferUnitLength, uint16(i), uint16(mask), uint16(i))
+	}
+	br.BufRingAdvance(uint16(entries))
+
+	value = &BufferAndRing{
+		bgid:        bgid,
+		value:       br,
+		lastUseTime: time.Time{},
+		config:      brs.config,
+		buffer:      buffer,
+	}
+	return
+}
+
+func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
+	// free buffer and ring
+	entries := uint32(br.config.Count)
+	_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
+	// release bgid
+	brs.bgids = append(brs.bgids, br.bgid)
+	// release buffer
+	buffer := br.buffer
+	br.buffer = nil
+	brs.putBuffer(buffer)
 	return
 }
 
@@ -326,17 +261,10 @@ func (brs *BufferAndRings) start() {
 
 		brs.locker.Lock()
 
-		for _, br := range brs.values {
-			// free buffer
-			entries := brs.config.Count * brs.config.Reference
-			_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
-			// release buffer
-			buffer := br.buffer
-			br.buffer = nil
-			brs.putBuffer(buffer)
+		for _, br := range brs.idles {
+			brs.closeBufferAndRing(br)
 		}
-		brs.values = nil
-		brs.bgids = nil
+		brs.idles = brs.idles[:0]
 
 		brs.locker.Unlock()
 	}(brs)
@@ -345,43 +273,45 @@ func (brs *BufferAndRings) start() {
 
 func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 	brs.locker.Lock()
-	defer brs.locker.Unlock()
 
-	n := len(brs.values)
+	n := len(brs.idles)
 	if n == 0 {
+		brs.locker.Unlock()
 		return
 	}
 
 	maxIdleDuration := brs.config.IdleTimeout
 	criticalTime := time.Now().Add(-maxIdleDuration)
 
-	for i := 0; i < n; i++ {
-		br := brs.values[i]
-		if br == nil {
-			continue
+	l, r, mid := 0, n-1, 0
+	for l <= r {
+		mid = (l + r) / 2
+		if criticalTime.After(brs.idles[mid].lastUseTime) {
+			l = mid + 1
+		} else {
+			r = mid - 1
 		}
-		if br.idle() {
-			if criticalTime.After(br.lastIdleTime) {
-				brs.values[i] = nil
-				if bgidIdx, has := slices.BinarySearch(brs.bgids, br.bgid); has {
-					brs.bgids = append(brs.bgids[:bgidIdx], brs.bgids[bgidIdx+1:]...)
-				}
-				*scratch = append(*scratch, br)
-			}
-		}
+	}
+	i := r
+	if i == -1 {
+		brs.locker.Unlock()
+		return
 	}
 
-	tmp := *scratch
-	for i := range tmp {
-		br := tmp[i]
-		// free buffer
-		entries := brs.config.Count * brs.config.Reference
-		_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
-		// release buffer
-		buffer := br.buffer
-		br.buffer = nil
-		brs.putBuffer(buffer)
+	*scratch = append((*scratch)[:0], brs.idles[:i+1]...)
+	m := copy(brs.idles, brs.idles[i+1:])
+	for i = m; i < n; i++ {
+		brs.idles[i] = nil
 	}
+	brs.idles = brs.idles[:m]
+
+	tmp := *scratch
+	for j := range tmp {
+		brs.closeBufferAndRing(tmp[j])
+		tmp[j] = nil
+	}
+
+	brs.locker.Unlock()
 	return
 
 }

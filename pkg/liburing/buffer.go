@@ -9,7 +9,7 @@ import (
 	"unsafe"
 )
 
-func (ring *Ring) SetupBufRing(entries uint16, bgid uint16, flags uint32) (*BufferAndRing, error) {
+func (ring *Ring) SetupBufRing(entries uint32, bgid uint16, flags uint32) (*BufferAndRing, error) {
 	br, err := ring.bufAndRingSetup(entries, bgid, flags)
 	if br != nil {
 		br.BufRingInit()
@@ -17,7 +17,7 @@ func (ring *Ring) SetupBufRing(entries uint16, bgid uint16, flags uint32) (*Buff
 	return br, err
 }
 
-func (ring *Ring) bufAndRingSetup(entries uint16, bgid uint16, flags uint32) (*BufferAndRing, error) {
+func (ring *Ring) bufAndRingSetup(entries uint32, bgid uint16, flags uint32) (*BufferAndRing, error) {
 	var br *BufferAndRing
 	var reg *BufReg
 	var ringSizeAddr uintptr
@@ -33,7 +33,7 @@ func (ring *Ring) bufAndRingSetup(entries uint16, bgid uint16, flags uint32) (*B
 
 	reg = &BufReg{}
 	reg.RingAddr = uint64(uintptr(unsafe.Pointer(br)))
-	reg.RingEntries = uint32(entries)
+	reg.RingEntries = entries
 	reg.Bgid = bgid
 	reg.Flags = uint16(flags)
 
@@ -46,7 +46,7 @@ func (ring *Ring) bufAndRingSetup(entries uint16, bgid uint16, flags uint32) (*B
 	return br, nil
 }
 
-func (ring *Ring) FreeBufRing(br *BufferAndRing, entries uint16, bgid uint16) (err error) {
+func (ring *Ring) FreeBufRing(br *BufferAndRing, entries uint32, bgid uint16) (err error) {
 	_, err = ring.UnregisterBufferRing(bgid)
 	ringSizeAddr := uintptr(entries) * unsafe.Sizeof(BufferAndRing{})
 	_ = munmap(uintptr(unsafe.Pointer(br)), ringSizeAddr)
@@ -62,12 +62,12 @@ type BufferAndRing struct {
 	Tail uint16
 }
 
-func (br *BufferAndRing) BufRingAdd(addr uintptr, length uint16, bid uint16, mask, bufOffset uint16) {
+func (br *BufferAndRing) BufRingAdd(addr unsafe.Pointer, length uint32, bid uint16, mask, bufOffset uint16) {
 	buf := (*BufferAndRing)(
 		unsafe.Pointer(uintptr(unsafe.Pointer(br)) +
 			(uintptr(((br.Tail + bufOffset) & mask) * bufferAndRingStructSize))))
-	buf.Addr = uint64(addr)
-	buf.Len = uint32(length)
+	buf.Addr = uint64(uintptr(addr))
+	buf.Len = length
 	buf.Bid = bid
 }
 
@@ -94,7 +94,7 @@ func (br *BufferAndRing) BufRingInit() {
 	br.Tail = 0
 }
 
-func BufferRingMask(entries uint16) uint16 {
+func BufferRingMask(entries uint32) uint32 {
 	return entries - 1
 }
 

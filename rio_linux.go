@@ -95,8 +95,8 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 			// fixed <<<
 
 			// buffer >>>
-			if size, count, ref, idleTimeout, has := envLoadBufferAndRingConfig(envBufferAndBufferConfig); has {
-				aioOptions = append(aioOptions, aio.WithRingBufferConfig(size, count, ref, idleTimeout))
+			if size, count, idleTimeout, has := envLoadBufferAndRingConfig(envBufferAndBufferConfig); has {
+				aioOptions = append(aioOptions, aio.WithRingBufferConfig(size, count, idleTimeout))
 			}
 			// buffer <<<
 
@@ -217,12 +217,12 @@ func envLoadCurve(name string) (aio.Curve, bool) {
 	return curve, true
 }
 
-func envLoadBufferAndRingConfig(name string) (size uint16, count uint16, ref uint16, idleTimeout time.Duration, has bool) {
+func envLoadBufferAndRingConfig(name string) (size int, count int, idleTimeout time.Duration, has bool) {
 	s, ok := os.LookupEnv(name)
 	if !ok {
 		return
 	}
-	// {size}x{count}x{ref}, 1ms
+	// {size}x{count}, 1ms
 	s = strings.TrimSpace(s)
 	s = strings.ToLower(s)
 	var (
@@ -240,24 +240,18 @@ func envLoadBufferAndRingConfig(name string) (size uint16, count uint16, ref uin
 
 	if s1 != "" {
 		ss := strings.Split(s1, "x")
-		if len(ss) != 3 {
+		if len(ss) != 2 {
 			return
 		}
-		size64, size64Err := strconv.ParseUint(strings.TrimSpace(ss[0]), 10, 16)
-		if size64Err != nil {
+		var err error
+		size, err = strconv.Atoi(ss[0])
+		if err != nil {
 			return
 		}
-		size = uint16(size64)
-		count64, count64Err := strconv.ParseUint(strings.TrimSpace(ss[1]), 10, 16)
-		if count64Err != nil {
+		count, err = strconv.Atoi(ss[1])
+		if err != nil {
 			return
 		}
-		count = uint16(count64)
-		ref64, ref64Err := strconv.ParseUint(strings.TrimSpace(ss[2]), 10, 16)
-		if ref64Err != nil {
-			return
-		}
-		ref = uint16(ref64)
 	}
 
 	if s2 != "" {

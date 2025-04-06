@@ -31,10 +31,10 @@ func TestRing_SetupBufRing2(t *testing.T) {
 				bgid      = i
 				byteSize  = 4096
 				byteCount = brn
-				mask      = liburing.BufferRingMask(uint16(brn))
+				mask      = liburing.BufferRingMask(uint32(brn))
 			)
 
-			br, brErr := ring.SetupBufRing(uint16(brn), uint16(bgid), 0)
+			br, brErr := ring.SetupBufRing(uint32(brn), uint16(bgid), 0)
 			if brErr != nil {
 				t.Error(brErr)
 				return
@@ -44,7 +44,7 @@ func TestRing_SetupBufRing2(t *testing.T) {
 
 			for j := 0; j < brn; j++ {
 				addr := &src[byteSize*j : byteSize*(j+1)][0]
-				br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint16(byteSize), uint16(j), mask, uint16(j))
+				br.BufRingAdd(unsafe.Pointer(addr), uint32(byteSize), uint16(j), uint16(mask), uint16(j))
 			}
 			br.BufRingAdvance(uint16(brn))
 		}(ring, wg, i)
@@ -84,10 +84,10 @@ func TestRing_SetupBufRing(t *testing.T) {
 		bgid      = 0
 		byteSize  = 4096
 		byteCount = brn
-		mask      = liburing.BufferRingMask(uint16(brn))
+		mask      = liburing.BufferRingMask(uint32(brn))
 	)
 
-	br, brErr := ring.SetupBufRing(uint16(brn), uint16(bgid), 0)
+	br, brErr := ring.SetupBufRing(uint32(brn), uint16(bgid), 0)
 	if brErr != nil {
 		t.Error(brErr)
 		return
@@ -97,7 +97,7 @@ func TestRing_SetupBufRing(t *testing.T) {
 
 	for i := 0; i < brn; i++ {
 		addr := &src[byteSize*i : byteSize*(i+1)][0]
-		br.BufRingAdd(uintptr(unsafe.Pointer(addr)), uint16(byteSize), uint16(i), mask, uint16(i))
+		br.BufRingAdd(unsafe.Pointer(addr), uint32(byteSize), uint16(i), uint16(mask), uint16(i))
 	}
 	br.BufRingAdvance(uint16(brn))
 
