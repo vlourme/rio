@@ -187,6 +187,11 @@ func (brs *BufferAndRings) Release(br *BufferAndRing) {
 }
 
 func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err error) {
+	if len(brs.bgids) == 0 {
+		err = errors.New("create buffer and ring failed cause no bgid available")
+		return
+	}
+
 	bgid := brs.bgids[0]
 
 	entries := uint32(brs.config.Count)
