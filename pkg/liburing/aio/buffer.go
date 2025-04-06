@@ -90,10 +90,10 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 
 	count := config.Count
 	if count == 0 {
-		count = 8
+		count = 16
 	}
 	count = int(liburing.RoundupPow2(uint32(count)))
-	if count > math.MaxUint16 && config.Count > count {
+	if count > 32768 {
 		err = errors.New("count is too large for BufferAndRings, max of count * reference is 32768")
 		return
 	}
