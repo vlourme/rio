@@ -94,14 +94,14 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 	}
 	count = int(liburing.RoundupPow2(uint32(count)))
 	if count > 32768 {
-		err = errors.New("count is too large for BufferAndRings, max of count * reference is 32768")
+		err = errors.New("count is too large for buffer and ring, max count is 32768")
 		return
 	}
 	config.Count = count
 
 	bLen := size * count
 	if bLen > maxBufferSize {
-		err = errors.New("size and count are too large for BufferAndRings")
+		err = errors.New("size and count are too large for buffer and ring")
 		return
 	}
 
@@ -309,14 +309,16 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 		brs.idles[i] = nil
 	}
 	brs.idles = brs.idles[:m]
+	brs.locker.Unlock()
 
 	tmp := *scratch
 	for j := range tmp {
+		brs.locker.Lock()
 		brs.closeBufferAndRing(tmp[j])
+		brs.locker.Unlock()
 		tmp[j] = nil
 	}
 
-	brs.locker.Unlock()
 	return
 
 }
