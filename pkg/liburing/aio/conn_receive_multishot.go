@@ -34,7 +34,7 @@ func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err err
 		err:     nil,
 		buffer:  buffer,
 		br:      br,
-		ch:      op.resultCh,
+		ch:      make(chan struct{}, 1),
 		done:    make(chan struct{}),
 	}
 	// prepare
@@ -60,7 +60,7 @@ type RecvMultishotHandler struct {
 	err     error
 	buffer  *bytebuffer.Buffer
 	br      *BufferAndRing
-	ch      chan Result
+	ch      chan struct{}
 	done    chan struct{}
 }
 
@@ -82,7 +82,7 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		handler.locker.Unlock()
 
 		if handler.waiting.CompareAndSwap(true, false) {
-			handler.ch <- Result{}
+			handler.ch <- struct{}{}
 		}
 
 		close(handler.done)
@@ -98,7 +98,7 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		handler.locker.Unlock()
 
 		if handler.waiting.CompareAndSwap(true, false) {
-			handler.ch <- Result{}
+			handler.ch <- struct{}{}
 		}
 		if flags&liburing.IORING_CQE_F_MORE == 0 {
 			goto NO_CQE_F_MORE
@@ -120,7 +120,7 @@ NO_CQE_F_MORE:
 			handler.locker.Unlock()
 
 			if handler.waiting.CompareAndSwap(true, false) {
-				handler.ch <- Result{}
+				handler.ch <- struct{}{}
 			}
 
 			close(handler.done)
@@ -306,6 +306,8 @@ func (handler *RecvMultishotHandler) clean() {
 		buffer := handler.buffer
 		handler.buffer = nil
 		bytebuffer.Release(buffer)
+		// close ch
+		close(handler.ch)
 	}
 	handler.locker.Unlock()
 	return
