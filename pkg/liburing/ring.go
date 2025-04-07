@@ -91,6 +91,7 @@ func (ring *Ring) Close() (err error) {
 	}
 	if ring.ringFd != -1 {
 		err = syscall.Close(ring.ringFd)
+		ring.ringFd = -1
 	}
 	return
 }
