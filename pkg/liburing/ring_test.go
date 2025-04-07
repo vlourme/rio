@@ -74,7 +74,7 @@ func TestRing_MSGRing(t *testing.T) {
 		t.Error(reg1Err)
 		return
 	}
-	t.Log("register ring fd success:", r1.Fd(), r1.EnterFd())
+	t.Log("register ring fd success:", r1.Fd())
 
 	r2, r2Err := liburing.New(liburing.WithEntries(4))
 	if r2Err != nil {
@@ -88,7 +88,7 @@ func TestRing_MSGRing(t *testing.T) {
 		t.Error(reg2Err)
 		return
 	}
-	t.Log("register ring fd success:", r2.Fd(), r2.EnterFd())
+	t.Log("register ring fd success:", r2.Fd())
 
 	sqe := r1.GetSQE()
 	sqe.PrepareMsgRing(r2.Fd(), 1, nil, 0)
