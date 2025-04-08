@@ -19,7 +19,8 @@ type Fd struct {
 	zeroReadIsEOF bool
 	readDeadline  time.Time
 	writeDeadline time.Time
-	vortex        *Vortex
+	multishot     bool
+	eventLoop     *EventLoop
 }
 
 func (fd *Fd) FileDescriptor() (n int, direct bool) {
@@ -59,10 +60,6 @@ func (fd *Fd) SetWriteDeadline(t time.Time) {
 	fd.writeDeadline = t
 }
 
-func (fd *Fd) OperationSupported(op uint8) bool {
-	return fd.vortex.opSupported(op)
-}
-
 func (fd *Fd) Registered() bool {
 	return fd.direct != -1
 }
@@ -79,17 +76,11 @@ func (fd *Fd) Install() (err error) {
 		err = errors.New("fd is not directed")
 		return
 	}
-	regular, installErr := fd.vortex.fixedFdInstall(fd.direct)
-	if installErr != nil {
-		err = installErr
-		return
-	}
-	fd.regular = regular
+	op := fd.eventLoop.resource.AcquireOperation()
+	op.PrepareFixedFdInstall(fd.direct)
+	fd.regular, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
 	return
-}
-
-func (fd *Fd) Vortex() *Vortex {
-	return fd.vortex
 }
 
 func (fd *Fd) SyscallConn() (syscall.RawConn, error) {

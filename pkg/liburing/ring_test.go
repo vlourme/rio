@@ -5,6 +5,7 @@ package liburing_test
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"testing"
+	"unsafe"
 )
 
 func TestNew(t *testing.T) {
@@ -62,7 +63,11 @@ func TestNew(t *testing.T) {
 }
 
 func TestRing_MSGRing(t *testing.T) {
-	r1, r1Err := liburing.New(liburing.WithEntries(4))
+	flags := liburing.IORING_SETUP_COOP_TASKRUN |
+		liburing.IORING_SETUP_TASKRUN_FLAG |
+		liburing.IORING_SETUP_SINGLE_ISSUER |
+		liburing.IORING_SETUP_DEFER_TASKRUN
+	r1, r1Err := liburing.New(liburing.WithEntries(4), liburing.WithFlags(flags))
 	if r1Err != nil {
 		t.Error(r1Err)
 		return
@@ -92,13 +97,20 @@ func TestRing_MSGRing(t *testing.T) {
 
 	sqe := r1.GetSQE()
 	sqe.PrepareMsgRing(r2.Fd(), 1, nil, 0)
+	sqe.SetData(unsafe.Pointer(uintptr(r1.Fd())))
 	_, swErr := r1.SubmitAndWait(1)
 	if swErr != nil {
 		t.Error(swErr)
 		return
 	}
+	cqe, cqeErr := r1.WaitCQE()
+	if cqeErr != nil {
+		t.Error(cqeErr)
+		return
+	}
+	t.Log("cqe:", cqe.UserData)
 
-	cqe, cqeErr := r2.WaitCQE()
+	cqe, cqeErr = r2.WaitCQE()
 	if cqeErr != nil {
 		t.Error(cqeErr)
 		return

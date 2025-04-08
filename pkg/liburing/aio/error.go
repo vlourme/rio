@@ -52,26 +52,11 @@ func (e *CanceledError) Is(err error) bool {
 
 type TimeoutError struct{}
 
-func (e *TimeoutError) Error() string   { return "i/o timeout" }
+func (e *TimeoutError) Error() string   { return "i/o op_f_timeout" }
 func (e *TimeoutError) Timeout() bool   { return true }
 func (e *TimeoutError) Temporary() bool { return true }
 func (e *TimeoutError) Is(err error) bool {
 	return err == context.DeadlineExceeded
-}
-
-func NewRingErr(err error) error {
-	return &RingError{err}
-}
-
-type RingError struct {
-	Err error
-}
-
-func (e *RingError) Error() string   { return "create iouring failed: " + e.Err.Error() }
-func (e *RingError) Timeout() bool   { return false }
-func (e *RingError) Temporary() bool { return false }
-func (e *RingError) Is(err error) bool {
-	return errors.Is(err, e.Err)
 }
 
 func NewInvalidOpErr(err error) error {

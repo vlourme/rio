@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"sync/atomic"
 	"syscall"
@@ -16,6 +17,10 @@ type Result struct {
 	Err   error
 }
 
+type OperationHandler interface {
+	Handle(n int, flags uint32, err error)
+}
+
 const (
 	ReadyOperationStatus int64 = iota
 	ProcessingOperationStatus
@@ -24,11 +29,21 @@ const (
 )
 
 const (
-	borrowed uint8 = 1 << iota
-	discard
-	directAlloc
-	multishot
-	withHandler
+	op_f_borrowed uint8 = 1 << iota
+	op_f_timeout
+	op_f_discard
+	op_f_direct_alloc
+	op_f_multishot
+	op_f_with_handler
+	op_f_noexec
+)
+
+const (
+	op_cmd_close uint8 = iota + 1
+	op_cmd_msg_ring
+	op_cmd_msg_ring_fd
+	op_cmd_acquire_br
+	op_cmd_release_br
 )
 
 type Operation struct {
@@ -36,7 +51,7 @@ type Operation struct {
 	cmd      uint8
 	flags    uint8
 	sqeFlags uint8
-	timeout  *syscall.Timespec
+	link     *Operation
 	status   atomic.Int64
 	resultCh chan Result
 	fd       int
@@ -46,9 +61,55 @@ type Operation struct {
 	addr2Len uint32
 }
 
+// Await result, can not use for multishot.
+func (op *Operation) Await() (n int, cqeFlags uint32, err error) {
+	if op.flags&op_f_multishot != 0 {
+		panic("op_f_multishot not supported")
+		return
+	}
+	result, ok := <-op.resultCh
+	if !ok {
+		op.Close()
+		err = ErrCanceled
+		return
+	}
+	n, cqeFlags, err = result.N, result.Flags, result.Err
+	if err != nil {
+		if errors.Is(err, syscall.ECANCELED) {
+			err = ErrCanceled
+		}
+		if op.flags&op_f_timeout != 0 {
+			goto TIMEOUT
+		}
+		return
+	}
+MORE:
+	if cqeFlags&liburing.IORING_CQE_F_MORE != 0 { // has more cqe (send_zc or sendmsg_zc)
+		result, ok = <-op.resultCh
+		if !ok {
+			op.Close()
+			err = ErrCanceled
+			return
+		}
+		if result.Flags&liburing.IORING_CQE_F_NOTIF == 0 {
+			goto MORE
+		}
+	}
+TIMEOUT:
+	if op.flags&op_f_timeout != 0 { // await op_f_timeout
+		result, ok = <-op.link.resultCh
+		if ok {
+			if errors.Is(result.Err, syscall.ETIME) {
+				err = ErrTimeout
+			}
+		}
+	}
+	return
+}
+
 func (op *Operation) Close() {
 	op.status.Store(CompletedOperationStatus)
-	op.flags |= discard
+	op.flags |= op_f_discard
 }
 
 func (op *Operation) Hijack() {
@@ -59,40 +120,49 @@ func (op *Operation) Complete() {
 	op.status.Store(CompletedOperationStatus)
 }
 
-func (op *Operation) WithDeadline(deadline time.Time) *Operation {
+func (op *Operation) WithLinkTimeout(link *Operation) *Operation {
+	if link == nil {
+		return op
+	}
+	op.flags |= op_f_timeout
+	op.link = link
+	op.sqeFlags |= liburing.IOSQE_IO_LINK
+	return op
+}
+
+func (op *Operation) WithDeadline(resource *Resource, deadline time.Time) *Operation {
 	if deadline.IsZero() {
 		return op
 	}
-	timeout := time.Until(deadline)
-	if timeout < 1 {
-		timeout = 10 * time.Microsecond
-	}
-	ns := syscall.NsecToTimespec(timeout.Nanoseconds())
-	op.timeout = &ns
-	op.sqeFlags |= liburing.IOSQE_IO_LINK
+	link := resource.AcquireOperation()
+	link.PrepareLinkTimeout(deadline)
+	op.WithLinkTimeout(link)
 	return op
 }
 
 func (op *Operation) WithDirectAlloc(direct bool) *Operation {
 	if direct {
-		op.flags |= directAlloc
+		op.flags |= op_f_direct_alloc
 	}
 	return op
 }
 
 func (op *Operation) WithMultiShot() *Operation {
-	op.flags |= multishot
+	op.flags |= op_f_multishot
 	return op
 }
 
 func (op *Operation) WithHandler(handler OperationHandler) *Operation {
-	op.flags |= withHandler
+	if handler == nil {
+		return op
+	}
+	op.flags |= op_f_with_handler
 	op.addr2 = unsafe.Pointer(&handler)
 	return op
 }
 
 func (op *Operation) handler() (handler OperationHandler) {
-	if op.flags&withHandler != 0 {
+	if op.flags&op_f_with_handler != 0 {
 		handler = *(*OperationHandler)(op.addr2)
 	}
 	return
@@ -101,13 +171,13 @@ func (op *Operation) handler() (handler OperationHandler) {
 func (op *Operation) reset() {
 	op.code = liburing.IORING_OP_LAST
 	op.cmd = 0
-	if op.flags&borrowed != 0 {
-		op.flags = borrowed
+	if op.flags&op_f_borrowed != 0 {
+		op.flags = op_f_borrowed
 	} else {
 		op.flags = 0
 	}
 	op.sqeFlags = 0
-	op.timeout = nil
+	op.link = nil
 	op.status.Store(ReadyOperationStatus)
 
 	op.fd = -1
@@ -176,7 +246,7 @@ func (op *Operation) releaseAble() bool {
 	if hijacked := op.status.Load() == HijackedOperationStatus; hijacked {
 		return false
 	}
-	ok := op.flags&borrowed != 0 && op.flags&discard == 0
+	ok := op.flags&op_f_borrowed != 0 && op.flags&op_f_discard == 0
 	if ok {
 		ok = op.clean()
 	}

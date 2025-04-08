@@ -8,7 +8,7 @@ import (
 	"unsafe"
 )
 
-func (op *Operation) PrepareProvideBuffers(bgid int, buffers []syscall.Iovec) (err error) {
+func (op *Operation) PrepareProvideBuffers(bgid int, buffers []syscall.Iovec) {
 	op.code = liburing.IORING_OP_PROVIDE_BUFFERS
 	op.fd = bgid
 	op.addr = unsafe.Pointer(&buffers[0])
@@ -26,7 +26,7 @@ func (op *Operation) packingProvideBuffers(sqe *liburing.SubmissionQueueEntry) (
 	return
 }
 
-func (op *Operation) PrepareRemoveBuffers(bgid int, nr int) (err error) {
+func (op *Operation) PrepareRemoveBuffers(bgid int, nr int) {
 	op.code = liburing.IORING_OP_REMOVE_BUFFERS
 	op.fd = bgid
 	op.addrLen = uint32(nr)

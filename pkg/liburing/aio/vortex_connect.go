@@ -50,21 +50,18 @@ func (vortex *Vortex) Connect(
 		err = errors.New("unsupported network")
 		return
 	}
+	// event loop
+	event := vortex.group.Next()
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, "dial")
 	// sock
 	var (
-		regular = -1
-		direct  = -1
+		sock = -1
 	)
-	if vortex.directAllocEnabled {
-		op := vortex.acquireOperation()
-		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
-		direct, _, err = vortex.submitAndWait(op)
-		vortex.releaseOperation(op)
-	} else {
-		regular, err = sys.NewSocket(family, sotype, proto)
-	}
+	op := event.resource.AcquireOperation()
+	op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
+	sock, _, err = event.SubmitAndWait(op)
+	event.resource.ReleaseOperation(op)
 	if err != nil {
 		return
 	}
@@ -72,20 +69,25 @@ func (vortex *Vortex) Connect(
 	conn = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
-				regular:       regular,
-				direct:        direct,
+				regular:       -1,
+				direct:        sock,
 				isStream:      sotype == syscall.SOCK_STREAM,
 				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-				vortex:        vortex,
+				readDeadline:  time.Time{},
+				writeDeadline: time.Time{},
+				multishot:     !vortex.multishotDisabled,
+				eventLoop:     event,
 			},
-			family: family,
-			sotype: sotype,
-			net:    network,
-			laddr:  laddr,
-			raddr:  raddr,
+			family:           family,
+			sotype:           sotype,
+			net:              network,
+			laddr:            laddr,
+			raddr:            raddr,
+			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
+			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
 		},
-		sendZCEnabled:    vortex.sendZCEnabled,
-		sendMSGZCEnabled: vortex.sendMSGZCEnabled,
+		recvFn:  nil,
+		handler: nil,
 	}
 	// ipv6
 	if ipv6only {
@@ -106,13 +108,6 @@ func (vortex *Vortex) Connect(
 	}
 	// control
 	if control != nil {
-		if regular == -1 {
-			if regular, err = vortex.fixedFdInstall(direct); err == nil {
-				_ = conn.Close()
-				return
-			}
-			conn.regular = regular
-		}
 		raw, rawErr := conn.SyscallConn()
 		if rawErr != nil {
 			_ = conn.Close()
@@ -144,17 +139,17 @@ func (vortex *Vortex) Connect(
 			rsa    *syscall.RawSockaddrAny
 			rsaLen int32
 		)
-
 		if sa, err = sys.AddrToSockaddr(raddr); err != nil {
 			return
 		}
 		if rsa, rsaLen, err = sys.SockaddrToRawSockaddrAny(sa); err != nil {
 			return
 		}
-		op := conn.vortex.acquireOperation()
-		op.WithDeadline(deadline).PrepareConnect(conn, rsa, int(rsaLen))
-		_, _, err = conn.vortex.submitAndWait(op)
-		conn.vortex.releaseOperation(op)
+
+		op = event.resource.AcquireOperation()
+		op.WithDeadline(event.resource, deadline).PrepareConnect(conn, rsa, int(rsaLen))
+		_, _, err = event.SubmitAndWait(op)
+		event.resource.ReleaseOperation(op)
 		if err != nil {
 			_ = conn.Close()
 			return

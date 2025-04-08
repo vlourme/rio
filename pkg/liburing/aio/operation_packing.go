@@ -13,6 +13,9 @@ func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) 
 	case liburing.IORING_OP_NOP:
 		err = op.packingNop(sqe)
 		break
+	case liburing.IORING_OP_MSG_RING:
+		err = op.packingMSGRing(sqe)
+		break
 	case liburing.IORING_OP_URING_CMD:
 		err = op.packingURingCMD(sqe)
 		break

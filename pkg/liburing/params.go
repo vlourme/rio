@@ -70,13 +70,24 @@ func (params *Params) Validate() error {
 			flags |= IORING_SETUP_SUBMIT_ALL
 		}
 	}
-	if params.flags&IORING_SETUP_COOP_TASKRUN != 0 {
+	if flags&IORING_SETUP_SQPOLL == 0 && params.flags&IORING_SETUP_COOP_TASKRUN != 0 {
 		if version.GTE(5, 19, 0) {
 			flags |= IORING_SETUP_COOP_TASKRUN
 		}
 	}
-	if params.flags&IORING_SETUP_TASKRUN_FLAG != 0 {
-		if version.GTE(5, 19, 0) && flags&IORING_SETUP_COOP_TASKRUN != 0 {
+
+	if params.flags&IORING_SETUP_SINGLE_ISSUER != 0 {
+		if version.GTE(6, 0, 0) {
+			flags |= IORING_SETUP_SINGLE_ISSUER
+		}
+	}
+	if flags&IORING_SETUP_SQPOLL == 0 && params.flags&IORING_SETUP_DEFER_TASKRUN != 0 {
+		if version.GTE(6, 1, 0) && flags&IORING_SETUP_SINGLE_ISSUER != 0 {
+			flags |= IORING_SETUP_DEFER_TASKRUN
+		}
+	}
+	if flags&IORING_SETUP_SQPOLL == 0 && params.flags&IORING_SETUP_TASKRUN_FLAG != 0 {
+		if version.GTE(5, 19, 0) && (flags&IORING_SETUP_COOP_TASKRUN != 0 || flags&IORING_SETUP_DEFER_TASKRUN != 0) {
 			flags |= IORING_SETUP_TASKRUN_FLAG
 		}
 	}
@@ -88,16 +99,6 @@ func (params *Params) Validate() error {
 	if params.flags&IORING_SETUP_CQE32 != 0 {
 		if version.GTE(5, 19, 0) {
 			flags |= IORING_SETUP_CQE32
-		}
-	}
-	if params.flags&IORING_SETUP_SINGLE_ISSUER != 0 {
-		if version.GTE(6, 0, 0) {
-			flags |= IORING_SETUP_SINGLE_ISSUER
-		}
-	}
-	if params.flags&IORING_SETUP_DEFER_TASKRUN != 0 {
-		if version.GTE(6, 1, 0) && flags&IORING_SETUP_SINGLE_ISSUER != 0 {
-			flags |= IORING_SETUP_DEFER_TASKRUN
 		}
 	}
 	if params.flags&IORING_SETUP_NO_MMAP != 0 {

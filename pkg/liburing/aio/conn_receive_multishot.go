@@ -15,7 +15,7 @@ import (
 
 func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err error) {
 	// br
-	br, brErr := conn.vortex.bufferAndRings.Acquire()
+	br, brErr := conn.eventLoop.AcquireBufferAndRing()
 	if brErr != nil {
 		err = brErr
 		return
@@ -23,7 +23,7 @@ func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err err
 	// buffer
 	buffer := bytebuffer.Acquire()
 	// op
-	op := conn.vortex.acquireOperation()
+	op := conn.eventLoop.resource.AcquireOperation()
 	op.Hijack()
 	// handler
 	handler = &RecvMultishotHandler{
@@ -43,9 +43,9 @@ func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err err
 	if err = handler.submit(); err != nil {
 		// release op
 		op.Complete()
-		conn.vortex.releaseOperation(op)
+		conn.eventLoop.resource.ReleaseOperation(op)
 		// release br
-		conn.vortex.bufferAndRings.Release(br)
+		conn.eventLoop.ReleaseBufferAndRing(br)
 		// release buffer
 		bytebuffer.Release(buffer)
 	}
@@ -101,12 +101,12 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 			handler.ch <- struct{}{}
 		}
 		if flags&liburing.IORING_CQE_F_MORE == 0 {
-			goto NO_CQE_F_MORE
+			goto EMPTY
 		}
 		return
 	}
 
-NO_CQE_F_MORE:
+EMPTY:
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
 		//fmt.Println("RECV > ", handler.conn.Name(),
 		//	n, err,
@@ -145,16 +145,6 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 	}
 
 	handler.locker.Lock()
-	// check sq busy error
-	if handler.err != nil && errors.Is(handler.err, ErrIOURingSQBusy) {
-		handler.locker.Unlock()
-		if err = handler.submit(); err != nil {
-			handler.locker.Lock()
-			handler.err = err
-			handler.locker.Unlock()
-			return
-		}
-	}
 
 	// try read
 	n, _ = handler.buffer.Read(b)
@@ -206,8 +196,8 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 			err = ErrTimeout
 			return
 		}
-		timer = handler.conn.vortex.acquireTimer(timeout)
-		defer handler.conn.vortex.releaseTimer(timer)
+		timer = handler.conn.eventLoop.resource.AcquireTimer(timeout)
+		defer handler.conn.eventLoop.resource.ReleaseTimer(timer)
 	}
 
 	if timer == nil {
@@ -259,7 +249,7 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 	handler.locker.Unlock()
 
 	op := handler.op
-	if err = handler.conn.vortex.cancelOperation(op); err != nil {
+	if err = handler.conn.eventLoop.Cancel(op); err != nil {
 		handler.locker.Lock()
 		if !errors.Is(handler.err, io.EOF) {
 			handler.locker.Unlock()
@@ -284,8 +274,7 @@ func (handler *RecvMultishotHandler) submit() (err error) {
 		err = ErrCanceled
 		return
 	}
-	if ok := handler.conn.vortex.submit(handler.op); !ok {
-		err = ErrCanceled
+	if err = handler.conn.eventLoop.Submit(handler.op); err != nil {
 		return
 	}
 	return
@@ -297,11 +286,11 @@ func (handler *RecvMultishotHandler) clean() {
 		// release op
 		handler.op = nil
 		op.Complete()
-		handler.conn.vortex.releaseOperation(op)
+		handler.conn.eventLoop.resource.ReleaseOperation(op)
 		// release br
 		br := handler.br
 		handler.br = nil
-		handler.conn.vortex.bufferAndRings.Release(br)
+		handler.conn.eventLoop.ReleaseBufferAndRing(br)
 		// release buffer
 		buffer := handler.buffer
 		handler.buffer = nil

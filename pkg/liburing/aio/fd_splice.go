@@ -36,14 +36,10 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 			NBytes:     uint32(chunk),
 			Flags:      unix.SPLICE_F_NONBLOCK,
 		}
-		opDrain := fd.vortex.acquireOperation()
+		opDrain := fd.eventLoop.resource.AcquireOperation()
 		opDrain.PrepareSplice(&drainParams)
-		if ok := fd.vortex.submit(opDrain); !ok {
-			err = ErrCanceled
-			return
-		}
-		drained, _, drainedErr := fd.vortex.awaitOperation(opDrain)
-		fd.vortex.releaseOperation(opDrain)
+		drained, _, drainedErr := fd.eventLoop.SubmitAndWait(opDrain)
+		fd.eventLoop.resource.ReleaseOperation(opDrain)
 		if drainedErr != nil || drained == 0 {
 			err = drainedErr
 			break
@@ -60,14 +56,10 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 			NBytes:     uint32(drained),
 			Flags:      unix.SPLICE_F_NONBLOCK,
 		}
-		opPump := fd.vortex.acquireOperation()
+		opPump := fd.eventLoop.resource.AcquireOperation()
 		opPump.PrepareSplice(&pumpParams)
-		if ok := fd.vortex.submit(opPump); !ok {
-			err = ErrCanceled
-			return
-		}
-		pumped, _, pumpedErr := fd.vortex.awaitOperation(opPump)
-		fd.vortex.releaseOperation(opPump)
+		pumped, _, pumpedErr := fd.eventLoop.SubmitAndWait(opPump)
+		fd.eventLoop.resource.ReleaseOperation(opPump)
 		if pumped > 0 {
 			n += int64(pumped)
 			remain -= int64(pumped)

@@ -8,16 +8,16 @@ import (
 
 func (fd *Fd) Cancel() {
 	if fd.direct != -1 {
-		op := fd.vortex.acquireOperation()
+		op := fd.eventLoop.resource.AcquireOperation()
 		op.PrepareCancelFixedFd(fd.direct)
-		_, _, _ = fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
+		_, _, _ = fd.eventLoop.SubmitAndWait(op)
+		fd.eventLoop.resource.ReleaseOperation(op)
 	}
 	if fd.regular != -1 {
-		op := fd.vortex.acquireOperation()
+		op := fd.eventLoop.resource.AcquireOperation()
 		op.PrepareCancelFd(fd.regular)
-		_, _, _ = fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
+		_, _, _ = fd.eventLoop.SubmitAndWait(op)
+		fd.eventLoop.resource.ReleaseOperation(op)
 	}
 	return
 }
@@ -40,17 +40,17 @@ func (fd *Fd) Close() error {
 }
 
 func (fd *Fd) closeFd() (err error) {
-	op := fd.vortex.acquireOperation()
+	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareClose(fd.regular)
-	_, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
-	return err
+	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
+	return
 }
 
 func (fd *Fd) closeDirectFd() (err error) {
-	op := fd.vortex.acquireOperation()
+	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareCloseDirect(fd.direct)
-	_, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
-	return err
+	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
+	return
 }

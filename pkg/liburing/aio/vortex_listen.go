@@ -5,7 +5,6 @@ package aio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, addr net.Addr, reusePort bool, control Control) (ln *Listener, err error) {
@@ -49,37 +49,38 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
 	// sock
 	var (
-		regular = -1
-		direct  = -1
+		sock = -1
 	)
-	if vortex.directAllocEnabled {
-		op := vortex.acquireOperation()
-		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
-		direct, _, err = vortex.submitAndWait(op)
-		vortex.releaseOperation(op)
-	} else {
-		regular, err = sys.NewSocket(family, sotype, proto)
-	}
+	op := vortex.group.Resource().AcquireOperation()
+	op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
+	sock, _, err = vortex.group.SubmitAndWait(op)
+	vortex.group.Resource().ReleaseOperation(op)
 	if err != nil {
 		return
 	}
+
 	// backlog
 	backlog := sys.MaxListenerBacklog()
 	// ln
 	ln = &Listener{
 		NetFd: NetFd{
 			Fd: Fd{
-				regular:       regular,
-				direct:        direct,
+				regular:       -1,
+				direct:        sock,
 				isStream:      sotype == syscall.SOCK_STREAM,
 				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-				vortex:        vortex,
+				readDeadline:  time.Time{},
+				writeDeadline: time.Time{},
+				multishot:     !vortex.multishotDisabled,
+				eventLoop:     vortex.group.boss,
 			},
-			family: family,
-			sotype: sotype,
-			net:    network,
-			laddr:  addr,
-			raddr:  nil,
+			family:           family,
+			sotype:           sotype,
+			net:              network,
+			laddr:            addr,
+			raddr:            nil,
+			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
+			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
 		},
 		backlog:  backlog,
 		acceptFn: nil,
@@ -122,13 +123,6 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	}
 	// control
 	if control != nil {
-		if regular == -1 {
-			if regular, err = vortex.fixedFdInstall(direct); err == nil {
-				_ = ln.Close()
-				return
-			}
-			ln.regular = regular
-		}
 		raw, rawErr := ln.SyscallConn()
 		if rawErr != nil {
 			_ = ln.Close()
@@ -146,21 +140,19 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		return
 	}
 	// listen
-	if liburing.VersionEnable(6, 11, 0) && ln.Registered() {
-		op := ln.vortex.acquireOperation()
+	if supportListen() {
+		op = vortex.group.Resource().AcquireOperation()
 		op.PrepareListen(ln, backlog)
-		_, _, err = ln.vortex.submitAndWait(op)
-		ln.vortex.releaseOperation(op)
+		_, _, err = vortex.group.SubmitAndWait(op)
+		vortex.group.Resource().ReleaseOperation(op)
 		if err != nil {
 			_ = ln.Close()
 			return
 		}
 	} else {
-		if !ln.Installed() {
-			if err = ln.Install(); err != nil {
-				_ = ln.Close()
-				return
-			}
+		if err = ln.Install(); err != nil {
+			_ = ln.Close()
+			return
 		}
 		if err = syscall.Listen(ln.regular, backlog); err != nil {
 			_ = ln.Close()
@@ -212,17 +204,12 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
 	// sock
 	var (
-		regular = -1
-		direct  = -1
+		sock = -1
 	)
-	if vortex.directAllocEnabled {
-		op := vortex.acquireOperation()
-		op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
-		direct, _, err = vortex.submitAndWait(op)
-		vortex.releaseOperation(op)
-	} else {
-		regular, err = sys.NewSocket(family, sotype, proto)
-	}
+	op := vortex.group.Resource().AcquireOperation()
+	op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
+	sock, _, err = vortex.group.SubmitAndWait(op)
+	vortex.group.Resource().ReleaseOperation(op)
 	if err != nil {
 		return
 	}
@@ -230,20 +217,23 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	conn = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
-				regular:       regular,
-				direct:        direct,
+				regular:       -1,
+				direct:        sock,
 				isStream:      sotype == syscall.SOCK_STREAM,
 				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
-				vortex:        vortex,
+				readDeadline:  time.Time{},
+				writeDeadline: time.Time{},
+				multishot:     !vortex.multishotDisabled,
+				eventLoop:     vortex.group.boss,
 			},
-			family: family,
-			sotype: sotype,
-			net:    network,
-			laddr:  addr,
-			raddr:  nil,
+			family:           family,
+			sotype:           sotype,
+			net:              network,
+			laddr:            addr,
+			raddr:            nil,
+			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
+			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
 		},
-		sendZCEnabled:    vortex.sendZCEnabled,
-		sendMSGZCEnabled: vortex.sendMSGZCEnabled,
 	}
 
 	// ipv6
@@ -317,13 +307,6 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	}
 	// control
 	if control != nil {
-		if regular == -1 {
-			if regular, err = vortex.fixedFdInstall(direct); err == nil {
-				_ = conn.Close()
-				return
-			}
-			conn.regular = regular
-		}
 		raw, rawErr := conn.SyscallConn()
 		if rawErr != nil {
 			_ = conn.Close()

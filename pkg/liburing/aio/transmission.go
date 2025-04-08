@@ -18,7 +18,21 @@ type Curve []struct {
 
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
-		curve = Curve{{1, 15 * time.Second}}
+		curve = Curve{
+			//{8, 1 * time.Microsecond},
+			//{16, 2 * time.Microsecond},
+			//{32, 4 * time.Microsecond},
+			//{64, 8 * time.Microsecond},
+			//{96, 10 * time.Microsecond},
+			//{128, 10 * time.Microsecond},
+			//{192, 150 * time.Microsecond},
+			//{256, 200 * time.Microsecond},
+			//{384, 300 * time.Microsecond},
+			//{512, 500 * time.Microsecond},
+			{32, 100 * time.Microsecond},
+			{64, 200 * time.Microsecond},
+			{96, 500 * time.Microsecond},
+		}
 	}
 	times := make([]WaitNTime, 0, 1)
 	for _, t := range curve {

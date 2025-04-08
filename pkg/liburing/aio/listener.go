@@ -4,9 +4,9 @@ package aio
 
 import (
 	"errors"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"net"
 	"sync"
 	"syscall"
 	"time"
@@ -20,7 +20,7 @@ type Listener struct {
 }
 
 func (fd *Listener) init() {
-	if fd.vortex.multishotAcceptEnabled() {
+	if fd.multishot {
 		handler, handlerErr := newAcceptMultishotHandler(fd)
 		if handlerErr == nil {
 			fd.handler = handler
@@ -31,17 +31,12 @@ func (fd *Listener) init() {
 	}
 }
 
-func (fd *Listener) Bind(addr net.Addr) error {
-	return fd.bind(addr)
-}
-
 func (fd *Listener) Accept() (nfd *Conn, err error) {
 	nfd, err = fd.acceptFn()
 	return
 }
 
 func (fd *Listener) accept() (nfd *Conn, err error) {
-	deadline := fd.readDeadline
 	acceptAddr := &syscall.RawSockaddrAny{}
 	acceptAddrLen := syscall.SizeofSockaddrAny
 	param := &prepareAcceptParam{
@@ -49,16 +44,32 @@ func (fd *Listener) accept() (nfd *Conn, err error) {
 		addrLen: &acceptAddrLen,
 	}
 
-	op := fd.vortex.acquireOperation()
-	op.WithDeadline(deadline).PrepareAccept(fd, param)
-	accepted, _, acceptErr := fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
+	op := fd.eventLoop.resource.AcquireOperation()
+	op.WithDeadline(fd.eventLoop.resource, fd.readDeadline).PrepareAccept(fd, param)
+	accepted, _, acceptErr := fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
+
 	if acceptErr != nil {
 		err = acceptErr
 		return
 	}
+	// dispatch to worker
+	op = fd.eventLoop.resource.AcquireOperation()
+	if dispatchErr := fd.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
+		fd.eventLoop.resource.ReleaseOperation(op)
+		cfd := &Fd{direct: accepted}
+		_ = cfd.Close()
+		err = dispatchErr
+		return
+	}
+	if _, _, err = op.Await(); err != nil {
+		fd.eventLoop.resource.ReleaseOperation(op)
+		return
+	}
+	worker := (*EventLoop)(op.addr)
+	fd.eventLoop.resource.ReleaseOperation(op)
 
-	nfd = fd.newAcceptedConnFd(accepted)
+	nfd = fd.newAcceptedConnFd(accepted, worker)
 
 	sa, saErr := sys.RawSockaddrAnyToSockaddr(acceptAddr)
 	if saErr == nil {
@@ -75,30 +86,29 @@ func (fd *Listener) Close() error {
 	return fd.NetFd.Close()
 }
 
-func (fd *Listener) newAcceptedConnFd(accepted int) (cfd *Conn) {
+func (fd *Listener) newAcceptedConnFd(accepted int, event *EventLoop) (cfd *Conn) {
 	cfd = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
 				regular:       -1,
-				direct:        -1,
+				direct:        accepted,
 				isStream:      fd.isStream,
 				zeroReadIsEOF: fd.zeroReadIsEOF,
-				vortex:        fd.vortex,
+				readDeadline:  time.Time{},
+				writeDeadline: time.Time{},
+				multishot:     fd.multishot,
+				eventLoop:     event,
 			},
-
-			family: fd.family,
-			sotype: fd.sotype,
-			net:    fd.net,
-			laddr:  nil,
-			raddr:  nil,
+			family:           fd.family,
+			sotype:           fd.sotype,
+			net:              fd.net,
+			laddr:            nil,
+			raddr:            nil,
+			sendZCEnabled:    fd.sendZCEnabled,
+			sendMSGZCEnabled: fd.sendZCEnabled,
 		},
-		sendZCEnabled:    fd.vortex.sendZCEnabled,
-		sendMSGZCEnabled: fd.vortex.sendMSGZCEnabled,
-	}
-	if fd.Registered() {
-		cfd.direct = accepted
-	} else {
-		cfd.regular = accepted
+		recvFn:  nil,
+		handler: nil,
 	}
 	cfd.init()
 	return
@@ -113,7 +123,7 @@ func newAcceptMultishotHandler(ln *Listener) (handler *AcceptMultishotHandler, e
 		addrLen: &acceptAddrLen,
 	}
 	// op
-	op := ln.vortex.acquireOperation()
+	op := ln.eventLoop.resource.AcquireOperation()
 	op.Hijack()
 	// handler
 	handler = &AcceptMultishotHandler{
@@ -129,7 +139,7 @@ func newAcceptMultishotHandler(ln *Listener) (handler *AcceptMultishotHandler, e
 	// submit
 	if err = handler.submit(); err != nil {
 		op.Complete()
-		ln.vortex.releaseOperation(op)
+		ln.eventLoop.resource.ReleaseOperation(op)
 	}
 	return
 }
@@ -152,9 +162,12 @@ func (handler *AcceptMultishotHandler) Handle(n int, flags uint32, err error) {
 		return
 	}
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		// todo resubmit or done
 		handler.ch <- Result{n, flags, ErrCanceled}
 		return
 	}
+	// todo send to dispatch ch, dispatch handler to dispatch and send to handler.ch
+	// handler.ch is {conn, err}, not a result
 	handler.ch <- Result{n, flags, nil}
 	return
 }
@@ -170,17 +183,15 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 	var (
 		ln       = handler.ln
 		deadline = ln.readDeadline
-		vortex   = handler.ln.vortex
 		timer    *time.Timer
 		accepted = -1
 	)
 	// deadline
 	if !deadline.IsZero() {
-		timer = vortex.acquireTimer(time.Until(deadline))
-		defer vortex.releaseTimer(timer)
+		timer = handler.ln.eventLoop.resource.AcquireTimer(time.Until(deadline))
+		defer handler.ln.eventLoop.resource.ReleaseTimer(timer)
 	}
 	// read ch
-RETRY:
 	if timer == nil {
 		result, ok := <-handler.ch
 		if ok {
@@ -204,12 +215,6 @@ RETRY:
 	}
 	// handle err
 	if err != nil {
-		if errors.Is(err, ErrIOURingSQBusy) {
-			if err = handler.submit(); err != nil {
-				return
-			}
-			goto RETRY
-		}
 		if errors.Is(err, ErrCanceled) {
 			// set err
 			handler.locker.Lock()
@@ -218,8 +223,28 @@ RETRY:
 		}
 		return
 	}
+	// dispatch to worker
+	fmt.Println("dispatch")
+	op := handler.ln.eventLoop.resource.AcquireOperation()
+	if dispatchErr := handler.ln.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
+		fmt.Println("dispatch", dispatchErr)
+		handler.ln.eventLoop.resource.ReleaseOperation(op)
+		cfd := &Fd{direct: accepted}
+		_ = cfd.Close()
+		err = dispatchErr
+		return
+	}
+	if _, _, err = op.Await(); err != nil {
+		fmt.Println("dispatch wait", err)
+		handler.ln.eventLoop.resource.ReleaseOperation(op)
+		return
+	}
+	worker := (*EventLoop)(op.addr)
+	handler.ln.eventLoop.resource.ReleaseOperation(op)
+	fmt.Println("dispatch wait", accepted, worker.Fd())
+
 	// new conn
-	conn = ln.newAcceptedConnFd(accepted)
+	conn = ln.newAcceptedConnFd(accepted, worker)
 	return
 }
 
@@ -230,7 +255,7 @@ func (handler *AcceptMultishotHandler) Close() (err error) {
 		return
 	}
 	op := handler.op
-	if err = handler.ln.vortex.cancelOperation(op); err != nil {
+	if err = handler.ln.eventLoop.Cancel(op); err != nil {
 		if !errors.Is(handler.err, ErrCanceled) {
 			// use cancel fd when cancel op failed
 			handler.ln.Cancel()
@@ -240,15 +265,12 @@ func (handler *AcceptMultishotHandler) Close() (err error) {
 	}
 
 	op.Complete()
-	handler.ln.vortex.releaseOperation(op)
+	handler.ln.eventLoop.resource.ReleaseOperation(op)
 	handler.op = nil
 	return
 }
 
 func (handler *AcceptMultishotHandler) submit() (err error) {
-	if ok := handler.ln.vortex.submit(handler.op); !ok {
-		err = ErrCanceled
-		return
-	}
+	err = handler.ln.eventLoop.Submit(handler.op)
 	return
 }

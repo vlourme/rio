@@ -3,22 +3,19 @@
 package aio
 
 import (
-	"net"
 	"syscall"
 )
 
 type Conn struct {
 	NetFd
-	sendZCEnabled    bool
-	sendMSGZCEnabled bool
-	recvFn           func([]byte) (int, error)
-	handler          *RecvMultishotHandler
+	recvFn  func([]byte) (int, error)
+	handler *RecvMultishotHandler
 }
 
 func (c *Conn) init() {
 	switch c.sotype {
 	case syscall.SOCK_STREAM: // multi recv
-		if c.vortex.multishotReceiveEnabled() {
+		if c.multishot {
 			handler, handlerErr := newRecvMultishotHandler(c)
 			if handlerErr == nil {
 				c.handler = handler
@@ -40,18 +37,6 @@ func (c *Conn) init() {
 	return
 }
 
-func (c *Conn) Bind(addr net.Addr) error {
-	return c.bind(addr)
-}
-
-func (c *Conn) SendZCEnabled() bool {
-	return c.sendZCEnabled
-}
-
-func (c *Conn) SendMSGZCEnabled() bool {
-	return c.sendMSGZCEnabled
-}
-
 func (c *Conn) Close() error {
 	if c.handler != nil {
 		_ = c.handler.Close()
@@ -64,10 +49,10 @@ func (c *Conn) CloseRead() error {
 		_ = c.handler.Close()
 	}
 	if c.Registered() {
-		op := c.vortex.acquireOperation()
+		op := c.eventLoop.resource.AcquireOperation()
 		op.PrepareCloseRead(c)
-		_, _, err := c.vortex.submitAndWait(op)
-		c.vortex.releaseOperation(op)
+		_, _, err := c.eventLoop.SubmitAndWait(op)
+		c.eventLoop.resource.ReleaseOperation(op)
 		return err
 	}
 	return syscall.Shutdown(c.regular, syscall.SHUT_RD)
@@ -75,10 +60,10 @@ func (c *Conn) CloseRead() error {
 
 func (c *Conn) CloseWrite() error {
 	if c.Registered() {
-		op := c.vortex.acquireOperation()
+		op := c.eventLoop.resource.AcquireOperation()
 		op.PrepareCloseWrite(c)
-		_, _, err := c.vortex.submitAndWait(op)
-		c.vortex.releaseOperation(op)
+		_, _, err := c.eventLoop.SubmitAndWait(op)
+		c.eventLoop.resource.ReleaseOperation(op)
 		return err
 	}
 	return syscall.Shutdown(c.regular, syscall.SHUT_WR)

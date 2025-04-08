@@ -29,7 +29,7 @@ func (op *Operation) Name() string {
 	case liburing.IORING_OP_RECVMSG:
 		return "recvmsg"
 	case liburing.IORING_OP_TIMEOUT:
-		return "timeout"
+		return "op_f_timeout"
 	case liburing.IORING_OP_TIMEOUT_REMOVE:
 		return "timeout_remove"
 	case liburing.IORING_OP_ACCEPT:

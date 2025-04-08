@@ -16,11 +16,13 @@ import (
 
 type NetFd struct {
 	Fd
-	family int
-	sotype int
-	net    string
-	laddr  net.Addr
-	raddr  net.Addr
+	family           int
+	sotype           int
+	net              string
+	laddr            net.Addr
+	raddr            net.Addr
+	sendZCEnabled    bool
+	sendMSGZCEnabled bool
 }
 
 func (fd *NetFd) Name() string {
@@ -85,6 +87,14 @@ func (fd *NetFd) RemoteAddr() net.Addr {
 
 func (fd *NetFd) SetRemoteAddr(addr net.Addr) {
 	fd.raddr = addr
+}
+
+func (fd *NetFd) SendZCEnabled() bool {
+	return fd.sendZCEnabled
+}
+
+func (fd *NetFd) SendMSGZCEnabled() bool {
+	return fd.sendMSGZCEnabled
 }
 
 func (fd *NetFd) ReadBuffer() (n int, err error) {
@@ -454,65 +464,68 @@ func (fd *NetFd) CtrlNetwork() string {
 	return fd.net + "6"
 }
 
-func (fd *NetFd) bind(addr net.Addr) error {
-	sa, saErr := sys.AddrToSockaddr(addr)
-	if saErr != nil {
-		return saErr
-	}
-	if liburing.VersionEnable(6, 11, 0) && fd.Registered() {
-		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-		if rsaErr != nil {
-			return os.NewSyscallError("bind", rsaErr)
-		}
-		op := fd.vortex.acquireOperation()
-		op.PrepareBind(fd, rsa, int(rsaLen))
-		_, _, err := fd.vortex.submitAndWait(op)
-		fd.vortex.releaseOperation(op)
-		return err
-	} else {
-		if !fd.Installed() {
-			if err := fd.Install(); err != nil {
-				return err
-			}
-		}
-		if err := syscall.Bind(fd.regular, sa); err != nil {
-			return os.NewSyscallError("bind", err)
-		}
-	}
-	return nil
-}
-
 func (fd *NetFd) SetSocketoptInt(level int, optName int, optValue int) (err error) {
-	op := fd.vortex.acquireOperation()
+	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareSetSocketoptInt(fd, level, optName, &optValue)
-	_, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
+	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
 	return
 }
 
 func (fd *NetFd) GetSocketoptInt(level int, optName int) (n int, err error) {
 	var optValue int
-	op := fd.vortex.acquireOperation()
+	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareGetSocketoptInt(fd, level, optName, &optValue)
-	_, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
+	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
 	n = optValue
 	return
 }
 
 func (fd *NetFd) SetSocketopt(level int, optName int, optValue unsafe.Pointer, optValueLen int32) (err error) {
-	op := fd.vortex.acquireOperation()
+	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareSetSocketopt(fd, level, optName, optValue, optValueLen)
-	_, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
+	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
 	return
 }
 
 func (fd *NetFd) GetSocketopt(level int, optName int, optValue unsafe.Pointer, optValueLen *int32) (err error) {
-	op := fd.vortex.acquireOperation()
+	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareGetSocketopt(fd, level, optName, optValue, optValueLen)
-	_, _, err = fd.vortex.submitAndWait(op)
-	fd.vortex.releaseOperation(op)
+	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	fd.eventLoop.resource.ReleaseOperation(op)
+	return
+}
+
+func (fd *NetFd) Bind(addr net.Addr) (err error) {
+	sa, saErr := sys.AddrToSockaddr(addr)
+	if saErr != nil {
+		err = saErr
+		return
+	}
+	if supportBind() {
+		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
+		if rsaErr != nil {
+			err = rsaErr
+			return
+		}
+		op := fd.eventLoop.resource.AcquireOperation()
+		op.PrepareBind(fd, rsa, int(rsaLen))
+		_, _, err = fd.eventLoop.SubmitAndWait(op)
+		fd.eventLoop.resource.ReleaseOperation(op)
+		if err != nil {
+			return
+		}
+	} else {
+		if err = fd.Install(); err != nil {
+			return
+		}
+		if err = syscall.Bind(fd.regular, sa); err != nil {
+			err = os.NewSyscallError("bind", err)
+			return
+		}
+	}
 	return
 }
 

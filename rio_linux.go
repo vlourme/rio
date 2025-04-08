@@ -7,7 +7,6 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/reference"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,19 +37,14 @@ var (
 )
 
 const (
-	envEntries                 = "RIO_IOURING_ENTRIES"
-	envFlags                   = "RIO_IOURING_SETUP_FLAGS"
-	envSQThreadCPU             = "RIO_IOURING_SQ_THREAD_CPU"
-	envSQThreadIdle            = "RIO_IOURING_SQ_THREAD_IDLE"
-	envSendZCEnabled           = "RIO_IOURING_SENDZC_ENABLED"
-	envRegisterFixedFiles      = "RIO_IOURING_REG_FIXED_FILES"
-	envIOURingHeartbeatTimeout = "RIO_IOURING_HEARTBEAT_TIMEOUT"
-	envBufferAndBufferConfig   = "RIO_BUFFER_AND_RING_CONFIG" // 4096x16x512, 15s
-	envProducerLockOSThread    = "RIO_PRODUCER_LOCK_OSTHREAD"
-	envProducerBatchSize       = "RIO_PRODUCER_BATCH_SIZE"
-	envProducerBatchTimeWindow = "RIO_PRODUCER_BATCH_TIME_WINDOW"
-	envProducerBatchIdleTime   = "RIO_PRODUCER_BATCH_IDLE_TIME"
-	envConsumeBatchTimeCurve   = "RIO_CONSUMER_BATCH_TIME_CURVE" // 1:15s, 2:1us, 8:10us
+	envEntries               = "RIO_IOURING_ENTRIES"
+	envFlags                 = "RIO_IOURING_SETUP_FLAGS"
+	envSQThreadIdle          = "RIO_IOURING_SQ_THREAD_IDLE"
+	envSendZCEnabled         = "RIO_IOURING_SENDZC_ENABLED"
+	envMultishotDisabled     = "RIO_IOURING_MULTISHOT_DISABLED"
+	envBufferAndBufferConfig = "RIO_IOURING_BUFFER_AND_RING"   // 4096x16, 15s
+	envWaitCQETimeCurve      = "RIO_IOURING_WAIT_TIME_CURVE"   // 2:1us, 8:10us
+	envWaitCQEIdleTimeout    = "RIO_IOURING_WAIT_IDLE_TIMEOUT" // 2:1us, 8:10us
 )
 
 func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
@@ -66,33 +60,23 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 			if v, has := envLoadFlags(envFlags); has {
 				aioOptions = append(aioOptions, aio.WithFlags(v))
 			} else {
-				if cpus := runtime.NumCPU(); cpus > 1 { // use sq_poll
-					v = liburing.IORING_SETUP_SQPOLL
-					if cpus > 3 {
-						v |= liburing.IORING_SETUP_SQ_AFF
-					}
-				} else { // use coop task run
-					v = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_TASKRUN_FLAG
-				}
+				v = liburing.IORING_SETUP_COOP_TASKRUN |
+					liburing.IORING_SETUP_TASKRUN_FLAG |
+					liburing.IORING_SETUP_SINGLE_ISSUER |
+					liburing.IORING_SETUP_DEFER_TASKRUN
 				aioOptions = append(aioOptions, aio.WithFlags(v))
 			}
 
-			if v, has := envLoadUint32(envSQThreadCPU); has {
-				aioOptions = append(aioOptions, aio.WithSQThreadCPU(v))
-			}
 			if v, has := envLoadDuration(envSQThreadIdle); has {
 				aioOptions = append(aioOptions, aio.WithSQThreadIdle(v))
 			}
 			if ok := envLoadBool(envSendZCEnabled); ok {
 				aioOptions = append(aioOptions, aio.WithSendZCEnabled(ok))
 			}
-			// ring <<<
-
-			// fixed >>>
-			if v, has := envLoadUint32(envRegisterFixedFiles); has {
-				aioOptions = append(aioOptions, aio.WithRegisterFixedFiles(v))
+			if ok := envLoadBool(envMultishotDisabled); ok {
+				aioOptions = append(aioOptions, aio.WithMultiShotDisabled(ok))
 			}
-			// fixed <<<
+			// ring <<<
 
 			// buffer >>>
 			if size, count, idleTimeout, has := envLoadBufferAndRingConfig(envBufferAndBufferConfig); has {
@@ -100,22 +84,12 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 			}
 			// buffer <<<
 
-			// heartbeat
-			if v, has := envLoadDuration(envIOURingHeartbeatTimeout); has {
-				aioOptions = append(aioOptions, aio.WithHeartBeatTimeout(v))
-			}
-
-			// sqe >>>
-			producerOSThreadLock := envLoadBool(envProducerLockOSThread)
-			producerBatchSize, _ := envLoadUint32(envProducerBatchSize)
-			producerBatchTimeWindow, _ := envLoadDuration(envProducerBatchTimeWindow)
-			producerBatchIdleTime, _ := envLoadDuration(envProducerBatchIdleTime)
-			aioOptions = append(aioOptions, aio.WithProducer(producerOSThreadLock, producerBatchSize, producerBatchTimeWindow, producerBatchIdleTime))
-			// sqe <<<
-
 			// cqe >>>
-			if v, has := envLoadCurve(envConsumeBatchTimeCurve); has {
-				aioOptions = append(aioOptions, aio.WithConsumer(v))
+			if v, has := envLoadDuration(envWaitCQEIdleTimeout); has {
+				aioOptions = append(aioOptions, aio.WithWaitCQEIdleTimeout(v))
+			}
+			if v, has := envLoadCurve(envWaitCQETimeCurve); has {
+				aioOptions = append(aioOptions, aio.WithWaitCQETimeCurve(v))
 			}
 			// cqe <<<
 

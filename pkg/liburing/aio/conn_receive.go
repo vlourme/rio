@@ -18,10 +18,10 @@ func (c *Conn) Receive(b []byte) (n int, err error) {
 }
 
 func (c *Conn) receive(b []byte) (n int, err error) {
-	op := c.vortex.acquireOperation()
-	op.WithDeadline(c.readDeadline).PrepareReceive(c, b)
-	n, _, err = c.vortex.submitAndWait(op)
-	c.vortex.releaseOperation(op)
+	op := c.eventLoop.resource.AcquireOperation()
+	op.WithDeadline(c.eventLoop.resource, c.readDeadline).PrepareReceive(c, b)
+	n, _, err = c.eventLoop.SubmitAndWait(op)
+	c.eventLoop.resource.ReleaseOperation(op)
 	if n == 0 && err == nil && c.ZeroReadIsEOF() {
 		err = io.EOF
 	}
@@ -32,13 +32,14 @@ func (c *Conn) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	msg := c.vortex.acquireMsg(b, nil, rsa, rsaLen, 0)
-	defer c.vortex.releaseMsg(msg)
+	msg := c.eventLoop.resource.AcquireMsg(b, nil, rsa, rsaLen, 0)
 
-	op := c.vortex.acquireOperation()
-	op.WithDeadline(c.readDeadline).PrepareReceiveMsg(c, msg)
-	n, _, err = c.vortex.submitAndWait(op)
-	c.vortex.releaseOperation(op)
+	op := c.eventLoop.resource.AcquireOperation()
+	op.WithDeadline(c.eventLoop.resource, c.readDeadline).PrepareReceiveMsg(c, msg)
+	n, _, err = c.eventLoop.SubmitAndWait(op)
+	c.eventLoop.resource.ReleaseOperation(op)
+
+	c.eventLoop.resource.ReleaseMsg(msg)
 	if err != nil {
 		return
 	}
@@ -55,17 +56,19 @@ func (c *Conn) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, fla
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
-	msg := c.vortex.acquireMsg(b, oob, rsa, rsaLen, int32(flags))
-	defer c.vortex.releaseMsg(msg)
+	msg := c.eventLoop.resource.AcquireMsg(b, oob, rsa, rsaLen, int32(flags))
 
-	op := c.vortex.acquireOperation()
-	op.WithDeadline(c.readDeadline).PrepareReceiveMsg(c, msg)
-	n, _, err = c.vortex.submitAndWait(op)
+	op := c.eventLoop.resource.AcquireOperation()
+	op.WithDeadline(c.eventLoop.resource, c.readDeadline).PrepareReceiveMsg(c, msg)
+	n, _, err = c.eventLoop.SubmitAndWait(op)
 	if err == nil {
 		oobn = int(msg.Controllen)
 		flag = int(msg.Flags)
 	}
-	c.vortex.releaseOperation(op)
+	c.eventLoop.resource.ReleaseOperation(op)
+
+	c.eventLoop.resource.ReleaseMsg(msg)
+
 	if err != nil {
 		return
 	}

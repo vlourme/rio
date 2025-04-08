@@ -17,13 +17,13 @@ func (op *Operation) PrepareClose(fd int) {
 func (op *Operation) PrepareCloseDirect(filedIndex int) {
 	op.code = liburing.IORING_OP_CLOSE
 	op.fd = filedIndex
-	if op.flags&directAlloc == 0 {
-		op.flags |= directAlloc
+	if op.flags&op_f_direct_alloc == 0 {
+		op.flags |= op_f_direct_alloc
 	}
 }
 
 func (op *Operation) packingClose(sqe *liburing.SubmissionQueueEntry) (err error) {
-	if op.flags&directAlloc != 0 {
+	if op.flags&op_f_direct_alloc != 0 {
 		sqe.PrepareCloseDirect(uint32(op.fd))
 	} else {
 		sqe.PrepareClose(op.fd)
@@ -75,12 +75,12 @@ func (op *Operation) PrepareCancelFd(fd int) {
 func (op *Operation) PrepareCancelFixedFd(fileIndex int) {
 	op.code = liburing.IORING_OP_ASYNC_CANCEL
 	op.fd = fileIndex
-	op.flags |= directAlloc
+	op.flags |= op_f_direct_alloc
 }
 
 func (op *Operation) packingCancel(sqe *liburing.SubmissionQueueEntry) (err error) {
 	if op.fd > -1 { // cancel fd
-		if op.flags&directAlloc != 0 { // cancel direct
+		if op.flags&op_f_direct_alloc != 0 { // cancel direct
 			sqe.PrepareCancelFdFixed(uint32(op.fd), 0)
 		} else { // cancel regular
 			sqe.PrepareCancelFd(op.fd, 0)

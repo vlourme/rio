@@ -100,7 +100,7 @@ func (op *Operation) packingAccept(sqe *liburing.SubmissionQueueEntry) (err erro
 	param := (*prepareAcceptParam)(op.addr)
 	addrPtr := param.addr
 	addrLenPtr := uint64(uintptr(unsafe.Pointer(param.addrLen)))
-	if op.flags&multishot != 0 {
+	if op.flags&op_f_multishot != 0 {
 		if op.sqeFlags&liburing.IOSQE_FIXED_FILE != 0 {
 			sqe.PrepareAcceptMultishotDirect(op.fd, addrPtr, addrLenPtr, syscall.SOCK_NONBLOCK)
 		} else {
@@ -144,7 +144,7 @@ func (op *Operation) PrepareReceiveMultishot(nfd *Conn, br *BufferAndRing, handl
 }
 
 func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err error) {
-	if op.flags&multishot != 0 {
+	if op.flags&op_f_multishot != 0 {
 		bgid := uint16(op.addrLen)
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
 		if liburing.VersionEnable(6, 10, 0) {
