@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
@@ -162,12 +161,9 @@ func (handler *AcceptMultishotHandler) Handle(n int, flags uint32, err error) {
 		return
 	}
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
-		// todo resubmit or done
 		handler.ch <- Result{n, flags, ErrCanceled}
 		return
 	}
-	// todo send to dispatch ch, dispatch handler to dispatch and send to handler.ch
-	// handler.ch is {conn, err}, not a result
 	handler.ch <- Result{n, flags, nil}
 	return
 }
@@ -224,10 +220,9 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 		return
 	}
 	// dispatch to worker
-	fmt.Println("dispatch")
 	op := handler.ln.eventLoop.resource.AcquireOperation()
+	op.prepareAble()
 	if dispatchErr := handler.ln.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
-		fmt.Println("dispatch", dispatchErr)
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
 		cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
 		_ = cfd.Close()
@@ -235,14 +230,11 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 		return
 	}
 	if _, _, err = op.Await(); err != nil {
-		fmt.Println("dispatch wait", err)
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
 		return
 	}
 	worker := (*EventLoop)(op.addr)
 	handler.ln.eventLoop.resource.ReleaseOperation(op)
-	fmt.Println("dispatch wait", accepted, worker.Fd())
-
 	// new conn
 	conn = ln.newAcceptedConnFd(accepted, worker)
 	return

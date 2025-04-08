@@ -4,7 +4,9 @@ package liburing_test
 
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -117,4 +119,72 @@ func TestRing_MSGRing(t *testing.T) {
 	}
 	t.Log("cqe:", cqe.Res)
 
+}
+
+func TestMsgRingFd(t *testing.T) {
+	flags := liburing.IORING_SETUP_COOP_TASKRUN |
+		liburing.IORING_SETUP_TASKRUN_FLAG |
+		liburing.IORING_SETUP_SINGLE_ISSUER |
+		liburing.IORING_SETUP_DEFER_TASKRUN
+	r1, r1Err := liburing.New(liburing.WithEntries(4), liburing.WithFlags(flags))
+	if r1Err != nil {
+		t.Error(r1Err)
+		return
+	}
+	defer r1.Close()
+
+	_, reg1Err := r1.RegisterRingFd()
+	if reg1Err != nil {
+		t.Error(reg1Err)
+		return
+	}
+	t.Log("register ring fd success:", r1.Fd())
+
+	_, _ = r1.RegisterFilesSparse(10)
+
+	r2, r2Err := liburing.New(liburing.WithEntries(4))
+	if r2Err != nil {
+		t.Error(r2Err)
+		return
+	}
+	defer r2.Close()
+
+	_, reg2Err := r2.RegisterRingFd()
+	if reg2Err != nil {
+		t.Error(reg2Err)
+		return
+	}
+	t.Log("register ring fd success:", r2.Fd())
+
+	_, _ = r2.RegisterFilesSparse(10)
+
+	sqe := r1.GetSQE()
+	sqe.PrepareSocketDirectAlloc(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, syscall.IPPROTO_TCP, 0)
+	_, _ = r1.SubmitAndWait(1)
+	cqe, cqeErr := r1.WaitCQE()
+	if cqeErr != nil {
+		t.Error(cqeErr)
+		return
+	}
+	sock1 := cqe.Res
+	r1.CQAdvance(1)
+	t.Log("sock1:", sock1)
+
+	now := time.Now()
+
+	sqe = r1.GetSQE()
+	sqe.PrepareMsgRingFdAlloc(r2.Fd(), int(sock1), unsafe.Pointer(&now), 0)
+	_, _ = r1.SubmitAndWait(1)
+	cqe, cqeErr = r1.WaitCQE()
+	if cqeErr != nil {
+		t.Error(cqeErr)
+		return
+	}
+
+	cqe, cqeErr = r2.WaitCQE()
+	if cqeErr != nil {
+		t.Error(cqeErr)
+		return
+	}
+	t.Log("r2 socket:", cqe.Res, *(*time.Time)(cqe.GetData()))
 }

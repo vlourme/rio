@@ -132,8 +132,6 @@ const (
 	IORING_MSG_SEND_FD
 )
 
-var msgDataVar = IORING_MSG_DATA
-
 const (
 	IORING_MSG_RING_CQE_SKIP uint32 = 1 << iota
 	IORING_MSG_RING_FLAGS_PASS
@@ -517,7 +515,7 @@ func (entry *SubmissionQueueEntry) PrepareMsgRingCQEFlags(fd int, length uint32,
 }
 
 func (entry *SubmissionQueueEntry) PrepareMsgRingFd(fd int, sourceFd int, targetFd int, userdata unsafe.Pointer, flags uint32) {
-	entry.prepareRW(IORING_OP_MSG_RING, fd, uintptr(unsafe.Pointer(&msgDataVar)), 0, uint64(uintptr(userdata)))
+	entry.prepareRW(IORING_OP_MSG_RING, fd, uintptr(IORING_MSG_SEND_FD), 0, uint64(uintptr(userdata)))
 	entry.Addr3 = uint64(sourceFd)
 	if uint32(targetFd) == IORING_FILE_INDEX_ALLOC {
 		targetFd--

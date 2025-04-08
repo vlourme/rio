@@ -308,6 +308,7 @@ func (event *EventLoop) prepareSQE(scratch *[]*Operation) (prepared uint32) {
 	for i := 0; i < readLen; i++ {
 		op := (*scratch)[i]
 		if op.flags&op_f_noexec != 0 {
+			op.prepareAble()
 			switch op.cmd {
 			case op_cmd_acquire_br:
 				br, brErr := event.bufferAndRings.Acquire()

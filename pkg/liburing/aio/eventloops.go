@@ -218,13 +218,6 @@ func (r *Wakeup) Wakeup(ringFd int) (err error) {
 }
 
 func (r *Wakeup) Close() (err error) {
-	r.locker.Lock()
-	defer r.locker.Unlock()
-	if !r.running {
-		err = errors.New("can not close a closed Wakeup")
-		return
-	}
-
 	// submit close op
 	op := &Operation{}
 	op.PrepareCloseRing(r.key)
@@ -260,11 +253,11 @@ func (r *Wakeup) process() {
 		}
 		_, _ = ring.SubmitAndWait(1)
 		cqe, _ := ring.PeekCQE()
+
 		if cqe.UserData == 0 {
 			ring.CQAdvance(1)
 			continue
 		}
-
 		if cqe.UserData == r.key {
 			ring.CQAdvance(1)
 			r.locker.Lock()
