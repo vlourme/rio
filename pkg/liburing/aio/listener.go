@@ -27,6 +27,8 @@ func (fd *Listener) init() {
 		} else {
 			fd.acceptFn = fd.accept
 		}
+	} else {
+		fd.acceptFn = fd.accept
 	}
 }
 
@@ -54,27 +56,33 @@ func (fd *Listener) accept() (nfd *Conn, err error) {
 	}
 	// dispatch to worker
 	op = fd.eventLoop.resource.AcquireOperation()
-	if dispatchErr := fd.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
+	op.prepareAble()
+	if err = fd.eventLoop.group.Dispatch(accepted, op); err != nil {
 		fd.eventLoop.resource.ReleaseOperation(op)
 		cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
 		_ = cfd.Close()
-		err = dispatchErr
 		return
 	}
-	if _, _, err = op.Await(); err != nil {
+	var dispatchFd int
+	if dispatchFd, _, err = op.Await(); err != nil {
 		fd.eventLoop.resource.ReleaseOperation(op)
+		cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
+		_ = cfd.Close()
 		return
 	}
 	worker := (*EventLoop)(op.addr)
 	fd.eventLoop.resource.ReleaseOperation(op)
 
-	nfd = fd.newAcceptedConnFd(accepted, worker)
-
+	// new conn
+	nfd = fd.newAcceptedConnFd(dispatchFd, worker)
 	sa, saErr := sys.RawSockaddrAnyToSockaddr(acceptAddr)
 	if saErr == nil {
 		addr := sys.SockaddrToAddr(nfd.net, sa)
 		nfd.SetRemoteAddr(addr)
 	}
+	// close local
+	cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
+	_ = cfd.Close()
 	return
 }
 
@@ -222,21 +230,26 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 	// dispatch to worker
 	op := handler.ln.eventLoop.resource.AcquireOperation()
 	op.prepareAble()
-	if dispatchErr := handler.ln.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
+	if err = handler.ln.eventLoop.group.Dispatch(accepted, op); err != nil {
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
 		cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
 		_ = cfd.Close()
-		err = dispatchErr
 		return
 	}
-	if _, _, err = op.Await(); err != nil {
+	var dispatchFd int
+	if dispatchFd, _, err = op.Await(); err != nil {
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
+		cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
+		_ = cfd.Close()
 		return
 	}
 	worker := (*EventLoop)(op.addr)
 	handler.ln.eventLoop.resource.ReleaseOperation(op)
 	// new conn
-	conn = ln.newAcceptedConnFd(accepted, worker)
+	conn = ln.newAcceptedConnFd(dispatchFd, worker)
+	// close local
+	cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
+	_ = cfd.Close()
 	return
 }
 

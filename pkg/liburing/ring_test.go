@@ -158,17 +158,35 @@ func TestMsgRingFd(t *testing.T) {
 
 	_, _ = r2.RegisterFilesSparse(10)
 
-	sqe := r1.GetSQE()
-	sqe.PrepareSocketDirectAlloc(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, syscall.IPPROTO_TCP, 0)
-	_, _ = r1.SubmitAndWait(1)
-	cqe, cqeErr := r1.WaitCQE()
-	if cqeErr != nil {
-		t.Error(cqeErr)
-		return
+	var sqe *liburing.SubmissionQueueEntry
+	var cqe *liburing.CompletionQueueEvent
+	var cqeErr error
+	var sock1 int
+	for i := 0; i < 2; i++ {
+		sqe = r1.GetSQE()
+		sqe.PrepareSocketDirectAlloc(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, syscall.IPPROTO_TCP, 0)
+		_, _ = r1.SubmitAndWait(1)
+		cqe, cqeErr = r1.WaitCQE()
+		if cqeErr != nil {
+			t.Error(cqeErr)
+			return
+		}
+		sock1 = int(cqe.Res)
+		r1.CQAdvance(1)
+		t.Log("sock1:", sock1)
 	}
-	sock1 := cqe.Res
-	r1.CQAdvance(1)
-	t.Log("sock1:", sock1)
+	for i := 0; i < 3; i++ {
+		sqe = r2.GetSQE()
+		sqe.PrepareSocketDirectAlloc(syscall.AF_INET, syscall.SOCK_STREAM|syscall.SOCK_NONBLOCK, syscall.IPPROTO_TCP, 0)
+		_, _ = r2.SubmitAndWait(1)
+		cqe, cqeErr = r2.WaitCQE()
+		if cqeErr != nil {
+			t.Error(cqeErr)
+			return
+		}
+		r2.CQAdvance(1)
+		t.Log("sock2:", int(cqe.Res))
+	}
 
 	now := time.Now()
 
@@ -180,6 +198,8 @@ func TestMsgRingFd(t *testing.T) {
 		t.Error(cqeErr)
 		return
 	}
+	t.Log("r1 socket:", cqe.Res)
+	r1.CQAdvance(1)
 
 	cqe, cqeErr = r2.WaitCQE()
 	if cqeErr != nil {
@@ -187,4 +207,5 @@ func TestMsgRingFd(t *testing.T) {
 		return
 	}
 	t.Log("r2 socket:", cqe.Res, *(*time.Time)(cqe.GetData()))
+	r2.CQAdvance(1)
 }
