@@ -73,6 +73,8 @@ type EventLoopGroup struct {
 }
 
 func (group *EventLoopGroup) Dispatch(fd int, attached *Operation) (err error) {
+	// attached 可能不需要，因为本环的op会返回对方环中的fd，和attached所得到的是一个值。
+	// 由于版本不确定，以对方环为主，万一本环结果变量。
 	idx := int64(0)
 	if group.workersNum != 1 {
 		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
