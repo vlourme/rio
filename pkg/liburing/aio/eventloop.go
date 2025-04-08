@@ -251,14 +251,16 @@ func (event *EventLoop) process() {
 	for {
 		// prepare
 		prepared = event.prepareSQE(&scratch)
-		if prepared == 0 && completed == 0 { // idle
+		event.locker.Lock()
+		if prepared == 0 && completed == 0 && len(event.ready) == 0 { // idle
 			waitNr, waitTimeout = 1, &idleTimeout
-			event.locker.Lock()
 			event.idle = true
-			event.locker.Unlock()
 		} else {
 			waitNr, waitTimeout = transmission.Match(completed)
+			event.idle = false
 		}
+		event.locker.Unlock()
+		// submit
 		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
 		// handle idle
 		event.locker.Lock()

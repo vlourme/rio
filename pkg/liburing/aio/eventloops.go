@@ -253,13 +253,13 @@ func (r *Wakeup) process() {
 			_, _ = ring.Submit()
 			sqe = ring.GetSQE()
 		}
+		op.prepareAble()
 		if err := op.packingSQE(sqe); err != nil {
 			panic(errors.Join(errors.New("packing sqe failed"), err))
 			return
 		}
 		_, _ = ring.SubmitAndWait(1)
 		cqe, _ := ring.PeekCQE()
-
 		if cqe.UserData == 0 {
 			ring.CQAdvance(1)
 			continue

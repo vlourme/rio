@@ -57,7 +57,7 @@ func (fd *Listener) accept() (nfd *Conn, err error) {
 	op = fd.eventLoop.resource.AcquireOperation()
 	if dispatchErr := fd.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
 		fd.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted}
+		cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
 		_ = cfd.Close()
 		err = dispatchErr
 		return
@@ -229,7 +229,7 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 	if dispatchErr := handler.ln.eventLoop.group.Dispatch(accepted, op); dispatchErr != nil {
 		fmt.Println("dispatch", dispatchErr)
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted}
+		cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
 		_ = cfd.Close()
 		err = dispatchErr
 		return
