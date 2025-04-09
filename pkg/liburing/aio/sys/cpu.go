@@ -21,8 +21,8 @@ func MaskCPU(index int) error {
 	return unix.SchedSetaffinity(pid, &mask)
 }
 
-// SetCPUAffinity 亲和CPU
-func SetCPUAffinity(index int) error {
+// AffCPU 亲和CPU
+func AffCPU(index int) error {
 	var newMask unix.CPUSet
 	newMask.Zero()
 	cpuIndex := (index) % (runtime.NumCPU())
