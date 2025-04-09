@@ -36,7 +36,7 @@ func (params *Params) Validate() error {
 		}
 	}
 	if flags&IORING_SETUP_SQPOLL != 0 && params.sqThreadIdle == 0 {
-		params.sqThreadIdle = 15000
+		params.sqThreadIdle = 2000
 	}
 	if params.flags&IORING_SETUP_SQ_AFF != 0 {
 		if flags&IORING_SETUP_SQPOLL != 0 {
