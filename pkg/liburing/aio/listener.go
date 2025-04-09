@@ -59,14 +59,14 @@ func (fd *Listener) accept() (nfd *Conn, err error) {
 	op.prepareAble()
 	if err = fd.eventLoop.group.Dispatch(accepted, op); err != nil {
 		fd.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
+		cfd := &Fd{direct: accepted, regular: -1, eventLoop: fd.eventLoop}
 		_ = cfd.Close()
 		return
 	}
 	var dispatchFd int
 	if dispatchFd, _, err = op.Await(); err != nil {
 		fd.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
+		cfd := &Fd{direct: accepted, regular: -1, eventLoop: fd.eventLoop}
 		_ = cfd.Close()
 		return
 	}
@@ -81,7 +81,7 @@ func (fd *Listener) accept() (nfd *Conn, err error) {
 		nfd.SetRemoteAddr(addr)
 	}
 	// close local
-	cfd := &Fd{direct: accepted, eventLoop: fd.eventLoop}
+	cfd := &Fd{direct: accepted, regular: -1, eventLoop: fd.eventLoop}
 	_ = cfd.Close()
 	return
 }
@@ -232,14 +232,14 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 	op.prepareAble()
 	if err = handler.ln.eventLoop.group.Dispatch(accepted, op); err != nil {
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
+		cfd := &Fd{direct: accepted, regular: -1, eventLoop: handler.ln.eventLoop}
 		_ = cfd.Close()
 		return
 	}
 	var dispatchFd int
 	if dispatchFd, _, err = op.Await(); err != nil {
 		handler.ln.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
+		cfd := &Fd{direct: accepted, regular: -1, eventLoop: handler.ln.eventLoop}
 		_ = cfd.Close()
 		return
 	}
@@ -248,7 +248,7 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 	// new conn
 	conn = ln.newAcceptedConnFd(dispatchFd, worker)
 	// close local
-	cfd := &Fd{direct: accepted, eventLoop: handler.ln.eventLoop}
+	cfd := &Fd{direct: accepted, regular: -1, eventLoop: handler.ln.eventLoop}
 	_ = cfd.Close()
 	return
 }

@@ -27,12 +27,14 @@ func (fd *Fd) Close() error {
 		err := fd.closeDirectFd()
 		if fd.regular != -1 {
 			_ = syscall.Close(fd.regular)
+			fd.regular = -1
 		}
 		return err
 	}
 	if fd.regular != -1 {
 		if err := fd.closeFd(); err != nil {
 			_ = syscall.Close(fd.regular)
+			fd.regular = -1
 			return err
 		}
 	}
@@ -44,6 +46,9 @@ func (fd *Fd) closeFd() (err error) {
 	op.PrepareClose(fd.regular)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
 	fd.eventLoop.resource.ReleaseOperation(op)
+	if err == nil {
+		fd.regular = -1
+	}
 	return
 }
 
@@ -52,5 +57,8 @@ func (fd *Fd) closeDirectFd() (err error) {
 	op.PrepareCloseDirect(fd.direct)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
 	fd.eventLoop.resource.ReleaseOperation(op)
+	if err == nil {
+		fd.direct = -1
+	}
 	return
 }

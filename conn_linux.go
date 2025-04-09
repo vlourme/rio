@@ -25,7 +25,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 	}
 
 	if len(b) == 0 {
-		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 
 	n, err = c.fd.Receive(b)
@@ -33,7 +33,7 @@ func (c *conn) Read(b []byte) (n int, err error) {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 	return
@@ -45,7 +45,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		return 0, syscall.EINVAL
 	}
 	if len(b) == 0 {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 
 	n, err = c.fd.Send(b)
@@ -53,7 +53,7 @@ func (c *conn) Write(b []byte) (n int, err error) {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 	return
@@ -69,11 +69,11 @@ func (c *conn) Close() error {
 		if c.asyncIO != nil {
 			_ = c.asyncIO.Close()
 		}
-		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
 	if c.asyncIO != nil {
 		if err := c.asyncIO.Close(); err != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		}
 	}
 	return nil
@@ -119,7 +119,7 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 		return nil
 	}
 	if t.Before(time.Now()) {
-		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: errors.New("set deadline too early")}
 	}
 	c.fd.SetReadDeadline(t)
 	return nil
@@ -135,7 +135,7 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 		return nil
 	}
 	if t.Before(time.Now()) {
-		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: errors.New("set deadline too early")}
 	}
 	c.fd.SetWriteDeadline(t)
 	return nil
@@ -149,7 +149,7 @@ func (c *conn) ReadBuffer() (int, error) {
 
 	n, err := c.fd.ReadBuffer()
 	if err != nil {
-		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
 	return n, nil
 }
@@ -160,7 +160,7 @@ func (c *conn) SetReadBuffer(bytes int) error {
 		return syscall.EINVAL
 	}
 	if err := c.fd.SetReadBuffer(bytes); err != nil {
-		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
 	return nil
 }
@@ -173,7 +173,7 @@ func (c *conn) WriteBuffer() (int, error) {
 
 	n, err := c.fd.WriteBuffer()
 	if err != nil {
-		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return 0, &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
 	return n, nil
 }
@@ -185,7 +185,7 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	}
 
 	if err := c.fd.SetWriteBuffer(bytes); err != nil {
-		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
 	return nil
 }
@@ -211,7 +211,7 @@ func (c *conn) File() (f *os.File, err error) {
 	}
 	f, err = c.file()
 	if err != nil {
-		err = &net.OpError{Op: "file", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "file", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
 	return
 }

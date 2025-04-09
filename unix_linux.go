@@ -162,7 +162,7 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		if aio.IsCanceled(acceptErr) {
 			acceptErr = net.ErrClosed
 		}
-		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: acceptErr}
+		err = &net.OpError{Op: "accept", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: acceptErr}
 		return
 	}
 	// unix conn
@@ -183,10 +183,10 @@ func (ln *UnixListener) Close() error {
 
 	if err := ln.fd.Close(); err != nil {
 		_ = ln.asyncIO.Close()
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
 	}
 	if err := ln.asyncIO.Close(); err != nil {
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
 	}
 	return nil
 }
@@ -237,7 +237,7 @@ func (ln *UnixListener) File() (f *os.File, err error) {
 	}
 	f, err = ln.file()
 	if err != nil {
-		err = &net.OpError{Op: "file", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.LocalAddr(), Err: err}
+		err = &net.OpError{Op: "file", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
 	}
 	return
 }
@@ -293,7 +293,7 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 		return 0, nil, syscall.EINVAL
 	}
 	if len(b) == 0 {
-		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 
 	var (
@@ -304,14 +304,14 @@ func (c *UnixConn) ReadFromUnix(b []byte) (n int, addr *net.UnixAddr, err error)
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 
 	ok := false
 	addr, ok = uaddr.(*net.UnixAddr)
 	if !ok {
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("wrong address type")}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: errors.New("wrong address type")}
 		return
 	}
 	return
@@ -331,7 +331,7 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 	bLen := len(b)
 	oobLen := len(oob)
 	if bLen == 0 && oobLen == 0 {
-		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, 0, 0, nil, &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 
 	var (
@@ -342,13 +342,13 @@ func (c *UnixConn) ReadMsgUnix(b []byte, oob []byte) (n, oobn, flags int, addr *
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 	ok := false
 	addr, ok = uaddr.(*net.UnixAddr)
 	if !ok {
-		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: net.InvalidAddrError("wrong address type")}
+		err = &net.OpError{Op: "read", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: net.InvalidAddrError("wrong address type")}
 		return
 	}
 	return
@@ -360,14 +360,14 @@ func (c *UnixConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 		return 0, syscall.EINVAL
 	}
 	if len(b) == 0 || addr == nil || reflect.ValueOf(addr).IsNil() {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 	uAddr, isUnixAddr := addr.(*net.UnixAddr)
 	if !isUnixAddr {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 	if uAddr.Net != c.fd.Net() {
-		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 	return c.writeTo(b, uAddr)
 }
@@ -383,7 +383,7 @@ func (c *UnixConn) writeTo(b []byte, addr net.Addr) (n int, err error) {
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 	return
@@ -400,13 +400,13 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 		return 0, 0, syscall.EINVAL
 	}
 	if len(b) == 0 && len(oob) == 0 {
-		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 	if addr == nil {
-		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 	if addr.Net != c.fd.Net() {
-		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: syscall.EINVAL}
+		return 0, 0, &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: syscall.EINVAL}
 	}
 
 	if len(b) == 0 && c.fd.SocketType() != syscall.SOCK_DGRAM {
@@ -418,7 +418,7 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 		if errors.Is(err, context.Canceled) {
 			err = net.ErrClosed
 		}
-		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: err}
+		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 	return

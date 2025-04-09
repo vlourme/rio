@@ -256,7 +256,7 @@ func (event *EventLoop) process() {
 			waitNr, waitTimeout = 1, &idleTimeout
 			event.idle = true
 		} else {
-			waitNr, waitTimeout = transmission.Match(completed)
+			waitNr, waitTimeout = transmission.Match(prepared + completed)
 			event.idle = false
 		}
 		event.locker.Unlock()

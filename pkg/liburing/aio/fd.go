@@ -70,16 +70,20 @@ func (fd *Fd) Installed() bool {
 
 func (fd *Fd) Install() (err error) {
 	if fd.regular != -1 {
-		return nil
+		return
 	}
 	if fd.direct == -1 {
 		err = errors.New("fd is not directed")
 		return
 	}
+	var regular int
 	op := fd.eventLoop.resource.AcquireOperation()
 	op.PrepareFixedFdInstall(fd.direct)
-	fd.regular, _, err = fd.eventLoop.SubmitAndWait(op)
+	regular, _, err = fd.eventLoop.SubmitAndWait(op)
 	fd.eventLoop.resource.ReleaseOperation(op)
+	if err == nil {
+		fd.regular = regular
+	}
 	return
 }
 

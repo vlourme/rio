@@ -48,7 +48,9 @@ func (fd *Fd) Sendfile(r io.Reader) (written int64, err error) {
 
 	if remain < sendFileChunkSize {
 		if !fd.Installed() {
-			_ = fd.Install()
+			if err = fd.Install(); err != nil {
+				return
+			}
 		}
 		if sc, scErr := file.SyscallConn(); scErr == nil {
 			var (

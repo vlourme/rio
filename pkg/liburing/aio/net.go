@@ -49,6 +49,10 @@ func (fd *NetFd) Net() string {
 	return fd.net
 }
 
+func (fd *NetFd) TryLocalAddr() net.Addr {
+	return fd.laddr
+}
+
 func (fd *NetFd) LocalAddr() net.Addr {
 	if fd.laddr == nil {
 		if !fd.Installed() {
@@ -67,6 +71,10 @@ func (fd *NetFd) LocalAddr() net.Addr {
 
 func (fd *NetFd) SetLocalAddr(addr net.Addr) {
 	fd.laddr = addr
+}
+
+func (fd *NetFd) TryRemoteAddr() net.Addr {
+	return fd.raddr
 }
 
 func (fd *NetFd) RemoteAddr() net.Addr {
