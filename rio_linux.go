@@ -59,12 +59,6 @@ func getAsyncIO() (*reference.Pointer[aio.AsyncIO], error) {
 
 			if v, has := envLoadFlags(envFlags); has {
 				aioOptions = append(aioOptions, aio.WithFlags(v))
-			} else {
-				v = liburing.IORING_SETUP_COOP_TASKRUN |
-					liburing.IORING_SETUP_TASKRUN_FLAG |
-					liburing.IORING_SETUP_SINGLE_ISSUER |
-					liburing.IORING_SETUP_DEFER_TASKRUN
-				aioOptions = append(aioOptions, aio.WithFlags(v))
 			}
 
 			if v, has := envLoadDuration(envSQThreadIdle); has {
