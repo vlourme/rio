@@ -20,6 +20,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 	go func(id int, group *EventLoopGroup, options Options, ch chan<- *EventLoop) {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
+		_ = sys.AffCPU(id)
 
 		opts := make([]liburing.Option, 0, 1)
 		opts = append(opts, liburing.WithEntries(options.Entries))
@@ -29,8 +30,6 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
 				opts = append(opts, liburing.WithSQThreadCPU(uint32(id)))
 			}
-		} else {
-			_ = sys.AffCPU(id)
 		}
 
 		ring, ringErr := liburing.New(opts...)
