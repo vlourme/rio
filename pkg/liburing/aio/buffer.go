@@ -226,6 +226,7 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 }
 
 func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
+	// todo: dont close here, send to process thread to close, same as create
 	// free buffer and ring
 	entries := uint32(br.config.Count)
 	_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
