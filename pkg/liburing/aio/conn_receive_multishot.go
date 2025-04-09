@@ -100,13 +100,9 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		if handler.waiting.CompareAndSwap(true, false) {
 			handler.ch <- struct{}{}
 		}
-		if flags&liburing.IORING_CQE_F_MORE == 0 {
-			goto EMPTY
-		}
-		return
 	}
 
-EMPTY:
+	// handle CQE_F_MORE
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
 		//fmt.Println("RECV > ", handler.conn.Name(),
 		//	n, err,
