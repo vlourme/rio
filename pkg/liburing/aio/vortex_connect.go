@@ -89,22 +89,24 @@ func (vortex *Vortex) Connect(
 		recvFn:  nil,
 		handler: nil,
 	}
-	// ipv6
-	if ipv6only {
-		if err = conn.SetIpv6only(true); err != nil {
+	if family == syscall.AF_INET || family == syscall.AF_INET6 {
+		// ipv6
+		if ipv6only {
+			if err = conn.SetIpv6only(true); err != nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		// zero copy
+		if err = conn.SetZeroCopy(true); err != nil {
 			_ = conn.Close()
 			return
 		}
-	}
-	// zero copy
-	if err = conn.SetZeroCopy(true); err != nil {
-		_ = conn.Close()
-		return
-	}
-	//  broadcast
-	if err = conn.SetBroadcast(true); err != nil {
-		_ = conn.Close()
-		return
+		//  broadcast
+		if err = conn.SetBroadcast(true); err != nil {
+			_ = conn.Close()
+			return
+		}
 	}
 	// control
 	if control != nil {

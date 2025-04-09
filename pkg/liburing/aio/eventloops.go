@@ -15,10 +15,17 @@ import (
 )
 
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
-	group = &EventLoopGroup{}
+	group = &EventLoopGroup{
+		resource:   new(Resource),
+		wakeup:     nil,
+		boss:       nil,
+		workers:    nil,
+		workersNum: 0,
+		workerIdx:  0,
+	}
 
 	// wakeup
-	wakeupCh := newWakeup()
+	wakeupCh := newWakeup(group)
 	wakeup := <-wakeupCh
 	if err = wakeup.Valid(); err != nil {
 		err = fmt.Errorf("new eventloops failed: %v", err)
@@ -65,6 +72,7 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 }
 
 type EventLoopGroup struct {
+	resource   *Resource
 	wakeup     *Wakeup
 	boss       *EventLoop
 	workers    []*EventLoop
@@ -122,7 +130,7 @@ func (group *EventLoopGroup) Cancel(target *Operation) (err error) {
 }
 
 func (group *EventLoopGroup) Resource() *Resource {
-	return group.boss.resource
+	return group.resource
 }
 
 func (group *EventLoopGroup) Close() (err error) {
@@ -134,10 +142,10 @@ func (group *EventLoopGroup) Close() (err error) {
 	return
 }
 
-func newWakeup() (v <-chan *Wakeup) {
+func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 	ch := make(chan *Wakeup)
 
-	go func(ch chan *Wakeup) {
+	go func(group *EventLoopGroup, ch chan *Wakeup) {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
@@ -167,7 +175,7 @@ func newWakeup() (v <-chan *Wakeup) {
 		}
 		w := &Wakeup{
 			ring:     ring,
-			resource: new(Resource),
+			resource: group.Resource(),
 			wg:       new(sync.WaitGroup),
 			key:      0,
 			running:  true,
@@ -181,7 +189,7 @@ func newWakeup() (v <-chan *Wakeup) {
 		close(ch)
 
 		w.process()
-	}(ch)
+	}(group, ch)
 
 	v = ch
 	return

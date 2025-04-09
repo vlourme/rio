@@ -81,7 +81,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		event := &EventLoop{
 			ring:           ring,
 			bufferAndRings: brs,
-			resource:       new(Resource),
+			resource:       group.Resource(),
 			group:          group,
 			wg:             new(sync.WaitGroup),
 			id:             id,

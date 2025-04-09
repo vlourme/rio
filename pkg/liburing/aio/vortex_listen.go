@@ -86,39 +86,41 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		acceptFn: nil,
 		handler:  nil,
 	}
-	// ipv6
-	if ipv6only {
-		if err = ln.SetIpv6only(true); err != nil {
+	if family == syscall.AF_INET || family == syscall.AF_INET6 {
+		// ipv6
+		if ipv6only {
+			if err = ln.SetIpv6only(true); err != nil {
+				_ = ln.Close()
+				return
+			}
+		}
+		// zero copy
+		if err = ln.SetZeroCopy(true); err != nil {
 			_ = ln.Close()
 			return
 		}
-	}
-	// zero copy
-	if err = ln.SetZeroCopy(true); err != nil {
-		_ = ln.Close()
-		return
-	}
-	// reuse addr
-	if err = ln.SetReuseAddr(true); err != nil {
-		_ = ln.Close()
-		return
-	}
-	// tcp defer accept
-	if tcpDeferAccept {
-		if err = ln.SetTCPDeferAccept(true); err != nil {
+		// reuse addr
+		if err = ln.SetReuseAddr(true); err != nil {
 			_ = ln.Close()
 			return
 		}
-	}
-	// reuse port
-	if reusePort && addrPort > 0 {
-		if err = ln.SetReusePort(addrPort); err != nil {
-			_ = ln.Close()
-			return
+		// tcp defer accept
+		if tcpDeferAccept {
+			if err = ln.SetTCPDeferAccept(true); err != nil {
+				_ = ln.Close()
+				return
+			}
 		}
-		if err = ln.SetCBPF(runtime.NumCPU()); err != nil {
-			_ = ln.Close()
-			return
+		// reuse port
+		if reusePort && addrPort > 0 {
+			if err = ln.SetReusePort(addrPort); err != nil {
+				_ = ln.Close()
+				return
+			}
+			if err = ln.SetCBPF(runtime.NumCPU()); err != nil {
+				_ = ln.Close()
+				return
+			}
 		}
 	}
 	// control
@@ -235,73 +237,74 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
 		},
 	}
-
-	// ipv6
-	if ipv6only {
-		if err = conn.SetIpv6only(true); err != nil {
+	if family == syscall.AF_INET || family == syscall.AF_INET6 {
+		// ipv6
+		if ipv6only {
+			if err = conn.SetIpv6only(true); err != nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		// zero copy
+		if err = conn.SetZeroCopy(true); err != nil {
 			_ = conn.Close()
 			return
 		}
-	}
-	// zero copy
-	if err = conn.SetZeroCopy(true); err != nil {
-		_ = conn.Close()
-		return
-	}
-	// reuse addr
-	if err = conn.SetReuseAddr(true); err != nil {
-		_ = conn.Close()
-		return
-	}
-	//  broadcast
-	if err = conn.SetBroadcast(true); err != nil {
-		_ = conn.Close()
-		return
-	}
-	// reuse port
-	if reusePort && addrPort > 0 {
-		if err = conn.SetReusePort(addrPort); err != nil {
+		// reuse addr
+		if err = conn.SetReuseAddr(true); err != nil {
 			_ = conn.Close()
 			return
 		}
-		if err = conn.SetCBPF(runtime.NumCPU()); err != nil {
+		//  broadcast
+		if err = conn.SetBroadcast(true); err != nil {
 			_ = conn.Close()
 			return
 		}
-	}
-	// multicast
-	if ifi != nil {
-		udpAddr, ok := addr.(*net.UDPAddr)
-		if !ok {
-			_ = conn.Close()
-			err = errors.New("has ifi but addr is not udp addr")
-			return
+		// reuse port
+		if reusePort && addrPort > 0 {
+			if err = conn.SetReusePort(addrPort); err != nil {
+				_ = conn.Close()
+				return
+			}
+			if err = conn.SetCBPF(runtime.NumCPU()); err != nil {
+				_ = conn.Close()
+				return
+			}
 		}
-		if ip4 := udpAddr.IP.To4(); ip4 != nil {
-			if err = conn.SetIPv4MulticastInterface(ifi); err != nil {
+		// multicast
+		if ifi != nil {
+			udpAddr, ok := addr.(*net.UDPAddr)
+			if !ok {
 				_ = conn.Close()
+				err = errors.New("has ifi but addr is not udp addr")
 				return
 			}
-			if err = conn.SetIPv4MulticastLoopback(false); err != nil {
-				_ = conn.Close()
-				return
-			}
-			if err = conn.JoinIPv4Group(ifi, ip4); err != nil {
-				_ = conn.Close()
-				return
-			}
-		} else {
-			if err = conn.SetIPv6MulticastInterface(ifi); err != nil {
-				_ = conn.Close()
-				return
-			}
-			if err = conn.SetIPv6MulticastLoopback(false); err != nil {
-				_ = conn.Close()
-				return
-			}
-			if err = conn.JoinIPv6Group(ifi, udpAddr.IP); err != nil {
-				_ = conn.Close()
-				return
+			if ip4 := udpAddr.IP.To4(); ip4 != nil {
+				if err = conn.SetIPv4MulticastInterface(ifi); err != nil {
+					_ = conn.Close()
+					return
+				}
+				if err = conn.SetIPv4MulticastLoopback(false); err != nil {
+					_ = conn.Close()
+					return
+				}
+				if err = conn.JoinIPv4Group(ifi, ip4); err != nil {
+					_ = conn.Close()
+					return
+				}
+			} else {
+				if err = conn.SetIPv6MulticastInterface(ifi); err != nil {
+					_ = conn.Close()
+					return
+				}
+				if err = conn.SetIPv6MulticastLoopback(false); err != nil {
+					_ = conn.Close()
+					return
+				}
+				if err = conn.JoinIPv6Group(ifi, udpAddr.IP); err != nil {
+					_ = conn.Close()
+					return
+				}
 			}
 		}
 	}

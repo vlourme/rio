@@ -340,12 +340,14 @@ func (fd *NetFd) SetBroadcast(ok bool) error {
 }
 
 func (fd *NetFd) SetReuseAddr(ok bool) error {
-	if fd.Installed() {
-		if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok)); err != nil {
-			return os.NewSyscallError("setsockopt", err)
+	if fd.family == syscall.AF_INET || fd.family == syscall.AF_INET6 {
+		if fd.Installed() {
+			if err := syscall.SetsockoptInt(fd.regular, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok)); err != nil {
+				return os.NewSyscallError("setsockopt", err)
+			}
+		} else {
+			return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok))
 		}
-	} else {
-		return fd.SetSocketoptInt(syscall.SOL_SOCKET, syscall.SO_REUSEADDR, boolint(ok))
 	}
 	return nil
 }
