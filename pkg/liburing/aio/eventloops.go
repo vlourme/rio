@@ -150,13 +150,9 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 		defer runtime.UnlockOSThread()
 
 		entries := runtime.NumCPU() * 2
-		flags := liburing.IORING_SETUP_COOP_TASKRUN |
-			liburing.IORING_SETUP_TASKRUN_FLAG |
-			liburing.IORING_SETUP_SINGLE_ISSUER |
-			liburing.IORING_SETUP_DEFER_TASKRUN
 		ring, ringErr := liburing.New(
 			liburing.WithEntries(uint32(entries)),
-			liburing.WithFlags(flags),
+			liburing.WithFlags(liburing.IORING_SETUP_SINGLE_ISSUER),
 		)
 		if ringErr != nil {
 			w := &Wakeup{
