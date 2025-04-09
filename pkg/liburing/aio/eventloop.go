@@ -5,6 +5,7 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"math"
 	"os"
 	"runtime"
@@ -25,9 +26,11 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		opts = append(opts, liburing.WithFlags(options.Flags))
 		if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 {
 			opts = append(opts, liburing.WithSQThreadIdle(options.SQThreadIdle))
-		}
-		if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
-			opts = append(opts, liburing.WithSQThreadCPU(uint32(id)))
+			if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
+				opts = append(opts, liburing.WithSQThreadCPU(uint32(id)))
+			}
+		} else {
+			_ = sys.AffCPU(id)
 		}
 
 		ring, ringErr := liburing.New(opts...)
