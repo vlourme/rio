@@ -19,19 +19,19 @@ type Curve []struct {
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
 		curve = Curve{
-			//{8, 1 * time.Microsecond},
-			//{16, 2 * time.Microsecond},
-			//{32, 4 * time.Microsecond},
-			//{64, 8 * time.Microsecond},
-			//{96, 10 * time.Microsecond},
-			//{128, 10 * time.Microsecond},
+			{8, 5 * time.Microsecond},
+			{16, 10 * time.Microsecond},
+			{32, 20 * time.Microsecond},
+			{64, 40 * time.Microsecond},
+			{96, 50 * time.Microsecond},
+			//{128, 80 * time.Microsecond},
 			//{192, 150 * time.Microsecond},
 			//{256, 200 * time.Microsecond},
 			//{384, 300 * time.Microsecond},
 			//{512, 500 * time.Microsecond},
-			{32, 100 * time.Microsecond},
-			{64, 200 * time.Microsecond},
-			{96, 500 * time.Microsecond},
+			//{32, 100 * time.Microsecond},
+			//{64, 200 * time.Microsecond},
+			//{96, 500 * time.Microsecond},
 		}
 	}
 	times := make([]WaitNTime, 0, 1)
@@ -84,12 +84,13 @@ func (tran *CurveTransmission) Match(n uint32) (uint32, *syscall.Timespec) {
 	if n == 0 || tran.size == 1 {
 		return tran.curve[0].n, tran.curve[0].time
 	}
-	for i := 1; i < tran.size; i++ {
-		ln := tran.curve[i-1]
-		rn := tran.curve[i]
-		if ln.n <= n && n < rn.n {
-			return ln.n, ln.time
+	left := WaitNTime{}
+	for i := 0; i < tran.size; i++ {
+		right := tran.curve[i]
+		if left.n <= n && n < right.n {
+			return right.n, right.time
 		}
+		left = right
 	}
 	tail := tran.curve[tran.size-1]
 	return tail.n, tail.time

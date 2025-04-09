@@ -121,7 +121,7 @@ func (c *conn) SetReadDeadline(t time.Time) error {
 	if t.Before(time.Now()) {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
 	}
-	c.fd.SetReadDeadline(time.Time{})
+	c.fd.SetReadDeadline(t)
 	return nil
 }
 
@@ -137,7 +137,7 @@ func (c *conn) SetWriteDeadline(t time.Time) error {
 	if t.Before(time.Now()) {
 		return &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.LocalAddr(), Addr: c.fd.RemoteAddr(), Err: errors.New("set deadline too early")}
 	}
-	c.fd.SetWriteDeadline(time.Time{})
+	c.fd.SetWriteDeadline(t)
 	return nil
 }
 

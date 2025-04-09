@@ -52,7 +52,7 @@ func (e *CanceledError) Is(err error) bool {
 
 type TimeoutError struct{}
 
-func (e *TimeoutError) Error() string   { return "i/o op_f_timeout" }
+func (e *TimeoutError) Error() string   { return "i/o timeout" }
 func (e *TimeoutError) Timeout() bool   { return true }
 func (e *TimeoutError) Temporary() bool { return true }
 func (e *TimeoutError) Is(err error) bool {

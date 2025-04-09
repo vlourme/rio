@@ -44,7 +44,7 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	group.boss = boss
 
 	// workers
-	workerNum := runtime.NumCPU()/2 - 1
+	workerNum := runtime.NumCPU()/2 - 2
 	if workerNum < 1 {
 		workerNum = 1
 	}

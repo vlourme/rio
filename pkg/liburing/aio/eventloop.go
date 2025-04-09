@@ -246,7 +246,7 @@ func (event *EventLoop) process() {
 		ring         = event.ring
 		transmission = NewCurveTransmission(event.waitTimeCurve)
 		scratch      = make([]*Operation, 0, 64)
-		cqes         = make([]*liburing.CompletionQueueEvent, 64)
+		cqes         = make([]*liburing.CompletionQueueEvent, 512)
 	)
 	for {
 		// prepare
@@ -270,7 +270,7 @@ func (event *EventLoop) process() {
 		event.locker.Unlock()
 
 		// complete
-		completed = event.completeCQE(cqes)
+		completed = event.completeCQE(&cqes)
 
 		// check running
 		event.locker.Lock()
@@ -377,8 +377,9 @@ func (event *EventLoop) prepareSQE(scratch *[]*Operation) (prepared uint32) {
 	return
 }
 
-func (event *EventLoop) completeCQE(cqes []*liburing.CompletionQueueEvent) (completed uint32) {
+func (event *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (completed uint32) {
 	ring := event.ring
+	cqes := *cqesp
 	ready := int(ring.CQReady())
 	for ready > 0 {
 		if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
@@ -409,6 +410,7 @@ func (event *EventLoop) completeCQE(cqes []*liburing.CompletionQueueEvent) (comp
 				)
 				if opN < 0 {
 					opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-opN))
+					opN = 0
 				}
 				cop.complete(opN, opFlags, opErr)
 
