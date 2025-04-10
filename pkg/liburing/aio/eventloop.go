@@ -52,7 +52,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		}
 
 		// buffer and rings
-		brs, brsErr := newBufferAndRings(ring, options.BufferAndRingConfig)
+		brs, brsErr := newBufferAndRings(options.BufferAndRingConfig)
 		if brsErr != nil {
 			_ = ring.Close()
 			event := &EventLoop{
@@ -97,10 +97,12 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			ready:          make([]*Operation, 0, 64),
 		}
 		event.key = uint64(uintptr(unsafe.Pointer(event)))
-
+		// return event loop
 		ch <- event
 		close(ch)
-
+		// start buffer and rings loop
+		brs.start(event)
+		// process
 		event.process()
 	}(id, group, options, ch)
 	v = ch
@@ -199,23 +201,19 @@ func (event *EventLoop) AcquireBufferAndRing() (br *BufferAndRing, err error) {
 }
 
 func (event *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
-	op := event.resource.AcquireOperation()
-	op.flags |= op_f_noexec
-	op.cmd = op_cmd_release_br
-	op.addr = unsafe.Pointer(br)
-	_, _, _ = event.SubmitAndWait(op)
-	event.resource.ReleaseOperation(op)
+	event.bufferAndRings.Release(br)
 }
 
 func (event *EventLoop) Close() (err error) {
+	// unregister buffer and rings
+	_ = event.bufferAndRings.Close()
 	// submit close op
 	op := &Operation{}
 	op.PrepareCloseRing(event.key)
 	_ = event.Submit(op)
 	// wait
 	event.wg.Wait()
-	// unregister buffer and rings
-	_ = event.bufferAndRings.Close()
+
 	// unregister files
 	done := make(chan struct{})
 	go func(ring *liburing.Ring, done chan struct{}) {
@@ -321,10 +319,13 @@ func (event *EventLoop) prepareSQE(scratch *[]*Operation) (prepared uint32) {
 				op.addr = unsafe.Pointer(br)
 				op.complete(1, 0, nil)
 				break
-			case op_cmd_release_br:
+			case op_cmd_close_br:
 				br := (*BufferAndRing)(op.addr)
-				event.bufferAndRings.Release(br)
-				op.complete(1, 0, nil)
+				if err := br.free(event.ring); err != nil {
+					op.failed(err)
+				} else {
+					op.complete(1, 0, nil)
+				}
 				break
 			default:
 				op.failed(errors.New("invalid command"))

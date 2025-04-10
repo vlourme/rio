@@ -43,7 +43,7 @@ const (
 	op_cmd_msg_ring
 	op_cmd_msg_ring_fd
 	op_cmd_acquire_br
-	op_cmd_release_br
+	op_cmd_close_br
 )
 
 type Operation struct {

@@ -19,9 +19,9 @@ type BufferAndRingConfig struct {
 
 type BufferAndRing struct {
 	bgid        uint16
-	value       *liburing.BufferAndRing
 	lastUseTime time.Time
 	config      BufferAndRingConfig
+	value       *liburing.BufferAndRing
 	buffer      []byte
 }
 
@@ -77,11 +77,17 @@ func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) 
 	return
 }
 
+func (br *BufferAndRing) free(ring *liburing.Ring) (err error) {
+	entries := uint32(br.config.Count)
+	err = ring.FreeBufRing(br.value, entries, br.bgid)
+	return
+}
+
 const (
 	maxBufferSize = int(^uint(0) >> 1)
 )
 
-func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *BufferAndRings, err error) {
+func newBufferAndRings(config BufferAndRingConfig) (brs *BufferAndRings, err error) {
 	size := config.Size
 	if size < 1 {
 		size = os.Getpagesize()
@@ -117,7 +123,7 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 	brs = &BufferAndRings{
 		config:       config,
 		locker:       new(sync.Mutex),
-		ring:         ring,
+		eventLoop:    nil,
 		wg:           &sync.WaitGroup{},
 		done:         make(chan struct{}),
 		bgids:        bgids,
@@ -126,14 +132,13 @@ func newBufferAndRings(ring *liburing.Ring, config BufferAndRingConfig) (brs *Bu
 		bufferPool:   sync.Pool{},
 	}
 
-	brs.start()
 	return
 }
 
 type BufferAndRings struct {
 	config       BufferAndRingConfig
 	locker       sync.Locker
-	ring         *liburing.Ring
+	eventLoop    *EventLoop
 	wg           *sync.WaitGroup
 	done         chan struct{}
 	bgids        []uint16
@@ -195,7 +200,7 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 	bgid := brs.bgids[0]
 
 	entries := uint32(brs.config.Count)
-	br, setupErr := brs.ring.SetupBufRing(entries, bgid, 0)
+	br, setupErr := brs.eventLoop.ring.SetupBufRing(entries, bgid, 0)
 	if setupErr != nil {
 		err = setupErr
 		return
@@ -217,19 +222,21 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 
 	value = &BufferAndRing{
 		bgid:        bgid,
-		value:       br,
 		lastUseTime: time.Time{},
 		config:      brs.config,
+		value:       br,
 		buffer:      buffer,
 	}
 	return
 }
 
 func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
-	// todo: dont close here, send to process thread to close, same as create
-	// free buffer and ring
-	entries := uint32(br.config.Count)
-	_ = brs.ring.FreeBufRing(br.value, entries, br.bgid)
+	op := brs.eventLoop.resource.AcquireOperation()
+	op.flags |= op_f_noexec
+	op.cmd = op_cmd_close_br
+	op.addr = unsafe.Pointer(br)
+	_, _, _ = brs.eventLoop.SubmitAndWait(op)
+	brs.eventLoop.resource.ReleaseOperation(op)
 	// release bgid
 	brs.bgids = append(brs.bgids, br.bgid)
 	// release buffer
@@ -239,7 +246,8 @@ func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
 	return
 }
 
-func (brs *BufferAndRings) start() {
+func (brs *BufferAndRings) start(eventLoop *EventLoop) {
+	brs.eventLoop = eventLoop
 	brs.wg.Add(1)
 	go func(brs *BufferAndRings) {
 		defer brs.wg.Done()
