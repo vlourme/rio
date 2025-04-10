@@ -81,8 +81,6 @@ type EventLoopGroup struct {
 }
 
 func (group *EventLoopGroup) Dispatch(fd int, attached *Operation) (err error) {
-	// attached 可能不需要，因为本环的op会返回对方环中的fd，和attached所得到的是一个值。
-	// 由于版本不确定，以对方环为主，万一本环结果变量。
 	idx := int64(0)
 	if group.workersNum != 1 {
 		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
@@ -102,7 +100,35 @@ func (group *EventLoopGroup) Dispatch(fd int, attached *Operation) (err error) {
 	return
 }
 
+func (group *EventLoopGroup) DispatchAndWait(fd int) (dfd int, worker *EventLoop, err error) {
+	if group.workersNum == 0 {
+		dfd = fd
+		worker = group.boss
+		return
+	}
+
+	idx := int64(0)
+	if group.workersNum != 1 {
+		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
+	}
+	worker = group.workers[idx]
+	efd := worker.Fd()
+	op := group.boss.resource.AcquireOperation()
+	op.PrepareMSGRingFd(efd, fd, nil)
+	if err = group.boss.Submit(op); err != nil {
+		group.boss.resource.ReleaseOperation(op)
+		return
+	}
+	dfd, _, err = op.Await()
+	group.boss.resource.ReleaseOperation(op)
+	return
+}
+
 func (group *EventLoopGroup) Next() (event *EventLoop) {
+	if group.workersNum == 0 {
+		event = group.boss
+		return
+	}
 	idx := int64(0)
 	if group.workersNum != 1 {
 		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum

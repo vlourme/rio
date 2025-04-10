@@ -55,24 +55,13 @@ func (fd *Listener) accept() (nfd *Conn, err error) {
 		return
 	}
 	// dispatch to worker
-	op = fd.eventLoop.resource.AcquireOperation()
-	op.prepareAble()
-	if err = fd.eventLoop.group.Dispatch(accepted, op); err != nil {
-		fd.eventLoop.resource.ReleaseOperation(op)
+	dispatchFd, worker, dispatchErr := fd.eventLoop.group.DispatchAndWait(accepted)
+	if dispatchErr != nil {
 		cfd := &Fd{direct: accepted, regular: -1, eventLoop: fd.eventLoop}
 		_ = cfd.Close()
+		err = dispatchErr
 		return
 	}
-	var dispatchFd int
-	if dispatchFd, _, err = op.Await(); err != nil {
-		fd.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted, regular: -1, eventLoop: fd.eventLoop}
-		_ = cfd.Close()
-		return
-	}
-	worker := (*EventLoop)(op.addr)
-	fd.eventLoop.resource.ReleaseOperation(op)
-
 	// new conn
 	nfd = fd.newAcceptedConnFd(dispatchFd, worker)
 	sa, saErr := sys.RawSockaddrAnyToSockaddr(acceptAddr)
@@ -228,23 +217,13 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 		return
 	}
 	// dispatch to worker
-	op := handler.ln.eventLoop.resource.AcquireOperation()
-	op.prepareAble()
-	if err = handler.ln.eventLoop.group.Dispatch(accepted, op); err != nil {
-		handler.ln.eventLoop.resource.ReleaseOperation(op)
+	dispatchFd, worker, dispatchErr := handler.ln.eventLoop.group.DispatchAndWait(accepted)
+	if dispatchErr != nil {
 		cfd := &Fd{direct: accepted, regular: -1, eventLoop: handler.ln.eventLoop}
 		_ = cfd.Close()
+		err = dispatchErr
 		return
 	}
-	var dispatchFd int
-	if dispatchFd, _, err = op.Await(); err != nil {
-		handler.ln.eventLoop.resource.ReleaseOperation(op)
-		cfd := &Fd{direct: accepted, regular: -1, eventLoop: handler.ln.eventLoop}
-		_ = cfd.Close()
-		return
-	}
-	worker := (*EventLoop)(op.addr)
-	handler.ln.eventLoop.resource.ReleaseOperation(op)
 	// new conn
 	conn = ln.newAcceptedConnFd(dispatchFd, worker)
 	// close local

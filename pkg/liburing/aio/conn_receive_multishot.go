@@ -67,6 +67,12 @@ type RecvMultishotHandler struct {
 func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 	// handle ERR
 	if err != nil {
+		//fmt.Println("RECV > ", handler.conn.Name(),
+		//	n, err,
+		//	"CQE_F_MORE", flags&liburing.IORING_CQE_F_MORE,
+		//	"CQE_F_SOCK_NONEMPTY", flags&liburing.IORING_CQE_F_SOCK_NONEMPTY,
+		//	"CQE_F_BUFFER", flags&liburing.IORING_CQE_F_BUFFER,
+		//)
 		if errors.Is(err, syscall.ENOBUFS) { // try to submit again
 			if err = handler.submit(); err != nil {
 				handler.locker.Lock()
