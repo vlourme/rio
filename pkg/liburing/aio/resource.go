@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"sync"
 	"syscall"
@@ -52,9 +53,112 @@ func supportSendMSGZC() bool {
 }
 
 type Resource struct {
-	operations sync.Pool
-	msgs       sync.Pool
-	timers     sync.Pool
+	operations       sync.Pool
+	msgs             sync.Pool
+	timers           sync.Pool
+	oneshotFutures   sync.Pool
+	zeroCopyFutures  sync.Pool
+	multishotFutures sync.Pool
+}
+
+const (
+	OneshotOperation = iota
+	ZeroCopyOperation
+	MultiShotOperation
+)
+
+func (res *Resource) AcquireOperation1(kind int, deadline time.Time) (op *Operation) {
+	v := res.operations.Get()
+	if v == nil {
+		op = &Operation{
+			code:  liburing.IORING_OP_LAST,
+			flags: op_f_borrowed,
+		}
+	} else {
+		op = v.(*Operation)
+	}
+
+	switch kind {
+	case OneshotOperation:
+		f0 := res.oneshotFutures.Get()
+		if f0 == nil {
+			f0 = &OneshotFuture{
+				baseFuture{ch: make(chan FutureResult, 1)},
+			}
+		}
+		op.promise = f0.(*OneshotFuture)
+		break
+	case ZeroCopyOperation:
+		f0 := res.zeroCopyFutures.Get()
+		if f0 == nil {
+			f0 = &ZeroCopyFuture{
+				baseFuture: baseFuture{ch: make(chan FutureResult, 2)},
+				result:     FutureResult{},
+			}
+		}
+		op.promise = f0.(*ZeroCopyFuture)
+		break
+	case MultiShotOperation:
+		f0 := res.multishotFutures.Get()
+		if f0 == nil {
+			f0 = &MultishotFuture{
+				baseFuture: baseFuture{ch: make(chan FutureResult, 4096)},
+			}
+		}
+		op.promise = f0.(*MultishotFuture)
+		op.flags |= op_f_multishot
+		break
+	default:
+		panic(errors.New("invalid operation kind"))
+		return
+	}
+	// no deadline
+	if deadline.IsZero() {
+		return
+	}
+	// add timeout
+	link := res.AcquireOperation1(OneshotOperation, time.Time{})
+	link.PrepareLinkTimeout(deadline)
+	op.link = link
+	op.flags |= op_f_timeout
+	op.sqeFlags |= liburing.IOSQE_IO_LINK
+	op.promise.Future().LinkTimeout(link.promise.Future())
+	return
+}
+
+func (res *Resource) ReleaseOperation1(op *Operation) {
+	if op == nil {
+		return
+	}
+	if op.releaseAble() {
+		if link := op.link; link != nil {
+			res.ReleaseOperation1(link)
+		}
+		switch future := op.promise.(type) {
+		case *OneshotFuture:
+			future.baseFuture.timeout = nil
+			res.oneshotFutures.Put(future)
+			break
+		case *ZeroCopyFuture:
+			future.baseFuture.timeout = nil
+			future.result.N = 0
+			future.result.Flags = 0
+			future.result.Err = nil
+			future.result.Attachment = nil
+			res.zeroCopyFutures.Put(future)
+			break
+		case *MultishotFuture:
+			future.baseFuture.timeout = nil
+			future.adaptor = nil
+			res.multishotFutures.Put(future)
+			break
+		default:
+			panic(errors.New("invalid operation promise kind"))
+			return
+		}
+		op.reset()
+		res.operations.Put(op)
+	}
 }
 
 func (res *Resource) AcquireOperation() *Operation {

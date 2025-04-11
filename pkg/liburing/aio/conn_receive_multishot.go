@@ -72,6 +72,7 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		//	"CQE_F_MORE", flags&liburing.IORING_CQE_F_MORE,
 		//	"CQE_F_SOCK_NONEMPTY", flags&liburing.IORING_CQE_F_SOCK_NONEMPTY,
 		//	"CQE_F_BUFFER", flags&liburing.IORING_CQE_F_BUFFER,
+		//	"BID", flags>>liburing.IORING_CQE_BUFFER_SHIFT,
 		//)
 		if errors.Is(err, syscall.ENOBUFS) { // try to submit again
 			if err = handler.submit(); err != nil {
@@ -115,6 +116,7 @@ func (handler *RecvMultishotHandler) Handle(n int, flags uint32, err error) {
 		//	"CQE_F_MORE", flags&liburing.IORING_CQE_F_MORE,
 		//	"CQE_F_SOCK_NONEMPTY", flags&liburing.IORING_CQE_F_SOCK_NONEMPTY,
 		//	"CQE_F_BUFFER", flags&liburing.IORING_CQE_F_BUFFER,
+		//	"BID", flags>>liburing.IORING_CQE_BUFFER_SHIFT,
 		//)
 		if n == 0 { // EOF
 			handler.locker.Lock()

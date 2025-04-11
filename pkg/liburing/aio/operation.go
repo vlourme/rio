@@ -29,12 +29,12 @@ const (
 )
 
 const (
-	op_f_borrowed uint8 = 1 << iota
-	op_f_timeout
-	op_f_discard
+	op_f_borrowed uint8 = 1 << iota // todo remove
+	op_f_timeout                    // todo remove
+	op_f_discard                    // todo remove
 	op_f_direct_alloc
 	op_f_multishot
-	op_f_with_handler
+	op_f_with_handler // todo remove
 	op_f_noexec
 )
 
@@ -53,7 +53,8 @@ type Operation struct {
 	sqeFlags uint8
 	link     *Operation
 	status   atomic.Int64
-	resultCh chan Result
+	resultCh chan Result // todo remove
+	promise  Promise
 	fd       int
 	addr     unsafe.Pointer
 	addrLen  uint32
@@ -62,7 +63,7 @@ type Operation struct {
 }
 
 // Await result, can not use for multishot.
-func (op *Operation) Await() (n int, cqeFlags uint32, err error) {
+func (op *Operation) Await() (n int, cqeFlags uint32, err error) { // todo remove
 	if op.flags&op_f_multishot != 0 {
 		panic("op_f_multishot not supported")
 		return
@@ -107,20 +108,20 @@ TIMEOUT:
 	return
 }
 
-func (op *Operation) Close() {
+func (op *Operation) Close() { // todo remove
 	op.status.Store(CompletedOperationStatus)
 	op.flags |= op_f_discard
 }
 
-func (op *Operation) Hijack() {
+func (op *Operation) Hijack() { // todo remove
 	op.status.Store(HijackedOperationStatus)
 }
 
-func (op *Operation) Complete() {
+func (op *Operation) Complete() { // todo remove (it will complete by canceled)
 	op.status.Store(CompletedOperationStatus)
 }
 
-func (op *Operation) WithLinkTimeout(link *Operation) *Operation {
+func (op *Operation) WithLinkTimeout(link *Operation) *Operation { // todo remove
 	if link == nil {
 		return op
 	}
@@ -130,7 +131,7 @@ func (op *Operation) WithLinkTimeout(link *Operation) *Operation {
 	return op
 }
 
-func (op *Operation) WithDeadline(resource *Resource, deadline time.Time) *Operation {
+func (op *Operation) WithDeadline(resource *Resource, deadline time.Time) *Operation { // todo remove
 	if deadline.IsZero() {
 		return op
 	}
@@ -147,12 +148,12 @@ func (op *Operation) WithDirectAlloc(direct bool) *Operation {
 	return op
 }
 
-func (op *Operation) WithMultiShot() *Operation {
+func (op *Operation) WithMultiShot() *Operation { // todo remove
 	op.flags |= op_f_multishot
 	return op
 }
 
-func (op *Operation) WithHandler(handler OperationHandler) *Operation {
+func (op *Operation) WithHandler(handler OperationHandler) *Operation { // todo remove
 	if handler == nil {
 		return op
 	}
@@ -161,7 +162,7 @@ func (op *Operation) WithHandler(handler OperationHandler) *Operation {
 	return op
 }
 
-func (op *Operation) handler() (handler OperationHandler) {
+func (op *Operation) handler() (handler OperationHandler) { // todo remove
 	if op.flags&op_f_with_handler != 0 {
 		handler = *(*OperationHandler)(op.addr2)
 	}
@@ -179,6 +180,7 @@ func (op *Operation) reset() {
 	op.sqeFlags = 0
 	op.link = nil
 	op.status.Store(ReadyOperationStatus)
+	op.promise = nil
 
 	op.fd = -1
 	op.addr = nil

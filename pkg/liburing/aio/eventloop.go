@@ -325,7 +325,7 @@ func (event *EventLoop) prepareSQE(op *Operation) bool {
 			return false
 		}
 		// prepare link timeout
-		if op.flags&op_f_timeout != 0 {
+		if op.flags&op_f_timeout != 0 { // todo op.link != nil
 			timeoutSQE := event.ring.GetSQE()
 			if timeoutSQE == nil { // no sqe left, prepare nop and set op to head or ready
 				sqe.PrepareNop()
