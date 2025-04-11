@@ -15,6 +15,7 @@ type BufferAndRingConfig struct {
 	Size        int
 	Count       int
 	IdleTimeout time.Duration
+	mask        uint16
 }
 
 type BufferAndRing struct {
@@ -30,49 +31,40 @@ func (br *BufferAndRing) Id() uint16 {
 }
 
 func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) (n int, err error) {
+	var (
+		bid  = uint16(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
+		beg  = int(bid) * br.config.Size
+		end  = beg + br.config.Size
+		mask = br.config.mask
+	)
+
 	if length == 0 {
+		b := br.buffer[beg:end]
+		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
 		br.value.BufRingAdvance(1)
 		return
 	}
+	for length > 0 {
+		if br.config.Size > length {
+			_, _ = writer.Write(br.buffer[beg : beg+length])
 
-	var (
-		bid  = cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT
-		beg  = int(bid) * br.config.Size
-		end  = beg + length
-		bLen = len(br.buffer)
-		nn   = 0
-	)
-
-	if remains := end - bLen; remains > 0 { // split
-		for {
-			nn, err = writer.Write(br.buffer[beg:])
-			if err != nil {
-				break
-			}
-			n += nn
-			beg += nn
-			if beg == bLen {
-				break
-			}
-		}
-		beg = 0
-		end = remains
-	}
-
-	for {
-		nn, err = writer.Write(br.buffer[beg:end])
-		if err != nil {
+			b := br.buffer[beg:end]
+			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
+			br.value.BufRingAdvance(1)
 			break
 		}
-		n += nn
-		beg += nn
-		if beg == end {
-			break
-		}
-	}
 
-	used := uint16(math.Ceil(float64(length) / float64(br.config.Size)))
-	br.value.BufRingAdvance(used)
+		_, _ = writer.Write(br.buffer[beg:end])
+
+		b := br.buffer[beg:end]
+		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
+		br.value.BufRingAdvance(1)
+
+		length -= br.config.Size
+		bid = (bid + 1) % uint16(br.config.Count)
+		beg = int(bid) * br.config.Size
+		end = beg + br.config.Size
+	}
 
 	return
 }
@@ -114,6 +106,7 @@ func newBufferAndRings(config BufferAndRingConfig) (brs *BufferAndRings, err err
 	if config.IdleTimeout < 1 {
 		config.IdleTimeout = 10 * time.Second
 	}
+	config.mask = uint16(liburing.BufferRingMask(uint32(config.Count)))
 
 	bgids := make([]uint16, math.MaxUint16)
 	for i := 0; i < len(bgids); i++ {
@@ -208,7 +201,7 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 
 	brs.bgids = brs.bgids[1:]
 
-	mask := liburing.BufferRingMask(entries)
+	mask := brs.config.mask
 	buffer := brs.getBuffer()
 	bufferUnitLength := uint32(brs.config.Size)
 	for i := uint32(0); i < entries; i++ {
@@ -216,7 +209,7 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 		end := beg + bufferUnitLength
 		slice := buffer[beg:end]
 		addr := &slice[0]
-		br.BufRingAdd(unsafe.Pointer(addr), bufferUnitLength, uint16(i), uint16(mask), uint16(i))
+		br.BufRingAdd(unsafe.Pointer(addr), bufferUnitLength, uint16(i), mask, uint16(i))
 	}
 	br.BufRingAdvance(uint16(entries))
 
