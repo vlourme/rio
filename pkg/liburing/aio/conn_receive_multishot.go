@@ -266,6 +266,7 @@ func (handler *RecvMultishotHandler) Close() (err error) {
 	// wait done to clean
 	<-handler.done
 	handler.clean()
+
 	return
 }
 
@@ -276,9 +277,7 @@ func (handler *RecvMultishotHandler) submit() (err error) {
 		err = ErrCanceled
 		return
 	}
-	if err = handler.conn.eventLoop.Submit(handler.op); err != nil {
-		return
-	}
+	handler.conn.eventLoop.Submit(handler.op)
 	return
 }
 

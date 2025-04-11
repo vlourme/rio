@@ -133,10 +133,7 @@ func newAcceptMultishotHandler(ln *Listener) (handler *AcceptMultishotHandler, e
 	// prepare
 	op.PrepareAcceptMultishot(ln, param, handler)
 	// submit
-	if err = handler.submit(); err != nil {
-		op.Complete()
-		ln.eventLoop.resource.ReleaseOperation(op)
-	}
+	handler.submit()
 	return
 }
 
@@ -235,10 +232,12 @@ func (handler *AcceptMultishotHandler) Accept() (conn *Conn, err error) {
 func (handler *AcceptMultishotHandler) Close() (err error) {
 	handler.locker.Lock()
 	defer handler.locker.Unlock()
+
 	if handler.op == nil {
 		return
 	}
 	op := handler.op
+
 	if err = handler.ln.eventLoop.Cancel(op); err != nil {
 		if !errors.Is(handler.err, ErrCanceled) {
 			// use cancel fd when cancel op failed
@@ -251,10 +250,11 @@ func (handler *AcceptMultishotHandler) Close() (err error) {
 	op.Complete()
 	handler.ln.eventLoop.resource.ReleaseOperation(op)
 	handler.op = nil
+
 	return
 }
 
-func (handler *AcceptMultishotHandler) submit() (err error) {
-	err = handler.ln.eventLoop.Submit(handler.op)
+func (handler *AcceptMultishotHandler) submit() {
+	handler.ln.eventLoop.Submit(handler.op)
 	return
 }

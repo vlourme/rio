@@ -220,7 +220,9 @@ func (op *Operation) handle(n int, flags uint32, err error) {
 		handler.Handle(n, flags, err)
 		return
 	}
-	op.resultCh <- Result{n, flags, err}
+	if op.resultCh != nil {
+		op.resultCh <- Result{n, flags, err}
+	}
 	return
 }
 
