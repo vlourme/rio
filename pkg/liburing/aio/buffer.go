@@ -231,12 +231,19 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 }
 
 func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
+	// submit
 	op := brs.eventLoop.resource.AcquireOperation()
 	op.flags |= op_f_noexec
 	op.cmd = op_cmd_close_br
 	op.addr = unsafe.Pointer(br)
 	_, _, _ = brs.eventLoop.SubmitAndWait(op)
 	brs.eventLoop.resource.ReleaseOperation(op)
+	// recycle br
+	brs.recycleBufferAndRing(br)
+	return
+}
+
+func (brs *BufferAndRings) recycleBufferAndRing(br *BufferAndRing) {
 	// release bgid
 	brs.bgids = append(brs.bgids, br.bgid)
 	// release buffer
@@ -246,7 +253,7 @@ func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
 	return
 }
 
-func (brs *BufferAndRings) start(eventLoop *EventLoop) {
+func (brs *BufferAndRings) Start(eventLoop *EventLoop) {
 	brs.eventLoop = eventLoop
 	brs.wg.Add(1)
 	go func(brs *BufferAndRings) {
@@ -272,17 +279,12 @@ func (brs *BufferAndRings) start(eventLoop *EventLoop) {
 			}
 		}
 		timer.Stop()
-
-		brs.locker.Lock()
-
-		for _, br := range brs.idles {
-			brs.closeBufferAndRing(br)
-		}
-		brs.idles = brs.idles[:0]
-
-		brs.locker.Unlock()
 	}(brs)
+}
 
+func (brs *BufferAndRings) Stop() {
+	close(brs.done)
+	brs.wg.Wait()
 }
 
 func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
@@ -332,8 +334,12 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 
 }
 
-func (brs *BufferAndRings) Close() error {
-	close(brs.done)
-	brs.wg.Wait()
+func (brs *BufferAndRings) Unregister() error {
+	for _, br := range brs.idles {
+		// free br
+		_ = br.free(brs.eventLoop.ring)
+		// recycle br
+		brs.recycleBufferAndRing(br)
+	}
 	return nil
 }
