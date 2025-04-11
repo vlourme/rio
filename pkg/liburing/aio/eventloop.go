@@ -5,7 +5,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"math"
 	"os"
 	"runtime"
@@ -21,7 +20,6 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 	go func(id int, group *EventLoopGroup, options Options, ch chan<- *EventLoop) {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		_ = sys.AffCPU(id)
 
 		opts := make([]liburing.Option, 0, 1)
 		opts = append(opts, liburing.WithEntries(options.Entries))
@@ -78,23 +76,22 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		if waitIdleTimeout < 1 {
 			waitIdleTimeout = 15 * time.Second
 		}
-		// wait time curve
-		waitTimeCurve := options.WaitCQETimeCurve
+		// wait transmission
 
 		event := &EventLoop{
-			ring:           ring,
-			bufferAndRings: brs,
-			resource:       group.Resource(),
-			group:          group,
-			wg:             new(sync.WaitGroup),
-			err:            nil,
-			id:             id,
-			key:            0,
-			running:        atomic.Bool{},
-			idle:           atomic.Bool{},
-			idleTimeout:    waitIdleTimeout,
-			waitTimeCurve:  waitTimeCurve,
-			ready:          make(chan *Operation, ring.CQEntries()),
+			ring:            ring,
+			bufferAndRings:  brs,
+			resource:        group.Resource(),
+			group:           group,
+			wg:              new(sync.WaitGroup),
+			id:              id,
+			key:             0,
+			running:         atomic.Bool{},
+			idle:            atomic.Bool{},
+			waitIdleTimeout: waitIdleTimeout,
+			waitTimeCurve:   options.WaitCQETimeCurve,
+			ready:           make(chan *Operation, ring.SQEntries()),
+			err:             nil,
 		}
 		event.key = uint64(uintptr(unsafe.Pointer(event)))
 		// return event loop
@@ -110,20 +107,20 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 }
 
 type EventLoop struct {
-	ring           *liburing.Ring
-	bufferAndRings *BufferAndRings
-	resource       *Resource
-	group          *EventLoopGroup
-	wg             *sync.WaitGroup
-	err            error
-	id             int
-	key            uint64
-	running        atomic.Bool
-	idle           atomic.Bool
-	idleTimeout    time.Duration
-	waitTimeCurve  Curve
-	ready          chan *Operation
-	orphan         *Operation
+	ring            *liburing.Ring
+	bufferAndRings  *BufferAndRings
+	resource        *Resource
+	group           *EventLoopGroup
+	wg              *sync.WaitGroup
+	id              int
+	key             uint64
+	running         atomic.Bool
+	idle            atomic.Bool
+	waitIdleTimeout time.Duration
+	waitTimeCurve   Curve
+	ready           chan *Operation
+	orphan          *Operation
+	err             error
 }
 
 func (event *EventLoop) Id() int {
@@ -222,11 +219,11 @@ func (event *EventLoop) process() {
 	var (
 		stopped      bool
 		ready        = event.ready
-		readyN       int
+		readyN       uint32
 		completed    uint32
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
-		idleTimeout  = syscall.NsecToTimespec(event.idleTimeout.Nanoseconds())
+		waitIdleTime = syscall.NsecToTimespec(event.waitIdleTimeout.Nanoseconds())
 		ring         = event.ring
 		transmission = NewCurveTransmission(event.waitTimeCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, event.ring.CQEntries())
@@ -240,12 +237,12 @@ func (event *EventLoop) process() {
 			}
 			event.orphan = nil
 		}
-		if readyN = len(ready); readyN > 0 {
-			for i := 0; i < readyN; i++ {
+		if readyN = uint32(len(ready)); readyN > 0 {
+			for i := uint32(0); i < readyN; i++ {
 				op := <-ready
 				if !event.prepareSQE(op) {
 					event.orphan = op
-					goto SUBMIT
+					break
 				}
 			}
 		}
@@ -253,14 +250,15 @@ func (event *EventLoop) process() {
 	SUBMIT:
 		if readyN == 0 && completed == 0 { // idle
 			if event.idle.CompareAndSwap(false, true) {
-				waitNr, waitTimeout = 1, &idleTimeout
+				waitNr, waitTimeout = 1, &waitIdleTime
 			} else {
 				waitNr, waitTimeout = transmission.Match(1)
 			}
 		} else {
-			waitNr, waitTimeout = transmission.Match(completed)
+			waitNr, waitTimeout = transmission.Match(readyN + completed)
 		}
 		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
+
 		// reset idle
 		event.idle.CompareAndSwap(true, false)
 

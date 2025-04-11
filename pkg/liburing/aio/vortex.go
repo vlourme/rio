@@ -5,7 +5,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"time"
 )
 
 func Open(options ...Option) (v AsyncIO, err error) {
@@ -25,17 +24,15 @@ func Open(options ...Option) (v AsyncIO, err error) {
 	// options
 	opt := Options{
 		Entries: 0,
-		//Flags: liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_TASKRUN_FLAG | liburing.IORING_SETUP_SINGLE_ISSUER | liburing.IORING_SETUP_DEFER_TASKRUN,
-		//Flags: liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER,
+		//Flags:   liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_TASKRUN_FLAG | liburing.IORING_SETUP_SINGLE_ISSUER | liburing.IORING_SETUP_DEFER_TASKRUN,
+		//Flags: liburing.IORING_SETUP_COOP_TASKRUN,
 		//Flags: liburing.IORING_SETUP_SINGLE_ISSUER,
 		//Flags: liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_TASKRUN_FLAG | liburing.IORING_SETUP_DEFER_TASKRUN,
-		//Flags:               liburing.IORING_SETUP_SQPOLL | liburing.IORING_SETUP_SQ_AFF,
+		Flags:               liburing.IORING_SETUP_SQPOLL | liburing.IORING_SETUP_SQ_AFF,
 		SQThreadIdle:        0,
 		SendZCEnabled:       false,
 		MultishotDisabled:   false,
 		BufferAndRingConfig: BufferAndRingConfig{},
-		WaitCQEIdleTimeout:  3 * time.Second,
-		WaitCQETimeCurve:    nil,
 	}
 	for _, option := range options {
 		option(&opt)

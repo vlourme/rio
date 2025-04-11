@@ -6,9 +6,7 @@ import (
 )
 
 type Transmission interface {
-	Up() (uint32, *syscall.Timespec)
-	Down() (uint32, *syscall.Timespec)
-	Match(n uint32) (uint32, *syscall.Timespec)
+	Match(n uint32) (waitNr uint32, waitTimeout *syscall.Timespec)
 }
 
 type Curve []struct {
@@ -19,10 +17,10 @@ type Curve []struct {
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
 		curve = Curve{
-			{8, 10 * time.Microsecond},
-			{16, 20 * time.Microsecond},
-			{32, 40 * time.Microsecond},
-			{64, 80 * time.Microsecond},
+			{8, 500 * time.Nanosecond},
+			{16, 1 * time.Microsecond},
+			{32, 5 * time.Microsecond},
+			{64, 10 * time.Microsecond},
 			//{96, 50 * time.Microsecond},
 			//{128, 80 * time.Microsecond},
 			//{192, 150 * time.Microsecond},
@@ -44,7 +42,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 		timeout := syscall.NsecToTimespec(t.Timeout.Nanoseconds())
 		times = append(times, WaitNTime{
 			n:    n,
-			time: &timeout,
+			time: timeout,
 		})
 	}
 	return &CurveTransmission{
@@ -56,7 +54,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 
 type WaitNTime struct {
 	n    uint32
-	time *syscall.Timespec
+	time syscall.Timespec
 }
 
 type CurveTransmission struct {
@@ -65,34 +63,15 @@ type CurveTransmission struct {
 	idx   int
 }
 
-func (tran *CurveTransmission) Up() (uint32, *syscall.Timespec) {
-	if tran.idx == tran.size-1 {
-		return tran.curve[tran.idx].n, tran.curve[tran.idx].time
-	}
-	tran.idx++
-	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
-}
-
-func (tran *CurveTransmission) Down() (uint32, *syscall.Timespec) {
-	if tran.idx == 0 {
-		return tran.curve[0].n, tran.curve[0].time
-	}
-	tran.idx--
-	return tran.curve[tran.idx].n, tran.curve[tran.idx].time
-}
-
 func (tran *CurveTransmission) Match(n uint32) (uint32, *syscall.Timespec) {
-	if n == 0 || tran.size == 1 {
-		return tran.curve[0].n, tran.curve[0].time
-	}
 	left := WaitNTime{}
 	for i := 0; i < tran.size; i++ {
 		right := tran.curve[i]
 		if left.n <= n && n < right.n {
-			return right.n, right.time
+			return right.n, &right.time
 		}
 		left = right
 	}
 	tail := tran.curve[tran.size-1]
-	return tail.n, tail.time
+	return tail.n, &tail.time
 }

@@ -192,10 +192,9 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 			resource: group.Resource(),
 			wg:       new(sync.WaitGroup),
 			key:      0,
-			running:  true,
+			ready:    make(chan *Operation, ring.SQEntries()),
+			running:  atomic.Bool{},
 			err:      nil,
-			locker:   new(sync.Mutex),
-			ready:    make(chan *Operation, 64),
 		}
 		w.key = uint64(uintptr(unsafe.Pointer(w)))
 
@@ -214,10 +213,9 @@ type Wakeup struct {
 	resource *Resource
 	wg       *sync.WaitGroup
 	key      uint64
-	running  bool
-	err      error
-	locker   sync.Locker
 	ready    chan *Operation
+	running  atomic.Bool
+	err      error
 }
 
 func (r *Wakeup) Valid() error {
@@ -225,19 +223,15 @@ func (r *Wakeup) Valid() error {
 }
 
 func (r *Wakeup) Wakeup(ringFd int) (err error) {
-	r.locker.Lock()
-	if !r.running {
-		r.locker.Unlock()
-		err = ErrCanceled
+	if r.running.Load() {
+		op := r.resource.AcquireOperation()
+		op.PrepareMSGRing(ringFd, 0)
+		r.ready <- op
+		_, _, err = op.Await()
+		r.resource.ReleaseOperation(op)
 		return
 	}
-	r.locker.Unlock()
-
-	op := r.resource.AcquireOperation()
-	op.PrepareMSGRing(ringFd, 0)
-	r.ready <- op
-	_, _, err = op.Await()
-	r.resource.ReleaseOperation(op)
+	err = ErrCanceled
 	return
 }
 
@@ -258,6 +252,8 @@ func (r *Wakeup) Close() (err error) {
 func (r *Wakeup) process() {
 	r.wg.Add(1)
 	defer r.wg.Done()
+
+	r.running.Store(true)
 
 	ring := r.ring
 	for {
@@ -284,9 +280,7 @@ func (r *Wakeup) process() {
 		}
 		if cqe.UserData == r.key {
 			ring.CQAdvance(1)
-			r.locker.Lock()
-			r.running = false
-			r.locker.Unlock()
+			r.running.Store(false)
 			break
 		}
 
