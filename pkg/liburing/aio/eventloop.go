@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -86,22 +87,21 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			resource:       group.Resource(),
 			group:          group,
 			wg:             new(sync.WaitGroup),
+			err:            nil,
 			id:             id,
 			key:            0,
-			running:        true,
-			err:            nil,
-			idle:           false,
+			running:        atomic.Bool{},
+			idle:           atomic.Bool{},
 			idleTimeout:    waitIdleTimeout,
 			waitTimeCurve:  waitTimeCurve,
-			locker:         new(sync.Mutex),
-			ready:          make([]*Operation, 0, 64),
+			ready:          make(chan *Operation, ring.CQEntries()),
 		}
 		event.key = uint64(uintptr(unsafe.Pointer(event)))
 		// return event loop
 		ch <- event
 		close(ch)
 		// start buffer and rings loop
-		brs.start(event)
+		brs.Start(event)
 		// process
 		event.process()
 	}(id, group, options, ch)
@@ -115,15 +115,15 @@ type EventLoop struct {
 	resource       *Resource
 	group          *EventLoopGroup
 	wg             *sync.WaitGroup
+	err            error
 	id             int
 	key            uint64
-	running        bool
-	err            error
-	idle           bool
+	running        atomic.Bool
+	idle           atomic.Bool
 	idleTimeout    time.Duration
 	waitTimeCurve  Curve
-	locker         sync.Locker
-	ready          []*Operation
+	ready          chan *Operation
+	orphan         *Operation
 }
 
 func (event *EventLoop) Id() int {
@@ -146,30 +146,23 @@ func (event *EventLoop) Group() *EventLoopGroup {
 	return event.group
 }
 
-func (event *EventLoop) Submit(op *Operation) (err error) {
-	event.locker.Lock()
-	if event.running {
-		event.ready = append(event.ready, op)
-		if event.idle {
-			if err = event.group.wakeup.Wakeup(event.ring.Fd()); err != nil {
-				event.ready = event.ready[:len(event.ready)-1]
-				op.failed(err)
-				event.locker.Unlock()
+func (event *EventLoop) Submit(op *Operation) {
+	if event.running.Load() {
+		event.ready <- op
+		if event.idle.CompareAndSwap(true, false) {
+			if err := event.group.wakeup.Wakeup(event.ring.Fd()); err != nil {
+				op.failed(ErrCanceled)
 				return
 			}
 		}
-		event.locker.Unlock()
 		return
 	}
-	err = ErrCanceled
-	event.locker.Unlock()
+	op.failed(ErrCanceled)
 	return
 }
 
 func (event *EventLoop) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
-	if err = event.Submit(op); err != nil {
-		return
-	}
+	event.Submit(op)
 	n, flags, err = op.Await()
 	return
 }
@@ -205,31 +198,18 @@ func (event *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
 }
 
 func (event *EventLoop) Close() (err error) {
-	// unregister buffer and rings
-	_ = event.bufferAndRings.Close()
+	// stop buffer and rings
+	event.bufferAndRings.Stop()
 	// submit close op
 	op := &Operation{}
 	op.PrepareCloseRing(event.key)
-	_ = event.Submit(op)
+	event.Submit(op)
 	// wait
 	event.wg.Wait()
-
-	// unregister files
-	done := make(chan struct{})
-	go func(ring *liburing.Ring, done chan struct{}) {
-		_, _ = ring.UnregisterFiles()
-		close(done)
-	}(event.ring, done)
-	timer := event.resource.AcquireTimer(50 * time.Millisecond)
-	select {
-	case <-done:
-		break
-	case <-timer.C:
-		break
-	}
-	event.resource.ReleaseTimer(timer)
-	// close ring
-	err = event.ring.Close()
+	// close ready
+	close(event.ready)
+	// get err
+	err = event.err
 	return
 }
 
@@ -237,78 +217,86 @@ func (event *EventLoop) process() {
 	event.wg.Add(1)
 	defer event.wg.Done()
 
+	event.running.Store(true)
+
 	var (
-		prepared     uint32
+		stopped      bool
+		ready        = event.ready
+		readyN       int
 		completed    uint32
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
 		idleTimeout  = syscall.NsecToTimespec(event.idleTimeout.Nanoseconds())
 		ring         = event.ring
 		transmission = NewCurveTransmission(event.waitTimeCurve)
-		scratch      = make([]*Operation, 0, 64)
-		cqes         = make([]*liburing.CompletionQueueEvent, 512)
+		cqes         = make([]*liburing.CompletionQueueEvent, event.ring.CQEntries())
 	)
+
 	for {
 		// prepare
-		prepared = event.prepareSQE(&scratch)
-		event.locker.Lock()
-		if prepared == 0 && completed == 0 && len(event.ready) == 0 { // idle
-			waitNr, waitTimeout = 1, &idleTimeout
-			event.idle = true
-		} else {
-			waitNr, waitTimeout = transmission.Match(prepared + completed)
-			event.idle = false
+		if event.orphan != nil {
+			if !event.prepareSQE(event.orphan) {
+				goto SUBMIT
+			}
+			event.orphan = nil
 		}
-		event.locker.Unlock()
+		if readyN = len(ready); readyN > 0 {
+			for i := 0; i < readyN; i++ {
+				op := <-ready
+				if !event.prepareSQE(op) {
+					event.orphan = op
+					goto SUBMIT
+				}
+			}
+		}
 		// submit
-		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
-		// handle idle
-		event.locker.Lock()
-		if event.idle {
-			event.idle = false
+	SUBMIT:
+		if readyN == 0 && completed == 0 { // idle
+			if event.idle.CompareAndSwap(false, true) {
+				waitNr, waitTimeout = 1, &idleTimeout
+			} else {
+				waitNr, waitTimeout = transmission.Match(1)
+			}
+		} else {
+			waitNr, waitTimeout = transmission.Match(completed)
 		}
-		event.locker.Unlock()
+		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
+		// reset idle
+		event.idle.CompareAndSwap(true, false)
 
 		// complete
-		completed = event.completeCQE(&cqes)
-
-		// check running
-		event.locker.Lock()
-		if event.running {
-			event.locker.Unlock()
-			continue
+		if completed, stopped = event.completeCQE(&cqes); stopped {
+			break
 		}
-		event.locker.Unlock()
+	}
+
+	// unregister buffer and rings
+	_ = event.bufferAndRings.Unregister()
+	/* unregister files
+	when kernel is less than 6.13, unregister files maybe blocked.
+	so use a timer and done to fix it.
+	*/
+	unregisterFilesDone := make(chan struct{})
+	unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
+	go func(ring *liburing.Ring, done chan struct{}) {
+		_, _ = ring.UnregisterFiles()
+		close(unregisterFilesDone)
+	}(ring, unregisterFilesDone)
+	select {
+	case <-unregisterFilesTimer.C:
+		break
+	case <-unregisterFilesDone:
 		break
 	}
+	unregisterFilesTimer.Stop()
+	// close ring
+	event.err = event.ring.Close()
 	return
 }
 
-func (event *EventLoop) prepareSQE(scratch *[]*Operation) (prepared uint32) {
-	event.locker.Lock()
-	readLen := len(event.ready)
-	if readLen == 0 {
-		event.locker.Unlock()
-		return
-	}
-	ring := event.ring
-	sqSpaceLeft := int(ring.SQSpaceLeft())
-	if sqSpaceLeft == 0 {
-		event.locker.Unlock()
-		return
-	}
-	if sqSpaceLeft < readLen {
-		readLen = sqSpaceLeft
-	}
-	*scratch = append(*scratch, event.ready[:readLen]...)
-	event.ready = event.ready[readLen:]
-
-	event.locker.Unlock()
-
-	for i := 0; i < readLen; i++ {
-		op := (*scratch)[i]
+func (event *EventLoop) prepareSQE(op *Operation) bool {
+	if op.prepareAble() {
 		if op.flags&op_f_noexec != 0 {
-			op.prepareAble()
 			switch op.cmd {
 			case op_cmd_acquire_br:
 				br, brErr := event.bufferAndRings.Acquire()
@@ -331,98 +319,83 @@ func (event *EventLoop) prepareSQE(scratch *[]*Operation) (prepared uint32) {
 				op.failed(errors.New("invalid command"))
 				break
 			}
-			continue
+			return true
 		}
-		if op.prepareAble() {
-			// get sqe
-			sqe := ring.GetSQE()
-			if op.flags&op_f_timeout != 0 { // prepare link timeout
-				timeoutSQE := ring.GetSQE()
-				if timeoutSQE == nil { // no sqe left, prepare nop and set op to head or ready
-					event.locker.Lock()
-					ready := make([]*Operation, 1, 64)
-					ready[0] = op
-					event.ready = append(ready, event.ready...)
-					event.locker.Unlock()
-					sqe.PrepareNop()
-					prepared++
-					return
-				}
-				// packing
-				if err := op.packingSQE(sqe); err != nil {
-					sqe.PrepareNop()
-					prepared++
-					panic(errors.Join(errors.New("packing sqe failed"), err))
-					return
-				}
-				// packing timeout
-				if err := op.link.packingSQE(timeoutSQE); err != nil {
-					sqe.PrepareNop()
-					prepared++
-					panic(errors.Join(errors.New("packing sqe failed"), err))
-					return
-				}
-				prepared += 2
-				continue
+		// get sqe
+		sqe := event.ring.GetSQE()
+		if sqe == nil {
+			return false
+		}
+		// prepare link timeout
+		if op.flags&op_f_timeout != 0 {
+			timeoutSQE := event.ring.GetSQE()
+			if timeoutSQE == nil { // no sqe left, prepare nop and set op to head or ready
+				sqe.PrepareNop()
+				return false
 			}
 			// packing
 			if err := op.packingSQE(sqe); err != nil {
+				op.failed(err)
 				sqe.PrepareNop()
-				prepared++
-				panic(errors.Join(errors.New("packing sqe failed"), err))
-				return
+				return true
 			}
-			prepared++
+			// packing timeout
+			if err := op.link.packingSQE(timeoutSQE); err != nil {
+				op.failed(err)
+				sqe.PrepareNop()
+				return true
+			}
+			return true
 		}
+		// packing
+		if err := op.packingSQE(sqe); err != nil {
+			op.failed(err)
+			sqe.PrepareNop()
+			return true
+		}
+		return true
 	}
-
-	*scratch = (*scratch)[:0]
-	return
+	return true
 }
 
-func (event *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (completed uint32) {
+func (event *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (completed uint32, stopped bool) {
 	ring := event.ring
 	cqes := *cqesp
-	ready := int(ring.CQReady())
-	for ready > 0 {
-		if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
-			for i := uint32(0); i < peeked; i++ {
-				cqe := cqes[i]
-				cqes[i] = nil
+	if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
+		for i := uint32(0); i < peeked; i++ {
+			cqe := cqes[i]
+			cqes[i] = nil
 
-				if cqe.UserData == 0 { // no userdata means no op
-					ring.CQAdvance(1)
-					continue
-				}
-
-				if cqe.UserData == event.key { // userdata is key means closed
-					ring.CQAdvance(1)
-					event.locker.Lock()
-					event.running = false
-					event.locker.Unlock()
-					continue
-				}
-
-				// get op from cqe
-				copPtr := cqe.GetData()
-				cop := (*Operation)(copPtr)
-				var (
-					opN     = int(cqe.Res)
-					opFlags = cqe.Flags
-					opErr   error
-				)
-				if opN < 0 {
-					opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-opN))
-					opN = 0
-				}
-				cop.complete(opN, opFlags, opErr)
-
+			if cqe.UserData == 0 { // no userdata means no op
 				ring.CQAdvance(1)
+				continue
 			}
-			ready -= int(peeked)
-			completed += peeked
-		}
-	}
 
+			if cqe.UserData == event.key { // userdata is key means closed
+				ring.CQAdvance(1)
+				event.running.Store(true)
+				stopped = true
+				continue
+			}
+
+			// get op from cqe
+			copPtr := cqe.GetData()
+			cop := (*Operation)(copPtr)
+			var (
+				opN     = int(cqe.Res)
+				opFlags = cqe.Flags
+				opErr   error
+			)
+			if opN < 0 {
+				opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-opN))
+				opN = 0
+			}
+			cop.complete(opN, opFlags, opErr)
+
+			ring.CQAdvance(1)
+
+		}
+		completed += peeked
+	}
 	return
 }

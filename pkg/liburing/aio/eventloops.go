@@ -91,10 +91,7 @@ func (group *EventLoopGroup) Dispatch(fd int, attached *Operation) (err error) {
 
 	op := group.boss.resource.AcquireOperation()
 	op.PrepareMSGRingFd(efd, fd, attached)
-	if err = group.boss.Submit(op); err != nil {
-		group.boss.resource.ReleaseOperation(op)
-		return
-	}
+	group.boss.Submit(op)
 	_, _, err = op.Await()
 	group.boss.resource.ReleaseOperation(op)
 	return
@@ -115,10 +112,7 @@ func (group *EventLoopGroup) DispatchAndWait(fd int) (dfd int, worker *EventLoop
 	efd := worker.Fd()
 	op := group.boss.resource.AcquireOperation()
 	op.PrepareMSGRingFd(efd, fd, nil)
-	if err = group.boss.Submit(op); err != nil {
-		group.boss.resource.ReleaseOperation(op)
-		return
-	}
+	group.boss.Submit(op)
 	dfd, _, err = op.Await()
 	group.boss.resource.ReleaseOperation(op)
 	return
@@ -137,15 +131,13 @@ func (group *EventLoopGroup) Next() (event *EventLoop) {
 	return
 }
 
-func (group *EventLoopGroup) Submit(op *Operation) (err error) {
-	err = group.boss.Submit(op)
+func (group *EventLoopGroup) Submit(op *Operation) {
+	group.boss.Submit(op)
 	return
 }
 
 func (group *EventLoopGroup) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
-	if err = group.Submit(op); err != nil {
-		return
-	}
+	group.Submit(op)
 	n, flags, err = op.Await()
 	return
 }
@@ -258,8 +250,8 @@ func (r *Wakeup) Close() (err error) {
 	r.wg.Wait()
 	// close ready
 	close(r.ready)
-	// close ring
-	err = r.ring.Close()
+	// get err
+	err = r.err
 	return
 }
 
@@ -313,4 +305,6 @@ func (r *Wakeup) process() {
 
 		ring.CQAdvance(1)
 	}
+	// close ring
+	r.err = r.ring.Close()
 }
