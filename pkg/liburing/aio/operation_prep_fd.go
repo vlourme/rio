@@ -10,85 +10,86 @@ import (
 )
 
 func (op *Operation) PrepareClose(fd int) {
+	op.cmd = op_cmd_close_regular
 	op.code = liburing.IORING_OP_CLOSE
 	op.fd = fd
 }
 
 func (op *Operation) PrepareCloseDirect(filedIndex int) {
+	op.cmd = op_cmd_close_direct
 	op.code = liburing.IORING_OP_CLOSE
 	op.fd = filedIndex
-	if op.flags&op_f_direct_alloc == 0 {
-		op.flags |= op_f_direct_alloc
-	}
 }
 
 func (op *Operation) packingClose(sqe *liburing.SubmissionQueueEntry) (err error) {
-	if op.flags&op_f_direct_alloc != 0 {
-		sqe.PrepareCloseDirect(uint32(op.fd))
-	} else {
+	switch op.cmd {
+	case op_cmd_close_regular:
 		sqe.PrepareClose(op.fd)
+		break
+	case op_cmd_close_direct:
+		sqe.PrepareCloseDirect(uint32(op.fd))
+		break
+	default:
+		err = errors.New("undefined close fd op cmd")
+		return
 	}
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
-func (op *Operation) PrepareCloseRead(nfd *Conn) {
-	fd, direct := nfd.FileDescriptor()
-	if direct {
-		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
+func (op *Operation) PrepareCloseRead(conn *Conn) {
 	op.code = liburing.IORING_OP_SHUTDOWN
-	op.fd = fd
-	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_RD))
+	op.fd = conn.direct
+	op.cmd = syscall.SHUT_RD
 	return
 }
 
-func (op *Operation) PrepareCloseWrite(nfd *Conn) {
-	fd, direct := nfd.FileDescriptor()
-	if direct {
-		op.sqeFlags |= liburing.IOSQE_FIXED_FILE
-	}
+func (op *Operation) PrepareCloseWrite(conn *Conn) {
 	op.code = liburing.IORING_OP_SHUTDOWN
-	op.fd = fd
-	op.addr2 = unsafe.Pointer(uintptr(syscall.SHUT_WR))
+	op.fd = conn.direct
+	op.cmd = syscall.SHUT_WR
 	return
 }
 
 func (op *Operation) packingShutdown(sqe *liburing.SubmissionQueueEntry) (err error) {
-	cmd := int(uintptr(op.addr2))
+	cmd := op.cmd
 	sqe.PrepareShutdown(op.fd, cmd)
-	sqe.SetFlags(op.sqeFlags)
+	sqe.SetFlags(liburing.IOSQE_FIXED_FILE)
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }
 
 func (op *Operation) PrepareCancel(target *Operation) {
 	op.code = liburing.IORING_OP_ASYNC_CANCEL
-	op.addr2 = unsafe.Pointer(target)
+	op.cmd = op_cmd_cancel_op
+	op.addr = unsafe.Pointer(target)
 }
 
 func (op *Operation) PrepareCancelFd(fd int) {
 	op.code = liburing.IORING_OP_ASYNC_CANCEL
+	op.cmd = op_cmd_cancel_regular
 	op.fd = fd
 }
 
 func (op *Operation) PrepareCancelFixedFd(fileIndex int) {
 	op.code = liburing.IORING_OP_ASYNC_CANCEL
 	op.fd = fileIndex
-	op.flags |= op_f_direct_alloc
+	op.cmd = op_cmd_cancel_direct
 }
 
 func (op *Operation) packingCancel(sqe *liburing.SubmissionQueueEntry) (err error) {
-	if op.fd > -1 { // cancel fd
-		if op.flags&op_f_direct_alloc != 0 { // cancel direct
-			sqe.PrepareCancelFdFixed(uint32(op.fd), 0)
-		} else { // cancel regular
-			sqe.PrepareCancelFd(op.fd, 0)
-		}
-	} else if op.addr2 != nil { // cancel op
-		sqe.PrepareCancel(uintptr(op.addr2), 0)
-	} else {
-		err = NewInvalidOpErr(errors.New("invalid cancel params"))
+	switch op.cmd {
+	case op_cmd_cancel_regular:
+		sqe.PrepareCancelFd(op.fd, 0)
+		break
+	case op_cmd_cancel_direct:
+		sqe.PrepareCancelFdFixed(uint32(op.fd), 0)
+		break
+	case op_cmd_cancel_op:
+		sqe.PrepareCancel(uintptr(op.addr), 0)
+		break
+	default:
+		err = errors.New("undefined cancel fd op cmd")
 		return
 	}
 	sqe.SetData(unsafe.Pointer(op))

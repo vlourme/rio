@@ -22,6 +22,9 @@ func (op *Operation) packingProvideBuffers(sqe *liburing.SubmissionQueueEntry) (
 	addrLen := op.addrLen
 	nr := int(addrLen)
 	sqe.PrepareProvideBuffers(addr, addrLen, nr, bgid, 0)
+	if op.timeout != nil {
+		sqe.SetFlags(liburing.IOSQE_IO_LINK)
+	}
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }
@@ -37,6 +40,9 @@ func (op *Operation) packingRemoveBuffers(sqe *liburing.SubmissionQueueEntry) (e
 	bgid := op.fd
 	nr := int(op.addrLen)
 	sqe.PrepareRemoveBuffers(nr, bgid)
+	if op.timeout != nil {
+		sqe.SetFlags(liburing.IOSQE_IO_LINK)
+	}
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }

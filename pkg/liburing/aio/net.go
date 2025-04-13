@@ -14,8 +14,30 @@ import (
 	"unsafe"
 )
 
+const (
+	ConnectedNetFd NetFdKind = iota + 1
+	AcceptedNetFd
+	ListenedNetFd
+)
+
+type NetFdKind int
+
+func (kind NetFdKind) String() string {
+	switch kind {
+	case ConnectedNetFd:
+		return "dialer"
+	case AcceptedNetFd:
+		return "accepted"
+	case ListenedNetFd:
+		return "listener"
+	default:
+		return "unknown"
+	}
+}
+
 type NetFd struct {
 	Fd
+	kind             NetFdKind
 	family           int
 	sotype           int
 	net              string
@@ -34,7 +56,7 @@ func (fd *NetFd) Name() string {
 	if fd.raddr != nil {
 		rs = fd.raddr.String()
 	}
-	return fmt.Sprintf("[network:%s][laddr:%s][raddr:%s]%s", fd.net, ls, rs, name)
+	return fmt.Sprintf("[kind:%s][network:%s][laddr:%s][raddr:%s]%s", fd.kind.String(), fd.net, ls, rs, name)
 }
 
 func (fd *NetFd) Family() int {
@@ -475,36 +497,36 @@ func (fd *NetFd) CtrlNetwork() string {
 }
 
 func (fd *NetFd) SetSocketoptInt(level int, optName int, optValue int) (err error) {
-	op := fd.eventLoop.resource.AcquireOperation()
+	op := AcquireOperation()
 	op.PrepareSetSocketoptInt(fd, level, optName, &optValue)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	return
 }
 
 func (fd *NetFd) GetSocketoptInt(level int, optName int) (n int, err error) {
 	var optValue int
-	op := fd.eventLoop.resource.AcquireOperation()
+	op := AcquireOperation()
 	op.PrepareGetSocketoptInt(fd, level, optName, &optValue)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	n = optValue
 	return
 }
 
 func (fd *NetFd) SetSocketopt(level int, optName int, optValue unsafe.Pointer, optValueLen int32) (err error) {
-	op := fd.eventLoop.resource.AcquireOperation()
+	op := AcquireOperation()
 	op.PrepareSetSocketopt(fd, level, optName, optValue, optValueLen)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	return
 }
 
 func (fd *NetFd) GetSocketopt(level int, optName int, optValue unsafe.Pointer, optValueLen *int32) (err error) {
-	op := fd.eventLoop.resource.AcquireOperation()
+	op := AcquireOperation()
 	op.PrepareGetSocketopt(fd, level, optName, optValue, optValueLen)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	return
 }
 
@@ -520,10 +542,10 @@ func (fd *NetFd) Bind(addr net.Addr) (err error) {
 			err = rsaErr
 			return
 		}
-		op := fd.eventLoop.resource.AcquireOperation()
+		op := AcquireOperation()
 		op.PrepareBind(fd, rsa, int(rsaLen))
 		_, _, err = fd.eventLoop.SubmitAndWait(op)
-		fd.eventLoop.resource.ReleaseOperation(op)
+		ReleaseOperation(op)
 		if err != nil {
 			return
 		}

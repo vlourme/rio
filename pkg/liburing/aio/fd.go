@@ -23,21 +23,12 @@ type Fd struct {
 	eventLoop     *EventLoop
 }
 
-func (fd *Fd) FileDescriptor() (n int, direct bool) {
-	if fd.Registered() {
-		n = fd.direct
-		direct = true
-		return
-	}
-	return fd.regular, false
-}
-
-func (fd *Fd) RegularFd() int {
-	return fd.regular
-}
-
-func (fd *Fd) DirectFd() int {
+func (fd *Fd) FileDescriptor() int {
 	return fd.direct
+}
+
+func (fd *Fd) RegularFileDescriptor() int {
+	return fd.regular
 }
 
 func (fd *Fd) IsStream() bool {
@@ -49,7 +40,7 @@ func (fd *Fd) ZeroReadIsEOF() bool {
 }
 
 func (fd *Fd) Name() string {
-	return fmt.Sprintf("[fd:%d][direct:%d]", fd.regular, fd.direct)
+	return fmt.Sprintf("[fd: %d, %d]", fd.direct, fd.regular)
 }
 
 func (fd *Fd) SetReadDeadline(t time.Time) {
@@ -58,10 +49,6 @@ func (fd *Fd) SetReadDeadline(t time.Time) {
 
 func (fd *Fd) SetWriteDeadline(t time.Time) {
 	fd.writeDeadline = t
-}
-
-func (fd *Fd) Registered() bool {
-	return fd.direct != -1
 }
 
 func (fd *Fd) Installed() bool {
@@ -77,10 +64,10 @@ func (fd *Fd) Install() (err error) {
 		return
 	}
 	var regular int
-	op := fd.eventLoop.resource.AcquireOperation()
+	op := AcquireOperation()
 	op.PrepareFixedFdInstall(fd.direct)
 	regular, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err == nil {
 		fd.regular = regular
 	}
@@ -93,7 +80,7 @@ func (fd *Fd) SyscallConn() (syscall.RawConn, error) {
 			return nil, err
 		}
 	}
-	return sys.NewRawConn(fd.RegularFd()), nil
+	return sys.NewRawConn(fd.regular), nil
 }
 
 func (fd *Fd) Dup() (int, string, error) {

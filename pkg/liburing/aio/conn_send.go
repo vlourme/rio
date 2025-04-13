@@ -12,20 +12,14 @@ func (c *Conn) Send(b []byte) (n int, err error) {
 		b = b[:maxRW]
 	}
 
-	op := c.eventLoop.resource.AcquireOperation()
-	op.WithDeadline(c.eventLoop.resource, c.writeDeadline)
+	op := AcquireDeadlineOperation(c.writeDeadline)
 	if c.sendZCEnabled {
 		op.PrepareSendZC(c, b)
-		op.Hijack()
 	} else {
 		op.PrepareSend(c, b)
 	}
-
 	n, _, err = c.eventLoop.SubmitAndWait(op)
-	if c.sendZCEnabled {
-		op.Complete()
-	}
-	c.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err != nil {
 		return
 	}
@@ -44,23 +38,16 @@ func (c *Conn) SendTo(b []byte, addr net.Addr) (n int, err error) {
 		return
 	}
 
-	msg := c.eventLoop.resource.AcquireMsg(b, nil, rsa, int(rsaLen), 0)
-
-	op := c.eventLoop.resource.AcquireOperation()
-	op.WithDeadline(c.eventLoop.resource, c.writeDeadline)
+	msg := acquireMsg(b, nil, rsa, int(rsaLen), 0)
+	op := AcquireDeadlineOperation(c.writeDeadline)
 	if c.sendMSGZCEnabled {
 		op.PrepareSendMsgZC(c, msg)
-		op.Hijack()
 	} else {
 		op.PrepareSendMsg(c, msg)
 	}
 	n, _, err = c.eventLoop.SubmitAndWait(op)
-	if c.sendMSGZCEnabled {
-		op.Complete()
-	}
-
-	c.eventLoop.resource.ReleaseOperation(op)
-	c.eventLoop.resource.ReleaseMsg(msg)
+	ReleaseOperation(op)
+	releaseMsg(msg)
 	return
 }
 
@@ -75,25 +62,18 @@ func (c *Conn) SendMsg(b []byte, oob []byte, addr net.Addr) (n int, oobn int, er
 		err = rsaErr
 		return
 	}
-	msg := c.eventLoop.resource.AcquireMsg(b, oob, rsa, int(rsaLen), 0)
-
-	op := c.eventLoop.resource.AcquireOperation()
-	op.WithDeadline(c.eventLoop.resource, c.writeDeadline)
+	msg := acquireMsg(b, oob, rsa, int(rsaLen), 0)
+	op := AcquireDeadlineOperation(c.writeDeadline)
 	if c.sendMSGZCEnabled {
 		op.PrepareSendMsgZC(c, msg)
-		op.Hijack()
 	} else {
 		op.PrepareSendMsg(c, msg)
 	}
 	n, _, err = c.eventLoop.SubmitAndWait(op)
-	if c.sendMSGZCEnabled {
-		op.Complete()
-	}
 	if err == nil {
 		oobn = int(msg.Controllen)
 	}
-
-	c.eventLoop.resource.ReleaseOperation(op)
-	c.eventLoop.resource.ReleaseMsg(msg)
+	ReleaseOperation(op)
+	releaseMsg(msg)
 	return
 }

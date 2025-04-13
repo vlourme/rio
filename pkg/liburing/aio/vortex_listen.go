@@ -51,10 +51,10 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	var (
 		sock = -1
 	)
-	op := vortex.group.Resource().AcquireOperation()
-	op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
+	op := AcquireOperation()
+	op.PrepareSocket(family, sotype, proto)
 	sock, _, err = vortex.group.SubmitAndWait(op)
-	vortex.group.Resource().ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err != nil {
 		return
 	}
@@ -74,6 +74,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 				multishot:     !vortex.multishotDisabled,
 				eventLoop:     vortex.group.boss,
 			},
+			kind:             ListenedNetFd,
 			family:           family,
 			sotype:           sotype,
 			net:              network,
@@ -84,7 +85,6 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		},
 		backlog:  backlog,
 		acceptFn: nil,
-		handler:  nil,
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {
 		// ipv6
@@ -104,7 +104,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 			_ = ln.Close()
 			return
 		}
-		// tcp defer accept
+		// tcp defer acceptOneshot
 		if tcpDeferAccept {
 			if err = ln.SetTCPDeferAccept(true); err != nil {
 				_ = ln.Close()
@@ -143,10 +143,10 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	}
 	// listen
 	if supportListen() {
-		op = vortex.group.Resource().AcquireOperation()
+		op = AcquireOperation()
 		op.PrepareListen(ln, backlog)
 		_, _, err = vortex.group.SubmitAndWait(op)
-		vortex.group.Resource().ReleaseOperation(op)
+		ReleaseOperation(op)
 		if err != nil {
 			_ = ln.Close()
 			return
@@ -208,10 +208,10 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	var (
 		sock = -1
 	)
-	op := vortex.group.Resource().AcquireOperation()
-	op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
+	op := AcquireOperation()
+	op.PrepareSocket(family, sotype, proto)
 	sock, _, err = vortex.group.SubmitAndWait(op)
-	vortex.group.Resource().ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err != nil {
 		return
 	}
@@ -228,6 +228,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 				multishot:     !vortex.multishotDisabled,
 				eventLoop:     vortex.group.boss,
 			},
+			kind:             ListenedNetFd,
 			family:           family,
 			sotype:           sotype,
 			net:              network,
@@ -326,7 +327,5 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 		_ = conn.Close()
 		return
 	}
-	// init
-	conn.init()
 	return
 }

@@ -5,33 +5,96 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
+
+var (
+	promises = [2]sync.Pool{}
+)
+
+const (
+	oneshotPromiseChSize   = 2
+	multishotPromiseChSize = 1024
+)
+
+func acquireFuture(multishot bool) *operationFuture {
+	if multishot {
+		v := promises[1].Get()
+		if v == nil {
+			v = &operationFuture{
+				ch:      make(chan CompletionEvent, multishotPromiseChSize),
+				adaptor: nil,
+				timeout: nil,
+			}
+		}
+		return v.(*operationFuture)
+	}
+	v := promises[0].Get()
+	if v == nil {
+		v = &operationFuture{
+			ch:      make(chan CompletionEvent, oneshotPromiseChSize),
+			adaptor: nil,
+			timeout: nil,
+		}
+	}
+	return v.(*operationFuture)
+}
+
+func releaseFuture(future *operationFuture) {
+	future.adaptor = nil
+	future.timeout = nil
+	future.hijacked = 0
+
+	switch cap(future.ch) {
+	case oneshotPromiseChSize:
+		promises[0].Put(future)
+		break
+	case multishotPromiseChSize:
+		promises[1].Put(future)
+		break
+	default:
+		break
+	}
+}
 
 type Promise interface {
 	Future() Future
 	Complete(n int, flags uint32, err error)
 }
 
-type Future interface {
-	Await() (n int, flags uint32, attachment unsafe.Pointer, err error)
-	LinkTimeout(f Future)
-}
-
-type FutureResult struct {
+type CompletionEvent struct {
 	N          int
 	Flags      uint32
 	Err        error
 	Attachment unsafe.Pointer
 }
 
-type baseFuture struct {
-	ch      chan FutureResult
-	timeout Future
+// PromiseAdaptor
+// todo
+// AcceptPromiseAdaptor: attachment is member or event loop group
+// ReceivePromiseAdaptor: attachment is buffer of bid bytes
+type PromiseAdaptor interface {
+	Handle(n int, flags uint32, err error) (int, uint32, unsafe.Pointer, error)
 }
 
-func (future *baseFuture) Await() (n int, flags uint32, attachment unsafe.Pointer, err error) {
+type Future interface {
+	Await() (n int, flags uint32, attachment unsafe.Pointer, err error)
+	AwaitDeadline(deadline time.Time) (n int, flags uint32, attachment unsafe.Pointer, err error)
+	TryAwait() (n int, flags uint32, attachment unsafe.Pointer, awaited bool, err error)
+	AwaitMore(hungry bool, deadline time.Time) (events []CompletionEvent)
+}
+
+type operationFuture struct {
+	ch       chan CompletionEvent
+	adaptor  PromiseAdaptor
+	timeout  Future
+	hijacked int
+}
+
+func (future *operationFuture) Await() (n int, flags uint32, attachment unsafe.Pointer, err error) {
 	r, ok := <-future.ch
 	if !ok {
 		err = ErrCanceled
@@ -46,74 +109,109 @@ func (future *baseFuture) Await() (n int, flags uint32, attachment unsafe.Pointe
 	return
 }
 
-func (future *baseFuture) LinkTimeout(f Future) {
-	future.timeout = f
-}
-
-type OneshotFuture struct {
-	baseFuture
-}
-
-func (future *OneshotFuture) Future() Future {
-	return future
-}
-
-func (future *OneshotFuture) Complete(n int, flags uint32, err error) {
-	future.ch <- FutureResult{n, flags, err, nil}
-}
-
-type ZeroCopyFuture struct {
-	baseFuture
-	result FutureResult
-}
-
-func (future *ZeroCopyFuture) Future() Future {
-	return future
-}
-
-func (future *ZeroCopyFuture) Complete(n int, flags uint32, err error) {
-	if err != nil {
-		future.ch <- FutureResult{n, flags, err, nil}
+func (future *operationFuture) AwaitDeadline(deadline time.Time) (n int, flags uint32, attachment unsafe.Pointer, err error) {
+	if future.timeout != nil {
+		panic(errors.New("future cannot await deadline when timeout is set"))
+	}
+	if deadline.IsZero() {
+		return future.Await()
+	}
+	timeout := time.Until(deadline)
+	if timeout < 1 {
+		err = ErrTimeout
 		return
 	}
-	if flags&liburing.IORING_CQE_F_MORE != 0 {
-		future.result.N = n
-		future.result.Flags = flags
-		future.result.Err = nil
-		return
+	timer := acquireTimer(timeout)
+	select {
+	case r := <-future.ch:
+		n, flags, attachment, err = r.N, r.Flags, r.Attachment, r.Err
+		break
+	case <-timer.C:
+		err = ErrTimeout
+		break
 	}
-	if flags&liburing.IORING_CQE_F_NOTIF != 0 {
-		future.ch <- future.result
-	}
-}
-
-// MultishotPromiseAdaptor
-// todo
-// AcceptAdaptor: attachment is member or event loop group
-// ReceiveAdaptor: attachment is buffer of bid bytes
-type MultishotPromiseAdaptor interface {
-	Handle(n int, flags uint32, err error) (r FutureResult)
-}
-
-type MultishotFuture struct {
-	baseFuture
-	adaptor MultishotPromiseAdaptor
-}
-
-func (future *MultishotFuture) Future() Future {
-	return future
-}
-
-func (future *MultishotFuture) Complete(n int, flags uint32, err error) {
-	if future.adaptor != nil {
-		r := future.adaptor.Handle(n, flags, err)
-		future.ch <- r
-		return
-	}
-	future.ch <- FutureResult{n, flags, err, nil}
+	releaseTimer(timer)
 	return
 }
 
-func (future *MultishotFuture) SetAdaptor(adaptor MultishotPromiseAdaptor) {
-	future.adaptor = adaptor
+func (future *operationFuture) TryAwait() (n int, flags uint32, attachment unsafe.Pointer, awaited bool, err error) {
+	select {
+	case r, ok := <-future.ch:
+		if !ok {
+			err = ErrCanceled
+			return
+		}
+		n, flags, attachment, awaited, err = r.N, r.Flags, r.Attachment, true, r.Err
+		break
+	default:
+		break
+	}
+	return
+}
+
+func (future *operationFuture) AwaitMore(hungry bool, deadline time.Time) (events []CompletionEvent) {
+	ready := len(future.ch)
+	if ready == 0 {
+		if !hungry {
+			return
+		}
+		n, flags, attachment, err := future.AwaitDeadline(deadline)
+		event := CompletionEvent{
+			N:          n,
+			Flags:      flags,
+			Err:        err,
+			Attachment: attachment,
+		}
+		events = append(events, event)
+		if err != nil {
+			return
+		}
+		ready = len(future.ch)
+		if ready == 0 {
+			return
+		}
+	}
+	for i := 0; i < ready; i++ {
+		n, flags, attachment, err := future.Await()
+		event := CompletionEvent{
+			N:          n,
+			Flags:      flags,
+			Err:        err,
+			Attachment: attachment,
+		}
+		events = append(events, event)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+func (future *operationFuture) Complete(n int, flags uint32, err error) {
+	if future.adaptor == nil {
+		if err != nil {
+			future.ch <- CompletionEvent{n, flags, err, nil}
+			return
+		}
+		if flags&liburing.IORING_CQE_F_MORE != 0 {
+			future.hijacked = n
+			return
+		}
+		if flags&liburing.IORING_CQE_F_NOTIF != 0 {
+			future.ch <- CompletionEvent{future.hijacked, flags, nil, nil}
+			return
+		}
+		future.ch <- CompletionEvent{n, flags, err, nil}
+		return
+	}
+	var (
+		attachment unsafe.Pointer
+	)
+	n, flags, attachment, err = future.adaptor.Handle(n, flags, err)
+	future.ch <- CompletionEvent{n, flags, err, attachment}
+	return
+}
+
+func (future *operationFuture) Future() Future {
+	return future
 }

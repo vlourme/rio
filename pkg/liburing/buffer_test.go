@@ -175,7 +175,6 @@ func TestRing_SetupBufRing(t *testing.T) {
 		sqe = ring.GetSQE()
 		sqe.PrepareRead(pipe0r, 0, 0, 0)
 		sqe.SetBufferGroup(uint16(bgid))
-		sqe.SetFlags(liburing.IOSQE_BUFFER_SELECT)
 	}
 	_, submiteErr = ring.SubmitAndWait(2)
 	if submiteErr != nil {
@@ -216,7 +215,6 @@ READ_P1:
 		sqe = ring.GetSQE()
 		sqe.PrepareRead(pipe1r, 0, 0, 0)
 		sqe.SetBufferGroup(uint16(bgid))
-		sqe.SetFlags(liburing.IOSQE_BUFFER_SELECT)
 	}
 	_, submiteErr = ring.SubmitAndWait(uint32(p1t))
 	if submiteErr != nil {
@@ -266,7 +264,6 @@ READ_P1:
 		sqe = ring.GetSQE()
 		sqe.PrepareRead(pipe0r, 0, 0, 0)
 		sqe.SetBufferGroup(uint16(bgid))
-		sqe.SetFlags(liburing.IOSQE_BUFFER_SELECT)
 	}
 	_, submiteErr = ring.SubmitAndWait(2)
 	if submiteErr != nil {

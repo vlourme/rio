@@ -16,7 +16,6 @@ import (
 
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	group = &EventLoopGroup{
-		resource:   new(Resource),
 		wakeup:     nil,
 		boss:       nil,
 		workers:    nil,
@@ -72,7 +71,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 }
 
 type EventLoopGroup struct {
-	resource   *Resource
 	wakeup     *Wakeup
 	boss       *EventLoop
 	workers    []*EventLoop
@@ -80,27 +78,10 @@ type EventLoopGroup struct {
 	workerIdx  int64
 }
 
-func (group *EventLoopGroup) Dispatch(fd int, attached *Operation) (err error) {
-	idx := int64(0)
-	if group.workersNum != 1 {
-		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
-	}
-	work := group.workers[idx]
-	attached.addr = unsafe.Pointer(work)
-	efd := work.Fd()
-
-	op := group.boss.resource.AcquireOperation()
-	op.PrepareMSGRingFd(efd, fd, attached)
-	group.boss.Submit(op)
-	_, _, err = op.Await()
-	group.boss.resource.ReleaseOperation(op)
-	return
-}
-
-func (group *EventLoopGroup) DispatchAndWait(fd int) (dfd int, worker *EventLoop, err error) {
+func (group *EventLoopGroup) DispatchAndWait(sfd int, src *EventLoop) (dfd int, dst *EventLoop, err error) {
 	if group.workersNum == 0 {
-		dfd = fd
-		worker = group.boss
+		dfd = sfd
+		dst = group.boss
 		return
 	}
 
@@ -108,13 +89,16 @@ func (group *EventLoopGroup) DispatchAndWait(fd int) (dfd int, worker *EventLoop
 	if group.workersNum != 1 {
 		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
 	}
-	worker = group.workers[idx]
-	efd := worker.Fd()
-	op := group.boss.resource.AcquireOperation()
-	op.PrepareMSGRingFd(efd, fd, nil)
-	group.boss.Submit(op)
-	dfd, _, err = op.Await()
-	group.boss.resource.ReleaseOperation(op)
+	dst = group.workers[idx]
+	dstFd := dst.Fd()
+
+	op := AcquireOperation()
+	op.PrepareMSGRingFd(dstFd, sfd, nil)
+	dfd, _, _, err = group.boss.Submit(op).Await()
+	ReleaseOperation(op)
+	// close fd
+	cfd := &Fd{direct: sfd, regular: -1, eventLoop: src}
+	_ = cfd.Close()
 	return
 }
 
@@ -131,24 +115,19 @@ func (group *EventLoopGroup) Next() (event *EventLoop) {
 	return
 }
 
-func (group *EventLoopGroup) Submit(op *Operation) {
-	group.boss.Submit(op)
+func (group *EventLoopGroup) Submit(op *Operation) (future Future) {
+	future = group.boss.Submit(op)
 	return
 }
 
 func (group *EventLoopGroup) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
-	group.Submit(op)
-	n, flags, err = op.Await()
+	n, flags, _, err = group.Submit(op).Await()
 	return
 }
 
 func (group *EventLoopGroup) Cancel(target *Operation) (err error) {
 	err = group.boss.Cancel(target)
 	return
-}
-
-func (group *EventLoopGroup) Resource() *Resource {
-	return group.resource
 }
 
 func (group *EventLoopGroup) Close() (err error) {
@@ -188,13 +167,13 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 			return
 		}
 		w := &Wakeup{
-			ring:     ring,
-			resource: group.Resource(),
-			wg:       new(sync.WaitGroup),
-			key:      0,
-			ready:    make(chan *Operation, ring.SQEntries()),
-			running:  atomic.Bool{},
-			err:      nil,
+			ring:    ring,
+			group:   group,
+			wg:      new(sync.WaitGroup),
+			key:     0,
+			ready:   make(chan *Operation, ring.SQEntries()),
+			running: atomic.Bool{},
+			err:     nil,
 		}
 		w.key = uint64(uintptr(unsafe.Pointer(w)))
 
@@ -209,13 +188,13 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 }
 
 type Wakeup struct {
-	ring     *liburing.Ring
-	resource *Resource
-	wg       *sync.WaitGroup
-	key      uint64
-	ready    chan *Operation
-	running  atomic.Bool
-	err      error
+	ring    *liburing.Ring
+	group   *EventLoopGroup
+	wg      *sync.WaitGroup
+	key     uint64
+	ready   chan *Operation
+	running atomic.Bool
+	err     error
 }
 
 func (r *Wakeup) Valid() error {
@@ -224,11 +203,13 @@ func (r *Wakeup) Valid() error {
 
 func (r *Wakeup) Wakeup(ringFd int) (err error) {
 	if r.running.Load() {
-		op := r.resource.AcquireOperation()
+		op := AcquireOperation()
+		future := acquireFuture(false)
+		op.future = future
 		op.PrepareMSGRing(ringFd, 0)
 		r.ready <- op
-		_, _, err = op.Await()
-		r.resource.ReleaseOperation(op)
+		_, _, _, err = future.Await()
+		ReleaseOperation(op)
 		return
 	}
 	err = ErrCanceled
@@ -266,7 +247,6 @@ func (r *Wakeup) process() {
 			_, _ = ring.Submit()
 			sqe = ring.GetSQE()
 		}
-		op.prepareAble()
 		if err := op.packingSQE(sqe); err != nil {
 			panic(errors.Join(errors.New("packing sqe failed"), err))
 			return

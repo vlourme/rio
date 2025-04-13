@@ -3,68 +3,71 @@
 package aio
 
 import (
-	"syscall"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
+	"sync"
 )
 
 type Conn struct {
 	NetFd
-	recvFn  func([]byte) (int, error)
-	handler *RecvMultishotHandler
+	prepareRecvMultishotOnce   sync.Once
+	recvMultishotBufferAndRing *BufferAndRing
+	recvMultishotOperation     *Operation
+	recvMultishotFuture        Future
+	recvMultishotBuffer        *bytebuffer.Buffer
 }
 
-func (c *Conn) init() {
-	switch c.sotype {
-	case syscall.SOCK_STREAM: // multi recv
-		if c.multishot {
-			handler, handlerErr := newRecvMultishotHandler(c)
-			if handlerErr == nil {
-				c.handler = handler
-				c.recvFn = c.handler.Receive
-			} else {
-				c.recvFn = c.receive
-			}
-		} else {
-			c.recvFn = c.receive
+func (c *Conn) checkMultishot() {
+	if c.multishot {
+		br, brErr := c.eventLoop.AcquireBufferAndRing()
+		if brErr != nil {
+			c.multishot = false
+			return
 		}
-		break
-	case syscall.SOCK_DGRAM: // todo multi recv msg
-		c.recvFn = c.receive
-		break
-	default:
-		c.recvFn = c.receive
-		break
+		c.recvMultishotBufferAndRing = br
+		c.recvMultishotBuffer = bytebuffer.Acquire()
 	}
-	return
+}
+
+func (c *Conn) releaseRecvMultishot() {
+	if c.recvMultishotOperation != nil {
+		_ = c.eventLoop.Cancel(c.recvMultishotOperation)
+		_, _, _, _ = c.recvMultishotFuture.Await()
+		op := c.recvMultishotOperation
+		c.recvMultishotOperation = nil
+		c.recvMultishotFuture = nil
+		ReleaseOperation(op)
+	}
+}
+
+func (c *Conn) closeRecvMultishot() {
+	c.releaseRecvMultishot()
+	if c.recvMultishotBuffer != nil {
+		buffer := c.recvMultishotBuffer
+		c.recvMultishotBuffer = nil
+		bytebuffer.Release(buffer)
+	}
 }
 
 func (c *Conn) Close() error {
-	if c.handler != nil {
-		_ = c.handler.Close()
-	}
+	c.closeRecvMultishot()
+
 	return c.NetFd.Close()
 }
 
 func (c *Conn) CloseRead() error {
-	if c.handler != nil {
-		_ = c.handler.Close()
-	}
-	if c.Registered() {
-		op := c.eventLoop.resource.AcquireOperation()
-		op.PrepareCloseRead(c)
-		_, _, err := c.eventLoop.SubmitAndWait(op)
-		c.eventLoop.resource.ReleaseOperation(op)
-		return err
-	}
-	return syscall.Shutdown(c.regular, syscall.SHUT_RD)
+	c.closeRecvMultishot()
+
+	op := AcquireOperation()
+	op.PrepareCloseRead(c)
+	_, _, err := c.eventLoop.SubmitAndWait(op)
+	ReleaseOperation(op)
+	return err
 }
 
 func (c *Conn) CloseWrite() error {
-	if c.Registered() {
-		op := c.eventLoop.resource.AcquireOperation()
-		op.PrepareCloseWrite(c)
-		_, _, err := c.eventLoop.SubmitAndWait(op)
-		c.eventLoop.resource.ReleaseOperation(op)
-		return err
-	}
-	return syscall.Shutdown(c.regular, syscall.SHUT_WR)
+	op := AcquireOperation()
+	op.PrepareCloseWrite(c)
+	_, _, err := c.eventLoop.SubmitAndWait(op)
+	ReleaseOperation(op)
+	return err
 }

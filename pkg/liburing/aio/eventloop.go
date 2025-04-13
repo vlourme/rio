@@ -81,7 +81,6 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		event := &EventLoop{
 			ring:            ring,
 			bufferAndRings:  brs,
-			resource:        group.Resource(),
 			group:           group,
 			wg:              new(sync.WaitGroup),
 			id:              id,
@@ -109,7 +108,6 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 type EventLoop struct {
 	ring            *liburing.Ring
 	bufferAndRings  *BufferAndRings
-	resource        *Resource
 	group           *EventLoopGroup
 	wg              *sync.WaitGroup
 	id              int
@@ -143,50 +141,50 @@ func (event *EventLoop) Group() *EventLoopGroup {
 	return event.group
 }
 
-func (event *EventLoop) Submit(op *Operation) {
+func (event *EventLoop) Submit(op *Operation) (future Future) {
+	of := acquireFuture(op.kind == op_kind_multishot)
+	if op.timeout != nil {
+		op.timeout.future = acquireFuture(false)
+		of.timeout = op.timeout.future
+	}
+	op.future = of
+	future = of
 	if event.running.Load() {
 		event.ready <- op
 		if event.idle.CompareAndSwap(true, false) {
 			if err := event.group.wakeup.Wakeup(event.ring.Fd()); err != nil {
-				op.failed(ErrCanceled)
+				of.Complete(0, 0, ErrCanceled)
 				return
 			}
 		}
 		return
 	}
-	op.failed(ErrCanceled)
+	of.Complete(0, 0, ErrCanceled)
 	return
 }
 
 func (event *EventLoop) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
-	event.Submit(op)
-	n, flags, err = op.Await()
+	n, flags, _, err = event.Submit(op).Await()
 	return
 }
 
-func (event *EventLoop) Resource() *Resource {
-	return event.resource
-}
-
 func (event *EventLoop) Cancel(target *Operation) (err error) {
-	if target.cancelAble() {
-		op := event.resource.AcquireOperation()
-		op.PrepareCancel(target)
-		_, _, err = event.SubmitAndWait(op)
-		event.resource.ReleaseOperation(op)
-	}
+	op := AcquireOperation()
+	op.PrepareCancel(target)
+	_, _, err = event.SubmitAndWait(op)
+	ReleaseOperation(op)
 	return
 }
 
 func (event *EventLoop) AcquireBufferAndRing() (br *BufferAndRing, err error) {
-	op := event.resource.AcquireOperation()
-	op.flags |= op_f_noexec
+	op := AcquireOperation()
+	op.kind = op_kind_noexec
 	op.cmd = op_cmd_acquire_br
 	_, _, err = event.SubmitAndWait(op)
 	if err == nil {
 		br = (*BufferAndRing)(op.addr)
 	}
-	event.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	return
 }
 
@@ -293,64 +291,62 @@ func (event *EventLoop) process() {
 }
 
 func (event *EventLoop) prepareSQE(op *Operation) bool {
-	if op.prepareAble() {
-		if op.flags&op_f_noexec != 0 {
-			switch op.cmd {
-			case op_cmd_acquire_br:
-				br, brErr := event.bufferAndRings.Acquire()
-				if brErr != nil {
-					op.failed(brErr)
-					break
-				}
-				op.addr = unsafe.Pointer(br)
+	// handle noexec op
+	if op.kind == op_kind_noexec {
+		switch op.cmd {
+		case op_cmd_acquire_br:
+			br, brErr := event.bufferAndRings.Acquire()
+			if brErr != nil {
+				op.complete(0, 0, brErr)
+				break
+			}
+			op.addr = unsafe.Pointer(br)
+			op.complete(1, 0, nil)
+			break
+		case op_cmd_close_br:
+			br := (*BufferAndRing)(op.addr)
+			if err := br.free(event.ring); err != nil {
+				op.complete(0, 0, err)
+			} else {
 				op.complete(1, 0, nil)
-				break
-			case op_cmd_close_br:
-				br := (*BufferAndRing)(op.addr)
-				if err := br.free(event.ring); err != nil {
-					op.failed(err)
-				} else {
-					op.complete(1, 0, nil)
-				}
-				break
-			default:
-				op.failed(errors.New("invalid command"))
-				break
 			}
-			return true
+			break
+		default:
+			op.complete(0, 0, errors.New("invalid command"))
+			break
 		}
-		// get sqe
-		sqe := event.ring.GetSQE()
-		if sqe == nil {
+		return true
+	}
+	// get sqe
+	sqe := event.ring.GetSQE()
+	if sqe == nil {
+		return false
+	}
+	// prepare timeout timeout
+	if op.timeout != nil {
+		timeoutSQE := event.ring.GetSQE()
+		if timeoutSQE == nil { // no sqe left, prepare nop and set op to head or ready
+			sqe.PrepareNop()
 			return false
-		}
-		// prepare link timeout
-		if op.flags&op_f_timeout != 0 { // todo op.link != nil
-			timeoutSQE := event.ring.GetSQE()
-			if timeoutSQE == nil { // no sqe left, prepare nop and set op to head or ready
-				sqe.PrepareNop()
-				return false
-			}
-			// packing
-			if err := op.packingSQE(sqe); err != nil {
-				op.failed(err)
-				sqe.PrepareNop()
-				return true
-			}
-			// packing timeout
-			if err := op.link.packingSQE(timeoutSQE); err != nil {
-				op.failed(err)
-				sqe.PrepareNop()
-				return true
-			}
-			return true
 		}
 		// packing
 		if err := op.packingSQE(sqe); err != nil {
-			op.failed(err)
+			op.complete(0, 0, err)
 			sqe.PrepareNop()
 			return true
 		}
+		// packing timeout
+		if err := op.timeout.packingSQE(timeoutSQE); err != nil {
+			op.complete(0, 0, err)
+			sqe.PrepareNop()
+			return true
+		}
+		return true
+	}
+	// packing
+	if err := op.packingSQE(sqe); err != nil {
+		op.complete(0, 0, err)
+		sqe.PrepareNop()
 		return true
 	}
 	return true

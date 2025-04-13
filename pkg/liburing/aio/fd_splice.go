@@ -18,7 +18,7 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 	}
 	defer sys.ReleasePipe(pipe)
 
-	dst, dstFixed := fd.FileDescriptor()
+	dst := fd.FileDescriptor()
 
 	for err == nil && remain > 0 {
 		chunk := int64(maxSpliceSize)
@@ -36,10 +36,10 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 			NBytes:     uint32(chunk),
 			Flags:      unix.SPLICE_F_NONBLOCK,
 		}
-		opDrain := fd.eventLoop.resource.AcquireOperation()
+		opDrain := AcquireOperation()
 		opDrain.PrepareSplice(&drainParams)
 		drained, _, drainedErr := fd.eventLoop.SubmitAndWait(opDrain)
-		fd.eventLoop.resource.ReleaseOperation(opDrain)
+		ReleaseOperation(opDrain)
 		if drainedErr != nil || drained == 0 {
 			err = drainedErr
 			break
@@ -51,15 +51,15 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 			FdInFixed:  false,
 			OffIn:      -1,
 			FdOut:      dst,
-			FdOutFixed: dstFixed,
+			FdOutFixed: true,
 			OffOut:     -1,
 			NBytes:     uint32(drained),
 			Flags:      unix.SPLICE_F_NONBLOCK,
 		}
-		opPump := fd.eventLoop.resource.AcquireOperation()
+		opPump := AcquireOperation()
 		opPump.PrepareSplice(&pumpParams)
 		pumped, _, pumpedErr := fd.eventLoop.SubmitAndWait(opPump)
-		fd.eventLoop.resource.ReleaseOperation(opPump)
+		ReleaseOperation(opPump)
 		if pumped > 0 {
 			n += int64(pumped)
 			remain -= int64(pumped)

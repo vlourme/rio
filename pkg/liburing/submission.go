@@ -214,6 +214,7 @@ func (entry *SubmissionQueueEntry) SetBufferIndex(bid uint16) {
 
 func (entry *SubmissionQueueEntry) SetBufferGroup(bgid uint16) {
 	entry.BufIG = bgid
+	entry.Flags |= IOSQE_BUFFER_SELECT
 }
 
 // [Nop] ***************************************************************************************************************
@@ -334,12 +335,12 @@ func (entry *SubmissionQueueEntry) PrepareSendZCFixed(sockFd int, addr uintptr, 
 	entry.BufIG = uint16(bufIndex)
 }
 
-func (entry *SubmissionQueueEntry) PrepareSendMsg(fd int, msg *syscall.Msghdr, flags uint32) {
+func (entry *SubmissionQueueEntry) PrepareSendMsg(fd int, msg *syscall.Msghdr, flags int) {
 	entry.prepareRW(IORING_OP_SENDMSG, fd, uintptr(unsafe.Pointer(msg)), 1, 0)
-	entry.OpcodeFlags = flags
+	entry.OpcodeFlags = uint32(flags)
 }
 
-func (entry *SubmissionQueueEntry) PrepareSendmsgZC(fd int, msg *syscall.Msghdr, flags uint32) {
+func (entry *SubmissionQueueEntry) PrepareSendmsgZC(fd int, msg *syscall.Msghdr, flags int) {
 	entry.PrepareSendMsg(fd, msg, flags)
 	entry.OpCode = IORING_OP_SENDMSG_ZC
 }

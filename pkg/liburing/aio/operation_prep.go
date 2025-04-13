@@ -17,14 +17,14 @@ func (op *Operation) PrepareNop() {
 
 func (op *Operation) PrepareCloseRing(key uint64) {
 	op.code = liburing.IORING_OP_NOP
-	op.cmd = op_cmd_close
+	op.cmd = op_cmd_close_ring
 	op.fd = int(key)
 	return
 }
 
 func (op *Operation) packingNop(sqe *liburing.SubmissionQueueEntry) (err error) {
 	switch op.cmd {
-	case op_cmd_close: // close ring
+	case op_cmd_close_ring: // close ring
 		sqe.PrepareNop()
 		sqe.SetData64(uint64(op.fd))
 		break
@@ -38,11 +38,10 @@ func (op *Operation) packingNop(sqe *liburing.SubmissionQueueEntry) (err error) 
 func (op *Operation) PrepareLinkTimeout(deadline time.Time) {
 	timeout := time.Until(deadline)
 	if timeout < 1 {
-		timeout = 10 * time.Microsecond
+		timeout = 1 * time.Millisecond
 	}
 	ts := syscall.NsecToTimespec(timeout.Nanoseconds())
 	op.code = liburing.IORING_OP_LINK_TIMEOUT
-	op.status.Store(ProcessingOperationStatus)
 	op.addr = unsafe.Pointer(&ts)
 }
 
@@ -89,6 +88,9 @@ func (op *Operation) packingMSGRing(sqe *liburing.SubmissionQueueEntry) (err err
 	default:
 		err = NewInvalidOpErr(errors.New("invalid cmd"))
 		return
+	}
+	if op.timeout != nil {
+		sqe.SetFlags(liburing.IOSQE_IO_LINK)
 	}
 	sqe.SetData(unsafe.Pointer(op))
 	return

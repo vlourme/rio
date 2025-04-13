@@ -138,6 +138,29 @@ func (buf *Buffer) ReadBytes(delim byte) (line []byte, err error) {
 	return
 }
 
+func (buf *Buffer) ReadFrom(r io.Reader) (n int64, err error) {
+	if r == nil {
+		return
+	}
+	switch rr := r.(type) {
+	case *Buffer:
+		b := rr.b[rr.r:rr.w]
+		nn, wErr := buf.Write(b)
+		if wErr != nil {
+			err = wErr
+			break
+		}
+		rr.r = rr.w
+		rr.Reset()
+		n = int64(nn)
+		break
+	default:
+		n, err = io.Copy(buf, rr)
+		break
+	}
+	return
+}
+
 func (buf *Buffer) Index(delim byte) (i int) {
 	bLen := buf.Len()
 	if bLen == 0 {
@@ -182,6 +205,29 @@ func (buf *Buffer) Write(p []byte) (n int, err error) {
 	n = copy(buf.b[buf.w:], p)
 	buf.w += n
 	buf.a = buf.w
+	return
+}
+
+func (buf *Buffer) WriteTo(w io.Writer) (n int64, err error) {
+	if w == nil {
+		return
+	}
+	switch ww := w.(type) {
+	case *Buffer:
+		b := buf.b[buf.r:buf.w]
+		nn, wErr := ww.Write(b)
+		if wErr != nil {
+			err = wErr
+			break
+		}
+		buf.r = buf.w
+		buf.Reset()
+		n = int64(nn)
+		break
+	default:
+		n, err = io.Copy(w, buf)
+		break
+	}
 	return
 }
 

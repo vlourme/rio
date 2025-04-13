@@ -286,18 +286,21 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		sendMode = 1
 		break
 	case *TCPConn:
-		srcFd, srcFixed = v.fd.FileDescriptor()
+		srcFd = v.fd.FileDescriptor()
+		srcFixed = true
 		sendMode = 1
 		break
 	case tcpConnWithoutWriteTo:
-		srcFd, srcFixed = v.fd.FileDescriptor()
+		srcFd = v.fd.FileDescriptor()
+		srcFixed = true
 		sendMode = 1
 		break
 	case *UnixConn:
 		if v.fd.Net() != "unix" {
 			break
 		}
-		srcFd, srcFixed = v.fd.FileDescriptor()
+		srcFd = v.fd.FileDescriptor()
+		srcFixed = true
 		sendMode = 1
 		break
 	case *os.File:
@@ -367,8 +370,8 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 	}
 	uc, ok := w.(*UnixConn)
 	if ok && uc.fd.Net() == "unix" {
-		fd, fdFixed := c.fd.FileDescriptor()
-		written, spliceErr := uc.fd.Splice(fd, fdFixed, 1<<63-1)
+		fd := c.fd.FileDescriptor()
+		written, spliceErr := uc.fd.Splice(fd, true, 1<<63-1)
 		if spliceErr != nil {
 			if errors.Is(spliceErr, context.Canceled) {
 				spliceErr = net.ErrClosed
@@ -499,6 +502,6 @@ func (c *TCPConn) MultipathTCP() (bool, error) {
 	if !c.ok() {
 		return false, syscall.EINVAL
 	}
-	ok := sys.IsUsingMultipathTCP(c.fd.RegularFd())
+	ok := sys.IsUsingMultipathTCP(c.fd.RegularFileDescriptor())
 	return ok, nil
 }

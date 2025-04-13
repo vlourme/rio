@@ -13,45 +13,6 @@ import (
 	"time"
 )
 
-func newRecvMultishotHandler(conn *Conn) (handler *RecvMultishotHandler, err error) {
-	// br
-	br, brErr := conn.eventLoop.AcquireBufferAndRing()
-	if brErr != nil {
-		err = brErr
-		return
-	}
-	// buffer
-	buffer := bytebuffer.Acquire()
-	// op
-	op := conn.eventLoop.resource.AcquireOperation()
-	op.Hijack()
-	// handler
-	handler = &RecvMultishotHandler{
-		conn:    conn,
-		op:      op,
-		locker:  new(sync.Mutex),
-		waiting: new(atomic.Bool),
-		err:     nil,
-		buffer:  buffer,
-		br:      br,
-		ch:      make(chan struct{}, 1),
-		done:    make(chan struct{}),
-	}
-	// prepare
-	op.PrepareReceiveMultishot(conn, br, handler)
-	// submit
-	if err = handler.submit(); err != nil {
-		// release op
-		op.Complete()
-		conn.eventLoop.resource.ReleaseOperation(op)
-		// release br
-		conn.eventLoop.ReleaseBufferAndRing(br)
-		// release buffer
-		bytebuffer.Release(buffer)
-	}
-	return
-}
-
 type RecvMultishotHandler struct {
 	conn    *Conn
 	op      *Operation
@@ -200,8 +161,8 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 			err = ErrTimeout
 			return
 		}
-		timer = handler.conn.eventLoop.resource.AcquireTimer(timeout)
-		defer handler.conn.eventLoop.resource.ReleaseTimer(timer)
+		//timer = handler.conn.eventLoop.resource.AcquireTimer(timeout)
+		//defer handler.conn.eventLoop.resource.ReleaseTimer(timer)
 	}
 
 	if timer == nil {
@@ -238,39 +199,39 @@ func (handler *RecvMultishotHandler) Receive(b []byte) (n int, err error) {
 	return
 }
 
-func (handler *RecvMultishotHandler) Close() (err error) {
-	handler.locker.Lock()
-	if handler.op == nil {
-		handler.locker.Unlock()
-		return
-	}
-	if errors.Is(handler.err, io.EOF) {
-		handler.locker.Unlock()
-		<-handler.done
-		handler.clean()
-		return
-	}
-	handler.locker.Unlock()
-
-	op := handler.op
-	if err = handler.conn.eventLoop.Cancel(op); err != nil {
-		handler.locker.Lock()
-		if !errors.Is(handler.err, io.EOF) {
-			handler.locker.Unlock()
-			// use cancel fd when cancel op failed
-			handler.conn.Cancel()
-		} else {
-			handler.locker.Unlock()
-		}
-		// reset err when fd was canceled
-		err = nil
-	}
-	// wait done to clean
-	<-handler.done
-	handler.clean()
-
-	return
-}
+//func (handler *RecvMultishotHandler) Close() (err error) {
+//	handler.locker.Lock()
+//	if handler.op == nil {
+//		handler.locker.Unlock()
+//		return
+//	}
+//	if errors.Is(handler.err, io.EOF) {
+//		handler.locker.Unlock()
+//		<-handler.done
+//		handler.clean()
+//		return
+//	}
+//	handler.locker.Unlock()
+//
+//	op := handler.op
+//	if err = handler.conn.eventLoop.Cancel(op); err != nil {
+//		handler.locker.Lock()
+//		if !errors.Is(handler.err, io.EOF) {
+//			handler.locker.Unlock()
+//			// use cancel fd when cancel op failed
+//			handler.conn.Cancel()
+//		} else {
+//			handler.locker.Unlock()
+//		}
+//		// reset err when fd was canceled
+//		err = nil
+//	}
+//	// wait done to clean
+//	<-handler.done
+//	handler.clean()
+//
+//	return
+//}
 
 func (handler *RecvMultishotHandler) submit() (err error) {
 	handler.locker.Lock()
@@ -283,24 +244,24 @@ func (handler *RecvMultishotHandler) submit() (err error) {
 	return
 }
 
-func (handler *RecvMultishotHandler) clean() {
-	handler.locker.Lock()
-	if op := handler.op; op != nil {
-		// release op
-		handler.op = nil
-		op.Complete()
-		handler.conn.eventLoop.resource.ReleaseOperation(op)
-		// release br
-		br := handler.br
-		handler.br = nil
-		handler.conn.eventLoop.ReleaseBufferAndRing(br)
-		// release buffer
-		buffer := handler.buffer
-		handler.buffer = nil
-		bytebuffer.Release(buffer)
-		// close ch
-		close(handler.ch)
-	}
-	handler.locker.Unlock()
-	return
-}
+//func (handler *RecvMultishotHandler) clean() {
+//	handler.locker.Lock()
+//	if op := handler.op; op != nil {
+//		// release op
+//		handler.op = nil
+//		op.Complete()
+//		handler.conn.eventLoop.resource.ReleaseOperation(op)
+//		// release br
+//		br := handler.br
+//		handler.br = nil
+//		handler.conn.eventLoop.ReleaseBufferAndRing(br)
+//		// release buffer
+//		buffer := handler.buffer
+//		handler.buffer = nil
+//		bytebuffer.Release(buffer)
+//		// close ch
+//		close(handler.ch)
+//	}
+//	handler.locker.Unlock()
+//	return
+//}

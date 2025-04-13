@@ -10,10 +10,9 @@ func (fd *Fd) Read(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	op := fd.eventLoop.resource.AcquireOperation()
-	op.WithDeadline(fd.eventLoop.resource, fd.readDeadline).PrepareRead(fd, b)
+	op := AcquireDeadlineOperation(fd.readDeadline)
 	n, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
 		err = io.EOF
 	}
@@ -24,10 +23,9 @@ func (fd *Fd) Write(b []byte) (n int, err error) {
 	if fd.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	op := fd.eventLoop.resource.AcquireOperation()
-	op.WithDeadline(fd.eventLoop.resource, fd.writeDeadline).PrepareWrite(fd, b)
+	op := AcquireDeadlineOperation(fd.writeDeadline)
 	n, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err != nil {
 		return
 	}

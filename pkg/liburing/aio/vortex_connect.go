@@ -58,10 +58,10 @@ func (vortex *Vortex) Connect(
 	var (
 		sock = -1
 	)
-	op := event.resource.AcquireOperation()
-	op.WithDirectAlloc(true).PrepareSocket(family, sotype, proto)
+	op := AcquireOperation()
+	op.PrepareSocket(family, sotype, proto)
 	sock, _, err = event.SubmitAndWait(op)
-	event.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err != nil {
 		return
 	}
@@ -78,6 +78,7 @@ func (vortex *Vortex) Connect(
 				multishot:     !vortex.multishotDisabled,
 				eventLoop:     event,
 			},
+			kind:             ConnectedNetFd,
 			family:           family,
 			sotype:           sotype,
 			net:              network,
@@ -86,8 +87,6 @@ func (vortex *Vortex) Connect(
 			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
 			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
 		},
-		recvFn:  nil,
-		handler: nil,
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {
 		// ipv6
@@ -148,16 +147,16 @@ func (vortex *Vortex) Connect(
 			return
 		}
 
-		op = event.resource.AcquireOperation()
-		op.WithDeadline(event.resource, deadline).PrepareConnect(conn, rsa, int(rsaLen))
+		op = AcquireDeadlineOperation(deadline)
+		op.PrepareConnect(conn, rsa, int(rsaLen))
 		_, _, err = event.SubmitAndWait(op)
-		event.resource.ReleaseOperation(op)
+		ReleaseOperation(op)
 		if err != nil {
 			_ = conn.Close()
 			return
 		}
 	}
-	// init
-	conn.init()
+	// check multishot
+	conn.checkMultishot()
 	return
 }

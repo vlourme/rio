@@ -7,58 +7,57 @@ import (
 )
 
 func (fd *Fd) Cancel() {
-	if fd.direct != -1 {
-		op := fd.eventLoop.resource.AcquireOperation()
-		op.PrepareCancelFixedFd(fd.direct)
-		_, _, _ = fd.eventLoop.SubmitAndWait(op)
-		fd.eventLoop.resource.ReleaseOperation(op)
-	}
+	fd.cancelDirect()
 	if fd.regular != -1 {
-		op := fd.eventLoop.resource.AcquireOperation()
-		op.PrepareCancelFd(fd.regular)
-		_, _, _ = fd.eventLoop.SubmitAndWait(op)
-		fd.eventLoop.resource.ReleaseOperation(op)
+		fd.cancelRegular()
 	}
 	return
+}
+
+func (fd *Fd) cancelDirect() {
+	op := AcquireOperation()
+	op.PrepareCancelFixedFd(fd.direct)
+	_, _, _ = fd.eventLoop.SubmitAndWait(op)
+	ReleaseOperation(op)
+}
+
+func (fd *Fd) cancelRegular() {
+	op := AcquireOperation()
+	op.PrepareCancelFd(fd.regular)
+	_, _, _ = fd.eventLoop.SubmitAndWait(op)
+	ReleaseOperation(op)
 }
 
 func (fd *Fd) Close() error {
-	if fd.direct != -1 {
-		err := fd.closeDirectFd()
-		if fd.regular != -1 {
-			_ = syscall.Close(fd.regular)
-			fd.regular = -1
-		}
-		return err
-	}
+	err := fd.closeDirectFd()
 	if fd.regular != -1 {
-		if err := fd.closeFd(); err != nil {
-			_ = syscall.Close(fd.regular)
-			fd.regular = -1
-			return err
-		}
+		_ = fd.closeRegularFd()
 	}
-	return nil
+	return err
 }
 
-func (fd *Fd) closeFd() (err error) {
-	op := fd.eventLoop.resource.AcquireOperation()
-	op.PrepareClose(fd.regular)
+func (fd *Fd) closeDirectFd() (err error) {
+	op := AcquireOperation()
+	op.PrepareCloseDirect(fd.direct)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
+	ReleaseOperation(op)
 	if err == nil {
-		fd.regular = -1
+		fd.direct = -1
 	}
 	return
 }
 
-func (fd *Fd) closeDirectFd() (err error) {
-	op := fd.eventLoop.resource.AcquireOperation()
-	op.PrepareCloseDirect(fd.direct)
+func (fd *Fd) closeRegularFd() (err error) {
+	op := AcquireOperation()
+	op.PrepareClose(fd.regular)
 	_, _, err = fd.eventLoop.SubmitAndWait(op)
-	fd.eventLoop.resource.ReleaseOperation(op)
-	if err == nil {
-		fd.direct = -1
+	ReleaseOperation(op)
+	if err != nil {
+		if err = syscall.Close(fd.regular); err == nil {
+			fd.regular = -1
+		}
+	} else {
+		fd.regular = -1
 	}
 	return
 }
