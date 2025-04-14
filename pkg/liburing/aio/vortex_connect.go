@@ -8,6 +8,7 @@ import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
 	"reflect"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -76,6 +77,7 @@ func (vortex *Vortex) Connect(
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
+				locker:        new(sync.Mutex),
 				eventLoop:     event,
 			},
 			kind:             ConnectedNetFd,
@@ -147,7 +149,7 @@ func (vortex *Vortex) Connect(
 			return
 		}
 
-		op = AcquireDeadlineOperation(deadline)
+		op = AcquireOperationWithDeadline(deadline)
 		op.PrepareConnect(conn, rsa, int(rsaLen))
 		_, _, err = event.SubmitAndWait(op)
 		ReleaseOperation(op)
@@ -156,7 +158,5 @@ func (vortex *Vortex) Connect(
 			return
 		}
 	}
-	// check multishot
-	conn.checkMultishot()
 	return
 }

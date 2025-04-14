@@ -3,8 +3,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
-	"io"
 	"math"
 	"os"
 	"sync"
@@ -27,98 +25,8 @@ type BufferAndRing struct {
 	buffer      []byte
 }
 
-func (br *BufferAndRing) Handle(n int, flags uint32, err error) (int, uint32, unsafe.Pointer, error) {
-	if err != nil || flags&liburing.IORING_CQE_F_BUFFER == 0 {
-		return n, flags, nil, err
-	}
-
-	var (
-		bid  = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg  = int(bid) * br.config.Size
-		end  = beg + br.config.Size
-		mask = br.config.mask
-	)
-	if n == 0 {
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
-		return n, flags, nil, nil
-	}
-	buf := bytebuffer.Acquire()
-	length := n
-	used := uint16(0)
-	for length > 0 {
-		if br.config.Size > length {
-			_, _ = buf.Write(br.buffer[beg : beg+length])
-
-			b := br.buffer[beg:end]
-			//br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-			//br.value.BufRingAdvance(1)
-			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, used)
-			used++
-			break
-		}
-
-		_, _ = buf.Write(br.buffer[beg:end])
-
-		b := br.buffer[beg:end]
-		//br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		//br.value.BufRingAdvance(1)
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, used)
-		used++
-
-		length -= br.config.Size
-		bid = (bid + 1) % uint16(br.config.Count)
-		beg = int(bid) * br.config.Size
-		end = beg + br.config.Size
-	}
-
-	br.value.BufRingAdvance(used)
-	return n, flags, unsafe.Pointer(buf), nil
-}
-
 func (br *BufferAndRing) Id() uint16 {
 	return br.bgid
-}
-
-func (br *BufferAndRing) WriteTo(length int, cqeFlags uint32, writer io.Writer) (n int, err error) {
-	// todo remove
-	var (
-		bid  = uint16(cqeFlags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg  = int(bid) * br.config.Size
-		end  = beg + br.config.Size
-		mask = br.config.mask
-	)
-
-	if length == 0 {
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
-		return
-	}
-	for length > 0 {
-		if br.config.Size > length {
-			_, _ = writer.Write(br.buffer[beg : beg+length])
-
-			b := br.buffer[beg:end]
-			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-			br.value.BufRingAdvance(1)
-			break
-		}
-
-		_, _ = writer.Write(br.buffer[beg:end])
-
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
-
-		length -= br.config.Size
-		bid = (bid + 1) % uint16(br.config.Count)
-		beg = int(bid) * br.config.Size
-		end = beg + br.config.Size
-	}
-
-	return
 }
 
 func (br *BufferAndRing) free(ring *liburing.Ring) (err error) {

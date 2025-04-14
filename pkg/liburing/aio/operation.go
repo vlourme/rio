@@ -24,7 +24,7 @@ func AcquireOperation() *Operation {
 	return v.(*Operation)
 }
 
-func AcquireDeadlineOperation(deadline time.Time) *Operation {
+func AcquireOperationWithDeadline(deadline time.Time) *Operation {
 	if deadline.IsZero() {
 		return AcquireOperation()
 	}

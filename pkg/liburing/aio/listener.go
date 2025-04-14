@@ -5,6 +5,7 @@ package aio
 import (
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -20,13 +21,12 @@ type Listener struct {
 }
 
 func (fd *Listener) init() {
-	fd.acceptFn = fd.acceptOneshot
-	//if fd.multishot {
-	//	fd.prepareAcceptMultishot()
-	//	fd.acceptFn = fd.acceptMultishot
-	//} else {
-	//	fd.acceptFn = fd.acceptOneshot
-	//}
+	if fd.multishot {
+		fd.prepareAcceptMultishot()
+		fd.acceptFn = fd.acceptMultishot
+	} else {
+		fd.acceptFn = fd.acceptOneshot
+	}
 }
 
 func (fd *Listener) Accept() (*Conn, error) {
@@ -38,7 +38,7 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 	acceptAddrLen := syscall.SizeofSockaddrAny
 	acceptAddrLenPtr := &acceptAddrLen
 
-	op := AcquireDeadlineOperation(fd.readDeadline)
+	op := AcquireOperationWithDeadline(fd.readDeadline)
 	op.PrepareAccept(fd, acceptAddr, acceptAddrLenPtr)
 	accepted, _, acceptErr := fd.eventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
@@ -124,6 +124,7 @@ func (fd *Listener) newAcceptedConnFd(accepted int, event *EventLoop) (conn *Con
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     fd.multishot,
+				locker:        new(sync.Mutex),
 				eventLoop:     event,
 			},
 			kind:             AcceptedNetFd,
@@ -136,7 +137,5 @@ func (fd *Listener) newAcceptedConnFd(accepted int, event *EventLoop) (conn *Con
 			sendMSGZCEnabled: fd.sendZCEnabled,
 		},
 	}
-	// check multishot
-	conn.checkMultishot()
 	return
 }

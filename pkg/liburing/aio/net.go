@@ -25,7 +25,7 @@ type NetFdKind int
 func (kind NetFdKind) String() string {
 	switch kind {
 	case ConnectedNetFd:
-		return "dialer"
+		return "dialer  "
 	case AcceptedNetFd:
 		return "accepted"
 	case ListenedNetFd:

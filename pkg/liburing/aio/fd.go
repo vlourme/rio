@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -20,6 +21,7 @@ type Fd struct {
 	readDeadline  time.Time
 	writeDeadline time.Time
 	multishot     bool
+	locker        sync.Locker
 	eventLoop     *EventLoop
 }
 
@@ -52,10 +54,15 @@ func (fd *Fd) SetWriteDeadline(t time.Time) {
 }
 
 func (fd *Fd) Installed() bool {
+	fd.locker.Lock()
+	defer fd.locker.Unlock()
 	return fd.regular != -1
 }
 
 func (fd *Fd) Install() (err error) {
+	fd.locker.Lock()
+	defer fd.locker.Unlock()
+
 	if fd.regular != -1 {
 		return
 	}

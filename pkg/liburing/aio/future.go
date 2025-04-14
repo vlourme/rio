@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"github.com/brickingsoft/rio/pkg/liburing"
 	"sync"
 	"syscall"
 	"time"
@@ -46,7 +45,6 @@ func acquireFuture(multishot bool) *operationFuture {
 func releaseFuture(future *operationFuture) {
 	future.adaptor = nil
 	future.timeout = nil
-	future.hijacked = 0
 
 	switch cap(future.ch) {
 	case oneshotPromiseChSize:
@@ -72,12 +70,8 @@ type CompletionEvent struct {
 	Attachment unsafe.Pointer
 }
 
-// PromiseAdaptor
-// todo
-// AcceptPromiseAdaptor: attachment is member or event loop group
-// ReceivePromiseAdaptor: attachment is buffer of bid bytes
 type PromiseAdaptor interface {
-	Handle(n int, flags uint32, err error) (int, uint32, unsafe.Pointer, error)
+	Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error)
 }
 
 type Future interface {
@@ -88,10 +82,9 @@ type Future interface {
 }
 
 type operationFuture struct {
-	ch       chan CompletionEvent
-	adaptor  PromiseAdaptor
-	timeout  Future
-	hijacked int
+	ch      chan CompletionEvent
+	adaptor PromiseAdaptor
+	timeout Future
 }
 
 func (future *operationFuture) Await() (n int, flags uint32, attachment unsafe.Pointer, err error) {
@@ -189,26 +182,16 @@ func (future *operationFuture) AwaitMore(hungry bool, deadline time.Time) (event
 
 func (future *operationFuture) Complete(n int, flags uint32, err error) {
 	if future.adaptor == nil {
-		if err != nil {
-			future.ch <- CompletionEvent{n, flags, err, nil}
-			return
-		}
-		if flags&liburing.IORING_CQE_F_MORE != 0 {
-			future.hijacked = n
-			return
-		}
-		if flags&liburing.IORING_CQE_F_NOTIF != 0 {
-			future.ch <- CompletionEvent{future.hijacked, flags, nil, nil}
-			return
-		}
 		future.ch <- CompletionEvent{n, flags, err, nil}
 		return
 	}
 	var (
+		pass       bool
 		attachment unsafe.Pointer
 	)
-	n, flags, attachment, err = future.adaptor.Handle(n, flags, err)
-	future.ch <- CompletionEvent{n, flags, err, attachment}
+	if pass, n, flags, attachment, err = future.adaptor.Handle(n, flags, err); pass {
+		future.ch <- CompletionEvent{n, flags, err, attachment}
+	}
 	return
 }
 

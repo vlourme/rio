@@ -102,18 +102,20 @@ func (op *Operation) PrepareReceive(conn *Conn, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMultishot(conn *Conn, br *BufferAndRing) {
+func (op *Operation) PrepareReceiveMultishot(conn *Conn, adaptor *RecvMultishotAdaptor) {
 	op.kind = op_kind_multishot
 	op.code = liburing.IORING_OP_RECV
 	op.fd = conn.direct
-	op.addrLen = uint32(br.bgid)
-	op.future.adaptor = br
+	op.addr = unsafe.Pointer(adaptor)
 	return
 }
 
 func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err error) {
 	if op.kind == op_kind_multishot {
-		bgid := uint16(op.addrLen)
+		adaptor := (*RecvMultishotAdaptor)(op.addr)
+		adaptor.future = op.future
+		op.future.adaptor = adaptor
+		bgid := adaptor.br.bgid
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
 		if liburing.VersionEnable(6, 10, 0) {
 			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
@@ -156,15 +158,19 @@ func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error)
 	return
 }
 
-func (op *Operation) PrepareSendZC(conn *Conn, b []byte) {
+func (op *Operation) PrepareSendZC(conn *Conn, b []byte, adaptor *ZerocopyPromiseAdaptor) {
 	op.code = liburing.IORING_OP_SEND_ZC
 	op.fd = conn.direct
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
+	op.addr2 = unsafe.Pointer(adaptor)
 	return
 }
 
 func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err error) {
+	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
+	op.future.adaptor = adaptor
+
 	b := uintptr(op.addr)
 	bLen := op.addrLen
 	opFlags := 0
@@ -219,14 +225,18 @@ func (op *Operation) packingSendMsg(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareSendMsgZC(conn *Conn, msg *syscall.Msghdr) {
+func (op *Operation) PrepareSendMsgZC(conn *Conn, msg *syscall.Msghdr, adaptor *ZerocopyPromiseAdaptor) {
 	op.code = liburing.IORING_OP_SENDMSG_ZC
 	op.fd = conn.direct
 	op.addr = unsafe.Pointer(msg)
+	op.addr2 = unsafe.Pointer(adaptor)
 	return
 }
 
 func (op *Operation) packingSendMsgZc(sqe *liburing.SubmissionQueueEntry) (err error) {
+	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
+	op.future.adaptor = adaptor
+
 	msg := (*syscall.Msghdr)(op.addr)
 	opFlags := 0
 	flags := liburing.IOSQE_FIXED_FILE

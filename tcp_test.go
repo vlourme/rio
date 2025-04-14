@@ -59,40 +59,41 @@ func TestTCP(t *testing.T) {
 				t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
 
 				b := make([]byte, len(src))
-
-				var rn int
 				for {
-					rnn, rErr := conn.Read(b[rn:])
-					if rErr != nil {
-						if errors.Is(rErr, io.EOF) {
-							t.Log("srv read EOF")
+					var rn int
+					for {
+						rnn, rErr := conn.Read(b[rn:])
+						if rErr != nil {
+							_ = conn.Close()
+							if errors.Is(rErr, io.EOF) {
+								t.Log("srv read EOF")
+								return
+							}
+							t.Error("srv read failed", rnn, rErr)
 							return
 						}
-						t.Error("srv read failed", rnn, rErr)
-						return
+						rn += rnn
+						if rn == len(b) {
+							break
+						}
 					}
-					rn += rnn
-					if rn == len(b) {
-						break
-					}
-				}
-				t.Log("srv read succeed", rn, bytes.Equal(src, b))
+					t.Log("srv read succeed", rn, bytes.Equal(src, b))
 
-				var wn int
-				for {
-					wnn, wErr := conn.Write(b[wn:])
-					if wErr != nil {
-						t.Error("srv write failed", wnn, wErr)
-						return
+					var wn int
+					for {
+						wnn, wErr := conn.Write(b[wn:])
+						if wErr != nil {
+							_ = conn.Close()
+							t.Error("srv write failed", wnn, wErr)
+							return
+						}
+						wn += wnn
+						if wn == len(b) {
+							break
+						}
 					}
-					wn += wnn
-					if wn == len(b) {
-						break
-					}
+					t.Log("srv write succeed", wn)
 				}
-				t.Log("srv write succeed", wn)
-
-				_ = conn.Close()
 			}(conn, src, wg)
 			return
 		}

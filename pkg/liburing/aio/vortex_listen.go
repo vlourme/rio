@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -72,6 +73,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
+				locker:        new(sync.Mutex),
 				eventLoop:     vortex.group.boss,
 			},
 			kind:             ListenedNetFd,
@@ -226,6 +228,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
+				locker:        new(sync.Mutex),
 				eventLoop:     vortex.group.boss,
 			},
 			kind:             ListenedNetFd,
