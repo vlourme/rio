@@ -64,6 +64,42 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestRing_SubmitAndWaitMinTimeout(t *testing.T) {
+	flags := liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER
+	ring, ringErr := liburing.New(liburing.WithEntries(4), liburing.WithFlags(flags))
+	if ringErr != nil {
+		t.Error(ringErr)
+		return
+	}
+	defer ring.Close()
+
+	_, regErr := ring.RegisterRingFd()
+	if regErr != nil {
+		t.Error(regErr)
+		return
+	}
+	sq := ring.GetSQE()
+	if sq == nil {
+		t.Error("SQE is nil")
+		return
+	}
+	sts := syscall.NsecToTimespec((10 * time.Millisecond).Nanoseconds())
+	sq.PrepareTimeout(&sts, 1, 0)
+	sq.SetData64(1)
+
+	cts := syscall.NsecToTimespec((100 * time.Millisecond).Nanoseconds())
+	minTimeout := 1 * time.Second
+	now := time.Now()
+	cqe, submitErr := ring.SubmitAndWaitMinTimeout(1, &cts, minTimeout, nil)
+	t.Log("wait latency:", time.Since(now))
+	if submitErr != nil {
+		t.Error(submitErr)
+		return
+	}
+	t.Log("cqe:", cqe.Res, cqe.UserData)
+	ring.CQAdvance(1)
+}
+
 func TestRing_MSGRing(t *testing.T) {
 	flags := liburing.IORING_SETUP_COOP_TASKRUN |
 		liburing.IORING_SETUP_TASKRUN_FLAG |
