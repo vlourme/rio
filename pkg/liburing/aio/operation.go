@@ -37,10 +37,21 @@ func AcquireOperationWithDeadline(deadline time.Time) *Operation {
 
 func ReleaseOperation(op *Operation) {
 	if timeout := op.timeout; timeout != nil {
-		releaseFuture(timeout.future)
-		op.future.timeout = nil
+		op.timeout = nil
+		op.channel.timeout = nil
+		channel := timeout.channel
+		timeout.channel = nil
+		releaseChannel(channel)
+
+		timeout.reset()
+		operations.Put(timeout)
 	}
-	releaseFuture(op.future)
+
+	if channel := op.channel; channel != nil {
+		op.channel = nil
+		releaseChannel(channel)
+	}
+
 	op.reset()
 	operations.Put(op)
 }
@@ -65,17 +76,17 @@ const (
 )
 
 type Operation struct {
-	code     uint8            // 1
-	_pad     [3]uint8         // 3
-	cmd      int              // 8
-	kind     uint32           // 4
-	timeout  *Operation       // 8
-	future   *operationFuture // 8
-	fd       int              // 8
-	addr     unsafe.Pointer   // 8
-	addrLen  uint32           // 4
-	addr2    unsafe.Pointer   // 8
-	addr2Len uint32           // 4
+	code     uint8          // 1
+	_pad     [3]uint8       // 3
+	cmd      int            // 8
+	kind     uint32         // 4
+	timeout  *Operation     // 8
+	channel  *Channel       // 8
+	fd       int            // 8
+	addr     unsafe.Pointer // 8
+	addrLen  uint32         // 4
+	addr2    unsafe.Pointer // 8
+	addr2Len uint32         // 4
 }
 
 func (op *Operation) reset() {
@@ -83,8 +94,7 @@ func (op *Operation) reset() {
 	op.cmd = 0
 	op.kind = 0
 	op.timeout = nil
-	op.future = nil
-
+	op.channel = nil
 	op.fd = -1
 	op.addr = nil
 	op.addrLen = 0
@@ -94,6 +104,6 @@ func (op *Operation) reset() {
 }
 
 func (op *Operation) complete(n int, flags uint32, err error) {
-	op.future.Complete(n, flags, err)
+	op.channel.Complete(n, flags, err)
 	return
 }

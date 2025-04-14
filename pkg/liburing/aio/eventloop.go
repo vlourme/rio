@@ -15,6 +15,27 @@ import (
 	"unsafe"
 )
 
+type Promise interface {
+	Complete(n int, flags uint32, err error)
+}
+
+type PromiseAdaptor interface {
+	Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error)
+}
+
+type CompletionEvent struct {
+	N          int
+	Flags      uint32
+	Err        error
+	Attachment unsafe.Pointer
+}
+
+type Future interface {
+	Await() (n int, flags uint32, attachment unsafe.Pointer, err error)
+	AwaitDeadline(deadline time.Time) (n int, flags uint32, attachment unsafe.Pointer, err error)
+	AwaitBatch(hungry bool, deadline time.Time) (events []CompletionEvent)
+}
+
 func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *EventLoop) {
 	ch := make(chan *EventLoop)
 	go func(id int, group *EventLoopGroup, options Options, ch chan<- *EventLoop) {
@@ -142,24 +163,24 @@ func (event *EventLoop) Group() *EventLoopGroup {
 }
 
 func (event *EventLoop) Submit(op *Operation) (future Future) {
-	of := acquireFuture(op.kind == op_kind_multishot)
+	channel := acquireChannel(op.kind == op_kind_multishot)
 	if op.timeout != nil {
-		op.timeout.future = acquireFuture(false)
-		of.timeout = op.timeout.future
+		op.timeout.channel = acquireChannel(false)
+		channel.timeout = op.timeout.channel
 	}
-	op.future = of
-	future = of
+	op.channel = channel
+	future = channel
 	if event.running.Load() {
 		event.ready <- op
 		if event.idle.CompareAndSwap(true, false) {
 			if err := event.group.wakeup.Wakeup(event.ring.Fd()); err != nil {
-				of.Complete(0, 0, ErrCanceled)
+				channel.Complete(0, 0, ErrCanceled)
 				return
 			}
 		}
 		return
 	}
-	of.Complete(0, 0, ErrCanceled)
+	channel.Complete(0, 0, ErrCanceled)
 	return
 }
 

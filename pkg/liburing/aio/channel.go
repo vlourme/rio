@@ -116,22 +116,7 @@ func (c *Channel) AwaitDeadline(deadline time.Time) (n int, flags uint32, attach
 	return
 }
 
-func (c *Channel) TryAwait() (n int, flags uint32, attachment unsafe.Pointer, awaited bool, err error) {
-	select {
-	case r, ok := <-c.ch:
-		if !ok {
-			err = ErrCanceled
-			return
-		}
-		n, flags, attachment, awaited, err = r.N, r.Flags, r.Attachment, true, r.Err
-		break
-	default:
-		break
-	}
-	return
-}
-
-func (c *Channel) AwaitMore(hungry bool, deadline time.Time) (events []CompletionEvent) {
+func (c *Channel) AwaitBatch(hungry bool, deadline time.Time) (events []CompletionEvent) {
 	ready := len(c.ch)
 	if ready == 0 {
 		if !hungry {

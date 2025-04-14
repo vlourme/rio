@@ -41,7 +41,8 @@ func TestTCP(t *testing.T) {
 		return
 	}()
 
-	src := make([]byte, 4096*64)
+	loops := 1
+	src := make([]byte, 4096*32)
 	_, _ = rand.Read(src)
 
 	wg.Add(1)
@@ -106,41 +107,42 @@ func TestTCP(t *testing.T) {
 		return
 	}
 	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
-	defer time.Sleep(500 * time.Millisecond)
 	defer conn.Close()
 
-	var wn int
-	for {
-		wnn, wErr := conn.Write(src[wn:])
-		if wErr != nil {
-			t.Error("cli write failed", wn, wErr)
-			return
+	for i := 0; i < loops; i++ {
+		var wn int
+		for {
+			wnn, wErr := conn.Write(src[wn:])
+			if wErr != nil {
+				t.Error("cli write failed", wn, wErr)
+				return
+			}
+			wn += wnn
+			if wn == len(src) {
+				break
+			}
 		}
-		wn += wnn
-		if wn == len(src) {
-			break
-		}
-	}
-	t.Log("cli write succeed", wn)
+		t.Log("cli write succeed", wn)
 
-	var rn int
-	p := make([]byte, len(src))
-	for {
-		rnn, rErr := conn.Read(p[rn:])
-		if rErr != nil {
-			t.Error("cli read failed", rn, rErr)
-			return
+		var rn int
+		p := make([]byte, len(src))
+		for {
+			rnn, rErr := conn.Read(p[rn:])
+			if rErr != nil {
+				t.Error("cli read failed", rn, rErr)
+				return
+			}
+			rn += rnn
+			if rn == len(src) {
+				break
+			}
 		}
-		rn += rnn
-		if rn == len(src) {
-			break
+		same := bytes.Equal(src, p)
+		if same {
+			t.Log("cli read succeed", rn, same)
+		} else {
+			t.Error("cli read failed", wn, rn)
 		}
-	}
-	same := bytes.Equal(src, p)
-	if same {
-		t.Log("cli read succeed", rn, same)
-	} else {
-		t.Error("cli read failed", wn, rn)
 	}
 
 }

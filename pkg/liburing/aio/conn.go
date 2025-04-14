@@ -8,14 +8,12 @@ type Conn struct {
 }
 
 func (c *Conn) releaseRecvMultishotAdaptor() {
-	c.locker.Lock()
 	if c.recvMultishotAdaptor != nil {
 		adaptor := c.recvMultishotAdaptor
 		c.recvMultishotAdaptor = nil
 		_ = adaptor.Close()
 		releaseRecvMultishotAdaptor(adaptor)
 	}
-	c.locker.Unlock()
 }
 
 func (c *Conn) Close() error {
@@ -25,7 +23,6 @@ func (c *Conn) Close() error {
 
 func (c *Conn) CloseRead() error {
 	c.releaseRecvMultishotAdaptor()
-
 	op := AcquireOperation()
 	op.PrepareCloseRead(c)
 	_, _, err := c.eventLoop.SubmitAndWait(op)

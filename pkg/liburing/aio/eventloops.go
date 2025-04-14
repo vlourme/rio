@@ -204,11 +204,11 @@ func (r *Wakeup) Valid() error {
 func (r *Wakeup) Wakeup(ringFd int) (err error) {
 	if r.running.Load() {
 		op := AcquireOperation()
-		future := acquireFuture(false)
-		op.future = future
+		channel := acquireChannel(false)
+		op.channel = channel
 		op.PrepareMSGRing(ringFd, 0)
 		r.ready <- op
-		_, _, _, err = future.Await()
+		_, _, _, err = channel.Await()
 		ReleaseOperation(op)
 		return
 	}

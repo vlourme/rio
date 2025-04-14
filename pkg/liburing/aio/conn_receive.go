@@ -19,7 +19,6 @@ func (c *Conn) Receive(b []byte) (n int, err error) {
 	if c.IsStream() && len(b) > maxRW {
 		b = b[:maxRW]
 	}
-	c.locker.Lock()
 	if c.multishot {
 		if c.recvMultishotAdaptor == nil {
 			c.recvMultishotAdaptor, err = acquireRecvMultishotAdaptor(c)
@@ -27,7 +26,6 @@ func (c *Conn) Receive(b []byte) (n int, err error) {
 				c.multishot = false
 				err = nil
 				n, err = c.receiveOneshot(b)
-				c.locker.Unlock()
 				return
 			}
 		}
@@ -40,7 +38,6 @@ func (c *Conn) Receive(b []byte) (n int, err error) {
 	} else {
 		n, err = c.receiveOneshot(b)
 	}
-	c.locker.Unlock()
 	return
 }
 
@@ -68,9 +65,7 @@ func acquireRecvMultishotAdaptor(conn *Conn) (adaptor *RecvMultishotAdaptor, err
 	v := recvMultishotAdaptors.Get()
 	if v == nil {
 		adaptor = &RecvMultishotAdaptor{
-			locker: new(sync.Mutex),
 			status: recvMultishotReady,
-			wg:     new(sync.WaitGroup),
 		}
 	} else {
 		adaptor = v.(*RecvMultishotAdaptor)
@@ -80,7 +75,7 @@ func acquireRecvMultishotAdaptor(conn *Conn) (adaptor *RecvMultishotAdaptor, err
 	adaptor.operation = AcquireOperation()
 	adaptor.buffer = bytebuffer.Acquire()
 
-	adaptor.operation.PrepareReceiveMultishot(conn, adaptor)
+	adaptor.operation.PrepareReceiveMultishot(conn, br.bgid, adaptor)
 	return
 }
 
@@ -99,9 +94,7 @@ const (
 )
 
 type RecvMultishotAdaptor struct {
-	locker    sync.Locker
 	status    int
-	wg        *sync.WaitGroup
 	buffer    *bytebuffer.Buffer
 	br        *BufferAndRing
 	eventLoop *EventLoop
@@ -123,14 +116,11 @@ func (adaptor *RecvMultishotAdaptor) Read(b []byte, deadline time.Time) (n int, 
 		}
 	}
 
-	adaptor.locker.Lock()
-
 	// eof
 	if adaptor.status == recvMultishotEOF {
 		if n == 0 {
 			err = io.EOF
 		}
-		adaptor.locker.Unlock()
 		return
 	}
 	// canceled
@@ -138,22 +128,18 @@ func (adaptor *RecvMultishotAdaptor) Read(b []byte, deadline time.Time) (n int, 
 		if n == 0 {
 			err = adaptor.err
 		}
-		adaptor.locker.Unlock()
 		return
 	}
-	adaptor.wg.Add(1)
 	// start
 	if adaptor.status == recvMultishotReady {
 		adaptor.future = adaptor.eventLoop.Submit(adaptor.operation)
 		adaptor.status = recvMultishotProcessing
 	}
 	// await
-	hungry := n == 0
-	events := adaptor.future.AwaitMore(hungry, deadline)
+	hungry := n == 0 // when n > 0, then try await
+	events := adaptor.future.AwaitBatch(hungry, deadline)
 	eventsLen := len(events)
 	if eventsLen == 0 { // nothing to read
-		adaptor.wg.Done()
-		adaptor.locker.Unlock()
 		return
 	}
 	// when event contains err, means it is the last in events, so break loop is ok
@@ -199,8 +185,6 @@ func (adaptor *RecvMultishotAdaptor) Read(b []byte, deadline time.Time) (n int, 
 			break
 		}
 	}
-	adaptor.wg.Done()
-	adaptor.locker.Unlock()
 	return
 }
 
@@ -249,27 +233,27 @@ func (adaptor *RecvMultishotAdaptor) Handle(n int, flags uint32, err error) (boo
 }
 
 func (adaptor *RecvMultishotAdaptor) Close() (err error) {
-	adaptor.locker.Lock()
+	op := adaptor.operation
+	adaptor.operation = nil
 	if adaptor.status == recvMultishotProcessing {
-		if err = adaptor.eventLoop.Cancel(adaptor.operation); err == nil { // cancel succeed
-			adaptor.locker.Unlock()
-			adaptor.wg.Wait()
-		} else {
-			adaptor.locker.Unlock()
+		if err = adaptor.eventLoop.Cancel(op); err == nil { // cancel succeed
+			_, _, _, _ = adaptor.future.Await()
 		}
 	}
+	ReleaseOperation(op)
 
 	br := adaptor.br
 	adaptor.br = nil
 	adaptor.eventLoop.ReleaseBufferAndRing(br)
+
 	adaptor.status = recvMultishotReady
 	adaptor.eventLoop = nil
-	adaptor.operation = nil
 	adaptor.future = nil
+	adaptor.err = nil
+
 	buffer := adaptor.buffer
 	adaptor.buffer = nil
 	bytebuffer.Release(buffer)
-
 	return
 }
 

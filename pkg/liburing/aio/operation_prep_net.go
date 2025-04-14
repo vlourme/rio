@@ -102,10 +102,11 @@ func (op *Operation) PrepareReceive(conn *Conn, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMultishot(conn *Conn, adaptor *RecvMultishotAdaptor) {
+func (op *Operation) PrepareReceiveMultishot(conn *Conn, bgid uint16, adaptor *RecvMultishotAdaptor) {
 	op.kind = op_kind_multishot
 	op.code = liburing.IORING_OP_RECV
 	op.fd = conn.direct
+	op.addrLen = uint32(bgid)
 	op.addr = unsafe.Pointer(adaptor)
 	return
 }
@@ -113,9 +114,9 @@ func (op *Operation) PrepareReceiveMultishot(conn *Conn, adaptor *RecvMultishotA
 func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err error) {
 	if op.kind == op_kind_multishot {
 		adaptor := (*RecvMultishotAdaptor)(op.addr)
-		adaptor.future = op.future
-		op.future.adaptor = adaptor
-		bgid := adaptor.br.bgid
+		adaptor.future = op.channel
+		op.channel.adaptor = adaptor
+		bgid := uint16(op.addrLen)
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
 		if liburing.VersionEnable(6, 10, 0) {
 			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
@@ -169,7 +170,7 @@ func (op *Operation) PrepareSendZC(conn *Conn, b []byte, adaptor *ZerocopyPromis
 
 func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err error) {
 	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
-	op.future.adaptor = adaptor
+	op.channel.adaptor = adaptor
 
 	b := uintptr(op.addr)
 	bLen := op.addrLen
@@ -235,7 +236,7 @@ func (op *Operation) PrepareSendMsgZC(conn *Conn, msg *syscall.Msghdr, adaptor *
 
 func (op *Operation) packingSendMsgZc(sqe *liburing.SubmissionQueueEntry) (err error) {
 	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
-	op.future.adaptor = adaptor
+	op.channel.adaptor = adaptor
 
 	msg := (*syscall.Msghdr)(op.addr)
 	opFlags := 0
