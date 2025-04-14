@@ -402,9 +402,14 @@ func (event *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (co
 				opErr   error
 			)
 			if opN < 0 {
-				opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-opN))
+				if -opN == int(syscall.ECANCELED) {
+					opErr = ErrCanceled
+				} else {
+					opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-opN))
+				}
 				opN = 0
 			}
+
 			cop.complete(opN, opFlags, opErr)
 
 			ring.CQAdvance(1)

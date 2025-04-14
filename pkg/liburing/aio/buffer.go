@@ -1,3 +1,5 @@
+//go:build linux
+
 package aio
 
 import (
@@ -9,13 +11,6 @@ import (
 	"time"
 	"unsafe"
 )
-
-type BufferAndRingConfig struct {
-	Size        int
-	Count       int
-	IdleTimeout time.Duration
-	mask        uint16
-}
 
 type BufferAndRing struct {
 	bgid        uint16

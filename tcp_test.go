@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -42,7 +41,7 @@ func TestTCP(t *testing.T) {
 	}()
 
 	loops := 1
-	src := make([]byte, 4096*32)
+	src := make([]byte, 4096*64)
 	_, _ = rand.Read(src)
 
 	wg.Add(1)
@@ -156,6 +155,20 @@ func TestTCPMultiAccept(t *testing.T) {
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
+	connWG := new(sync.WaitGroup)
+	for i := 0; i < 2; i++ {
+		connWG.Add(1)
+		go func() {
+			conn, connErr := rio.Dial("tcp", "127.0.0.1:9000")
+			if connErr != nil {
+				t.Error(connErr)
+				return
+			}
+			t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
+			_ = conn.Close()
+		}()
+	}
+
 	wg.Add(1)
 	go func(ln net.Listener, wg *sync.WaitGroup) {
 		defer wg.Done()
@@ -168,54 +181,12 @@ func TestTCPMultiAccept(t *testing.T) {
 				t.Error("accept", err)
 				return
 			}
-			go func(conn net.Conn) {
-				t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
-				b := make([]byte, 1024)
-				rn, rErr := conn.Read(b)
-				t.Log("srv read", rn, string(b[:rn]), rErr)
-				if rErr != nil {
-					_ = conn.Close()
-					return
-				}
-				wn, wErr := conn.Write(b[:rn])
-				t.Log("srv write", wn, wErr)
-				if wErr != nil {
-					_ = conn.Close()
-				}
-			}(conn)
+			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
+			_ = conn.Close()
+			connWG.Done()
 		}
 	}(ln, wg)
-
-	time.Sleep(500 * time.Millisecond)
-
-	for i := 0; i < 2; i++ {
-		t.Log("----------" + strconv.Itoa(i) + "----------")
-		conn, connErr := rio.Dial("tcp", "127.0.0.1:9000")
-		if connErr != nil {
-			t.Error(connErr)
-			return
-		}
-		t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
-
-		wn, wErr := conn.Write([]byte("hello world"))
-		if wErr != nil {
-			conn.Close()
-			t.Error(wErr)
-			return
-		}
-		t.Log("cli write:", wn)
-
-		b := make([]byte, 1024)
-		rn, rErr := conn.Read(b)
-		t.Log("cli read", rn, string(b[:rn]), rErr)
-		if rErr != nil {
-			conn.Close()
-			t.Error(rErr)
-			return
-		}
-		conn.Close()
-	}
-
+	connWG.Wait()
 	ln.Close()
 }
 

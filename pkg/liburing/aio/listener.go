@@ -8,29 +8,115 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 )
+
+func newMultishotAcceptor(ln *Listener) (acceptor *MultishotAcceptor) {
+	acceptor = &MultishotAcceptor{
+		serving:       true,
+		acceptAddr:    &syscall.RawSockaddrAny{},
+		acceptAddrLen: syscall.SizeofSockaddrAny,
+		eventLoop:     ln.eventLoop,
+		operation:     &Operation{},
+		future:        nil,
+		err:           nil,
+		locker:        new(sync.Mutex),
+	}
+	acceptor.operation.PrepareAcceptMultishot(ln, acceptor.acceptAddr, &acceptor.acceptAddrLen)
+	acceptor.future = acceptor.eventLoop.Submit(acceptor.operation)
+	return
+}
+
+type MultishotAcceptor struct {
+	serving       bool
+	acceptAddr    *syscall.RawSockaddrAny
+	acceptAddrLen int
+	eventLoop     *EventLoop
+	operation     *Operation
+	future        Future
+	err           error
+	locker        sync.Locker
+}
+
+func (adaptor *MultishotAcceptor) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
+	return true, n, flags, nil, err
+}
+
+func (adaptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop *EventLoop, err error) {
+	adaptor.locker.Lock()
+	if adaptor.err != nil {
+		err = adaptor.err
+		adaptor.locker.Unlock()
+		return
+	}
+	var (
+		accepted int
+		flags    uint32
+	)
+	accepted, flags, _, err = adaptor.future.AwaitDeadline(deadline)
+	if err != nil {
+		adaptor.serving = false
+		adaptor.err = err
+		adaptor.locker.Unlock()
+		return
+	}
+	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		adaptor.serving = false
+		adaptor.err = ErrCanceled
+		err = adaptor.err
+		adaptor.locker.Unlock()
+		return
+	}
+	// dispatch
+	fd, eventLoop, err = adaptor.eventLoop.group.Dispatch(accepted, adaptor.eventLoop)
+	adaptor.locker.Unlock()
+	return
+}
+
+func (adaptor *MultishotAcceptor) Close() (err error) {
+	adaptor.locker.Lock()
+	if adaptor.serving {
+		if err = adaptor.eventLoop.Cancel(adaptor.operation); err == nil {
+			for {
+				_, _, _, err = adaptor.future.Await()
+				if IsCanceled(err) {
+					break
+				}
+			}
+			adaptor.serving = false
+			adaptor.err = ErrCanceled
+		}
+	}
+	adaptor.locker.Unlock()
+	return
+}
 
 type Listener struct {
 	NetFd
-	backlog          int
-	acceptFn         func() (nfd *Conn, err error)
-	acceptAddr       *syscall.RawSockaddrAny
-	acceptAddrLenPtr *int
-	operation        *Operation
-	future           Future
-}
-
-func (fd *Listener) init() {
-	if fd.multishot {
-		fd.prepareAcceptMultishot()
-		fd.acceptFn = fd.acceptMultishot
-	} else {
-		fd.acceptFn = fd.acceptOneshot
-	}
+	multishotAcceptOnce sync.Once
+	multishotAcceptor   *MultishotAcceptor
 }
 
 func (fd *Listener) Accept() (*Conn, error) {
-	return fd.acceptFn()
+	if fd.multishot {
+		fd.multishotAcceptOnce.Do(func() {
+			fd.multishotAcceptor = newMultishotAcceptor(fd)
+		})
+		var (
+			accepted int
+			member   *EventLoop
+			err      error
+		)
+		accepted, member, err = fd.multishotAcceptor.Accept(fd.readDeadline)
+		if err != nil {
+			return nil, err
+		}
+		// new conn
+		conn := fd.newAcceptedConnFd(accepted, member)
+		return conn, nil
+	}
+
+	return fd.acceptOneshot()
 }
 
 func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
@@ -47,14 +133,14 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 		err = acceptErr
 		return
 	}
-	// dispatch to worker
-	dispatchFd, worker, dispatchErr := fd.eventLoop.group.DispatchAndWait(accepted, fd.eventLoop)
+	// dispatch to member
+	dispatchFd, member, dispatchErr := fd.eventLoop.group.Dispatch(accepted, fd.eventLoop)
 	if dispatchErr != nil {
 		err = dispatchErr
 		return
 	}
 	// new conn
-	conn = fd.newAcceptedConnFd(dispatchFd, worker)
+	conn = fd.newAcceptedConnFd(dispatchFd, member)
 	sa, saErr := sys.RawSockaddrAnyToSockaddr(acceptAddr)
 	if saErr == nil {
 		addr := sys.SockaddrToAddr(conn.net, sa)
@@ -63,52 +149,9 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 	return
 }
 
-func (fd *Listener) acceptMultishot() (conn *Conn, err error) {
-AWAIT:
-	accepted, cqeFlags, _, acceptErr := fd.future.AwaitDeadline(fd.readDeadline)
-	if acceptErr != nil {
-		err = acceptErr
-		return
-	}
-	if cqeFlags&liburing.IORING_CQE_F_MORE == 0 {
-		// submit
-		fd.future = fd.eventLoop.Submit(fd.operation)
-		goto AWAIT
-	}
-
-	// dispatch to worker
-	dispatchFd, worker, dispatchErr := fd.eventLoop.group.DispatchAndWait(accepted, fd.eventLoop)
-	if dispatchErr != nil {
-		err = dispatchErr
-		return
-	}
-	// new conn
-	conn = fd.newAcceptedConnFd(dispatchFd, worker)
-	return
-}
-
-func (fd *Listener) prepareAcceptMultishot() {
-	fd.acceptAddr = &syscall.RawSockaddrAny{}
-	acceptAddrLen := syscall.SizeofSockaddrAny
-	fd.acceptAddrLenPtr = &acceptAddrLen
-
-	// op
-	fd.operation = AcquireOperation()
-	// prepare
-	fd.operation.PrepareAcceptMultishot(fd, fd.acceptAddr, fd.acceptAddrLenPtr)
-	// submit
-	fd.future = fd.eventLoop.Submit(fd.operation)
-	return
-}
-
 func (fd *Listener) Close() error {
-	if fd.operation != nil {
-		_ = fd.eventLoop.Cancel(fd.operation)
-		_, _, _, _ = fd.future.Await()
-		op := fd.operation
-		fd.operation = nil
-		fd.future = nil
-		ReleaseOperation(op)
+	if fd.multishot {
+		_ = fd.multishotAcceptor.Close()
 	}
 	return fd.NetFd.Close()
 }

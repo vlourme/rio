@@ -237,7 +237,12 @@ func (adaptor *RecvMultishotAdaptor) Close() (err error) {
 	adaptor.operation = nil
 	if adaptor.status == recvMultishotProcessing {
 		if err = adaptor.eventLoop.Cancel(op); err == nil { // cancel succeed
-			_, _, _, _ = adaptor.future.Await()
+			for {
+				_, _, _, ferr := adaptor.future.Await()
+				if IsCanceled(ferr) {
+					break
+				}
+			}
 		}
 	}
 	ReleaseOperation(op)

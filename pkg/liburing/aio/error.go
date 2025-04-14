@@ -41,10 +41,10 @@ func (e *CanceledError) Error() string   { return "operation was canceled" }
 func (e *CanceledError) Timeout() bool   { return false }
 func (e *CanceledError) Temporary() bool { return true }
 func (e *CanceledError) Is(err error) bool {
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(err, syscall.ECANCELED) {
 		return true
 	}
-	if errors.Is(err, syscall.ECANCELED) {
+	if errors.Is(err, context.Canceled) {
 		return true
 	}
 	return false

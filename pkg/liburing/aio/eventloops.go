@@ -15,13 +15,7 @@ import (
 )
 
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
-	group = &EventLoopGroup{
-		wakeup:     nil,
-		boss:       nil,
-		workers:    nil,
-		workersNum: 0,
-		workerIdx:  0,
-	}
+	group = &EventLoopGroup{}
 
 	// wakeup
 	wakeupCh := newWakeup(group)
@@ -32,69 +26,69 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	}
 	group.wakeup = wakeup
 
-	// boss
-	bossCh := newEventLoop(0, group, options)
-	boss := <-bossCh
-	if err = boss.Valid(); err != nil {
-		_ = wakeup.Close()
-		err = fmt.Errorf("new eventloops failed: %v", err)
-		return
-	}
-	group.boss = boss
+	// members
+	var (
+		members []*EventLoop
+		count   uint32
+	)
 
-	// workers
-	workerNum := runtime.NumCPU()/2 - 2
-	if workerNum < 1 {
-		workerNum = 1
+	halfCPUs := uint32(runtime.NumCPU() / 2)
+	count = liburing.FloorPow2(halfCPUs)
+	if count == 0 {
+		count = 1
 	}
-	workers := make([]*EventLoop, workerNum)
-	for i := 0; i < workerNum; i++ {
-		workerCh := newEventLoop(i+1, group, options)
-		worker := <-workerCh
-		if err = worker.Valid(); err != nil {
-			for j := 0; j < i; j++ {
-				worker = workers[j]
-				_ = worker.Close()
-			}
-			_ = boss.Close()
+	members = make([]*EventLoop, count)
+	for i := uint32(0); i < count; i++ {
+		memberCh := newEventLoop(int(i), group, options)
+		member := <-memberCh
+		if err = member.Valid(); err != nil {
 			_ = wakeup.Close()
+			for j := uint32(0); j < i; j++ {
+				_ = members[j].Close()
+			}
 			err = fmt.Errorf("new eventloops failed: %v", err)
 			return
 		}
-		workers[i] = worker
+		members[i] = member
 	}
-	group.workers = workers
-	group.workersNum = int64(workerNum)
-	group.workerIdx = -1
+
+	group.wakeup = wakeup
+	group.members = members
+	group.count = count
+	group.mask = count - 1
 
 	return
 }
 
 type EventLoopGroup struct {
-	wakeup     *Wakeup
-	boss       *EventLoop
-	workers    []*EventLoop
-	workersNum int64
-	workerIdx  int64
+	wakeup  *Wakeup
+	members []*EventLoop
+	count   uint32
+	mask    uint32
+	index   atomic.Uint32
 }
 
-func (group *EventLoopGroup) DispatchAndWait(sfd int, src *EventLoop) (dfd int, dst *EventLoop, err error) {
-	if group.workersNum == 0 {
+func (group *EventLoopGroup) Dispatch(sfd int, src *EventLoop) (dfd int, dst *EventLoop, err error) {
+	if group.count == 1 {
 		dfd = sfd
-		dst = group.boss
+		dst = src
+		return
+	}
+	index := group.index.Add(1) & group.mask
+	member := group.members[index]
+
+	if src.Fd() == member.Fd() {
+		dfd = sfd
+		dst = src
 		return
 	}
 
-	idx := int64(0)
-	if group.workersNum != 1 {
-		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
-	}
-	dst = group.workers[idx]
+	dst = member
 	dstFd := dst.Fd()
 
 	op := AcquireOperation()
 	op.PrepareMSGRingFd(dstFd, sfd, nil)
-	dfd, _, _, err = group.boss.Submit(op).Await()
+	dfd, _, _, err = src.Submit(op).Await()
 	ReleaseOperation(op)
 	// close fd
 	cfd := &Fd{direct: sfd, regular: -1, eventLoop: src}
@@ -103,38 +97,19 @@ func (group *EventLoopGroup) DispatchAndWait(sfd int, src *EventLoop) (dfd int, 
 }
 
 func (group *EventLoopGroup) Next() (event *EventLoop) {
-	if group.workersNum == 0 {
-		event = group.boss
+	if group.count == 1 {
+		event = group.members[0]
 		return
 	}
-	idx := int64(0)
-	if group.workersNum != 1 {
-		idx = atomic.AddInt64(&group.workerIdx, 1) % group.workersNum
-	}
-	event = group.workers[idx]
-	return
-}
-
-func (group *EventLoopGroup) Submit(op *Operation) (future Future) {
-	future = group.boss.Submit(op)
-	return
-}
-
-func (group *EventLoopGroup) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
-	n, flags, _, err = group.Submit(op).Await()
-	return
-}
-
-func (group *EventLoopGroup) Cancel(target *Operation) (err error) {
-	err = group.boss.Cancel(target)
+	index := group.index.Add(1) & group.mask
+	event = group.members[index]
 	return
 }
 
 func (group *EventLoopGroup) Close() (err error) {
-	for _, worker := range group.workers {
-		_ = worker.Close()
+	for _, member := range group.members {
+		_ = member.Close()
 	}
-	_ = group.boss.Close()
 	_ = group.wakeup.Close()
 	return
 }
@@ -149,7 +124,7 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 		entries := runtime.NumCPU() * 2
 		ring, ringErr := liburing.New(
 			liburing.WithEntries(uint32(entries)),
-			liburing.WithFlags(liburing.IORING_SETUP_SINGLE_ISSUER),
+			liburing.WithFlags(liburing.IORING_SETUP_COOP_TASKRUN|liburing.IORING_SETUP_SINGLE_ISSUER),
 		)
 		if ringErr != nil {
 			w := &Wakeup{

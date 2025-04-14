@@ -33,7 +33,7 @@ func (op *Operation) Name() string {
 	case liburing.IORING_OP_TIMEOUT_REMOVE:
 		return "timeout_remove"
 	case liburing.IORING_OP_ACCEPT:
-		return "acceptOneshot"
+		return "accept"
 	case liburing.IORING_OP_ASYNC_CANCEL:
 		return "async_cancel"
 	case liburing.IORING_OP_LINK_TIMEOUT:

@@ -45,6 +45,8 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		err = errors.New("unsupported network")
 		return
 	}
+	// eventLoop
+	eventLoop := vortex.group.members[0]
 
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
@@ -54,7 +56,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	)
 	op := AcquireOperation()
 	op.PrepareSocket(family, sotype, proto)
-	sock, _, err = vortex.group.SubmitAndWait(op)
+	sock, _, err = eventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
 		return
@@ -74,7 +76,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
 				locker:        new(sync.Mutex),
-				eventLoop:     vortex.group.boss,
+				eventLoop:     eventLoop,
 			},
 			kind:             ListenedNetFd,
 			family:           family,
@@ -85,8 +87,6 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
 			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
 		},
-		backlog:  backlog,
-		acceptFn: nil,
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {
 		// ipv6
@@ -147,7 +147,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	if supportListen() {
 		op = AcquireOperation()
 		op.PrepareListen(ln, backlog)
-		_, _, err = vortex.group.SubmitAndWait(op)
+		_, _, err = eventLoop.SubmitAndWait(op)
 		ReleaseOperation(op)
 		if err != nil {
 			_ = ln.Close()
@@ -164,8 +164,6 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 			return
 		}
 	}
-	// init
-	ln.init()
 	return
 }
 
@@ -204,6 +202,9 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 		return
 	}
 
+	// eventLoop
+	eventLoop := vortex.group.members[0]
+
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
 	// sock
@@ -212,7 +213,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	)
 	op := AcquireOperation()
 	op.PrepareSocket(family, sotype, proto)
-	sock, _, err = vortex.group.SubmitAndWait(op)
+	sock, _, err = eventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
 		return
@@ -229,7 +230,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
 				locker:        new(sync.Mutex),
-				eventLoop:     vortex.group.boss,
+				eventLoop:     eventLoop,
 			},
 			kind:             ListenedNetFd,
 			family:           family,

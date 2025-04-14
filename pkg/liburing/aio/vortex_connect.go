@@ -51,8 +51,8 @@ func (vortex *Vortex) Connect(
 		err = errors.New("unsupported network")
 		return
 	}
-	// event loop
-	event := vortex.group.Next()
+	// eventLoop
+	eventLoop := vortex.group.Next()
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, "dial")
 	// sock
@@ -61,7 +61,7 @@ func (vortex *Vortex) Connect(
 	)
 	op := AcquireOperation()
 	op.PrepareSocket(family, sotype, proto)
-	sock, _, err = event.SubmitAndWait(op)
+	sock, _, err = eventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
 		return
@@ -78,7 +78,7 @@ func (vortex *Vortex) Connect(
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
 				locker:        new(sync.Mutex),
-				eventLoop:     event,
+				eventLoop:     eventLoop,
 			},
 			kind:             ConnectedNetFd,
 			family:           family,
@@ -151,7 +151,7 @@ func (vortex *Vortex) Connect(
 
 		op = AcquireOperationWithDeadline(deadline)
 		op.PrepareConnect(conn, rsa, int(rsaLen))
-		_, _, err = event.SubmitAndWait(op)
+		_, _, err = eventLoop.SubmitAndWait(op)
 		ReleaseOperation(op)
 		if err != nil {
 			_ = conn.Close()
