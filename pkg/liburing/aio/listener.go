@@ -38,56 +38,56 @@ type MultishotAcceptor struct {
 	locker        sync.Locker
 }
 
-func (adaptor *MultishotAcceptor) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
+func (acceptor *MultishotAcceptor) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
 	return true, n, flags, nil, err
 }
 
-func (adaptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop *EventLoop, err error) {
-	adaptor.locker.Lock()
-	if adaptor.err != nil {
-		err = adaptor.err
-		adaptor.locker.Unlock()
+func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop *EventLoop, err error) {
+	acceptor.locker.Lock()
+	if acceptor.err != nil {
+		err = acceptor.err
+		acceptor.locker.Unlock()
 		return
 	}
 	var (
 		accepted int
 		flags    uint32
 	)
-	accepted, flags, _, err = adaptor.future.AwaitDeadline(deadline)
+	accepted, flags, _, err = acceptor.future.AwaitDeadline(deadline)
 	if err != nil {
-		adaptor.serving = false
-		adaptor.err = err
-		adaptor.locker.Unlock()
+		acceptor.serving = false
+		acceptor.err = err
+		acceptor.locker.Unlock()
 		return
 	}
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
-		adaptor.serving = false
-		adaptor.err = ErrCanceled
-		err = adaptor.err
-		adaptor.locker.Unlock()
+		acceptor.serving = false
+		acceptor.err = ErrCanceled
+		err = acceptor.err
+		acceptor.locker.Unlock()
 		return
 	}
 	// dispatch
-	fd, eventLoop, err = adaptor.eventLoop.group.Dispatch(accepted, adaptor.eventLoop)
-	adaptor.locker.Unlock()
+	fd, eventLoop, err = acceptor.eventLoop.group.Dispatch(accepted, acceptor.eventLoop)
+	acceptor.locker.Unlock()
 	return
 }
 
-func (adaptor *MultishotAcceptor) Close() (err error) {
-	adaptor.locker.Lock()
-	if adaptor.serving {
-		if err = adaptor.eventLoop.Cancel(adaptor.operation); err == nil {
+func (acceptor *MultishotAcceptor) Close() (err error) {
+	acceptor.locker.Lock()
+	if acceptor.serving {
+		if err = acceptor.eventLoop.Cancel(acceptor.operation); err == nil {
 			for {
-				_, _, _, err = adaptor.future.Await()
+				_, _, _, err = acceptor.future.Await()
 				if IsCanceled(err) {
 					break
 				}
 			}
-			adaptor.serving = false
-			adaptor.err = ErrCanceled
+			acceptor.serving = false
+			acceptor.err = ErrCanceled
 		}
 	}
-	adaptor.locker.Unlock()
+	acceptor.locker.Unlock()
 	return
 }
 
