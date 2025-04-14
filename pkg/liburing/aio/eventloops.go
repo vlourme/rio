@@ -223,7 +223,7 @@ func (r *Wakeup) process() {
 			sqe = ring.GetSQE()
 		}
 		if err := op.packingSQE(sqe); err != nil {
-			panic(errors.Join(errors.New("packing sqe failed"), err))
+			panic(errors.Join(errors.New("packing sqe failed"), err, errors.New(op.Name())))
 			return
 		}
 		_, _ = ring.SubmitAndWait(1)

@@ -4,6 +4,7 @@ package aio
 
 import (
 	"errors"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
@@ -236,16 +237,22 @@ func (adaptor *RecvMultishotAdaptor) Close() (err error) {
 	op := adaptor.operation
 	adaptor.operation = nil
 	if adaptor.status == recvMultishotProcessing {
+		// todo fix 目前有OP野指针的情况，FLAG是4（NONEMPTY）,N是0
+		// TODO，情况是对方没写，本方读超时，读以提交，然后写完直接关闭，关闭时也等结果
+		// TODO 但还是 NONEMPTY
+		// 当去掉 之后的 ReleaseOperation，就是对的。。。
+		// 当使用 CANCEL FD 时，也是对的。。。
 		if err = adaptor.eventLoop.Cancel(op); err == nil { // cancel succeed
 			for {
 				_, _, _, ferr := adaptor.future.Await()
+				fmt.Println("canceled", ferr)
 				if IsCanceled(ferr) {
 					break
 				}
 			}
 		}
 	}
-	ReleaseOperation(op)
+	ReleaseOperation(op) // TODO 检查
 
 	br := adaptor.br
 	adaptor.br = nil
