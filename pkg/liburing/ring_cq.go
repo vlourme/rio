@@ -7,14 +7,15 @@ import (
 	"runtime"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 type GetEventsArg struct {
-	sigMask   uint64
-	sigMaskSz uint32
-	pad       uint32
-	ts        uint64
+	sigMask     uint64
+	sigMaskSz   uint32
+	minWaitUsec uint32
+	ts          uint64
 }
 
 func (ring *Ring) CQAdvance(numberOfCQEs uint32) {
@@ -48,7 +49,7 @@ func (ring *Ring) WaitCQE() (*CompletionQueueEvent, error) {
 	return ring.WaitCQENr(1)
 }
 
-func (ring *Ring) WaitCQEsNew(waitNr uint32, ts *syscall.Timespec, sigmask *unix.Sigset_t) (*CompletionQueueEvent, error) {
+func (ring *Ring) waitCQEsNew(waitNr uint32, ts *syscall.Timespec, minTimeout time.Duration, sigmask *unix.Sigset_t) (*CompletionQueueEvent, error) {
 	var arg *GetEventsArg
 	var data *getData
 
@@ -56,6 +57,9 @@ func (ring *Ring) WaitCQEsNew(waitNr uint32, ts *syscall.Timespec, sigmask *unix
 		sigMask:   uint64(uintptr(unsafe.Pointer(sigmask))),
 		sigMaskSz: nSig / szDivider,
 		ts:        uint64(uintptr(unsafe.Pointer(ts))),
+	}
+	if minTimeout > 0 && ring.features&IORING_FEAT_MIN_TIMEOUT != 0 {
+		arg.minWaitUsec = uint32(minTimeout.Microseconds())
 	}
 
 	data = &getData{
@@ -72,10 +76,14 @@ func (ring *Ring) WaitCQEsNew(waitNr uint32, ts *syscall.Timespec, sigmask *unix
 }
 
 func (ring *Ring) WaitCQEs(waitNr uint32, ts *syscall.Timespec, sigmask *unix.Sigset_t) (*CompletionQueueEvent, error) {
+	return ring.WaitCQEsMinTimeout(waitNr, ts, 0, sigmask)
+}
+
+func (ring *Ring) WaitCQEsMinTimeout(waitNr uint32, ts *syscall.Timespec, minTimeout time.Duration, sigmask *unix.Sigset_t) (*CompletionQueueEvent, error) {
 	var toSubmit uint32
 	if ts != nil {
 		if ring.features&IORING_FEAT_EXT_ARG != 0 {
-			return ring.WaitCQEsNew(waitNr, ts, sigmask)
+			return ring.waitCQEsNew(waitNr, ts, minTimeout, sigmask)
 		}
 		var err error
 		toSubmit, err = ring.submitTimeout(waitNr, ts)

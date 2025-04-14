@@ -105,7 +105,8 @@ func TestRing_MSGRing(t *testing.T) {
 		t.Error(swErr)
 		return
 	}
-	cqe, cqeErr := r1.WaitCQE()
+	ts := syscall.NsecToTimespec(time.Duration(1 * time.Millisecond).Nanoseconds())
+	cqe, cqeErr := r1.WaitCQEsMinTimeout(10, &ts, 10*time.Microsecond, nil)
 	if cqeErr != nil {
 		t.Error(cqeErr)
 		return
