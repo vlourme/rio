@@ -64,6 +64,9 @@ type Channel struct {
 }
 
 func (c *Channel) Complete(n int, flags uint32, err error) {
+	if c == nil {
+		return
+	}
 	if c.adaptor == nil {
 		c.ch <- CompletionEvent{n, flags, err, nil}
 		return

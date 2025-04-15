@@ -28,7 +28,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			_ = sys.MaskCPU(int(options.SQThreadCPU))
 		}
 	}
-
 	if options.EventLoopCount == 0 { // build count
 		var dividend uint32
 		if options.Flags&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
@@ -53,6 +52,9 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			{16, 10 * time.Microsecond},
 			{32, 15 * time.Microsecond},
 			{64, 20 * time.Microsecond},
+			//{16, 100 * time.Microsecond},
+			//{32, 200 * time.Microsecond},
+			//{64, 300 * time.Microsecond},
 		}
 	}
 
