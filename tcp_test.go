@@ -332,9 +332,40 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
 	defer conn.Close()
 
-	time.Sleep(1 * time.Second)
 	b := make([]byte, 1024)
 	rn, rErr := conn.Read(b)
 	t.Log("cli read", rn, rErr, string(b[:rn]))
 	t.Log("done")
+}
+
+func TestConn_Close(t *testing.T) {
+	ln, lnErr := rio.Listen("tcp", ":9000")
+	if lnErr != nil {
+		t.Error(lnErr)
+		return
+	}
+	defer ln.Close()
+
+	cli, cliErr := rio.Dial("tcp", "127.0.0.1:9000")
+	if cliErr != nil {
+		t.Error(cliErr)
+		return
+	}
+	defer cli.Close()
+
+	srv, srvErr := ln.Accept()
+	if srvErr != nil {
+		t.Error(srvErr)
+		return
+	}
+
+	_, _ = cli.Write([]byte("hello world"))
+	b := make([]byte, 1024)
+	_, _ = srv.Read(b)
+	t.Log("srv read", string(b))
+
+	closeErr := srv.Close()
+	if closeErr != nil {
+		t.Error(closeErr)
+	}
 }

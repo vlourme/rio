@@ -4,25 +4,22 @@ package aio
 
 type Conn struct {
 	NetFd
-	recvMultishotAdaptor *RecvMultishotAdaptor
+	multishotReceiver *MultishotReceiver
 }
 
-func (c *Conn) releaseRecvMultishotAdaptor() {
-	if c.recvMultishotAdaptor != nil {
-		adaptor := c.recvMultishotAdaptor
-		c.recvMultishotAdaptor = nil
-		_ = adaptor.Close()
-		releaseRecvMultishotAdaptor(adaptor)
+func (c *Conn) tryReleaseMultishotReceiver() {
+	if c.multishotReceiver != nil {
+		_ = c.multishotReceiver.Close()
 	}
 }
 
 func (c *Conn) Close() error {
-	c.releaseRecvMultishotAdaptor()
+	c.tryReleaseMultishotReceiver()
 	return c.NetFd.Close()
 }
 
 func (c *Conn) CloseRead() error {
-	c.releaseRecvMultishotAdaptor()
+	c.tryReleaseMultishotReceiver()
 	op := AcquireOperation()
 	op.PrepareCloseRead(c)
 	_, _, err := c.eventLoop.SubmitAndWait(op)

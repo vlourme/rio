@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"os"
 	"runtime"
@@ -21,7 +20,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	wakeupCh := newWakeup(group)
 	wakeup := <-wakeupCh
 	if err = wakeup.Valid(); err != nil {
-		err = fmt.Errorf("new eventloops failed: %v", err)
 		return
 	}
 	group.wakeup = wakeup
@@ -46,7 +44,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			for j := uint32(0); j < i; j++ {
 				_ = members[j].Close()
 			}
-			err = fmt.Errorf("new eventloops failed: %v", err)
 			return
 		}
 		members[i] = member
@@ -68,31 +65,33 @@ type EventLoopGroup struct {
 	index   atomic.Uint32
 }
 
-func (group *EventLoopGroup) Dispatch(sfd int, src *EventLoop) (dfd int, dst *EventLoop, err error) {
+func (group *EventLoopGroup) Dispatch(srcFd int, srcEventLoop *EventLoop) (dstFd int, dstEventLoop *EventLoop, err error) {
 	if group.count == 1 {
-		dfd = sfd
-		dst = src
+		dstFd = srcFd
+		dstEventLoop = srcEventLoop
 		return
 	}
+
 	index := group.index.Add(1) & group.mask
 	member := group.members[index]
 
-	if src.Fd() == member.Fd() {
-		dfd = sfd
-		dst = src
+	if srcEventLoop.Fd() == member.Fd() {
+		dstFd = srcFd
+		dstEventLoop = srcEventLoop
 		return
 	}
 
-	dst = member
-	dstFd := dst.Fd()
+	dstEventLoop = member
 
 	op := AcquireOperation()
-	op.PrepareMSGRingFd(dstFd, sfd, nil)
-	dfd, _, _, err = src.Submit(op).Await()
+	op.PrepareMSGRingFd(dstEventLoop.Fd(), srcFd, nil)
+	dstFd, _, err = srcEventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
 	// close fd
-	cfd := &Fd{direct: sfd, regular: -1, eventLoop: src}
-	_ = cfd.Close()
+	op = AcquireOperation()
+	op.PrepareCloseDirect(srcFd)
+	_, _, _ = srcEventLoop.SubmitAndWait(op)
+	ReleaseOperation(op)
 	return
 }
 

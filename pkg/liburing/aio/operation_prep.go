@@ -63,12 +63,14 @@ func (op *Operation) PrepareMSGRing(ringFd int, n uint32) {
 	return
 }
 
-func (op *Operation) PrepareMSGRingFd(ringFd int, sourceFd int, targetOp *Operation) {
+func (op *Operation) PrepareMSGRingFd(ringFd int, sourceFd int, attach *Operation) {
 	op.code = liburing.IORING_OP_MSG_RING
 	op.cmd = op_cmd_msg_ring_fd
 	op.fd = ringFd
 	op.addr = unsafe.Pointer(uintptr(sourceFd))
-	op.addr2 = unsafe.Pointer(targetOp)
+	if attach != nil {
+		op.addr2 = unsafe.Pointer(attach)
+	}
 	return
 }
 

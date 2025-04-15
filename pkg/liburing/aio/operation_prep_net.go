@@ -102,26 +102,23 @@ func (op *Operation) PrepareReceive(conn *Conn, b []byte) {
 	return
 }
 
-func (op *Operation) PrepareReceiveMultishot(conn *Conn, bgid uint16, adaptor *RecvMultishotAdaptor) {
+func (op *Operation) PrepareReceiveMultishot(conn *Conn, br *BufferAndRing) {
 	op.kind = op_kind_multishot
 	op.code = liburing.IORING_OP_RECV
 	op.fd = conn.direct
-	op.addrLen = uint32(bgid)
-	op.addr = unsafe.Pointer(adaptor)
+	op.addr = unsafe.Pointer(br)
 	return
 }
 
 func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err error) {
 	if op.kind == op_kind_multishot {
-		adaptor := (*RecvMultishotAdaptor)(op.addr)
-		adaptor.future = op.channel
-		op.channel.adaptor = adaptor
-		bgid := uint16(op.addrLen)
+		br := (*BufferAndRing)(op.addr)
+		op.channel.adaptor = br
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
 		if liburing.VersionEnable(6, 10, 0) {
 			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
 		}
-		sqe.SetBufferGroup(bgid)
+		sqe.SetBufferGroup(br.bgid)
 	} else {
 		b := uintptr(op.addr)
 		bLen := op.addrLen

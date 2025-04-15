@@ -74,20 +74,7 @@ func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop
 }
 
 func (acceptor *MultishotAcceptor) Close() (err error) {
-	acceptor.locker.Lock()
-	if acceptor.serving {
-		if err = acceptor.eventLoop.Cancel(acceptor.operation); err == nil {
-			for {
-				_, _, _, err = acceptor.future.Await()
-				if IsCanceled(err) {
-					break
-				}
-			}
-			acceptor.serving = false
-			acceptor.err = ErrCanceled
-		}
-	}
-	acceptor.locker.Unlock()
+	err = acceptor.eventLoop.Cancel(acceptor.operation)
 	return
 }
 
@@ -151,7 +138,10 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 
 func (fd *Listener) Close() error {
 	if fd.multishot {
-		_ = fd.multishotAcceptor.Close()
+		if err := fd.multishotAcceptor.Close(); err != nil {
+			fd.Cancel()
+			err = nil
+		}
 	}
 	return fd.NetFd.Close()
 }
