@@ -10,6 +10,7 @@ var (
 	aioOptions  []aio.Option
 )
 
+// Preset aio options
 func Preset(options ...aio.Option) {
 	aioOptions = append(aioOptions, options...)
 }

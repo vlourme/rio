@@ -5,6 +5,8 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"os"
+	"time"
 )
 
 func Open(options ...Option) (v AsyncIO, err error) {
@@ -23,13 +25,28 @@ func Open(options ...Option) (v AsyncIO, err error) {
 
 	// options
 	opt := Options{
-		Entries: 0,
-		Flags:   liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER,
-		//Flags:               liburing.IORING_SETUP_SQPOLL | liburing.IORING_SETUP_SQ_AFF,
-		SQThreadIdle:        0,
-		SendZCEnabled:       false,
-		MultishotDisabled:   false,
-		BufferAndRingConfig: BufferAndRingConfig{},
+		Entries:           0,
+		Flags:             liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER,
+		SQThreadIdle:      0,
+		SendZCEnabled:     false,
+		MultishotDisabled: false,
+		BufferAndRingConfig: BufferAndRingConfig{
+			Size:        os.Getpagesize(),
+			Count:       16,
+			IdleTimeout: 5 * time.Second,
+		},
+		WaitCQEIdleTimeout: 15 * time.Second,
+		WaitCQETimeCurve: Curve{
+			//{16, 1 * time.Microsecond},
+			//{32, 5 * time.Microsecond},
+			//{64, 10 * time.Microsecond},
+			{16, 10 * time.Microsecond},
+			{32, 20 * time.Microsecond},
+			{64, 40 * time.Microsecond},
+			//{16, 200 * time.Microsecond},
+			//{32, 300 * time.Microsecond},
+			//{64, 500 * time.Microsecond},
+		},
 	}
 	for _, option := range options {
 		option(&opt)
