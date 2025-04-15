@@ -5,6 +5,7 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"math"
 	"os"
 	"runtime"
@@ -59,15 +60,6 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 				err: ringErr,
 			}
 			ch <- event
-			return
-		}
-		if _, ringErr = ring.RegisterRingFd(); ringErr != nil {
-			_ = ring.Close()
-			w := &EventLoop{
-				id:  id,
-				err: ringErr,
-			}
-			ch <- w
 			return
 		}
 
@@ -137,43 +129,110 @@ type EventLoop struct {
 	idle            atomic.Bool
 	waitIdleTimeout time.Duration
 	waitTimeCurve   Curve
+	submitter       func(op *Operation) (future Future)
 	ready           chan *Operation
 	orphan          *Operation
 	err             error
 }
 
-func (event *EventLoop) Id() int {
-	return event.id
+func (eventLoop *EventLoop) Id() int {
+	return eventLoop.id
 }
 
-func (event *EventLoop) Key() uint64 {
-	return event.key
+func (eventLoop *EventLoop) Key() uint64 {
+	return eventLoop.key
 }
 
-func (event *EventLoop) Fd() int {
-	return event.ring.Fd()
+func (eventLoop *EventLoop) Fd() int {
+	return eventLoop.ring.Fd()
 }
 
-func (event *EventLoop) Valid() error {
-	return event.err
+func (eventLoop *EventLoop) Valid() error {
+	return eventLoop.err
 }
 
-func (event *EventLoop) Group() *EventLoopGroup {
-	return event.group
+func (eventLoop *EventLoop) Group() *EventLoopGroup {
+	return eventLoop.group
 }
 
-func (event *EventLoop) Submit(op *Operation) (future Future) {
+func (eventLoop *EventLoop) Submit(op *Operation) (future Future) {
+	future = eventLoop.submitter(op)
+	return
+}
+
+func (eventLoop *EventLoop) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
+	n, flags, _, err = eventLoop.Submit(op).Await()
+	return
+}
+
+func (eventLoop *EventLoop) Cancel(target *Operation) (err error) {
+	op := AcquireOperation()
+	op.PrepareCancel(target)
+	_, _, err = eventLoop.SubmitAndWait(op)
+	ReleaseOperation(op)
+	return
+}
+
+func (eventLoop *EventLoop) AcquireBufferAndRing() (br *BufferAndRing, err error) {
+	op := AcquireOperation()
+	op.kind = op_kind_noexec
+	op.cmd = op_cmd_acquire_br
+	_, _, err = eventLoop.SubmitAndWait(op)
+	if err == nil {
+		br = (*BufferAndRing)(op.addr)
+	}
+	ReleaseOperation(op)
+	return
+}
+
+func (eventLoop *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
+	eventLoop.bufferAndRings.Release(br)
+}
+
+func (eventLoop *EventLoop) Close() (err error) {
+	// stop buffer and rings
+	eventLoop.bufferAndRings.Stop()
+	// submit close op
+	op := &Operation{}
+	op.PrepareCloseRing(eventLoop.key)
+	eventLoop.Submit(op)
+	// wait
+	eventLoop.wg.Wait()
+	// close ready
+	close(eventLoop.ready)
+	// get err
+	err = eventLoop.err
+	return
+}
+
+func (eventLoop *EventLoop) process() {
+	if eventLoop.ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER == 0 {
+		eventLoop.submitter = eventLoop.submit2
+		eventLoop.process2()
+	} else {
+		_ = sys.AffCPU(eventLoop.id)
+		eventLoop.submitter = eventLoop.submit1
+		eventLoop.process1()
+	}
+}
+
+func setupOpCh(op *Operation) *Channel {
 	channel := acquireChannel(op.kind == op_kind_multishot)
 	if op.timeout != nil {
 		op.timeout.channel = acquireChannel(false)
 		channel.timeout = op.timeout.channel
 	}
 	op.channel = channel
+	return channel
+}
+
+func (eventLoop *EventLoop) submit1(op *Operation) (future Future) {
+	channel := setupOpCh(op)
 	future = channel
-	if event.running.Load() {
-		event.ready <- op
-		if event.idle.CompareAndSwap(true, false) {
-			if err := event.group.wakeup.Wakeup(event.ring.Fd()); err != nil {
+	if eventLoop.running.Load() {
+		eventLoop.ready <- op
+		if eventLoop.idle.CompareAndSwap(true, false) {
+			if err := eventLoop.group.wakeup.Wakeup(eventLoop.ring.Fd()); err != nil {
 				channel.Complete(0, 0, ErrCanceled)
 				return
 			}
@@ -184,83 +243,39 @@ func (event *EventLoop) Submit(op *Operation) (future Future) {
 	return
 }
 
-func (event *EventLoop) SubmitAndWait(op *Operation) (n int, flags uint32, err error) {
-	n, flags, _, err = event.Submit(op).Await()
-	return
-}
+func (eventLoop *EventLoop) process1() {
+	eventLoop.wg.Add(1)
+	defer eventLoop.wg.Done()
 
-func (event *EventLoop) Cancel(target *Operation) (err error) {
-	op := AcquireOperation()
-	op.PrepareCancel(target)
-	_, _, err = event.SubmitAndWait(op)
-	ReleaseOperation(op)
-	return
-}
-
-func (event *EventLoop) AcquireBufferAndRing() (br *BufferAndRing, err error) {
-	op := AcquireOperation()
-	op.kind = op_kind_noexec
-	op.cmd = op_cmd_acquire_br
-	_, _, err = event.SubmitAndWait(op)
-	if err == nil {
-		br = (*BufferAndRing)(op.addr)
-	}
-	ReleaseOperation(op)
-	return
-}
-
-func (event *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
-	event.bufferAndRings.Release(br)
-}
-
-func (event *EventLoop) Close() (err error) {
-	// stop buffer and rings
-	event.bufferAndRings.Stop()
-	// submit close op
-	op := &Operation{}
-	op.PrepareCloseRing(event.key)
-	event.Submit(op)
-	// wait
-	event.wg.Wait()
-	// close ready
-	close(event.ready)
-	// get err
-	err = event.err
-	return
-}
-
-func (event *EventLoop) process() {
-	event.wg.Add(1)
-	defer event.wg.Done()
-
-	event.running.Store(true)
+	eventLoop.running.Store(true)
 
 	var (
 		stopped      bool
-		ready        = event.ready
+		ready        = eventLoop.ready
 		readyN       uint32
 		completed    uint32
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
-		waitIdleTime = syscall.NsecToTimespec(event.waitIdleTimeout.Nanoseconds())
-		ring         = event.ring
-		transmission = NewCurveTransmission(event.waitTimeCurve)
-		cqes         = make([]*liburing.CompletionQueueEvent, event.ring.CQEntries())
+		waitIdleTime = syscall.NsecToTimespec(eventLoop.waitIdleTimeout.Nanoseconds())
+		ring         = eventLoop.ring
+		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
+		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
+	_, _ = ring.RegisterRingFd()
 
 	for {
 		// prepare
-		if event.orphan != nil {
-			if !event.prepareSQE(event.orphan) {
+		if eventLoop.orphan != nil {
+			if !eventLoop.prepareSQE(eventLoop.orphan) {
 				goto SUBMIT
 			}
-			event.orphan = nil
+			eventLoop.orphan = nil
 		}
 		if readyN = uint32(len(ready)); readyN > 0 {
 			for i := uint32(0); i < readyN; i++ {
 				op := <-ready
-				if !event.prepareSQE(op) {
-					event.orphan = op
+				if !eventLoop.prepareSQE(op) {
+					eventLoop.orphan = op
 					break
 				}
 			}
@@ -268,7 +283,7 @@ func (event *EventLoop) process() {
 		// submit
 	SUBMIT:
 		if readyN == 0 && completed == 0 { // idle
-			if event.idle.CompareAndSwap(false, true) {
+			if eventLoop.idle.CompareAndSwap(false, true) {
 				waitNr, waitTimeout = 1, &waitIdleTime
 			} else {
 				waitNr, waitTimeout = transmission.Match(1)
@@ -279,16 +294,16 @@ func (event *EventLoop) process() {
 		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
 
 		// reset idle
-		event.idle.CompareAndSwap(true, false)
+		eventLoop.idle.CompareAndSwap(true, false)
 
 		// complete
-		if completed, stopped = event.completeCQE(&cqes); stopped {
+		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
 			break
 		}
 	}
 
 	// unregister buffer and rings
-	_ = event.bufferAndRings.Unregister()
+	_ = eventLoop.bufferAndRings.Unregister()
 	/* unregister files
 	when kernel is less than 6.13, unregister files maybe blocked.
 	so use a timer and done to fix it.
@@ -307,16 +322,122 @@ func (event *EventLoop) process() {
 	}
 	unregisterFilesTimer.Stop()
 	// close ring
-	event.err = event.ring.Close()
+	eventLoop.err = eventLoop.ring.Close()
 	return
 }
 
-func (event *EventLoop) prepareSQE(op *Operation) bool {
+func (eventLoop *EventLoop) submit2(op *Operation) (future Future) {
+	channel := setupOpCh(op)
+	future = channel
+	if eventLoop.running.Load() {
+		eventLoop.ready <- op
+		return
+	}
+	channel.Complete(0, 0, ErrCanceled)
+	return
+}
+
+func (eventLoop *EventLoop) process2() {
+	eventLoop.wg.Add(1)
+	defer eventLoop.wg.Done()
+
+	eventLoop.running.Store(true)
+	done := make(chan struct{})
+
+	go eventLoop.asyncWaiting(done)
+
+	var (
+		ring    = eventLoop.ring
+		ready   = eventLoop.ready
+		readyN  uint32
+		orphan  *Operation
+		stopped bool
+	)
+
+	for {
+		// prepare
+		if orphan != nil {
+			if !eventLoop.prepareSQE(orphan) {
+				_, _ = ring.Submit()
+				continue
+			}
+			orphan = nil
+		}
+		// ready
+		if readyN = uint32(len(ready)); readyN > 0 {
+			for i := uint32(0); i < readyN; i++ {
+				op := <-ready
+				if !eventLoop.prepareSQE(op) {
+					orphan = op
+					break
+				}
+			}
+			_, _ = ring.Submit()
+			continue
+		}
+		// wait
+		select {
+		case op := <-ready:
+			if !eventLoop.prepareSQE(op) {
+				orphan = op
+				break
+			}
+			_, _ = ring.Submit()
+			break
+		case <-done:
+			stopped = true
+			break
+		}
+		if stopped {
+			break
+		}
+	}
+
+}
+
+func (eventLoop *EventLoop) asyncWaiting(done chan<- struct{}) {
+	var (
+		ring         = eventLoop.ring
+		stopped      bool
+		batchCN      uint32
+		completed    uint32
+		waitNr       uint32
+		waitTimeout  *syscall.Timespec
+		waitIdleTime = syscall.NsecToTimespec(eventLoop.waitIdleTimeout.Nanoseconds())
+		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
+		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
+	)
+
+	for {
+		waitNr, waitTimeout = transmission.Match(completed)
+		if completed == 0 {
+			_, _ = ring.WaitCQETimeout(&waitIdleTime)
+		} else {
+			_, _ = ring.WaitCQEs(waitNr, waitTimeout, nil)
+		}
+		completed = 0
+	PEEK:
+		if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
+			// complete
+			if batchCN, stopped = eventLoop.completeCQE(&cqes); stopped {
+				break
+			}
+			completed = batchCN
+			if completed > 0 {
+				goto PEEK
+			}
+		}
+
+	}
+	close(done)
+}
+
+func (eventLoop *EventLoop) prepareSQE(op *Operation) bool {
 	// handle noexec op
 	if op.kind == op_kind_noexec {
 		switch op.cmd {
 		case op_cmd_acquire_br:
-			br, brErr := event.bufferAndRings.Acquire()
+			br, brErr := eventLoop.bufferAndRings.Acquire()
 			if brErr != nil {
 				op.complete(0, 0, brErr)
 				break
@@ -326,7 +447,7 @@ func (event *EventLoop) prepareSQE(op *Operation) bool {
 			break
 		case op_cmd_close_br:
 			br := (*BufferAndRing)(op.addr)
-			if err := br.free(event.ring); err != nil {
+			if err := br.free(eventLoop.ring); err != nil {
 				op.complete(0, 0, err)
 			} else {
 				op.complete(1, 0, nil)
@@ -339,13 +460,13 @@ func (event *EventLoop) prepareSQE(op *Operation) bool {
 		return true
 	}
 	// get sqe
-	sqe := event.ring.GetSQE()
+	sqe := eventLoop.ring.GetSQE()
 	if sqe == nil {
 		return false
 	}
 	// prepare timeout timeout
 	if op.timeout != nil {
-		timeoutSQE := event.ring.GetSQE()
+		timeoutSQE := eventLoop.ring.GetSQE()
 		if timeoutSQE == nil { // no sqe left, prepare nop and set op to head or ready
 			sqe.PrepareNop()
 			return false
@@ -373,8 +494,8 @@ func (event *EventLoop) prepareSQE(op *Operation) bool {
 	return true
 }
 
-func (event *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (completed uint32, stopped bool) {
-	ring := event.ring
+func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (completed uint32, stopped bool) {
+	ring := eventLoop.ring
 	cqes := *cqesp
 	if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
 		for i := uint32(0); i < peeked; i++ {
@@ -386,9 +507,9 @@ func (event *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent) (co
 				continue
 			}
 
-			if cqe.UserData == event.key { // userdata is key means closed
+			if cqe.UserData == eventLoop.key { // userdata is key means closed
 				ring.CQAdvance(1)
-				event.running.Store(true)
+				eventLoop.running.Store(true)
 				stopped = true
 				continue
 			}

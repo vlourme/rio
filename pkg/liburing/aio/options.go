@@ -1,13 +1,16 @@
 package aio
 
 import (
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"time"
 )
 
 type Options struct {
+	EventLoopCount      uint32
 	Entries             uint32
 	Flags               uint32
 	SQThreadIdle        uint32
+	SQThreadCPU         uint32
 	SendZCEnabled       bool
 	MultishotDisabled   bool
 	BufferAndRingConfig BufferAndRingConfig
@@ -16,6 +19,14 @@ type Options struct {
 }
 
 type Option func(*Options)
+
+// WithEventLoopCount
+// setup event loop count
+func WithEventLoopCount(count uint32) Option {
+	return func(o *Options) {
+		o.EventLoopCount = count
+	}
+}
 
 // WithEntries
 // setup iouring's entries.
@@ -34,14 +45,23 @@ func WithFlags(flags uint32) Option {
 	}
 }
 
-// WithSQThreadIdle
-// setup iouring's sq thread idle, the unit is millisecond.
-func WithSQThreadIdle(idle time.Duration) Option {
+// WithSQPoll
+// setup IORING_SETUP_SQPOLL
+func WithSQPoll(idleTimeout time.Duration, affCPU int) Option {
 	return func(opts *Options) {
-		if idle < time.Millisecond {
-			idle = 10000 * time.Millisecond
+		if opts.Flags&liburing.IORING_SETUP_SQPOLL == 0 {
+			opts.Flags |= liburing.IORING_SETUP_SQPOLL
 		}
-		opts.SQThreadIdle = uint32(idle.Milliseconds())
+		if affCPU > -1 {
+			if opts.Flags&liburing.IORING_SETUP_SQ_AFF == 0 {
+				opts.Flags |= liburing.IORING_SETUP_SQ_AFF
+			}
+			opts.SQThreadCPU = uint32(affCPU)
+		}
+		if idleTimeout < 1*time.Millisecond {
+			idleTimeout = 2 * time.Second
+		}
+		opts.SQThreadIdle = uint32(idleTimeout.Milliseconds())
 	}
 }
 
@@ -68,17 +88,15 @@ func WithRingBufferConfig(size int, count int, idleTimeout time.Duration) Option
 		if size < 0 {
 			size = 0
 		}
+		opts.BufferAndRingConfig.Size = size
 		if count < 0 {
 			count = 0
 		}
+		opts.BufferAndRingConfig.Count = count
 		if idleTimeout < 0 {
 			idleTimeout = 0
 		}
-		opts.BufferAndRingConfig = BufferAndRingConfig{
-			Size:        size,
-			Count:       count,
-			IdleTimeout: idleTimeout,
-		}
+		opts.BufferAndRingConfig.IdleTimeout = idleTimeout
 	}
 }
 

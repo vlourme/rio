@@ -133,8 +133,8 @@ func newBufferAndRings(config BufferAndRingConfig) (brs *BufferAndRings, err err
 		return
 	}
 
-	if config.IdleTimeout < 1 {
-		config.IdleTimeout = 10 * time.Second
+	if config.IdleTimeout < 5*time.Second {
+		config.IdleTimeout = 15 * time.Second
 	}
 	config.mask = uint16(liburing.BufferRingMask(uint32(config.Count)))
 
@@ -267,12 +267,14 @@ func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
 }
 
 func (brs *BufferAndRings) recycleBufferAndRing(br *BufferAndRing) {
+	brs.locker.Lock()
 	// release bgid
 	brs.bgids = append(brs.bgids, br.bgid)
 	// release buffer
 	buffer := br.buffer
 	br.buffer = nil
 	brs.putBuffer(buffer)
+	brs.locker.Unlock()
 	return
 }
 
@@ -347,9 +349,7 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 
 	tmp := *scratch
 	for j := range tmp {
-		brs.locker.Lock()
 		brs.closeBufferAndRing(tmp[j])
-		brs.locker.Unlock()
 		tmp[j] = nil
 	}
 

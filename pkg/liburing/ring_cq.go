@@ -54,9 +54,10 @@ func (ring *Ring) waitCQEsNew(waitNr uint32, ts *syscall.Timespec, minTimeout ti
 	var data *getData
 
 	arg = &GetEventsArg{
-		sigMask:   uint64(uintptr(unsafe.Pointer(sigmask))),
-		sigMaskSz: nSig / szDivider,
-		ts:        uint64(uintptr(unsafe.Pointer(ts))),
+		sigMask:     uint64(uintptr(unsafe.Pointer(sigmask))),
+		sigMaskSz:   nSig / szDivider,
+		minWaitUsec: 0,
+		ts:          uint64(uintptr(unsafe.Pointer(ts))),
 	}
 	if minTimeout > 0 && ring.features&IORING_FEAT_MIN_TIMEOUT != 0 {
 		arg.minWaitUsec = uint32(minTimeout.Microseconds())

@@ -5,42 +5,83 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
+
+	if options.Flags == 0 { // set default flags
+		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER |
+			liburing.IORING_SETUP_TASKRUN_FLAG | liburing.IORING_SETUP_DEFER_TASKRUN
+	}
+
+	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
+		options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must one thread
+		if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
+			_ = sys.MaskCPU(int(options.SQThreadCPU))
+		}
+	}
+
+	if options.EventLoopCount == 0 { // build count
+		var dividend uint32
+		if options.Flags&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
+			dividend = 2 // IORING_SETUP_SINGLE_ISSUER means one ring one thread, so 1/2.
+		} else {
+			dividend = 4 // others means one ring two thread, so 1/4.
+		}
+		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / dividend)
+		if options.EventLoopCount == 0 {
+			options.EventLoopCount = 1
+		}
+	}
+
+	if options.WaitCQEIdleTimeout < time.Second { // min wait cqe idle timeout is 1 sec
+		options.WaitCQEIdleTimeout = 15 * time.Second // default is 15 sec
+	}
+
+	if len(options.WaitCQETimeCurve) == 0 {
+		options.WaitCQETimeCurve = Curve{
+			{4, 2 * time.Microsecond},
+			{8, 5 * time.Microsecond},
+			{16, 10 * time.Microsecond},
+			{32, 15 * time.Microsecond},
+			{64, 20 * time.Microsecond},
+		}
+	}
+
 	group = &EventLoopGroup{}
 
 	// wakeup
-	wakeupCh := newWakeup(group)
-	wakeup := <-wakeupCh
-	if err = wakeup.Valid(); err != nil {
-		return
+	var wakeup *Wakeup
+	if options.Flags&liburing.IORING_SETUP_SQPOLL == 0 {
+		wakeupCh := newWakeup(group)
+		wakeup = <-wakeupCh
+		if err = wakeup.Valid(); err != nil {
+			return
+		}
+		group.wakeup = wakeup
 	}
-	group.wakeup = wakeup
 
 	// members
 	var (
 		members []*EventLoop
-		count   uint32
 	)
 
-	halfCPUs := uint32(runtime.NumCPU() / 2)
-	count = liburing.FloorPow2(halfCPUs)
-	if count == 0 {
-		count = 1
-	}
-	members = make([]*EventLoop, count)
-	for i := uint32(0); i < count; i++ {
+	members = make([]*EventLoop, options.EventLoopCount)
+	for i := uint32(0); i < options.EventLoopCount; i++ {
 		memberCh := newEventLoop(int(i), group, options)
 		member := <-memberCh
 		if err = member.Valid(); err != nil {
-			_ = wakeup.Close()
+			if wakeup != nil {
+				_ = wakeup.Close()
+			}
 			for j := uint32(0); j < i; j++ {
 				_ = members[j].Close()
 			}
@@ -51,8 +92,8 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	group.wakeup = wakeup
 	group.members = members
-	group.count = count
-	group.mask = count - 1
+	group.count = options.EventLoopCount
+	group.mask = options.EventLoopCount - 1
 
 	return
 }
@@ -109,7 +150,9 @@ func (group *EventLoopGroup) Close() (err error) {
 	for _, member := range group.members {
 		_ = member.Close()
 	}
-	_ = group.wakeup.Close()
+	if group.wakeup != nil {
+		_ = group.wakeup.Close()
+	}
 	return
 }
 
