@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
@@ -49,18 +50,31 @@ func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop
 		acceptor.locker.Unlock()
 		return
 	}
+	acceptor.locker.Unlock()
+
 	var (
 		accepted int
 		flags    uint32
 	)
 	accepted, flags, _, err = acceptor.future.AwaitDeadline(deadline)
 	if err != nil {
+		acceptor.locker.Lock()
 		acceptor.serving = false
 		acceptor.err = err
+		if IsTimeout(err) {
+			acceptor.cancel()
+			for {
+				_, _, _, err2 := acceptor.future.Await()
+				if IsCanceled(err2) {
+					break
+				}
+			}
+		}
 		acceptor.locker.Unlock()
 		return
 	}
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		acceptor.locker.Lock()
 		acceptor.serving = false
 		acceptor.err = ErrCanceled
 		err = acceptor.err
@@ -69,12 +83,23 @@ func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop
 	}
 	// dispatch
 	fd, eventLoop, err = acceptor.eventLoop.group.Dispatch(accepted, acceptor.eventLoop)
-	acceptor.locker.Unlock()
 	return
 }
 
+func (acceptor *MultishotAcceptor) cancel() bool {
+	return acceptor.eventLoop.Cancel(acceptor.operation) == nil
+}
+
 func (acceptor *MultishotAcceptor) Close() (err error) {
-	err = acceptor.eventLoop.Cancel(acceptor.operation)
+	acceptor.locker.Lock()
+	if acceptor.serving {
+		acceptor.serving = false
+		acceptor.err = ErrCanceled
+		if !acceptor.cancel() {
+			err = errors.New("cancel acceptor failed")
+		}
+	}
+	acceptor.locker.Unlock()
 	return
 }
 

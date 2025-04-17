@@ -50,6 +50,10 @@ func TestTCP(t *testing.T) {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					t.Log("listener was closed")
+					return
+				}
 				t.Error("accept", err)
 				return
 			}
@@ -95,7 +99,6 @@ func TestTCP(t *testing.T) {
 					t.Log("srv write succeed", wn)
 				}
 			}(conn, src, wg)
-			return
 		}
 	}(ln, src, wg)
 
