@@ -164,7 +164,6 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 func (fd *Listener) Close() error {
 	if fd.multishot {
 		if err := fd.multishotAcceptor.Close(); err != nil {
-			fd.Cancel()
 			err = nil
 		}
 	}

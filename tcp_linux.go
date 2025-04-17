@@ -129,9 +129,11 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 		return
 	}
 	// conn
+	ln.asyncIO.Pin()
 	c = &TCPConn{
 		conn{
-			fd: cfd,
+			fd:      cfd,
+			asyncIO: ln.asyncIO,
 		},
 	}
 	return

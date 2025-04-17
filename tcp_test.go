@@ -28,33 +28,35 @@ func TestTCP(t *testing.T) {
 	}
 
 	t.Log("ln addr:", ln.Addr())
-
 	wg := new(sync.WaitGroup)
-	defer wg.Wait()
 
 	defer func() {
+		wg.Add(1)
 		err := ln.Close()
 		if err != nil {
 			t.Error(err)
 		}
+		wg.Wait()
 		return
 	}()
+
+	defer wg.Wait()
 
 	loops := 1
 	src := make([]byte, 4096*32)
 	_, _ = rand.Read(src)
 
-	wg.Add(1)
 	go func(ln net.Listener, src []byte, wg *sync.WaitGroup) {
-		defer wg.Done()
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					t.Log("listener was closed")
+					wg.Done()
 					return
 				}
 				t.Error("accept", err)
+				wg.Done()
 				return
 			}
 			wg.Add(1)

@@ -166,9 +166,11 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		return
 	}
 	// unix conn
+	ln.asyncIO.Pin()
 	c = &UnixConn{
 		conn{
-			fd: cfd,
+			fd:      cfd,
+			asyncIO: ln.asyncIO,
 		},
 	}
 	return
