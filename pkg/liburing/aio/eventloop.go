@@ -4,6 +4,7 @@ package aio
 
 import (
 	"errors"
+	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"math"
@@ -276,6 +277,7 @@ func (eventLoop *EventLoop) process1() {
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
 		waitIdleTime = syscall.NsecToTimespec(eventLoop.waitIdleTimeout.Nanoseconds())
+		waitErr      error
 		ring         = eventLoop.ring
 		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
@@ -307,21 +309,32 @@ func (eventLoop *EventLoop) process1() {
 			} else {
 				waitNr, waitTimeout = transmission.Match(1)
 			}
+		} else {
+			//waitNr, waitTimeout = transmission.Match(readyN + completed)
 		}
-		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
-
+		_, waitErr = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
 		// reset idle
 		eventLoop.idle.CompareAndSwap(true, false)
-
 		// complete
 		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
 			break
 		}
-		if waitNr <= completed {
+		if waitErr == nil {
 			waitNr, waitTimeout = transmission.Up()
-		} else if completed < waitNr {
+			fmt.Println("up >", completed, waitNr, time.Duration(waitTimeout.Nano()))
+		} else {
 			waitNr, waitTimeout = transmission.Down()
+			fmt.Println("down >", completed, waitNr, time.Duration(waitTimeout.Nano()))
 		}
+		// adjust wait nr and timeout
+		//
+		//if waitNr <= completed {
+		//	waitNr, waitTimeout = transmission.Up()
+		//	fmt.Println("up >", completed, waitNr, time.Duration(waitTimeout.Nano()))
+		//} else if completed < waitNr {
+		//	waitNr, waitTimeout = transmission.Down()
+		//	fmt.Println("down >", completed, waitNr, time.Duration(waitTimeout.Nano()))
+		//}
 	}
 	return
 }
@@ -400,17 +413,22 @@ func (eventLoop *EventLoop) asyncWaiting(done chan<- struct{}) {
 		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
-
+	waitNr, waitTimeout = transmission.Match(1)
 	for {
-		waitNr, waitTimeout = transmission.Match(completed)
-		if completed == 0 {
-			_, _ = ring.WaitCQETimeout(&waitIdleTime)
-		} else {
-			_, _ = ring.WaitCQEs(waitNr, waitTimeout, nil)
-		}
+		_, _ = ring.WaitCQEs(waitNr, waitTimeout, nil)
 		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
 			break
 		}
+		if completed == 0 {
+			waitNr = 1
+			waitTimeout = &waitIdleTime
+			continue
+		}
+		if completed < waitNr {
+			waitNr, waitTimeout = transmission.Down()
+			continue
+		}
+		waitNr, waitTimeout = transmission.Up()
 	}
 	close(done)
 }
@@ -513,11 +531,8 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 				}
 				opN = 0
 			}
-
 			cop.complete(opN, opFlags, opErr)
-
 			ring.CQAdvance(1)
-
 		}
 		completed += peeked
 	}

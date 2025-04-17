@@ -21,6 +21,7 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN |
 			liburing.IORING_SETUP_SINGLE_ISSUER |
 			liburing.IORING_SETUP_TASKRUN_FLAG
+		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER
 	}
 
 	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
@@ -41,6 +42,20 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			options.EventLoopCount = 1
 		}
 	}
+	// auto 						// 27000
+	//options.EventLoopCount = 1 	// 38000
+
+	/* c1 38000
+	{1, 10 * time.Microsecond},
+			{2, 20 * time.Microsecond},
+			{4, 40 * time.Microsecond},
+			{8, 50 * time.Microsecond},
+			{16, 100 * time.Microsecond},
+			{32, 200 * time.Microsecond},
+			{64, 300 * time.Microsecond},
+			{128, 400 * time.Microsecond},
+			{512, 500 * time.Microsecond},
+	*/
 
 	if options.WaitCQEIdleTimeout < time.Second { // min wait cqe idle timeout is 1 sec
 		options.WaitCQEIdleTimeout = 15 * time.Second // default is 15 sec
@@ -53,11 +68,14 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			//{16, 10 * time.Microsecond},
 			//{32, 15 * time.Microsecond},
 			//{64, 20 * time.Microsecond},
-			{4, 10 * time.Microsecond},
+			{2, 10 * time.Microsecond},
+			{4, 20 * time.Microsecond},
 			{8, 50 * time.Microsecond},
-			{16, 200 * time.Microsecond},
-			{32, 300 * time.Microsecond},
-			{64, 500 * time.Microsecond},
+			{16, 100 * time.Microsecond},
+			{32, 150 * time.Microsecond},
+			{64, 300 * time.Microsecond},
+			{128, 400 * time.Microsecond},
+			{512, 500 * time.Microsecond},
 		}
 	}
 
