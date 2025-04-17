@@ -106,7 +106,12 @@ func TestTCP(t *testing.T) {
 		return
 	}
 	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
-	defer conn.Close()
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			t.Error("cli close failed", err)
+		}
+	}()
 
 	for i := 0; i < loops; i++ {
 		var wn int

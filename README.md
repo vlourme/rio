@@ -6,7 +6,7 @@
 
 `RIO` 是遵循标准库使用方式的，是可以非常方便的投入使用，所以它不是个玩具。
 
-***Linux 内核版本需要`>= 5.19`，推荐版本为`>= 6.13`。***
+***Linux 内核版本需要`>= 6.8`，推荐版本为`>= 6.13`。***
 
 ## 特性
 * 基于 `IOURING` 的实现
@@ -20,6 +20,7 @@
 ## 注意
 * WSL2中不能开启`networkingMode=mirrored`。
 * 当启用`BUFFER AND RING`时，不要开启`IORING_SETUP_SINGLE_ISSUER`，如`MULTISHOT_RECV`。
+* 当内核版本`< 6.13`，不能自己拨号自己，因为在同一个`RING`里对方关闭时是收不到`EOF`。
 
 
 ## 性能
