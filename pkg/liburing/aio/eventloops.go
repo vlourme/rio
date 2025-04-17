@@ -47,14 +47,14 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if len(options.WaitCQETimeCurve) == 0 {
 		options.WaitCQETimeCurve = Curve{
-			{4, 2 * time.Microsecond},
-			{8, 5 * time.Microsecond},
-			{16, 10 * time.Microsecond},
-			{32, 15 * time.Microsecond},
-			{64, 20 * time.Microsecond},
-			//{16, 100 * time.Microsecond},
-			//{32, 200 * time.Microsecond},
-			//{64, 300 * time.Microsecond},
+			//{4, 2 * time.Microsecond},
+			//{8, 5 * time.Microsecond},
+			//{16, 10 * time.Microsecond},
+			//{32, 15 * time.Microsecond},
+			//{64, 20 * time.Microsecond},
+			{16, 200 * time.Microsecond},
+			{32, 300 * time.Microsecond},
+			{64, 500 * time.Microsecond},
 		}
 	}
 
@@ -62,7 +62,7 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	// wakeup
 	var wakeup *Wakeup
-	if options.Flags&liburing.IORING_SETUP_SQPOLL == 0 {
+	if options.Flags&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
 		wakeupCh := newWakeup(group)
 		wakeup = <-wakeupCh
 		if err = wakeup.Valid(); err != nil {

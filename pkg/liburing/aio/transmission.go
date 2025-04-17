@@ -7,6 +7,8 @@ import (
 
 type Transmission interface {
 	Match(n uint32) (waitNr uint32, waitTimeout *syscall.Timespec)
+	Up() (uint32, *syscall.Timespec)
+	Down() (uint32, *syscall.Timespec)
 }
 
 type Curve []struct {
@@ -35,7 +37,7 @@ func NewCurveTransmission(curve Curve) Transmission {
 	return &CurveTransmission{
 		curve: times,
 		size:  len(curve),
-		idx:   -1,
+		idx:   0,
 	}
 }
 
@@ -61,4 +63,24 @@ func (tran *CurveTransmission) Match(n uint32) (uint32, *syscall.Timespec) {
 	}
 	tail := tran.curve[tran.size-1]
 	return tail.n, &tail.time
+}
+
+func (tran *CurveTransmission) Up() (uint32, *syscall.Timespec) {
+	if tran.idx == tran.size-1 {
+		tail := tran.curve[tran.idx]
+		return tail.n, &tail.time
+	}
+	tran.idx++
+	node := tran.curve[tran.idx]
+	return node.n, &node.time
+}
+
+func (tran *CurveTransmission) Down() (uint32, *syscall.Timespec) {
+	if tran.idx < 1 {
+		head := tran.curve[0]
+		return head.n, &head.time
+	}
+	tran.idx--
+	node := tran.curve[tran.idx]
+	return node.n, &node.time
 }
