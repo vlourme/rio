@@ -89,15 +89,14 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		if waitIdleTimeout < 1 {
 			waitIdleTimeout = 15 * time.Second
 		}
-		// wait transmission
 
-		event := &EventLoop{
+		eventLoop := &EventLoop{
 			ring:            ring,
 			bufferAndRings:  brs,
 			group:           group,
 			wg:              new(sync.WaitGroup),
 			id:              id,
-			key:             0,
+			key:             uint64(uintptr(unsafe.Pointer(ring))),
 			running:         atomic.Bool{},
 			idle:            atomic.Bool{},
 			waitIdleTimeout: waitIdleTimeout,
@@ -105,14 +104,14 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			ready:           make(chan *Operation, ring.SQEntries()),
 			err:             nil,
 		}
-		event.key = uint64(uintptr(unsafe.Pointer(event)))
+		eventLoop.running.Store(true)
 		// return event loop
-		ch <- event
+		ch <- eventLoop
 		close(ch)
 		// start buffer and rings loop
-		brs.Start(event)
+		brs.Start(eventLoop)
 		// process
-		event.process()
+		eventLoop.process()
 	}(id, group, options, ch)
 	v = ch
 	return
@@ -208,8 +207,6 @@ func (eventLoop *EventLoop) Close() (err error) {
 func (eventLoop *EventLoop) process() {
 	eventLoop.wg.Add(1)
 	defer eventLoop.wg.Done()
-
-	eventLoop.running.Store(true)
 
 	if eventLoop.ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER == 0 {
 		eventLoop.submitter = eventLoop.submit2
