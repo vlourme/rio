@@ -206,6 +206,11 @@ func (eventLoop *EventLoop) Close() (err error) {
 }
 
 func (eventLoop *EventLoop) process() {
+	eventLoop.wg.Add(1)
+	defer eventLoop.wg.Done()
+
+	eventLoop.running.Store(true)
+
 	if eventLoop.ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER == 0 {
 		eventLoop.submitter = eventLoop.submit2
 		eventLoop.process2()
@@ -214,6 +219,28 @@ func (eventLoop *EventLoop) process() {
 		eventLoop.submitter = eventLoop.submit1
 		eventLoop.process1()
 	}
+
+	// unregister buffer and rings
+	_ = eventLoop.bufferAndRings.Unregister()
+	/* unregister files
+	when kernel is less than 6.13, unregister files maybe blocked.
+	so use a timer and done to fix it.
+	*/
+	unregisterFilesDone := make(chan struct{})
+	unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
+	go func(ring *liburing.Ring, done chan struct{}) {
+		_, _ = ring.UnregisterFiles()
+		close(unregisterFilesDone)
+	}(eventLoop.ring, unregisterFilesDone)
+	select {
+	case <-unregisterFilesTimer.C:
+		break
+	case <-unregisterFilesDone:
+		break
+	}
+	unregisterFilesTimer.Stop()
+	// close ring
+	eventLoop.err = eventLoop.ring.Close()
 }
 
 func setupOpCh(op *Operation) *Channel {
@@ -244,11 +271,6 @@ func (eventLoop *EventLoop) submit1(op *Operation) (future Future) {
 }
 
 func (eventLoop *EventLoop) process1() {
-	eventLoop.wg.Add(1)
-	defer eventLoop.wg.Done()
-
-	eventLoop.running.Store(true)
-
 	var (
 		stopped      bool
 		ready        = eventLoop.ready
@@ -262,7 +284,7 @@ func (eventLoop *EventLoop) process1() {
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
 	_, _ = ring.RegisterRingFd()
-
+	waitNr, waitTimeout = transmission.Match(1)
 	for {
 		// prepare
 		if eventLoop.orphan != nil {
@@ -288,8 +310,6 @@ func (eventLoop *EventLoop) process1() {
 			} else {
 				waitNr, waitTimeout = transmission.Match(1)
 			}
-		} else {
-			waitNr, waitTimeout = transmission.Match(readyN + completed)
 		}
 		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
 
@@ -300,29 +320,12 @@ func (eventLoop *EventLoop) process1() {
 		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
 			break
 		}
+		if waitNr <= completed {
+			waitNr, waitTimeout = transmission.Up()
+		} else if completed < waitNr {
+			waitNr, waitTimeout = transmission.Down()
+		}
 	}
-
-	// unregister buffer and rings
-	_ = eventLoop.bufferAndRings.Unregister()
-	/* unregister files
-	when kernel is less than 6.13, unregister files maybe blocked.
-	so use a timer and done to fix it.
-	*/
-	unregisterFilesDone := make(chan struct{})
-	unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
-	go func(ring *liburing.Ring, done chan struct{}) {
-		_, _ = ring.UnregisterFiles()
-		close(unregisterFilesDone)
-	}(ring, unregisterFilesDone)
-	select {
-	case <-unregisterFilesTimer.C:
-		break
-	case <-unregisterFilesDone:
-		break
-	}
-	unregisterFilesTimer.Stop()
-	// close ring
-	eventLoop.err = eventLoop.ring.Close()
 	return
 }
 
@@ -338,12 +341,7 @@ func (eventLoop *EventLoop) submit2(op *Operation) (future Future) {
 }
 
 func (eventLoop *EventLoop) process2() {
-	eventLoop.wg.Add(1)
-	defer eventLoop.wg.Done()
-
-	eventLoop.running.Store(true)
 	done := make(chan struct{})
-
 	go eventLoop.asyncWaiting(done)
 
 	var (
@@ -392,14 +390,12 @@ func (eventLoop *EventLoop) process2() {
 			break
 		}
 	}
-
 }
 
 func (eventLoop *EventLoop) asyncWaiting(done chan<- struct{}) {
 	var (
 		ring         = eventLoop.ring
 		stopped      bool
-		batchCN      uint32
 		completed    uint32
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
@@ -415,19 +411,9 @@ func (eventLoop *EventLoop) asyncWaiting(done chan<- struct{}) {
 		} else {
 			_, _ = ring.WaitCQEs(waitNr, waitTimeout, nil)
 		}
-		completed = 0
-	PEEK:
-		if peeked := ring.PeekBatchCQE(cqes); peeked > 0 {
-			// complete
-			if batchCN, stopped = eventLoop.completeCQE(&cqes); stopped {
-				break
-			}
-			completed = batchCN
-			if completed > 0 {
-				goto PEEK
-			}
+		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
+			break
 		}
-
 	}
 	close(done)
 }

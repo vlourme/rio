@@ -18,8 +18,9 @@ import (
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if options.Flags == 0 { // set default flags
-		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER |
-			liburing.IORING_SETUP_TASKRUN_FLAG | liburing.IORING_SETUP_DEFER_TASKRUN
+		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN |
+			liburing.IORING_SETUP_SINGLE_ISSUER |
+			liburing.IORING_SETUP_TASKRUN_FLAG
 	}
 
 	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
@@ -52,6 +53,8 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			//{16, 10 * time.Microsecond},
 			//{32, 15 * time.Microsecond},
 			//{64, 20 * time.Microsecond},
+			{4, 10 * time.Microsecond},
+			{8, 50 * time.Microsecond},
 			{16, 200 * time.Microsecond},
 			{32, 300 * time.Microsecond},
 			{64, 500 * time.Microsecond},
