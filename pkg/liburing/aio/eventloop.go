@@ -4,7 +4,6 @@ package aio
 
 import (
 	"errors"
-	"fmt"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"math"
@@ -277,7 +276,6 @@ func (eventLoop *EventLoop) process1() {
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
 		waitIdleTime = syscall.NsecToTimespec(eventLoop.waitIdleTimeout.Nanoseconds())
-		waitErr      error
 		ring         = eventLoop.ring
 		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
@@ -301,7 +299,7 @@ func (eventLoop *EventLoop) process1() {
 				}
 			}
 		}
-		// submit
+		// submit and wait
 	SUBMIT:
 		if readyN == 0 && completed == 0 { // idle
 			if eventLoop.idle.CompareAndSwap(false, true) {
@@ -310,31 +308,16 @@ func (eventLoop *EventLoop) process1() {
 				waitNr, waitTimeout = transmission.Match(1)
 			}
 		} else {
-			//waitNr, waitTimeout = transmission.Match(readyN + completed)
+			// adjust wait timeout
+			waitNr, waitTimeout = transmission.Match(readyN + completed)
 		}
-		_, waitErr = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
+		_, _ = ring.SubmitAndWaitTimeout(waitNr, waitTimeout, nil)
 		// reset idle
 		eventLoop.idle.CompareAndSwap(true, false)
-		// complete
+		// handle complete
 		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
 			break
 		}
-		if waitErr == nil {
-			waitNr, waitTimeout = transmission.Up()
-			fmt.Println("up >", completed, waitNr, time.Duration(waitTimeout.Nano()))
-		} else {
-			waitNr, waitTimeout = transmission.Down()
-			fmt.Println("down >", completed, waitNr, time.Duration(waitTimeout.Nano()))
-		}
-		// adjust wait nr and timeout
-		//
-		//if waitNr <= completed {
-		//	waitNr, waitTimeout = transmission.Up()
-		//	fmt.Println("up >", completed, waitNr, time.Duration(waitTimeout.Nano()))
-		//} else if completed < waitNr {
-		//	waitNr, waitTimeout = transmission.Down()
-		//	fmt.Println("down >", completed, waitNr, time.Duration(waitTimeout.Nano()))
-		//}
 	}
 	return
 }

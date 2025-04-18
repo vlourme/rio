@@ -18,10 +18,7 @@ import (
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if options.Flags == 0 { // set default flags
-		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN |
-			liburing.IORING_SETUP_SINGLE_ISSUER |
-			liburing.IORING_SETUP_TASKRUN_FLAG
-		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER
+		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER | liburing.IORING_SETUP_DEFER_TASKRUN
 	}
 
 	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
@@ -42,20 +39,37 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			options.EventLoopCount = 1
 		}
 	}
-	// auto 						// 27000
-	//options.EventLoopCount = 1 	// 38000
 
-	/* c1 38000
-	{1, 10 * time.Microsecond},
-			{2, 20 * time.Microsecond},
-			{4, 40 * time.Microsecond},
-			{8, 50 * time.Microsecond},
-			{16, 100 * time.Microsecond},
-			{32, 200 * time.Microsecond},
-			{64, 300 * time.Microsecond},
-			{128, 400 * time.Microsecond},
-			{512, 500 * time.Microsecond},
+	/* auto long poll
+	{8, 100 * time.Microsecond},
+	{16, 200 * time.Microsecond},
+	{32, 400 * time.Microsecond},
+	{64, 600 * time.Microsecond},
 	*/
+	/* auto long poll 2 40403.3↓, 40401.7↑
+	{8, 50 * time.Microsecond},
+	{16, 100 * time.Microsecond},
+	{24, 200 * time.Microsecond},
+	{32, 300 * time.Microsecond},
+	{48, 400 * time.Microsecond},
+	{56, 500 * time.Microsecond},
+	{64, 600 * time.Microsecond},
+	{72, 700 * time.Microsecond},
+	{80, 800 * time.Microsecond},
+	{98, 900 * time.Microsecond},
+	*/
+
+	/* auto short
+	{8, 20 * time.Microsecond},
+	{16, 40 * time.Microsecond},
+	{32, 80 * time.Microsecond},
+	{64, 200 * time.Microsecond},
+	*/
+
+	//  wrk -t50 -c500 -d10s http://192.168.100.120:9000/
+	// net 				204111.90 12.18k
+	// auto long  poll 	154638.42
+	// auto short poll 	186296.00 11.29k req/s
 
 	if options.WaitCQEIdleTimeout < time.Second { // min wait cqe idle timeout is 1 sec
 		options.WaitCQEIdleTimeout = 15 * time.Second // default is 15 sec
@@ -63,19 +77,18 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if len(options.WaitCQETimeCurve) == 0 {
 		options.WaitCQETimeCurve = Curve{
-			//{4, 2 * time.Microsecond},
-			//{8, 5 * time.Microsecond},
-			//{16, 10 * time.Microsecond},
-			//{32, 15 * time.Microsecond},
-			//{64, 20 * time.Microsecond},
-			{2, 10 * time.Microsecond},
+			{1, 10 * time.Microsecond},
 			{4, 20 * time.Microsecond},
 			{8, 50 * time.Microsecond},
 			{16, 100 * time.Microsecond},
-			{32, 150 * time.Microsecond},
-			{64, 300 * time.Microsecond},
-			{128, 400 * time.Microsecond},
-			{512, 500 * time.Microsecond},
+			{24, 200 * time.Microsecond},
+			{32, 300 * time.Microsecond},
+			{48, 400 * time.Microsecond},
+			{56, 500 * time.Microsecond},
+			{64, 600 * time.Microsecond},
+			{72, 700 * time.Microsecond},
+			{80, 800 * time.Microsecond},
+			{98, 900 * time.Microsecond},
 		}
 	}
 
