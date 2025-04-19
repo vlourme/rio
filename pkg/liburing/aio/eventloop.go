@@ -62,6 +62,8 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			ch <- event
 			return
 		}
+		// register personality
+		personality, _ := ring.RegisterPersonality()
 
 		// buffer and rings
 		brs, brsErr := newBufferAndRings(options.BufferAndRingConfig)
@@ -97,6 +99,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			wg:              new(sync.WaitGroup),
 			id:              id,
 			key:             uint64(uintptr(unsafe.Pointer(ring))),
+			personality:     uint16(personality),
 			running:         atomic.Bool{},
 			idle:            atomic.Bool{},
 			waitIdleTimeout: waitIdleTimeout,
@@ -124,6 +127,7 @@ type EventLoop struct {
 	wg              *sync.WaitGroup
 	id              int
 	key             uint64
+	personality     uint16
 	running         atomic.Bool
 	idle            atomic.Bool
 	waitIdleTimeout time.Duration
@@ -253,6 +257,7 @@ func setupOpCh(op *Operation) *Channel {
 func (eventLoop *EventLoop) submit1(op *Operation) (future Future) {
 	channel := setupOpCh(op)
 	future = channel
+	op.personality = eventLoop.personality
 	if eventLoop.running.Load() {
 		eventLoop.ready <- op
 		if eventLoop.idle.CompareAndSwap(true, false) {
@@ -325,6 +330,7 @@ func (eventLoop *EventLoop) process1() {
 func (eventLoop *EventLoop) submit2(op *Operation) (future Future) {
 	channel := setupOpCh(op)
 	future = channel
+	op.personality = eventLoop.personality
 	if eventLoop.running.Load() {
 		eventLoop.ready <- op
 		return
@@ -499,8 +505,7 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 			}
 
 			// get op from cqe
-			copPtr := cqe.GetData()
-			cop := (*Operation)(copPtr)
+			cop := (*Operation)(unsafe.Pointer(uintptr(cqe.UserData)))
 			var (
 				opN     = int(cqe.Res)
 				opFlags = cqe.Flags
@@ -516,6 +521,7 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 			}
 			cop.complete(opN, opFlags, opErr)
 			ring.CQAdvance(1)
+			cop = nil
 		}
 		completed += peeked
 	}

@@ -219,14 +219,17 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 			ch <- w
 			return
 		}
+		// register personality
+		personality, _ := ring.RegisterPersonality()
 		w := &Wakeup{
-			ring:    ring,
-			group:   group,
-			wg:      new(sync.WaitGroup),
-			key:     0,
-			ready:   make(chan *Operation, ring.SQEntries()),
-			running: atomic.Bool{},
-			err:     nil,
+			ring:        ring,
+			group:       group,
+			wg:          new(sync.WaitGroup),
+			key:         0,
+			personality: uint16(personality),
+			ready:       make(chan *Operation, ring.SQEntries()),
+			running:     atomic.Bool{},
+			err:         nil,
 		}
 		w.key = uint64(uintptr(unsafe.Pointer(w)))
 
@@ -241,13 +244,14 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 }
 
 type Wakeup struct {
-	ring    *liburing.Ring
-	group   *EventLoopGroup
-	wg      *sync.WaitGroup
-	key     uint64
-	ready   chan *Operation
-	running atomic.Bool
-	err     error
+	ring        *liburing.Ring
+	group       *EventLoopGroup
+	wg          *sync.WaitGroup
+	key         uint64
+	personality uint16
+	ready       chan *Operation
+	running     atomic.Bool
+	err         error
 }
 
 func (r *Wakeup) Valid() error {
@@ -259,6 +263,7 @@ func (r *Wakeup) Wakeup(ringFd int) (err error) {
 		op := AcquireOperation()
 		channel := acquireChannel(false)
 		op.channel = channel
+		op.personality = r.personality
 		op.PrepareMSGRing(ringFd, 0)
 		r.ready <- op
 		_, _, _, err = channel.Await()
@@ -318,8 +323,7 @@ func (r *Wakeup) process() {
 		}
 
 		// get op from cqe
-		copPtr := cqe.GetData()
-		cop := (*Operation)(copPtr)
+		cop := (*Operation)(unsafe.Pointer(uintptr(cqe.UserData)))
 		var (
 			opN     = int(cqe.Res)
 			opFlags = cqe.Flags
@@ -329,8 +333,8 @@ func (r *Wakeup) process() {
 			opErr = os.NewSyscallError(cop.Name(), syscall.Errno(-opN))
 		}
 		cop.complete(opN, opFlags, opErr)
-
 		ring.CQAdvance(1)
+		cop = nil
 	}
 	// close ring
 	r.err = r.ring.Close()

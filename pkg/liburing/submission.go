@@ -217,6 +217,10 @@ func (entry *SubmissionQueueEntry) SetBufferGroup(bgid uint16) {
 	entry.Flags |= IOSQE_BUFFER_SELECT
 }
 
+func (entry *SubmissionQueueEntry) SetPersonality(personality uint16) {
+	entry.Personality = personality
+}
+
 // [Nop] ***************************************************************************************************************
 
 func (entry *SubmissionQueueEntry) PrepareNop() {

@@ -76,22 +76,24 @@ const (
 )
 
 type Operation struct {
-	code     uint8          // 1
-	_pad     [3]uint8       // 3
-	cmd      int            // 8
-	kind     uint32         // 4
-	timeout  *Operation     // 8
-	channel  *Channel       // 8
-	fd       int            // 8
-	addr     unsafe.Pointer // 8
-	addrLen  uint32         // 4
-	addr2    unsafe.Pointer // 8
-	addr2Len uint32         // 4
+	code        uint8          // 1
+	_pad        [1]uint8       // 1
+	personality uint16         // 2
+	kind        uint32         // 4
+	cmd         int            // 8
+	timeout     *Operation     // 8
+	channel     *Channel       // 8
+	fd          int            // 8
+	addr        unsafe.Pointer // 8
+	addrLen     uint32         // 4
+	addr2       unsafe.Pointer // 8
+	addr2Len    uint32         // 4
 }
 
 func (op *Operation) reset() {
 	op.code = liburing.IORING_OP_LAST
 	op.cmd = 0
+	op.personality = 0
 	op.kind = 0
 	op.timeout = nil
 	op.channel = nil
