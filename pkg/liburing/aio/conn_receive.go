@@ -78,7 +78,6 @@ const (
 	recvMultishotReady = iota
 	recvMultishotProcessing
 	recvMultishotReceiving
-	recvMultishotEOF
 	recvMultishotCanceled
 )
 
@@ -102,33 +101,39 @@ func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error
 	r.locker.Lock()
 	// canceled
 	if r.status == recvMultishotCanceled {
-		err = r.err
+		if r.buffer == nil {
+			err = r.err
+			r.locker.Unlock()
+			return
+		}
+		n, _ = r.buffer.Read(b)
+		if n == 0 {
+			r.releaseBuffer()
+			err = r.err
+		}
 		r.locker.Unlock()
 		return
 	}
+	r.locker.Unlock()
 
 	// read buffer
 	if r.buffer.Len() > 0 {
 		n, _ = r.buffer.Read(b)
 		if n == bLen {
-			r.locker.Unlock()
 			return
 		}
 	}
 
-	// eof
-	if r.status == recvMultishotEOF {
+	// start
+	r.locker.Lock()
+	if r.status == recvMultishotReady {
+		r.submit()
+	} else if r.status == recvMultishotCanceled {
 		if n == 0 {
-			err = io.EOF
-			r.releaseBuffer()
+			err = r.err
 		}
 		r.locker.Unlock()
 		return
-	}
-
-	// start
-	if r.status == recvMultishotReady {
-		r.submit()
 	}
 	r.status = recvMultishotReceiving
 	r.locker.Unlock()
@@ -138,6 +143,13 @@ func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error
 	events := r.future.AwaitBatch(hungry, deadline)
 	// set status be processing
 	r.locker.Lock()
+	if r.status == recvMultishotCanceled {
+		if n == 0 {
+			err = r.err
+		}
+		r.locker.Unlock()
+		return
+	}
 	r.status = recvMultishotProcessing
 	r.locker.Unlock()
 	// handle events
@@ -153,41 +165,43 @@ func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error
 		if handleErr != nil {
 			r.locker.Lock()
 			if errors.Is(handleErr, syscall.ENOBUFS) { // set ready to resubmit next receive time
-				r.status = recvMultishotReady
+				if r.status != recvMultishotCanceled {
+					r.status = recvMultishotReady
+				}
 				r.locker.Unlock()
 				break
 			}
 
-			r.status = recvMultishotCanceled // set done when receive failed
-			r.err = handleErr
+			if r.status != recvMultishotCanceled {
+				r.status = recvMultishotCanceled // set done when receive failed
+				r.err = handleErr
 
-			if IsTimeout(handleErr) { // handle timeout
-				r.cancel()
-				for { // await cancel
-					_, _, _, err = r.future.Await()
-					if IsCanceled(err) { // op canceled
-						err = nil
-						break
+				if IsTimeout(handleErr) { // handle timeout
+					r.cancel()
+					for { // await cancel
+						_, _, _, err = r.future.Await()
+						if IsCanceled(err) { // op canceled
+							err = nil
+							break
+						}
 					}
 				}
-				r.releaseBuffer() // release buffer
-			} else if errors.Is(handleErr, io.EOF) { // handle EOF
-				r.status = recvMultishotEOF
-			} else {
-				r.releaseBuffer() // release buffer
+				r.releaseRuntime() // release runtime
+
+				if n == 0 {
+					r.releaseBuffer()
+					err = handleErr
+				}
 			}
 
-			r.releaseRuntime() // release runtime
-
-			if n == 0 {
-				err = handleErr
-			}
 			r.locker.Unlock()
 			break
 		}
 		if interrupted { // set ready to resubmit next read time
 			r.locker.Lock()
-			r.status = recvMultishotReady
+			if r.status != recvMultishotCanceled {
+				r.status = recvMultishotReady
+			}
 			r.locker.Unlock()
 			break
 		}
