@@ -39,10 +39,10 @@ func ReleaseOperation(op *Operation) {
 	if timeout := op.timeout; timeout != nil {
 		op.timeout = nil
 		op.channel.timeout = nil
-		channel := timeout.channel
-		timeout.channel = nil
-		releaseChannel(channel)
-
+		if channel := timeout.channel; channel != nil {
+			timeout.channel = nil
+			releaseChannel(channel)
+		}
 		timeout.reset()
 		operations.Put(timeout)
 	}
@@ -59,7 +59,7 @@ func ReleaseOperation(op *Operation) {
 const (
 	op_kind_oneshot uint32 = iota
 	op_kind_multishot
-	op_kind_noexec
+	op_kind_register
 )
 
 const (
@@ -71,7 +71,7 @@ const (
 	op_cmd_cancel_direct
 	op_cmd_msg_ring
 	op_cmd_msg_ring_fd
-	op_cmd_acquire_br
+	op_cmd_create_br
 	op_cmd_close_br
 )
 

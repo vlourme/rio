@@ -58,7 +58,7 @@ func (ring *Ring) sqRingNeedsEnter(submit uint32, flags *uint32) bool {
 	if submit == 0 {
 		return false
 	}
-	if (ring.flags & IORING_SETUP_SQPOLL) == 0 {
+	if ring.flags&IORING_SETUP_SQPOLL == 0 {
 		return true
 	}
 	if atomic.LoadUint32(ring.sqRing.flags)&IORING_SQ_NEED_WAKEUP != 0 {
@@ -66,4 +66,44 @@ func (ring *Ring) sqRingNeedsEnter(submit uint32, flags *uint32) bool {
 		return true
 	}
 	return false
+}
+
+func (ring *Ring) flushSQ() uint32 {
+	sq := ring.sqRing
+	tail := sq.sqeTail
+	if sq.sqeHead != tail {
+		sq.sqeHead = tail
+		atomic.StoreUint32(sq.tail, tail)
+	}
+	return tail - atomic.LoadUint32(sq.head)
+}
+
+func (ring *Ring) FlushSQ() bool {
+	if n := ring.flushSQ(); n > 0 {
+		return ring.SQNeedWakeup()
+	}
+	return false
+}
+
+func (ring *Ring) SQNeedWakeup() bool {
+	if ring.flags&IORING_SETUP_SQPOLL == 0 {
+		return false
+	}
+	return atomic.LoadUint32(ring.sqRing.flags)&IORING_SQ_NEED_WAKEUP != 0
+}
+
+func (ring *Ring) WakeupSQPoll() (uint, error) {
+	var ret uint
+	var err error
+	if ring.SQNeedWakeup() {
+		flags := IORING_ENTER_SQ_WAKEUP
+		if ring.kind&regRing != 0 {
+			flags |= IORING_ENTER_REGISTERED_RING
+		}
+		ret, err = ring.Enter(1, 0, flags, nil)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return ret, nil
 }

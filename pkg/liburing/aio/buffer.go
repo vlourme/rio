@@ -14,6 +14,75 @@ import (
 	"unsafe"
 )
 
+var bufferAndRingRegisters = sync.Pool{}
+
+func acquireBufferAndRingRegister(eventLoop *EventLoop) *BufferAndRingRegister {
+	v := bufferAndRingRegisters.Get()
+	if v == nil {
+		r := &BufferAndRingRegister{
+			eventLoop: eventLoop,
+		}
+		return r
+	}
+	r := v.(*BufferAndRingRegister)
+	r.eventLoop = eventLoop
+	return r
+}
+
+func releaseBufferAndRingRegister(r *BufferAndRingRegister) {
+	r.eventLoop = nil
+	bufferAndRingRegisters.Put(r)
+}
+
+type BufferAndRingRegister struct {
+	eventLoop *EventLoop
+}
+
+func (r BufferAndRingRegister) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
+	if err != nil {
+		return true, n, flags, nil, err
+	}
+	var br *BufferAndRing = nil
+	br, err = r.eventLoop.bufferAndRings.Acquire()
+	return true, n, flags, unsafe.Pointer(br), err
+}
+
+var bufferAndRingUnregisters = sync.Pool{}
+
+func acquireBufferAndRingUnregister(brs *BufferAndRings, br *BufferAndRing) *BufferAndRingUnregister {
+	v := bufferAndRingUnregisters.Get()
+	if v == nil {
+		r := &BufferAndRingUnregister{
+			brs: brs,
+			br:  br,
+		}
+		return r
+	}
+	r := v.(*BufferAndRingUnregister)
+	r.brs = brs
+	r.br = br
+	return r
+}
+
+func releaseBufferAndRingUnregister(r *BufferAndRingUnregister) {
+	r.brs = nil
+	r.br = nil
+	bufferAndRingUnregisters.Put(r)
+}
+
+type BufferAndRingUnregister struct {
+	brs *BufferAndRings
+	br  *BufferAndRing
+}
+
+func (r BufferAndRingUnregister) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
+	if err != nil {
+		return true, n, flags, nil, err
+	}
+	err = r.br.free(r.brs)
+	return true, n, flags, nil, err
+}
+
 type BufferAndRing struct {
 	bgid        uint16
 	lastUseTime time.Time
@@ -26,9 +95,12 @@ func (br *BufferAndRing) Id() uint16 {
 	return br.bgid
 }
 
-func (br *BufferAndRing) free(ring *liburing.Ring) (err error) {
+func (br *BufferAndRing) free(brs *BufferAndRings) (err error) {
+	// free br
 	entries := uint32(br.config.Count)
-	err = ring.FreeBufRing(br.value, entries, br.bgid)
+	err = brs.eventLoop.ring.FreeBufRing(br.value, entries, br.bgid)
+	// recycle br
+	brs.recycleBufferAndRing(br)
 	return
 }
 
@@ -254,15 +326,12 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 }
 
 func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
-	// submit
+	unregister := acquireBufferAndRingUnregister(brs, br)
 	op := AcquireOperation()
-	op.kind = op_kind_noexec
-	op.cmd = op_cmd_close_br
-	op.addr = unsafe.Pointer(br)
+	op.PrepareCloseBufferAndRing(unregister)
 	_, _, _ = brs.eventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
-	// recycle br
-	brs.recycleBufferAndRing(br)
+	releaseBufferAndRingUnregister(unregister)
 	return
 }
 
@@ -359,10 +428,7 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 
 func (brs *BufferAndRings) Unregister() error {
 	for _, br := range brs.idles {
-		// free br
-		_ = br.free(brs.eventLoop.ring)
-		// recycle br
-		brs.recycleBufferAndRing(br)
+		_ = br.free(brs)
 	}
 	return nil
 }

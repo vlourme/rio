@@ -27,16 +27,14 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			_ = sys.MaskCPU(int(options.SQThreadCPU))
 		}
 	}
-	if options.EventLoopCount == 0 { // build count
-		var dividend uint32
-		if options.Flags&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
-			dividend = 2 // IORING_SETUP_SINGLE_ISSUER means one ring one thread, so 1/2.
-		} else {
-			dividend = 4 // others means one ring two thread, so 1/4.
-		}
-		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / dividend)
-		if options.EventLoopCount == 0 {
+	if options.EventLoopCount == 0 { // setup count
+		if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 {
 			options.EventLoopCount = 1
+		} else {
+			options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
+			if options.EventLoopCount == 0 {
+				options.EventLoopCount = 1
+			}
 		}
 	}
 
@@ -47,6 +45,21 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	{64, 600 * time.Microsecond},
 	*/
 	/* auto long poll 2 40403.3↓, 40401.7↑
+	{8, 50 * time.Microsecond},
+	{16, 100 * time.Microsecond},
+	{24, 200 * time.Microsecond},
+	{32, 300 * time.Microsecond},
+	{48, 400 * time.Microsecond},
+	{56, 500 * time.Microsecond},
+	{64, 600 * time.Microsecond},
+	{72, 700 * time.Microsecond},
+	{80, 800 * time.Microsecond},
+	{98, 900 * time.Microsecond},
+	*/
+
+	/* auto long poll 3 38243.8↓, 38243.9↑
+	{1, 10 * time.Microsecond},
+	{4, 20 * time.Microsecond},
 	{8, 50 * time.Microsecond},
 	{16, 100 * time.Microsecond},
 	{24, 200 * time.Microsecond},
@@ -95,15 +108,12 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	group = &EventLoopGroup{}
 
 	// wakeup
-	var wakeup *Wakeup
-	if options.Flags&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
-		wakeupCh := newWakeup(group)
-		wakeup = <-wakeupCh
-		if err = wakeup.Valid(); err != nil {
-			return
-		}
-		group.wakeup = wakeup
+	wakeupCh := newWakeup(group)
+	wakeup := <-wakeupCh
+	if err = wakeup.Valid(); err != nil {
+		return
 	}
+	group.wakeup = wakeup
 
 	// members
 	var (
@@ -258,13 +268,17 @@ func (r *Wakeup) Valid() error {
 	return r.err
 }
 
-func (r *Wakeup) Wakeup(ringFd int) (err error) {
+const (
+	IORING_CQE_F_RING_WAKEUP = liburing.IORING_CQE_F_SOCK_NONEMPTY
+)
+
+func (r *Wakeup) Wakeup(ringFd int, flags uint32) (err error) {
 	if r.running.Load() {
 		op := AcquireOperation()
 		channel := acquireChannel(false)
 		op.channel = channel
 		op.personality = r.personality
-		op.PrepareMSGRing(ringFd, 0)
+		op.PrepareMSGRing(ringFd, 0, flags)
 		r.ready <- op
 		_, _, _, err = channel.Await()
 		ReleaseOperation(op)

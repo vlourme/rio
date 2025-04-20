@@ -22,11 +22,39 @@ func (op *Operation) PrepareCloseRing(key uint64) {
 	return
 }
 
+func (op *Operation) PrepareCreateBufferAndRing(r *BufferAndRingRegister) {
+	op.kind = op_kind_register
+	op.code = liburing.IORING_OP_NOP
+	op.cmd = op_cmd_create_br
+	op.addr = unsafe.Pointer(r)
+	return
+}
+
+func (op *Operation) PrepareCloseBufferAndRing(r *BufferAndRingUnregister) {
+	op.kind = op_kind_register
+	op.code = liburing.IORING_OP_NOP
+	op.cmd = op_cmd_close_br
+	op.addr = unsafe.Pointer(r)
+	return
+}
+
 func (op *Operation) packingNop(sqe *liburing.SubmissionQueueEntry) (err error) {
 	switch op.cmd {
-	case op_cmd_close_ring: // close ring
+	case op_cmd_close_ring:
 		sqe.PrepareNop()
 		sqe.SetData64(uint64(op.fd))
+		break
+	case op_cmd_create_br:
+		r := (*BufferAndRingRegister)(op.addr)
+		op.channel.adaptor = r
+		sqe.PrepareNop()
+		sqe.SetData(unsafe.Pointer(op))
+		break
+	case op_cmd_close_br:
+		r := (*BufferAndRingUnregister)(op.addr)
+		op.channel.adaptor = r
+		sqe.PrepareNop()
+		sqe.SetData(unsafe.Pointer(op))
 		break
 	default:
 		sqe.PrepareNop()
@@ -55,21 +83,22 @@ func (op *Operation) packingLinkTimeout(sqe *liburing.SubmissionQueueEntry) (err
 	return
 }
 
-func (op *Operation) PrepareMSGRing(ringFd int, n uint32) {
+func (op *Operation) PrepareMSGRing(ringFd int, n uint32, cqeFlags uint32) {
 	op.code = liburing.IORING_OP_MSG_RING
 	op.cmd = op_cmd_msg_ring
 	op.fd = ringFd
 	op.addrLen = n
+	op.addr2Len = cqeFlags
 	return
 }
 
-func (op *Operation) PrepareMSGRingFd(ringFd int, sourceFd int, attach *Operation) {
+func (op *Operation) PrepareMSGRingFd(ringFd int, sourceFd int, attachment *Operation) {
 	op.code = liburing.IORING_OP_MSG_RING
 	op.cmd = op_cmd_msg_ring_fd
 	op.fd = ringFd
 	op.addr = unsafe.Pointer(uintptr(sourceFd))
-	if attach != nil {
-		op.addr2 = unsafe.Pointer(attach)
+	if attachment != nil {
+		op.addr2 = unsafe.Pointer(attachment)
 	}
 	return
 }
@@ -79,7 +108,8 @@ func (op *Operation) packingMSGRing(sqe *liburing.SubmissionQueueEntry) (err err
 	case op_cmd_msg_ring:
 		fd := op.fd
 		length := op.addrLen
-		sqe.PrepareMsgRing(fd, length, nil, 0)
+		cqeFlags := op.addr2Len
+		sqe.PrepareMsgRingCQEFlags(fd, length, nil, 0, cqeFlags)
 		break
 	case op_cmd_msg_ring_fd:
 		fd := op.fd

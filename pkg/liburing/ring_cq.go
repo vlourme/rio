@@ -347,13 +347,3 @@ func (ring *Ring) getCQE(data *getData) (*CompletionQueueEvent, error) {
 	}
 	return cqe, err
 }
-
-func (ring *Ring) flushSQ() uint32 {
-	sq := ring.sqRing
-	tail := sq.sqeTail
-	if sq.sqeHead != tail {
-		sq.sqeHead = tail
-		atomic.StoreUint32(sq.tail, tail)
-	}
-	return tail - atomic.LoadUint32(sq.head)
-}

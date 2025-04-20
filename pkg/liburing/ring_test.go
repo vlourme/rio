@@ -134,7 +134,7 @@ func TestRing_MSGRing(t *testing.T) {
 	t.Log("register ring fd success:", r2.Fd())
 
 	sqe := r1.GetSQE()
-	sqe.PrepareMsgRing(r2.Fd(), 1, nil, 0)
+	sqe.PrepareMsgRingCQEFlags(r2.Fd(), 1, nil, 0, 3)
 	sqe.SetData(unsafe.Pointer(uintptr(r1.Fd())))
 	_, swErr := r1.SubmitAndWait(1)
 	if swErr != nil {
@@ -154,7 +154,7 @@ func TestRing_MSGRing(t *testing.T) {
 		t.Error(cqeErr)
 		return
 	}
-	t.Log("cqe:", cqe.Res)
+	t.Log("cqe:", cqe.Res, cqe.Flags)
 
 }
 
