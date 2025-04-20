@@ -37,7 +37,7 @@ func (ring *Ring) bufAndRingSetup(entries uint32, bgid uint16, flags uint32) (*B
 	reg.Bgid = bgid
 	reg.Flags = uint16(flags)
 
-	_, err = ring.RegisterBufferRing(reg, flags)
+	_, err = ring.RegisterBufferRing(reg)
 	if err != nil {
 		_ = munmap(uintptr(unsafe.Pointer(br)), ringSizeAddr)
 		return nil, err
