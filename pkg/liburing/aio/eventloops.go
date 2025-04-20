@@ -27,62 +27,13 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 			_ = sys.MaskCPU(int(options.SQThreadCPU))
 		}
 	}
+
 	if options.EventLoopCount == 0 { // setup count
-		if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 {
+		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
+		if options.EventLoopCount == 0 {
 			options.EventLoopCount = 1
-		} else {
-			options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
-			if options.EventLoopCount == 0 {
-				options.EventLoopCount = 1
-			}
 		}
 	}
-
-	/* auto long poll
-	{8, 100 * time.Microsecond},
-	{16, 200 * time.Microsecond},
-	{32, 400 * time.Microsecond},
-	{64, 600 * time.Microsecond},
-	*/
-	/* auto long poll 2 40403.3↓, 40401.7↑
-	{8, 50 * time.Microsecond},
-	{16, 100 * time.Microsecond},
-	{24, 200 * time.Microsecond},
-	{32, 300 * time.Microsecond},
-	{48, 400 * time.Microsecond},
-	{56, 500 * time.Microsecond},
-	{64, 600 * time.Microsecond},
-	{72, 700 * time.Microsecond},
-	{80, 800 * time.Microsecond},
-	{98, 900 * time.Microsecond},
-	*/
-
-	/* auto long poll 3 38243.8↓, 38243.9↑
-	{1, 10 * time.Microsecond},
-	{4, 20 * time.Microsecond},
-	{8, 50 * time.Microsecond},
-	{16, 100 * time.Microsecond},
-	{24, 200 * time.Microsecond},
-	{32, 300 * time.Microsecond},
-	{48, 400 * time.Microsecond},
-	{56, 500 * time.Microsecond},
-	{64, 600 * time.Microsecond},
-	{72, 700 * time.Microsecond},
-	{80, 800 * time.Microsecond},
-	{98, 900 * time.Microsecond},
-	*/
-
-	/* auto short
-	{8, 20 * time.Microsecond},
-	{16, 40 * time.Microsecond},
-	{32, 80 * time.Microsecond},
-	{64, 200 * time.Microsecond},
-	*/
-
-	//  wrk -t50 -c500 -d10s http://192.168.100.120:9000/
-	// net 				204111.90 12.18k
-	// auto long  poll 	154638.42
-	// auto short poll 	186296.00 11.29k req/s
 
 	if options.WaitCQEIdleTimeout < time.Second { // min wait cqe idle timeout is 1 sec
 		options.WaitCQEIdleTimeout = 15 * time.Second // default is 15 sec
