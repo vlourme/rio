@@ -23,14 +23,8 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 		options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must be one thread
 	}
 
-	if options.EventLoopCount == 0 { // setup count
-		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
-		if options.EventLoopCount == 0 {
-			options.EventLoopCount = 1
-		}
-	}
-	if cpuNum := uint32(runtime.NumCPU()); options.EventLoopCount > cpuNum {
-		options.EventLoopCount = cpuNum
+	if options.EventLoopCount == 0 {
+		options.EventLoopCount = 1
 	}
 
 	group = &EventLoopGroup{}
@@ -44,11 +38,7 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	group.wakeup = wakeup
 
 	// members
-	var (
-		members []*EventLoop
-	)
-
-	members = make([]*EventLoop, options.EventLoopCount)
+	members := make([]*EventLoop, options.EventLoopCount)
 	for i := uint32(0); i < options.EventLoopCount; i++ {
 		memberCh := newEventLoop(int(i), group, options)
 		member := <-memberCh
@@ -68,7 +58,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	group.members = members
 	group.count = options.EventLoopCount
 	group.mask = options.EventLoopCount - 1
-
 	return
 }
 

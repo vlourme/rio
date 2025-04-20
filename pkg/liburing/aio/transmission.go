@@ -13,20 +13,18 @@ type Transmission interface {
 
 var (
 	SCurve = Curve{
-		{1, 20 * time.Microsecond},
+		{1, 50 * time.Microsecond},
 	}
 	LCurve = Curve{
-		{1, 20 * time.Microsecond},
-		{8, 50 * time.Microsecond},
-		{16, 100 * time.Microsecond},
+		{1, 50 * time.Microsecond},
+		{8, 100 * time.Microsecond},
+		{16, 150 * time.Microsecond},
 		{24, 200 * time.Microsecond},
-		{32, 300 * time.Microsecond},
-		{48, 400 * time.Microsecond},
-		{56, 500 * time.Microsecond},
-		{64, 600 * time.Microsecond},
-		{72, 700 * time.Microsecond},
-		{80, 800 * time.Microsecond},
-		{98, 900 * time.Microsecond},
+		{32, 250 * time.Microsecond},
+		{40, 300 * time.Microsecond},
+		{48, 350 * time.Microsecond},
+		{56, 400 * time.Microsecond},
+		{64, 450 * time.Microsecond},
 	}
 )
 

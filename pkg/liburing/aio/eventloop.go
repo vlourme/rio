@@ -89,7 +89,6 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 				ch <- event
 				return
 			}
-			options.WaitCQETimeoutCurve = Curve{{N: 1, Timeout: time.Duration(us) * time.Microsecond}}
 		}
 
 		// buffer and rings
