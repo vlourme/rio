@@ -11,6 +11,25 @@ type Transmission interface {
 	Down() (uint32, *syscall.Timespec)
 }
 
+var (
+	SCurve = Curve{
+		{1, 20 * time.Microsecond},
+	}
+	LCurve = Curve{
+		{1, 20 * time.Microsecond},
+		{8, 50 * time.Microsecond},
+		{16, 100 * time.Microsecond},
+		{24, 200 * time.Microsecond},
+		{32, 300 * time.Microsecond},
+		{48, 400 * time.Microsecond},
+		{56, 500 * time.Microsecond},
+		{64, 600 * time.Microsecond},
+		{72, 700 * time.Microsecond},
+		{80, 800 * time.Microsecond},
+		{98, 900 * time.Microsecond},
+	}
+)
+
 type Curve []struct {
 	N       uint32
 	Timeout time.Duration
@@ -18,9 +37,7 @@ type Curve []struct {
 
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
-		curve = Curve{
-			{8, 10 * time.Microsecond},
-		}
+		curve = SCurve
 	}
 	times := make([]WaitNTime, 0, 1)
 	for _, t := range curve {

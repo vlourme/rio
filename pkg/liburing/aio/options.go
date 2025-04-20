@@ -15,8 +15,7 @@ type Options struct {
 	MultishotDisabled   bool
 	NAPIBusyPollTimeout time.Duration
 	BufferAndRingConfig BufferAndRingConfig
-	WaitCQEIdleTimeout  time.Duration
-	WaitCQETimeCurve    Curve
+	WaitCQETimeoutCurve Curve
 }
 
 type Option func(*Options)
@@ -101,19 +100,11 @@ func WithRingBufferConfig(size int, count int, idleTimeout time.Duration) Option
 	}
 }
 
-// WithWaitCQEIdleTimeout
-// setup wait cqe idle timeout
-func WithWaitCQEIdleTimeout(timeout time.Duration) Option {
-	return func(opts *Options) {
-		opts.WaitCQEIdleTimeout = timeout
-	}
-}
-
-// WithWaitCQETimeCurve
+// WithWaitCQETimeoutCurve
 // setup wait cqe time curve
-func WithWaitCQETimeCurve(curve Curve) Option {
+func WithWaitCQETimeoutCurve(curve Curve) Option {
 	return func(opts *Options) {
-		opts.WaitCQETimeCurve = curve
+		opts.WaitCQETimeoutCurve = curve
 	}
 }
 

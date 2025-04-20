@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -32,27 +31,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
 		if options.EventLoopCount == 0 {
 			options.EventLoopCount = 1
-		}
-	}
-
-	if options.WaitCQEIdleTimeout < time.Second { // min wait cqe idle timeout is 1 sec
-		options.WaitCQEIdleTimeout = 15 * time.Second // default is 15 sec
-	}
-
-	if len(options.WaitCQETimeCurve) == 0 {
-		options.WaitCQETimeCurve = Curve{
-			{1, 10 * time.Microsecond},
-			{4, 20 * time.Microsecond},
-			{8, 50 * time.Microsecond},
-			{16, 100 * time.Microsecond},
-			{24, 200 * time.Microsecond},
-			{32, 300 * time.Microsecond},
-			{48, 400 * time.Microsecond},
-			{56, 500 * time.Microsecond},
-			{64, 600 * time.Microsecond},
-			{72, 700 * time.Microsecond},
-			{80, 800 * time.Microsecond},
-			{98, 900 * time.Microsecond},
 		}
 	}
 

@@ -89,6 +89,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 				ch <- event
 				return
 			}
+			options.WaitCQETimeoutCurve = Curve{{N: 1, Timeout: time.Duration(us) * time.Microsecond}}
 		}
 
 		// buffer and rings
@@ -112,27 +113,21 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			ch <- event
 			return
 		}
-		// wait idle timeout
-		waitIdleTimeout := options.WaitCQEIdleTimeout
-		if waitIdleTimeout < 1 {
-			waitIdleTimeout = 15 * time.Second
-		}
 
 		eventLoop := &EventLoop{
-			ring:            ring,
-			bufferAndRings:  bufferAndRings,
-			group:           group,
-			wg:              new(sync.WaitGroup),
-			id:              id,
-			key:             uint64(uintptr(unsafe.Pointer(ring))),
-			personality:     uint16(personality),
-			running:         atomic.Bool{},
-			idle:            atomic.Bool{},
-			poll:            poll,
-			waitIdleTimeout: waitIdleTimeout,
-			waitTimeCurve:   options.WaitCQETimeCurve,
-			ready:           make(chan *Operation, ring.SQEntries()),
-			err:             nil,
+			ring:             ring,
+			bufferAndRings:   bufferAndRings,
+			group:            group,
+			wg:               new(sync.WaitGroup),
+			id:               id,
+			key:              uint64(uintptr(unsafe.Pointer(ring))),
+			personality:      uint16(personality),
+			running:          atomic.Bool{},
+			idle:             atomic.Bool{},
+			poll:             poll,
+			waitTimeoutCurve: options.WaitCQETimeoutCurve,
+			ready:            make(chan *Operation, ring.SQEntries()),
+			err:              nil,
 		}
 		eventLoop.running.Store(true)
 		// return event loop
@@ -176,22 +171,21 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 }
 
 type EventLoop struct {
-	ring            *liburing.Ring
-	bufferAndRings  *BufferAndRings
-	group           *EventLoopGroup
-	wg              *sync.WaitGroup
-	id              int
-	key             uint64
-	personality     uint16
-	running         atomic.Bool
-	idle            atomic.Bool
-	poll            bool
-	waitIdleTimeout time.Duration
-	waitTimeCurve   Curve
-	submitter       func(op *Operation) (future Future)
-	ready           chan *Operation
-	orphan          *Operation
-	err             error
+	ring             *liburing.Ring
+	bufferAndRings   *BufferAndRings
+	group            *EventLoopGroup
+	wg               *sync.WaitGroup
+	id               int
+	key              uint64
+	personality      uint16
+	running          atomic.Bool
+	idle             atomic.Bool
+	poll             bool
+	waitTimeoutCurve Curve
+	submitter        func(op *Operation) (future Future)
+	ready            chan *Operation
+	orphan           *Operation
+	err              error
 }
 
 func (eventLoop *EventLoop) Id() int {
@@ -316,9 +310,8 @@ func (eventLoop *EventLoop) process1() {
 		completed    uint32
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
-		waitIdleTime = syscall.NsecToTimespec(eventLoop.waitIdleTimeout.Nanoseconds())
 		ring         = eventLoop.ring
-		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
+		transmission = NewCurveTransmission(eventLoop.waitTimeoutCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
 
@@ -344,7 +337,7 @@ func (eventLoop *EventLoop) process1() {
 	SUBMIT:
 		if readyN == 0 && completed == 0 { // idle
 			if eventLoop.idle.CompareAndSwap(false, true) {
-				waitNr, waitTimeout = 1, &waitIdleTime
+				waitNr, waitTimeout = 1, nil
 			} else {
 				waitNr, waitTimeout = transmission.Match(1)
 			}
@@ -383,14 +376,12 @@ func (eventLoop *EventLoop) process2() {
 		ring         = eventLoop.ring
 		stopped      bool
 		completed    uint32
-		waitNr       uint32
-		waitTimeout  *syscall.Timespec
-		waitIdleTime = syscall.NsecToTimespec(eventLoop.waitIdleTimeout.Nanoseconds())
-		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
-		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
+		waitNr       uint32            = 1
+		waitTimeout  *syscall.Timespec = nil
+		transmission                   = NewCurveTransmission(eventLoop.waitTimeoutCurve)
+		cqes                           = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
 
-	waitNr, waitTimeout = transmission.Match(1)
 	for {
 		_, _ = ring.WaitCQEs(waitNr, waitTimeout, nil)
 		if completed, stopped = eventLoop.completeCQE(&cqes); stopped {
@@ -398,7 +389,7 @@ func (eventLoop *EventLoop) process2() {
 		}
 		if completed == 0 {
 			waitNr = 1
-			waitTimeout = &waitIdleTime
+			waitTimeout = nil
 			continue
 		}
 		if completed < waitNr {
@@ -408,7 +399,6 @@ func (eventLoop *EventLoop) process2() {
 		waitNr, waitTimeout = transmission.Up()
 	}
 	close(done)
-
 }
 
 func (eventLoop *EventLoop) submitAndFlushOperation(done <-chan struct{}) {
