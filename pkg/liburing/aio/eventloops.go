@@ -5,7 +5,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"os"
 	"runtime"
 	"sync"
@@ -21,17 +20,17 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	}
 
 	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
-		options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must one thread
-		if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
-			_ = sys.MaskCPU(int(options.SQThreadCPU))
-		}
+		options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must be one thread
 	}
 
 	if options.EventLoopCount == 0 { // setup count
-		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
+		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 4)
 		if options.EventLoopCount == 0 {
 			options.EventLoopCount = 1
 		}
+	}
+	if cpuNum := uint32(runtime.NumCPU()); options.EventLoopCount > cpuNum {
+		options.EventLoopCount = cpuNum
 	}
 
 	group = &EventLoopGroup{}
