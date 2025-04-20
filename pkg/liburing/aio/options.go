@@ -13,6 +13,7 @@ type Options struct {
 	SQThreadCPU         uint32
 	SendZCEnabled       bool
 	MultishotDisabled   bool
+	NAPIBusyPollTimeout time.Duration
 	BufferAndRingConfig BufferAndRingConfig
 	WaitCQEIdleTimeout  time.Duration
 	WaitCQETimeCurve    Curve
@@ -113,5 +114,13 @@ func WithWaitCQEIdleTimeout(timeout time.Duration) Option {
 func WithWaitCQETimeCurve(curve Curve) Option {
 	return func(opts *Options) {
 		opts.WaitCQETimeCurve = curve
+	}
+}
+
+// WithNAPIBusyPollTimeout
+// setup napi busy poll timeout to register napi, effective in kernel versions higher than 6.8
+func WithNAPIBusyPollTimeout(timeout time.Duration) Option {
+	return func(opts *Options) {
+		opts.NAPIBusyPollTimeout = timeout
 	}
 }

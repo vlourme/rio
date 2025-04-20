@@ -63,17 +63,41 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		}
 		// poll
 		poll := ring.Flags()&liburing.IORING_SETUP_SQPOLL != 0
-
+		// register ring
+		_, _ = ring.RegisterRingFd()
 		// register personality
 		personality, _ := ring.RegisterPersonality()
+		// register napi
+		var napi *liburing.NAPI
+		if liburing.VersionEnable(6, 9, 0) && options.NAPIBusyPollTimeout > 0 {
+			us := uint32(options.NAPIBusyPollTimeout.Microseconds())
+			if us < 10 {
+				us = 50
+			}
+			napi = &liburing.NAPI{
+				BusyPollTo:     us,
+				PreferBusyPoll: 1,
+				Resv:           0,
+			}
+			_, napiErr := ring.RegisterNAPI(napi)
+			if napiErr != nil {
+				_ = ring.Close()
+				event := &EventLoop{
+					id:  id,
+					err: napiErr,
+				}
+				ch <- event
+				return
+			}
+		}
 
 		// buffer and rings
-		brs, brsErr := newBufferAndRings(options.BufferAndRingConfig)
-		if brsErr != nil {
+		bufferAndRings, bufferAndRingsErr := newBufferAndRings(options.BufferAndRingConfig)
+		if bufferAndRingsErr != nil {
 			_ = ring.Close()
 			event := &EventLoop{
 				id:  id,
-				err: brsErr,
+				err: bufferAndRingsErr,
 			}
 			ch <- event
 			return
@@ -96,7 +120,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 
 		eventLoop := &EventLoop{
 			ring:            ring,
-			bufferAndRings:  brs,
+			bufferAndRings:  bufferAndRings,
 			group:           group,
 			wg:              new(sync.WaitGroup),
 			id:              id,
@@ -115,9 +139,37 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		ch <- eventLoop
 		close(ch)
 		// start buffer and rings loop
-		brs.Start(eventLoop)
+		bufferAndRings.Start(eventLoop)
+
 		// process
 		eventLoop.process()
+
+		// shutdown
+		// unregister napi
+		if napi != nil {
+			_, _ = ring.UnregisterNAPI(napi)
+		}
+		// unregister buffer and rings
+		_ = bufferAndRings.Unregister()
+		/* unregister files
+		when kernel is less than 6.13, unregister files maybe blocked.
+		so use a timer and done to fix it.
+		*/
+		unregisterFilesDone := make(chan struct{})
+		unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
+		go func(ring *liburing.Ring, done chan struct{}) {
+			_, _ = ring.UnregisterFiles()
+			close(unregisterFilesDone)
+		}(ring, unregisterFilesDone)
+		select {
+		case <-unregisterFilesTimer.C:
+			break
+		case <-unregisterFilesDone:
+			break
+		}
+		unregisterFilesTimer.Stop()
+		// close ring
+		eventLoop.err = ring.Close()
 	}(id, group, options, ch)
 	v = ch
 	return
@@ -226,28 +278,6 @@ func (eventLoop *EventLoop) process() {
 		eventLoop.submitter = eventLoop.submit1
 		eventLoop.process1()
 	}
-
-	// unregister buffer and rings
-	_ = eventLoop.bufferAndRings.Unregister()
-	/* unregister files
-	when kernel is less than 6.13, unregister files maybe blocked.
-	so use a timer and done to fix it.
-	*/
-	unregisterFilesDone := make(chan struct{})
-	unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
-	go func(ring *liburing.Ring, done chan struct{}) {
-		_, _ = ring.UnregisterFiles()
-		close(unregisterFilesDone)
-	}(eventLoop.ring, unregisterFilesDone)
-	select {
-	case <-unregisterFilesTimer.C:
-		break
-	case <-unregisterFilesDone:
-		break
-	}
-	unregisterFilesTimer.Stop()
-	// close ring
-	eventLoop.err = eventLoop.ring.Close()
 }
 
 func setupOpCh(op *Operation) *Channel {
@@ -291,7 +321,7 @@ func (eventLoop *EventLoop) process1() {
 		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
-	_, _ = ring.RegisterRingFd()
+
 	waitNr, waitTimeout = transmission.Match(1)
 	for {
 		// prepare
@@ -359,7 +389,6 @@ func (eventLoop *EventLoop) process2() {
 		transmission = NewCurveTransmission(eventLoop.waitTimeCurve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
-	_, _ = ring.RegisterRingFd()
 
 	waitNr, waitTimeout = transmission.Match(1)
 	for {

@@ -411,7 +411,7 @@ func (ring *Ring) UnregisterRingFd() (uint, error) {
 	return ret, nil
 }
 
-func (ring *Ring) RegisterBufferRing(reg *BufReg, _ uint32) (uint, error) {
+func (ring *Ring) RegisterBufferRing(reg *BufReg) (uint, error) {
 	result, err := ring.doRegister(IORING_REGISTER_PBUF_RING, unsafe.Pointer(reg), 1)
 	runtime.KeepAlive(reg)
 	return result, err
@@ -438,6 +438,21 @@ func (ring *Ring) RegisterFileAllocRange(off, length uint32) (uint, error) {
 	result, err := ring.doRegister(IORING_REGISTER_FILE_ALLOC_RANGE, unsafe.Pointer(fileRange), 0)
 	runtime.KeepAlive(fileRange)
 	return result, err
+}
+
+type NAPI struct {
+	BusyPollTo     uint32
+	PreferBusyPoll uint8
+	_pad           [3]uint8
+	Resv           uint64
+}
+
+func (ring *Ring) RegisterNAPI(napi *NAPI) (uint, error) {
+	return ring.doRegister(IORING_REGISTER_NAPI, unsafe.Pointer(napi), 1)
+}
+
+func (ring *Ring) UnregisterNAPI(napi *NAPI) (uint, error) {
+	return ring.doRegister(IORING_UNREGISTER_NAPI, unsafe.Pointer(napi), 1)
 }
 
 func (ring *Ring) doRegister(opCode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, error) {
