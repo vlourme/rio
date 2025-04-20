@@ -24,7 +24,7 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 	}
 
 	if options.EventLoopCount == 0 { // setup count
-		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 4)
+		options.EventLoopCount = liburing.FloorPow2(uint32(runtime.NumCPU()) / 2)
 		if options.EventLoopCount == 0 {
 			options.EventLoopCount = 1
 		}
