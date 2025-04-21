@@ -379,3 +379,63 @@ func TestConn_Close(t *testing.T) {
 		t.Error(closeErr)
 	}
 }
+
+func TestTCPConn_CloseRead(t *testing.T) {
+	wg := new(sync.WaitGroup)
+	defer wg.Wait()
+
+	ln, lnErr := rio.Listen("tcp", ":9000")
+	if lnErr != nil {
+		t.Error(lnErr)
+		return
+	}
+	defer ln.Close()
+
+	wg.Add(1)
+	go func(ln net.Listener, wg *sync.WaitGroup) {
+		defer wg.Done()
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				break
+			}
+			wg.Add(1)
+			go func(c net.Conn, wg *sync.WaitGroup) {
+				defer wg.Done()
+				b := make([]byte, 1024)
+				rn, rErr := c.Read(b)
+				if rErr != nil {
+					if errors.Is(rErr, io.EOF) {
+						t.Log("srv closed", rErr)
+						return
+					}
+					t.Error(rn, rErr)
+					return
+				}
+				_ = c.Close()
+			}(conn, wg)
+			crErr := conn.(*rio.TCPConn).CloseRead()
+			if crErr != nil {
+				t.Error(crErr)
+			}
+			wn, wErr := conn.Write([]byte("hello world"))
+			t.Log("srv write", wn, wErr)
+		}
+	}(ln, wg)
+
+	cli, cliErr := rio.Dial("tcp", "127.0.0.1:9000")
+	if cliErr != nil {
+		t.Error(cliErr)
+		return
+	}
+	defer cli.Close()
+
+	b := make([]byte, 1024)
+	rn, rErr := cli.Read(b)
+	if rErr != nil {
+		t.Error("cli read failed", rErr)
+		return
+	}
+	t.Log("cli read", rn, string(b[:rn]))
+
+}
