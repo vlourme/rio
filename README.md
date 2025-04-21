@@ -4,23 +4,23 @@
 
 支持协议：`TCP`、`UDP`、`UNIX`、`UNIXGRAM`（`IP`为代理标准库）。
 
-`RIO` 是遵循标准库使用方式的，是可以非常方便的投入使用，所以它不是个玩具。
+`RIO` 是一个遵循标准库使用方式的库，可以非常方便的投入使用，所以它不是个玩具，可以以非常低成本的进行代替`NET`。
 
 ***Linux 内核版本需要`>= 6.8`，推荐版本为`>= 6.13`。***
 
 ## 特性
-* 基于 `IOURING` 的实现
-* 基于 `net.Listener` `net.Conn`  和 `net.PacketConn` 的实现
-* 使用批处理方式来减少系统调用的开销
+* 基于 `net.Listener` `net.Conn` 和 `net.PacketConn` 的实现
+* 使用 `BATCH` 来减少 `SYSTEM CALL` 的开销
 * 支持 `TLS`
-* 支持 `FIXED BUFFER` 和 `FIXED FILE`
+* 支持 `MULTISHOT`
 * 支持 `SEND_ZC` 和 `SENDMSG_ZC`
-* 支持动态调整 `RIO_WAIT_CQE_TIME_CURVE` 控制不同场景的性能
+* 支持 `NAPI`
+* 支持 `PERSIONALITY`
+* 支持 `CURVE` 进行动态调整 `WAIT CQE` 的超时来适配不同场景
 
 ## 注意
-* WSL2中不能开启`networkingMode=mirrored`。
-* 当启用`BUFFER AND RING`时，不要开启`IORING_SETUP_SINGLE_ISSUER`，如`MULTISHOT_RECV`。
-* 当内核版本`< 6.13`，不能自己拨号自己，因为在同一个`RING`里对方关闭时是收不到`EOF`。
+* `WSL2` 中不能开启 `networkingMode=mirrored`
+* 当内核版本 `< 6.13` 时务必不要自己拨号自己
 
 
 ## 性能
@@ -136,7 +136,7 @@ rioConn, ok := conn.(rio.Conn)
 ```
 
 
-### Config <a id="config"></a>
+### Config
 
 `rio.ListenConfig` 与 `net.ListenConfig` 是类似的，通过配置来监听。
 ```go
@@ -147,10 +147,7 @@ config := rio.ListenConfig{
     KeepAliveConfig:    net.KeepAliveConfig{},   // 设置 KeepAlive 详细配置
     MultipathTCP:       false,                   // 是否多路TCP模式
     ReusePort:          false,                   // 是否重用端口（同时开启cBPF）
-    SendZC:             false,                   // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
-    MultishotAccept:    false,                   // 是否单投多发模式来接受链接
-    DisableDirectAlloc: false,                   // 禁止自动注册（6.7后有效）
-    Vortex:             nil,                     // 自定义 iouring
+    AsyncIO:             nil,                    // 自定义 AIO
 }
 ln, lnErr := config.Listen(context.Background(), "tcp", ":9000")
 ```
@@ -165,72 +162,16 @@ dialer := rio.Dialer{
     LocalAddr:          nil,                        // 本地地址
     FallbackDelay:      0,                          // 并行回退延时   
     MultipathTCP:       false,                      // 是否多路TCP模式
-    SendZC:             false,                      // 是否使用 Zero-Copy 方式发送（某些场景会遥测不到但其实是发送了，如 TCPKALI）
-    DisableDirectAlloc: false,                      // 禁止自动注册（6.7后有效）
     Control:            nil,                        // 设置控制器
     ControlContext:     nil,                        // 设置带上下文的控制器
-    Vortex:             nil,                        // 自定义 iouring
+    AsyncIO:             nil,                       // 自定义 AIO
 }
 conn, dialErr := dialer.DialContext(context.Background(), "tcp", "127.0.0.1:9000")
 ```
 
-### Fixed Buffer
 
-使用注册的固定字节缓存进行读写，其效果是相比非注册模式会减少字节缓存在映射时上下文切换。
-
-如需使用，请务必设置固定字节缓存在先，可以通过名为`RIO_IOURING_REG_FIXED_BUFFERS`的环境变量或`rio.Presets(aio.WithRegisterFixedBuffer(..))` 方式来设置。
-
-```go
-// convert
-fixed, ok := conn.(rio.Conn)
-// acquire buf
-buf := fixed.AcquireRegisteredBuffer()
-defer fixed.ReleaseRegisteredBuffer(buf)
-// check buf
-if buf == nil {
-	// not registered or no buf remain
-	// use normal read
-}
-// read
-rn, rErr := buf.ReadFixed(buf)
-// write
-wn, wErr := fixed.WriteFixed(buf)
-```
+### 预设 IOURING 参数
 
 
-### 参数设置
-通过设置环境变量进行调控，具体详见 [IOURING](https://man.archlinux.org/man/extra/liburing/io_uring_setup.2.en)。
-
-| 名称                                   | 值  | 说明                                                 |
-|--------------------------------------|----|----------------------------------------------------|
-| RIO_IOURING_ENTRIES                  | 数字 | 环大小，默认为最大值 16384。                                  |
-| RIO_IOURING_SETUP_FLAGS              | 文本 | 标识，如`IORING_SETUP_SQPOLL, IORING_SETUP_SQ_AFF`等。   |
-| RIO_IOURING_SQ_THREAD_CPU            | 数字 | 设置 SQ 环锁亲和的 CPU。                                   |
-| RIO_IOURING_SQ_THREAD_IDLE           | 数字 | 在含有`IORING_SETUP_SQPOLL`标识时，设置空闲时长，单位为毫秒，默认是 10 秒。 |
-| RIO_IOURING_REG_FIXED_BUFFERS        | 文本 | 设置注册固定字节缓存，格式为 `单个大小, 个数`， 如`4096, 1024`。          |
-| RIO_IOURING_REG_FIXED_FILES          | 数字 | 设置注册固定描述符，当内核`>=6.7`后，默认`65535`。                   |
-| RIO_IOURING_REG_FIXED_FILES_RESERVED | 数字 | 设置预留的注册固定描述符，只用于非`generic`的内核，如`WSL2`。             |
-| RIO_PREP_SQE_AFF_CPU                 | 数字 | 设置准备 SQE 线程所亲和的 CPU。                               |
-| RIO_PREP_SQE_BATCH_MIN_SIZE          | 数字 | 设置准备 SQE 的最小批量大小。                                  |
-| RIO_PREP_SQE_BATCH_TIME_WINDOW       | 文本 | 批量准备 SQE 的时间窗口。格式为时长，如`500us`。                     |
-| RIO_PREP_SQE_BATCH_IDLE_TIME         | 文本 | 批量设置准备 SQE 空闲时长。格式为时长，如`15s`。                      |
-| RIO_WAIT_CQE_MODE                    | 枚举 | 获取 CQE 的方式。`PUSH` 和 `PULL`。                        |
-| RIO_WAIT_CQE_TIME_CURVE              | 文本 | 设置等待 CQE 策略曲线，如 `8:10us, 16:100us`。                |
-| RIO_WAIT_CQE_PULL_IDLE_TIME          | 文本 | 设置拉式等待 CQE 的空闲时间。 格式为时长，如`15s`。                    |
-
-注意事项：
-* `RIO_IOURING_SETUP_FLAGS` 与系统内核版本有关联，请务必确认版本，但程序会自动过滤掉与版本不符的标识，但不解决标识冲突。
-  * 默认通过 CPU 数量决定标识，小于4核为`IORING_SETUP_COOP_TASKRUN | IORING_SETUP_DEFER_TASKRUN`，反之为 `IORING_SETUP_SQPOLL`。
-  * `IORING_SETUP_SQPOLL` 取决于运行环境，非常吃配置，请自行选择配置进行调试。
-  * `IORING_SETUP_SQ_AFF` 激活时，且是容器环境，此时需要注意 CPU 的相关设置。
-* `RIO_IOURING_REG_FIXED_BUFFERS` 为 使用注册缓存区读写的前置必要条件，如果使用固定读写，必须设置该变量来注册。
-* `RIO_IOURING_REG_FIXED_FILES` 
-  * 版本低于`6.0`时不可用。
-  * 版本低于`6.7`时只支持手动注册，默认是 1024。
-  * 版本高于等于`6.7`时支持自动注册，默认是 65535，`RIO_IOURING_REG_FIXED_FILES_RESERVED` 是给手动注册预留的数量，默认8。
-* `RIO_WAIT_CQE_MODE` 
-  * `PUSH` 为内核推送可收割通知的方式，当 `IORING_SETUP_SQPOLL` 时，只能用 `PUSH`。
-  * `PULL` 为用户态主动从内核拉可收割的完成事件。
-* `RIO_WAIT_CQE_TIME_CURVE` 是用于调整批处理性能，花费多少时间等待多少个进行批处理。
 
 
