@@ -25,6 +25,8 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if options.EventLoopCount == 0 {
 		options.EventLoopCount = 1
+	} else {
+		options.EventLoopCount = liburing.FloorPow2(options.EventLoopCount)
 	}
 
 	group = &EventLoopGroup{}

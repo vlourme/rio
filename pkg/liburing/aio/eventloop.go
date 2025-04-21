@@ -132,13 +132,15 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		// return event loop
 		ch <- eventLoop
 		close(ch)
+		eventLoop.wg.Add(1)
+
 		// start buffer and rings loop
 		bufferAndRings.Start(eventLoop)
 
 		// process
 		eventLoop.process()
 
-		// shutdown
+		// shutdown >>>
 		// unregister napi
 		if napi != nil {
 			_, _ = ring.UnregisterNAPI(napi)
@@ -147,7 +149,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		_ = bufferAndRings.Unregister()
 		/* unregister files
 		when kernel is less than 6.13, unregister files maybe blocked.
-		so use a timer and done to fix it.
+		so use a timer and done to fix blocking.
 		*/
 		unregisterFilesDone := make(chan struct{})
 		unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
@@ -164,6 +166,9 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		unregisterFilesTimer.Stop()
 		// close ring
 		eventLoop.err = ring.Close()
+		// shutdown <<<
+
+		eventLoop.wg.Done()
 	}(id, group, options, ch)
 	v = ch
 	return
@@ -260,9 +265,6 @@ func (eventLoop *EventLoop) Close() (err error) {
 }
 
 func (eventLoop *EventLoop) process() {
-	eventLoop.wg.Add(1)
-	defer eventLoop.wg.Done()
-
 	if eventLoop.poll {
 		eventLoop.submitter = eventLoop.submit2
 		eventLoop.process2()
@@ -368,8 +370,10 @@ func (eventLoop *EventLoop) submit2(op *Operation) (future Future) {
 }
 
 func (eventLoop *EventLoop) process2() {
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
 	done := make(chan struct{})
-	go eventLoop.submitAndFlushOperation(done)
+	go eventLoop.submitAndFlushOperation(wg, done)
 
 	var (
 		ring         = eventLoop.ring
@@ -398,9 +402,10 @@ func (eventLoop *EventLoop) process2() {
 		waitNr, waitTimeout = transmission.Up()
 	}
 	close(done)
+	wg.Wait()
 }
 
-func (eventLoop *EventLoop) submitAndFlushOperation(done <-chan struct{}) {
+func (eventLoop *EventLoop) submitAndFlushOperation(wg *sync.WaitGroup, done <-chan struct{}) {
 	var (
 		wakeup     = eventLoop.group.wakeup
 		ring       = eventLoop.ring
@@ -453,6 +458,7 @@ func (eventLoop *EventLoop) submitAndFlushOperation(done <-chan struct{}) {
 			break
 		}
 	}
+	wg.Done()
 	return
 }
 
