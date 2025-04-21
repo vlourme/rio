@@ -1,7 +1,6 @@
 package aio
 
 import (
-	"github.com/brickingsoft/rio/pkg/liburing"
 	"time"
 )
 
@@ -45,26 +44,6 @@ func WithFlags(flags uint32) Option {
 	}
 }
 
-// WithSQPoll
-// setup IORING_SETUP_SQPOLL
-func WithSQPoll(idleTimeout time.Duration, affCPU int) Option {
-	return func(opts *Options) {
-		if opts.Flags&liburing.IORING_SETUP_SQPOLL == 0 {
-			opts.Flags |= liburing.IORING_SETUP_SQPOLL
-		}
-		if affCPU > -1 {
-			if opts.Flags&liburing.IORING_SETUP_SQ_AFF == 0 {
-				opts.Flags |= liburing.IORING_SETUP_SQ_AFF
-			}
-			opts.SQThreadCPU = uint32(affCPU)
-		}
-		if idleTimeout < 1*time.Millisecond {
-			idleTimeout = 2 * time.Second
-		}
-		opts.SQThreadIdle = uint32(idleTimeout.Milliseconds())
-	}
-}
-
 // WithSendZCEnabled
 // setup to use send_zc and sendmsg_zc op insteadof send and sendmsg
 func WithSendZCEnabled(enabled bool) Option {
@@ -73,9 +52,9 @@ func WithSendZCEnabled(enabled bool) Option {
 	}
 }
 
-// WithMultiShotDisabled
+// WithMultishotDisabled
 // setup to disable multishot
-func WithMultiShotDisabled(disabled bool) Option {
+func WithMultishotDisabled(disabled bool) Option {
 	return func(options *Options) {
 		options.MultishotDisabled = disabled
 	}

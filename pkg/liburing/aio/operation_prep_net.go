@@ -190,9 +190,26 @@ func (op *Operation) PrepareReceiveMsg(conn *Conn, msg *syscall.Msghdr) {
 	return
 }
 
+func (op *Operation) PrepareReceiveMsgMultishot(conn *Conn, msg *syscall.Msghdr, br *BufferAndRing) {
+	op.kind = op_kind_multishot
+	op.code = liburing.IORING_OP_RECVMSG
+	op.fd = conn.direct
+	op.addr = unsafe.Pointer(msg)
+	op.addr2 = unsafe.Pointer(br)
+	return
+}
+
 func (op *Operation) packingReceiveMsg(sqe *liburing.SubmissionQueueEntry) (err error) {
-	msg := (*syscall.Msghdr)(op.addr)
-	sqe.PrepareRecvMsg(op.fd, msg, 0)
+	if op.kind == op_kind_multishot {
+		msg := (*syscall.Msghdr)(op.addr)
+		br := (*BufferAndRing)(op.addr2)
+		op.channel.adaptor = br
+		sqe.PrepareRecvMsgMultishot(op.fd, msg, 0)
+		sqe.SetBufferGroup(br.bgid)
+	} else {
+		msg := (*syscall.Msghdr)(op.addr)
+		sqe.PrepareRecvMsg(op.fd, msg, 0)
+	}
 	flags := liburing.IOSQE_FIXED_FILE
 	if op.timeout != nil {
 		flags |= liburing.IOSQE_IO_LINK

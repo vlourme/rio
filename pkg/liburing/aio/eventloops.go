@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -21,6 +22,14 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
 		options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must be one thread
+		if options.SQThreadIdle < uint32((500 * time.Millisecond).Milliseconds()) {
+			options.SQThreadIdle = uint32((2 * time.Second).Milliseconds())
+		}
+		if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
+			if options.SQThreadCPU > uint32(runtime.NumCPU()) {
+				options.SQThreadCPU = 0
+			}
+		}
 	}
 
 	if options.EventLoopCount == 0 {
