@@ -42,16 +42,27 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
+		affCPU := id
+		// options
 		opts := make([]liburing.Option, 0, 1)
 		opts = append(opts, liburing.WithEntries(options.Entries))
 		opts = append(opts, liburing.WithFlags(options.Flags))
 		if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 {
 			opts = append(opts, liburing.WithSQThreadIdle(options.SQThreadIdle))
 			if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
-				opts = append(opts, liburing.WithSQThreadCPU(uint32(id)))
+				opts = append(opts, liburing.WithSQThreadCPU(options.SQThreadCPU))
+				cpus := runtime.NumCPU()
+				affCPU = (int(options.SQThreadCPU) + 1) % cpus
+				if affCPU == int(options.SQThreadCPU) {
+					affCPU = -1
+				}
 			}
 		}
-
+		// aff cpu
+		if affCPU > -1 {
+			_ = sys.AffCPU(affCPU)
+		}
+		// new ring
 		ring, ringErr := liburing.New(opts...)
 		if ringErr != nil {
 			event := &EventLoop{
@@ -71,7 +82,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		var napi *liburing.NAPI
 		if liburing.VersionEnable(6, 9, 0) && options.NAPIBusyPollTimeout > 0 {
 			us := uint32(options.NAPIBusyPollTimeout.Microseconds())
-			if us < 10 {
+			if us == 0 {
 				us = 50
 			}
 			napi = &liburing.NAPI{
@@ -269,7 +280,6 @@ func (eventLoop *EventLoop) process() {
 		eventLoop.submitter = eventLoop.submit2
 		eventLoop.process2()
 	} else {
-		_ = sys.AffCPU(eventLoop.id)
 		eventLoop.submitter = eventLoop.submit1
 		eventLoop.process1()
 	}

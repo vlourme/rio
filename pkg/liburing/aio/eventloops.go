@@ -17,18 +17,25 @@ import (
 func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	if options.Flags == 0 { // set default flags
-		options.Flags = liburing.IORING_SETUP_COOP_TASKRUN | liburing.IORING_SETUP_SINGLE_ISSUER | liburing.IORING_SETUP_DEFER_TASKRUN
+		options.Flags = liburing.IORING_SETUP_SINGLE_ISSUER | liburing.IORING_SETUP_COOP_TASKRUN |
+			liburing.IORING_SETUP_DEFER_TASKRUN | liburing.IORING_SETUP_REGISTERED_FD_ONLY
 	}
 
 	if options.Flags&liburing.IORING_SETUP_SQPOLL != 0 { // check IORING_SETUP_SQPOLL
-		options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must be one thread
-		if options.SQThreadIdle < uint32((500 * time.Millisecond).Milliseconds()) {
-			options.SQThreadIdle = uint32((2 * time.Second).Milliseconds())
-		}
-		if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
-			if options.SQThreadCPU > uint32(runtime.NumCPU()) {
-				options.SQThreadCPU = 0
+		if cpus := uint32(runtime.NumCPU()); cpus > 1 { // IORING_SETUP_SQPOLL must be used in more than 1 cpu
+			options.EventLoopCount = 1 // IORING_SETUP_SQPOLL must be one thread
+			if options.SQThreadIdle == 0 {
+				options.SQThreadIdle = uint32((2 * time.Second).Milliseconds())
 			}
+			if options.Flags&liburing.IORING_SETUP_SQ_AFF != 0 {
+				if options.SQThreadCPU > cpus {
+					options.SQThreadCPU = options.SQThreadCPU % cpus
+				}
+			}
+		} else { // reset flags and count
+			options.EventLoopCount = 0
+			options.Flags = liburing.IORING_SETUP_SINGLE_ISSUER | liburing.IORING_SETUP_COOP_TASKRUN |
+				liburing.IORING_SETUP_DEFER_TASKRUN | liburing.IORING_SETUP_REGISTERED_FD_ONLY
 		}
 	}
 
