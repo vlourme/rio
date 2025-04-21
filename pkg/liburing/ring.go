@@ -21,7 +21,10 @@ func New(options ...Option) (ring *Ring, err error) {
 		}
 	}
 
-	entries := opts.Entries
+	entries := RoundupPow2(opts.Entries)
+	if entries > MaxEntries {
+		entries = MaxEntries
+	}
 
 	params := &Params{}
 	params.flags = opts.Flags

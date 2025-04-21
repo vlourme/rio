@@ -28,8 +28,6 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 		return syscall.EINVAL
 	}
 
-	entries = RoundupPow2(entries)
-
 	if params.flags&IORING_SETUP_NO_MMAP != 0 {
 		_, err = allocHuge(entries, params, ring.sqRing, ring.cqRing, buf, bufSize)
 		if err != nil {
@@ -82,6 +80,17 @@ func (ring *Ring) setup(entries uint32, params *Params, buf unsafe.Pointer, bufS
 }
 
 func MLockSizeParams(entries uint32, p *Params) (uint64, error) {
+	if entries == 0 {
+		return 0, syscall.EINVAL
+	}
+	entries = RoundupPow2(entries)
+	if entries > MaxEntries {
+		if p.flags&IORING_SETUP_CLAMP == 0 {
+			return 0, syscall.EINVAL
+		}
+		entries = MaxEntries
+	}
+
 	lp := &Params{}
 	ring := &Ring{
 		sqRing: &SubmissionQueue{},
@@ -100,21 +109,12 @@ func MLockSizeParams(entries uint32, p *Params) (uint64, error) {
 		return 0, nil
 	}
 
-	if entries == 0 {
-		return 0, syscall.EINVAL
-	}
-	if entries > kernMaxEntries {
-		if p.flags&IORING_SETUP_CLAMP == 0 {
-			return 0, syscall.EINVAL
-		}
-		entries = kernMaxEntries
-	}
 	sq, cqEntries, err = getSqCqEntries(entries, p)
 	if err != nil {
 		return 0, err
 	}
 	pageSize = uint64(os.Getpagesize())
-	return ringsSize(p, sq, cqEntries, pageSize), nil
+	return sizeOfRing(p, sq, cqEntries, pageSize), nil
 }
 
 func MLockSize(entries, flags uint32) (uint64, error) {
@@ -142,7 +142,7 @@ const (
 	not63ul       = 18446744073709551552
 )
 
-func ringsSize(p *Params, entries uint32, cqEntries uint32, pageSize uint64) uint64 {
+func sizeOfRing(p *Params, entries uint32, cqEntries uint32, pageSize uint64) uint64 {
 	var pages, sqSize, cqSize uint64
 
 	cqSize = uint64(unsafe.Sizeof(CompletionQueueEvent{}))
@@ -250,9 +250,8 @@ func allocHuge(entries uint32, p *Params, sq *SubmissionQueue, cq *CompletionQue
 }
 
 const (
-	kernMaxEntries      = 32768
-	kernMaxCQEntries    = 2 * kernMaxEntries
 	cqEntriesMultiplier = 2
+	maxCQEntries        = cqEntriesMultiplier * MaxEntries
 )
 
 func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
@@ -261,11 +260,11 @@ func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
 	if entries == 0 {
 		return 0, 0, syscall.EINVAL
 	}
-	if entries > kernMaxEntries {
+	if entries > MaxEntries {
 		if p.flags&IORING_SETUP_CLAMP == 0 {
 			return 0, 0, syscall.EINVAL
 		}
-		entries = kernMaxEntries
+		entries = MaxEntries
 	}
 
 	entries = RoundupPow2(entries)
@@ -274,11 +273,11 @@ func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
 			return 0, 0, syscall.EINVAL
 		}
 		cqEntries = p.cqEntries
-		if cqEntries > kernMaxCQEntries {
+		if cqEntries > maxCQEntries {
 			if p.flags&IORING_SETUP_CLAMP == 0 {
 				return 0, 0, syscall.EINVAL
 			}
-			cqEntries = kernMaxCQEntries
+			cqEntries = maxCQEntries
 		}
 		cqEntries = RoundupPow2(cqEntries)
 		if cqEntries < entries {
