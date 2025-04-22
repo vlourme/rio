@@ -62,14 +62,15 @@ func newMultishotReceiver(conn *Conn) (receiver *MultishotReceiver, err error) {
 	op.PrepareReceiveMultishot(conn, br)
 
 	receiver = &MultishotReceiver{
-		status:    recvMultishotReady,
-		locker:    new(sync.Mutex),
-		buffer:    bytebuffer.Acquire(),
-		br:        br,
-		eventLoop: conn.eventLoop,
-		operation: op,
-		future:    nil,
-		err:       nil,
+		status:        recvMultishotReady,
+		locker:        new(sync.Mutex),
+		buffer:        bytebuffer.Acquire(),
+		br:            br,
+		eventLoop:     conn.eventLoop,
+		operation:     op,
+		operationLock: new(sync.Mutex),
+		future:        nil,
+		err:           nil,
 	}
 	return
 }
@@ -81,14 +82,15 @@ const (
 )
 
 type MultishotReceiver struct {
-	status    int
-	locker    *sync.Mutex
-	buffer    *bytebuffer.Buffer
-	br        *BufferAndRing
-	eventLoop *EventLoop
-	operation *Operation
-	future    Future
-	err       error
+	status        int
+	locker        *sync.Mutex
+	buffer        *bytebuffer.Buffer
+	br            *BufferAndRing
+	eventLoop     *EventLoop
+	operation     *Operation
+	operationLock *sync.Mutex
+	future        Future
+	err           error
 }
 
 func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error) {
@@ -113,26 +115,17 @@ func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error
 		r.locker.Unlock()
 		return
 	}
-	r.locker.Unlock()
 
 	// read buffer
 	if r.buffer.Len() > 0 {
 		n, _ = r.buffer.Read(b)
 		if n == bLen {
+			r.locker.Unlock()
 			return
 		}
 	}
 
 	// start
-	r.locker.Lock()
-	if r.status == recvMultishotCanceled {
-		if n == 0 {
-			r.releaseBuffer()
-			err = r.err
-		}
-		r.locker.Unlock()
-		return
-	}
 	if r.status == recvMultishotReady {
 		r.submit()
 		r.status = recvMultishotProcessing
@@ -162,16 +155,18 @@ func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error
 			r.status = recvMultishotCanceled // set done when receive failed
 			r.err = handleErr
 
-			if IsTimeout(handleErr) { // handle timeout
-				r.cancel()
-				for { // await cancel
-					_, _, _, err = r.future.Await()
-					if IsCanceled(err) { // op canceled
-						err = nil
-						break
+			if IsTimeout(handleErr) { // timeout is not iouring err, means op is alive, then cancel it
+				if r.cancel() {
+					for { // await cancel
+						_, _, _, err = r.future.Await()
+						if IsCanceled(err) { // op canceled
+							err = nil
+							break
+						}
 					}
 				}
 			}
+
 			r.releaseRuntime() // release runtime
 
 			if n == 0 {
@@ -194,7 +189,14 @@ func (r *MultishotReceiver) submit() {
 }
 
 func (r *MultishotReceiver) cancel() bool {
-	return r.eventLoop.Cancel(r.operation) == nil
+	r.operationLock.Lock()
+	if op := r.operation; op != nil {
+		ok := r.eventLoop.Cancel(r.operation) == nil
+		r.operationLock.Unlock()
+		return ok
+	}
+	r.operationLock.Unlock()
+	return false
 }
 
 func (r *MultishotReceiver) releaseRuntime() {
@@ -214,7 +216,7 @@ func (r *MultishotReceiver) releaseRuntime() {
 func (r *MultishotReceiver) releaseBuffer() {
 	if buffer := r.buffer; buffer != nil {
 		r.buffer = nil
-		bytebuffer.Release(buffer)
+		buffer.Reset()
 	}
 }
 
@@ -237,13 +239,13 @@ func (r *MultishotReceiver) Close() (err error) {
 						break
 					}
 				}
-				r.releaseRuntime()
-				r.releaseBuffer()
 			}
+			r.releaseRuntime()
+			r.releaseBuffer()
 			r.status = recvMultishotCanceled
 			r.err = ErrCanceled
 			break
-		case recvMultishotCanceled:
+		case recvMultishotCanceled: // canceled, then pass
 			break
 		default:
 			r.locker.Unlock()
@@ -253,6 +255,8 @@ func (r *MultishotReceiver) Close() (err error) {
 		r.locker.Unlock()
 		return
 	}
+	// unlocked means reading, then cancel it
+	r.cancel()
 	return
 }
 

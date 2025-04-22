@@ -17,14 +17,15 @@ var (
 	}
 	LCurve = Curve{
 		{1, 50 * time.Microsecond},
-		{8, 100 * time.Microsecond},
-		{16, 150 * time.Microsecond},
-		{24, 200 * time.Microsecond},
-		{32, 250 * time.Microsecond},
-		{40, 300 * time.Microsecond},
-		{48, 350 * time.Microsecond},
-		{56, 400 * time.Microsecond},
-		{64, 450 * time.Microsecond},
+		{4, 100 * time.Microsecond},
+		{8, 150 * time.Microsecond},
+		{16, 200 * time.Microsecond},
+		{24, 250 * time.Microsecond},
+		{32, 300 * time.Microsecond},
+		{40, 350 * time.Microsecond},
+		{48, 400 * time.Microsecond},
+		{56, 450 * time.Microsecond},
+		{64, 500 * time.Microsecond},
 	}
 )
 
