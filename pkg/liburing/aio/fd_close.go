@@ -7,34 +7,31 @@ import (
 )
 
 func (fd *Fd) Cancel() {
-	fd.cancelDirect()
-	if fd.regular != -1 {
-		fd.cancelRegular()
+	if fd.Available() {
+		op := AcquireOperation()
+		op.PrepareCancelFixedFd(fd.direct)
+		_, _, _ = fd.eventLoop.SubmitAndWait(op)
+		ReleaseOperation(op)
+		if fd.regular != -1 {
+			op = AcquireOperation()
+			op.PrepareCancelFd(fd.regular)
+			_, _, _ = fd.eventLoop.SubmitAndWait(op)
+			ReleaseOperation(op)
+		}
 	}
 	return
 }
 
-func (fd *Fd) cancelDirect() {
-	op := AcquireOperation()
-	op.PrepareCancelFixedFd(fd.direct)
-	_, _, _ = fd.eventLoop.SubmitAndWait(op)
-	ReleaseOperation(op)
-}
-
-func (fd *Fd) cancelRegular() {
-	op := AcquireOperation()
-	op.PrepareCancelFd(fd.regular)
-	_, _, _ = fd.eventLoop.SubmitAndWait(op)
-	ReleaseOperation(op)
-}
-
 func (fd *Fd) Close() error {
-	fd.Cancel()
-	err := fd.closeDirectFd()
-	if fd.regular != -1 {
-		_ = fd.closeRegularFd()
+	if fd.Available() {
+		fd.Cancel()
+		err := fd.closeDirectFd()
+		if fd.regular != -1 {
+			_ = fd.closeRegularFd()
+		}
+		return err
 	}
-	return err
+	return ErrFdUnavailable
 }
 
 func (fd *Fd) closeDirectFd() (err error) {

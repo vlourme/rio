@@ -25,6 +25,10 @@ type Fd struct {
 	eventLoop     *EventLoop
 }
 
+func (fd *Fd) Available() bool {
+	return fd.direct > -1 || fd.regular > -1
+}
+
 func (fd *Fd) FileDescriptor() int {
 	return fd.direct
 }
