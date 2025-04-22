@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	ErrCanceled  = &CanceledError{}
-	ErrTimeout   = &TimeoutError{}
-	ErrOpInvalid = errors.New("invalid operation")
+	ErrCanceled      = &CanceledError{}
+	ErrTimeout       = &TimeoutError{}
+	ErrFdUnavailable = errors.New("file descriptor unavailable")
+	ErrOpInvalid     = errors.New("invalid operation")
 )
 
 func IsCanceled(err error) bool {
@@ -20,19 +21,22 @@ func IsTimeout(err error) bool {
 	return errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded)
 }
 
+func IsFdUnavailable(err error) bool {
+	return errors.Is(err, ErrFdUnavailable)
+}
+
 func IsOperationInvalid(err error) bool {
 	return errors.Is(err, ErrOpInvalid)
 }
 
 func MapErr(err error) error {
-	switch err {
-	case context.Canceled:
+	if errors.Is(err, context.Canceled) {
 		return ErrCanceled
-	case context.DeadlineExceeded:
-		return ErrTimeout
-	default:
-		return err
 	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ErrTimeout
+	}
+	return err
 }
 
 type CanceledError struct{}
