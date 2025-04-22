@@ -48,24 +48,26 @@ func (p *BufferPool) Acquire() *Buffer {
 }
 
 func (p *BufferPool) Release(b *Buffer) {
-	if ok := b.Reset(); ok {
-		if b.Cap() > maxSize {
-			_ = b.Close()
-			return
-		}
-		idx := p.index(b.Len())
-
-		if atomic.AddUint64(&p.calls[idx], 1) > calibrateCallsThreshold {
-			p.calibrate()
-		}
-		size := int(atomic.LoadUint64(&p.maxSize))
-		if size == 0 || b.Cap() <= size {
-			p.pool.Put(b)
-		} else {
-			_ = b.Close()
-		}
+	if bLen := b.Len(); bLen > 0 {
+		b.Discard(bLen)
+	}
+	bCap := b.Cap()
+	if bCap > maxSize {
+		_ = b.Close()
 		return
 	}
+	idx := p.index(bCap)
+
+	if atomic.AddUint64(&p.calls[idx], 1) > calibrateCallsThreshold {
+		p.calibrate()
+	}
+	size := int(atomic.LoadUint64(&p.maxSize))
+	if size == 0 || bCap <= size {
+		p.pool.Put(b)
+	} else {
+		_ = b.Close()
+	}
+	return
 }
 
 func (p *BufferPool) index(n int) int {
