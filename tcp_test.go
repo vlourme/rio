@@ -28,35 +28,34 @@ func TestTCP(t *testing.T) {
 	}
 
 	t.Log("ln addr:", ln.Addr())
-	wg := new(sync.WaitGroup)
+	lnWG := new(sync.WaitGroup)
+	connWG := new(sync.WaitGroup)
 
 	defer func() {
-		wg.Add(1)
 		err := ln.Close()
 		if err != nil {
 			t.Error(err)
 		}
-		wg.Wait()
+		lnWG.Wait()
 		return
 	}()
 
-	defer wg.Wait()
+	defer connWG.Wait()
 
 	loops := 1
 	src := make([]byte, 4096*32)
 	_, _ = rand.Read(src)
-
+	lnWG.Add(1)
 	go func(ln net.Listener, src []byte, wg *sync.WaitGroup) {
+		defer lnWG.Done()
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					t.Log("listener was closed")
-					wg.Done()
 					return
 				}
 				t.Error("accept", err)
-				wg.Done()
 				return
 			}
 			wg.Add(1)
@@ -102,7 +101,7 @@ func TestTCP(t *testing.T) {
 				}
 			}(conn, src, wg)
 		}
-	}(ln, src, wg)
+	}(ln, src, connWG)
 
 	dialer := rio.DefaultDialer
 	conn, connErr := dialer.Dial("tcp", "127.0.0.1:9000")
