@@ -285,7 +285,10 @@ func (eventLoop *EventLoop) process() {
 	}
 }
 
-func setupOpCh(op *Operation) *Channel {
+func (eventLoop *EventLoop) setupChannel(op *Operation) *Channel {
+	if op.channel != nil {
+		return op.channel
+	}
 	channel := acquireChannel(op.kind == op_kind_multishot)
 	if op.timeout != nil {
 		op.timeout.channel = acquireChannel(false)
@@ -296,9 +299,8 @@ func setupOpCh(op *Operation) *Channel {
 }
 
 func (eventLoop *EventLoop) submit1(op *Operation) (future Future) {
-	channel := setupOpCh(op)
+	channel := eventLoop.setupChannel(op)
 	future = channel
-	op.personality = eventLoop.personality
 	if eventLoop.running.Load() {
 		eventLoop.ready <- op
 		if eventLoop.idle.CompareAndSwap(true, false) {
@@ -368,9 +370,8 @@ func (eventLoop *EventLoop) process1() {
 }
 
 func (eventLoop *EventLoop) submit2(op *Operation) (future Future) {
-	channel := setupOpCh(op)
+	channel := eventLoop.setupChannel(op)
 	future = channel
-	op.personality = eventLoop.personality
 	if eventLoop.running.Load() {
 		eventLoop.ready <- op
 		return
@@ -478,6 +479,7 @@ func (eventLoop *EventLoop) prepareSQE(op *Operation) bool {
 	if sqe == nil {
 		return false
 	}
+	op.personality = eventLoop.personality
 	// prepare timeout timeout
 	if op.timeout != nil {
 		timeoutSQE := eventLoop.ring.GetSQE()
@@ -491,6 +493,7 @@ func (eventLoop *EventLoop) prepareSQE(op *Operation) bool {
 			sqe.PrepareNop()
 			return true
 		}
+		op.timeout.personality = eventLoop.personality
 		// packing timeout
 		if err := op.timeout.packingSQE(timeoutSQE); err != nil {
 			op.complete(0, 0, err)
