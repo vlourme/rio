@@ -3,7 +3,6 @@
 package aio
 
 import (
-	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
@@ -14,14 +13,15 @@ import (
 
 func newMultishotAcceptor(ln *Listener) (acceptor *MultishotAcceptor) {
 	acceptor = &MultishotAcceptor{
-		serving:       true,
-		acceptAddr:    &syscall.RawSockaddrAny{},
-		acceptAddrLen: syscall.SizeofSockaddrAny,
-		eventLoop:     ln.eventLoop,
-		operation:     &Operation{},
-		future:        nil,
-		err:           nil,
-		locker:        new(sync.Mutex),
+		serving:         true,
+		acceptAddr:      &syscall.RawSockaddrAny{},
+		acceptAddrLen:   syscall.SizeofSockaddrAny,
+		eventLoop:       ln.eventLoop,
+		operation:       &Operation{},
+		future:          nil,
+		err:             nil,
+		locker:          new(sync.Mutex),
+		operationLocker: new(sync.Mutex),
 	}
 	acceptor.operation.PrepareAcceptMultishot(ln, acceptor.acceptAddr, &acceptor.acceptAddrLen)
 	acceptor.future = acceptor.eventLoop.Submit(acceptor.operation)
@@ -29,14 +29,15 @@ func newMultishotAcceptor(ln *Listener) (acceptor *MultishotAcceptor) {
 }
 
 type MultishotAcceptor struct {
-	serving       bool
-	acceptAddr    *syscall.RawSockaddrAny
-	acceptAddrLen int
-	eventLoop     *EventLoop
-	operation     *Operation
-	future        Future
-	err           error
-	locker        sync.Locker
+	serving         bool
+	acceptAddr      *syscall.RawSockaddrAny
+	acceptAddrLen   int
+	eventLoop       *EventLoop
+	operation       *Operation
+	future          Future
+	err             error
+	locker          *sync.Mutex
+	operationLocker *sync.Mutex
 }
 
 func (acceptor *MultishotAcceptor) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
@@ -47,10 +48,10 @@ func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop
 	acceptor.locker.Lock()
 	if acceptor.err != nil {
 		err = acceptor.err
+
 		acceptor.locker.Unlock()
 		return
 	}
-	acceptor.locker.Unlock()
 
 	var (
 		accepted int
@@ -58,48 +59,65 @@ func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop
 	)
 	accepted, flags, _, err = acceptor.future.AwaitDeadline(deadline)
 	if err != nil {
-		acceptor.locker.Lock()
 		acceptor.serving = false
 		acceptor.err = err
 		if IsTimeout(err) {
-			acceptor.cancel()
-			for {
-				_, _, _, err2 := acceptor.future.Await()
-				if IsCanceled(err2) {
-					break
+			if acceptor.cancel() {
+				for {
+					_, _, _, waitErr := acceptor.future.Await()
+					if IsCanceled(waitErr) {
+						break
+					}
 				}
 			}
 		}
 		acceptor.locker.Unlock()
 		return
 	}
+
 	if flags&liburing.IORING_CQE_F_MORE == 0 {
 		acceptor.locker.Lock()
 		acceptor.serving = false
 		acceptor.err = ErrCanceled
 		err = acceptor.err
+
 		acceptor.locker.Unlock()
 		return
 	}
 	// dispatch
 	fd, eventLoop, err = acceptor.eventLoop.group.Dispatch(accepted, acceptor.eventLoop)
+
+	acceptor.locker.Unlock()
 	return
 }
 
 func (acceptor *MultishotAcceptor) cancel() bool {
-	return acceptor.eventLoop.Cancel(acceptor.operation) == nil
+	acceptor.operationLocker.Lock()
+	defer acceptor.operationLocker.Unlock()
+	if op := acceptor.operation; op != nil {
+		return acceptor.eventLoop.Cancel(acceptor.operation) == nil
+	}
+	return false
 }
 
 func (acceptor *MultishotAcceptor) Close() (err error) {
-	acceptor.locker.Lock()
-	if acceptor.serving {
-		acceptor.serving = false
-		acceptor.err = ErrCanceled
-		if !acceptor.cancel() {
-			err = errors.New("cancel acceptor failed")
+	if acceptor.locker.TryLock() {
+		if acceptor.serving {
+			acceptor.serving = false
+			if acceptor.cancel() {
+				for {
+					_, _, _, waitErr := acceptor.future.Await()
+					if IsCanceled(waitErr) {
+						break
+					}
+				}
+			}
 		}
+		acceptor.err = ErrCanceled
+		acceptor.locker.Unlock()
+		return
 	}
-	acceptor.locker.Unlock()
+	acceptor.cancel()
 	return
 }
 
