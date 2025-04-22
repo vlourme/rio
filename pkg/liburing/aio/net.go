@@ -37,10 +37,10 @@ func (kind NetFdKind) String() string {
 
 type NetFd struct {
 	Fd
+	net              string
 	kind             NetFdKind
 	family           int
 	sotype           int
-	net              string
 	laddr            net.Addr
 	raddr            net.Addr
 	sendZCEnabled    bool

@@ -38,6 +38,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		break
 	case "unix":
 		sotype = syscall.SOCK_STREAM
+		break
 	case "unixpacket":
 		sotype = syscall.SOCK_SEQPACKET
 		break
@@ -68,6 +69,7 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	ln = &Listener{
 		NetFd: NetFd{
 			Fd: Fd{
+				locker:        sync.Mutex{},
 				regular:       -1,
 				direct:        sock,
 				isStream:      sotype == syscall.SOCK_STREAM,
@@ -75,7 +77,6 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
-				locker:        new(sync.Mutex),
 				eventLoop:     eventLoop,
 			},
 			kind:             ListenedNetFd,
@@ -222,6 +223,7 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	conn = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
+				locker:        sync.Mutex{},
 				regular:       -1,
 				direct:        sock,
 				isStream:      sotype == syscall.SOCK_STREAM,
@@ -229,7 +231,6 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
-				locker:        new(sync.Mutex),
 				eventLoop:     eventLoop,
 			},
 			kind:             ListenedNetFd,

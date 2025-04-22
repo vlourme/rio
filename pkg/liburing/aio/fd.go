@@ -14,15 +14,15 @@ import (
 const maxRW = 1 << 30
 
 type Fd struct {
+	locker        sync.Mutex
 	regular       int
 	direct        int
 	isStream      bool
 	zeroReadIsEOF bool
+	multishot     bool
+	eventLoop     *EventLoop
 	readDeadline  time.Time
 	writeDeadline time.Time
-	multishot     bool
-	locker        sync.Locker
-	eventLoop     *EventLoop
 }
 
 func (fd *Fd) Available() bool {
@@ -43,6 +43,10 @@ func (fd *Fd) IsStream() bool {
 
 func (fd *Fd) ZeroReadIsEOF() bool {
 	return fd.zeroReadIsEOF
+}
+
+func (fd *Fd) MultishotEnabled() bool {
+	return fd.multishot
 }
 
 func (fd *Fd) Name() string {

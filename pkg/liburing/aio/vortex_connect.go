@@ -70,6 +70,7 @@ func (vortex *Vortex) Connect(
 	conn = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
+				locker:        sync.Mutex{},
 				regular:       -1,
 				direct:        sock,
 				isStream:      sotype == syscall.SOCK_STREAM,
@@ -77,7 +78,6 @@ func (vortex *Vortex) Connect(
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
 				multishot:     !vortex.multishotDisabled,
-				locker:        new(sync.Mutex),
 				eventLoop:     eventLoop,
 			},
 			kind:             ConnectedNetFd,
