@@ -20,17 +20,23 @@ func (c *Conn) Close() error {
 
 func (c *Conn) CloseRead() error {
 	c.tryReleaseMultishotReceiver()
-	op := AcquireOperation()
-	op.PrepareCloseRead(c)
-	_, _, err := c.eventLoop.SubmitAndWait(op)
-	ReleaseOperation(op)
-	return err
+	if c.Available() {
+		op := AcquireOperation()
+		op.PrepareCloseRead(c)
+		_, _, err := c.eventLoop.SubmitAndWait(op)
+		ReleaseOperation(op)
+		return err
+	}
+	return nil
 }
 
 func (c *Conn) CloseWrite() error {
-	op := AcquireOperation()
-	op.PrepareCloseWrite(c)
-	_, _, err := c.eventLoop.SubmitAndWait(op)
-	ReleaseOperation(op)
-	return err
+	if c.Available() {
+		op := AcquireOperation()
+		op.PrepareCloseWrite(c)
+		_, _, err := c.eventLoop.SubmitAndWait(op)
+		ReleaseOperation(op)
+		return err
+	}
+	return nil
 }
