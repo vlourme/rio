@@ -66,8 +66,12 @@ func (c *conn) Close() error {
 	}
 
 	if err := c.fd.Close(); err != nil {
-		if c.asyncIO != nil {
-			_ = c.asyncIO.Close()
+		if aio.IsFdUnavailable(err) {
+			err = net.ErrClosed
+		} else {
+			if c.asyncIO != nil {
+				_ = c.asyncIO.Close()
+			}
 		}
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 	}
