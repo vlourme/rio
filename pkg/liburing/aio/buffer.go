@@ -5,8 +5,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
-	"io"
 	"math"
 	"os"
 	"sync"
@@ -101,79 +99,6 @@ func (br *BufferAndRing) free(brs *BufferAndRings) (err error) {
 	err = brs.eventLoop.ring.FreeBufRing(br.value, entries, br.bgid)
 	// recycle br
 	brs.recycleBufferAndRing(br)
-	return
-}
-
-func (br *BufferAndRing) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
-	if err != nil || flags&liburing.IORING_CQE_F_BUFFER == 0 {
-		return true, n, flags, nil, err
-	}
-
-	var (
-		bid  = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg  = int(bid) * br.config.Size
-		end  = beg + br.config.Size
-		mask = br.config.mask
-	)
-	if n == 0 {
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
-		return true, n, flags, nil, nil
-	}
-	buf := bytebuffer.Acquire()
-	length := n
-	for length > 0 {
-		if br.config.Size > length {
-			_, _ = buf.Write(br.buffer[beg : beg+length])
-
-			b := br.buffer[beg:end]
-			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-			br.value.BufRingAdvance(1)
-			break
-		}
-
-		_, _ = buf.Write(br.buffer[beg:end])
-
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
-
-		length -= br.config.Size
-		bid = (bid + 1) % uint16(br.config.Count)
-		beg = int(bid) * br.config.Size
-		end = beg + br.config.Size
-	}
-
-	return true, n, flags, unsafe.Pointer(buf), nil
-}
-
-func (br *BufferAndRing) HandleCompletionEvent(event CompletionEvent, b []byte, overflow io.Writer) (n int, interrupted bool, err error) {
-	// handle error
-	if event.Err != nil {
-		err = event.Err
-		return
-	}
-
-	// handle attachment
-	if attachment := event.Attachment; attachment != nil {
-		buf := (*bytebuffer.Buffer)(attachment)
-		n, _ = buf.Read(b)
-		if buf.Len() > 0 {
-			_, _ = buf.WriteTo(overflow)
-		}
-		event.Attachment = nil
-		bytebuffer.Release(buf)
-	}
-
-	// handle IORING_CQE_F_MORE is 0
-	if event.Flags&liburing.IORING_CQE_F_MORE == 0 {
-		if event.N == 0 {
-			err = io.EOF
-			return
-		}
-		interrupted = true
-	}
 	return
 }
 

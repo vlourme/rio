@@ -85,8 +85,8 @@ type Operation struct {
 	channel     *Channel       // 8
 	fd          int            // 8
 	addr        unsafe.Pointer // 8
-	addrLen     uint32         // 4
 	addr2       unsafe.Pointer // 8
+	addrLen     uint32         // 4
 	addr2Len    uint32         // 4
 }
 
