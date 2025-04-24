@@ -8,6 +8,8 @@
 
 ## 注意
 * Linux 内核版本必须`>= 6.13`
+* 因 `DIRECT FD` 无法确保进程退出触发 `FD` 关闭
+* 只使用 `Dial` 则需要 `PIN` 和 `UNPIN` 来固定 `IOURING` 内核线程
 * `WSL2` 中不能开启 `networkingMode=mirrored`
 
 
@@ -15,13 +17,11 @@
 * 基于 `net.Listener` `net.Conn` 和 `net.PacketConn` 的实现
 * 使用 `BATCH` 来减少 `SYSTEM CALL` 的开销
 * 支持 `TLS`
-* 支持 `MULTISHOT`
+* 支持 `MULTISHOT_ACCEPT` `MULTISHOT_RECV` 和 `MULTISHOT_RECV_MSG`
 * 支持 `SEND_ZC` 和 `SENDMSG_ZC`
 * 支持 `NAPI`
 * 支持 `PERSIONALITY`
 * 支持 `CURVE` 进行动态调整 `WAIT CQE` 的超时来适配不同场景
-
-
 
 
 ## 性能
@@ -148,7 +148,6 @@ config := rio.ListenConfig{
     KeepAliveConfig:    net.KeepAliveConfig{},   // 设置 KeepAlive 详细配置
     MultipathTCP:       false,                   // 是否多路TCP模式
     ReusePort:          false,                   // 是否重用端口（同时开启cBPF）
-    AsyncIO:             nil,                    // 自定义 AIO
 }
 ln, lnErr := config.Listen(context.Background(), "tcp", ":9000")
 ```
@@ -165,7 +164,6 @@ dialer := rio.Dialer{
     MultipathTCP:       false,                      // 是否多路TCP模式
     Control:            nil,                        // 设置控制器
     ControlContext:     nil,                        // 设置带上下文的控制器
-    AsyncIO:             nil,                       // 自定义 AIO
 }
 conn, dialErr := dialer.DialContext(context.Background(), "tcp", "127.0.0.1:9000")
 ```
