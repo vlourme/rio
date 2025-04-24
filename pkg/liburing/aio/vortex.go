@@ -9,7 +9,7 @@ import (
 
 func Open(options ...Option) (v AsyncIO, err error) {
 	// version check
-	if !liburing.VersionEnable(6, 8, 0) {
+	if !liburing.VersionEnable(6, 13, 0) {
 		// support
 		// * io_uring_setup_buf_ring 5.19
 		// * io_uring_register_ring_fd 5.18
@@ -17,7 +17,8 @@ func Open(options ...Option) (v AsyncIO, err error) {
 		// * io_uring_prep_recv_multishot  6.0
 		// * io_uring_prep_cmd 6.7
 		// * io_uring_prep_fixed_fd_install 6.8
-		err = errors.New("kernel version must >= 6.8")
+		// * io_uring_unregister_files 6.13 (not blocked)
+		err = errors.New("kernel version must >= 6.13")
 		return
 	}
 

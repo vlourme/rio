@@ -6,7 +6,10 @@
 
 `RIO` 是一个遵循标准库使用方式的库，可以非常方便的投入使用，所以它不是个玩具，可以以非常低成本的进行代替`NET`。
 
-***Linux 内核版本需要`>= 6.8`，推荐版本为`>= 6.13`。***
+## 注意
+* Linux 内核版本必须`>= 6.13`
+* `WSL2` 中不能开启 `networkingMode=mirrored`
+
 
 ## 特性
 * 基于 `net.Listener` `net.Conn` 和 `net.PacketConn` 的实现
@@ -18,9 +21,7 @@
 * 支持 `PERSIONALITY`
 * 支持 `CURVE` 进行动态调整 `WAIT CQE` 的超时来适配不同场景
 
-## 注意
-* `WSL2` 中不能开启 `networkingMode=mirrored`
-* 当内核版本 `< 6.13` 时务必不要自己拨号自己
+
 
 
 ## 性能

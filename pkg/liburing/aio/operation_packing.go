@@ -71,7 +71,7 @@ func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) 
 		err = op.packingSendMsg(sqe)
 		break
 	case liburing.IORING_OP_SENDMSG_ZC:
-		err = op.packingSendMsgZc(sqe)
+		err = op.packingSendMsgZC(sqe)
 		break
 	case liburing.IORING_OP_SPLICE:
 		err = op.packingSplice(sqe)

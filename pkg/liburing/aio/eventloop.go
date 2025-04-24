@@ -80,7 +80,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		personality, _ := ring.RegisterPersonality()
 		// register napi
 		var napi *liburing.NAPI
-		if liburing.VersionEnable(6, 9, 0) && options.NAPIBusyPollTimeout > 0 {
+		if options.NAPIBusyPollTimeout > 0 {
 			us := uint32(options.NAPIBusyPollTimeout.Microseconds())
 			if us == 0 {
 				us = 50
@@ -152,29 +152,17 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		eventLoop.process()
 
 		// shutdown >>>
+		// unregister buffer and rings
+		_ = bufferAndRings.Unregister()
 		// unregister napi
 		if napi != nil {
 			_, _ = ring.UnregisterNAPI(napi)
 		}
-		// unregister buffer and rings
-		_ = bufferAndRings.Unregister()
-		/* unregister files
-		when kernel is less than 6.13, unregister files maybe blocked.
-		so use a timer and done to fix blocking.
-		*/
-		unregisterFilesDone := make(chan struct{})
-		unregisterFilesTimer := time.NewTimer(500 * time.Millisecond)
-		go func(ring *liburing.Ring, done chan struct{}) {
-			_, _ = ring.UnregisterFiles()
-			close(unregisterFilesDone)
-		}(ring, unregisterFilesDone)
-		select {
-		case <-unregisterFilesTimer.C:
-			break
-		case <-unregisterFilesDone:
-			break
-		}
-		unregisterFilesTimer.Stop()
+		// unregister personality
+		_, _ = ring.UnregisterPersonality()
+		// unregister files
+		_, _ = ring.UnregisterFiles()
+
 		// close ring
 		eventLoop.err = ring.Close()
 

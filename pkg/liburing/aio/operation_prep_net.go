@@ -115,9 +115,7 @@ func (op *Operation) packingReceive(sqe *liburing.SubmissionQueueEntry) (err err
 		r := (*MultishotReceiveAdaptor)(op.addr)
 		op.channel.adaptor = r
 		sqe.PrepareRecvMultishot(op.fd, 0, 0, 0)
-		if liburing.VersionEnable(6, 10, 0) {
-			sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
-		}
+		sqe.SetIoPrio(liburing.IORING_RECVSEND_BUNDLE)
 		sqe.SetBufferGroup(r.br.bgid)
 	} else {
 		b := uintptr(op.addr)
@@ -246,7 +244,7 @@ func (op *Operation) PrepareSendMsgZC(conn *Conn, msg *syscall.Msghdr, adaptor *
 	return
 }
 
-func (op *Operation) packingSendMsgZc(sqe *liburing.SubmissionQueueEntry) (err error) {
+func (op *Operation) packingSendMsgZC(sqe *liburing.SubmissionQueueEntry) (err error) {
 	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
 	op.channel.adaptor = adaptor
 
