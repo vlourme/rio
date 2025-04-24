@@ -189,6 +189,7 @@ type EventLoop struct {
 	key              uint64
 	personality      uint16
 	running          atomic.Bool
+	closed           atomic.Bool
 	idle             atomic.Bool
 	poll             bool
 	waitTimeoutCurve Curve
@@ -261,16 +262,18 @@ func (eventLoop *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
 }
 
 func (eventLoop *EventLoop) Close() (err error) {
-	// stop buffer and rings
-	eventLoop.bufferAndRings.Stop()
-	// submit close op
-	op := &Operation{}
-	op.PrepareCloseRing(eventLoop.key)
-	eventLoop.Submit(op)
-	// wait
-	eventLoop.wg.Wait()
-	// get err
-	err = eventLoop.err
+	if eventLoop.closed.CompareAndSwap(false, true) {
+		// stop buffer and rings
+		eventLoop.bufferAndRings.Stop()
+		// submit close op
+		op := &Operation{}
+		op.PrepareCloseRing(eventLoop.key)
+		eventLoop.Submit(op)
+		// wait
+		eventLoop.wg.Wait()
+		// get err
+		err = eventLoop.err
+	}
 	return
 }
 

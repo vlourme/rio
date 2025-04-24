@@ -196,6 +196,7 @@ type Wakeup struct {
 	personality uint16
 	ready       chan *Operation
 	running     atomic.Bool
+	closed      atomic.Bool
 	err         error
 }
 
@@ -224,16 +225,18 @@ func (r *Wakeup) Wakeup(ringFd int, flags uint32) (err error) {
 }
 
 func (r *Wakeup) Close() (err error) {
-	// submit close op
-	op := &Operation{}
-	op.PrepareCloseRing(r.key)
-	r.ready <- op
-	// wait
-	r.wg.Wait()
-	// close ready
-	close(r.ready)
-	// get err
-	err = r.err
+	if r.closed.CompareAndSwap(false, true) {
+		// submit close op
+		op := &Operation{}
+		op.PrepareCloseRing(r.key)
+		r.ready <- op
+		// wait
+		r.wg.Wait()
+		// close ready
+		close(r.ready)
+		// get err
+		err = r.err
+	}
 	return
 }
 
