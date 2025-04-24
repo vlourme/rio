@@ -187,9 +187,7 @@ func (ln *UnixListener) Close() error {
 		if aio.IsFdUnavailable(err) {
 			err = net.ErrClosed
 		} else {
-			if ln.asyncIO != nil {
-				_ = ln.asyncIO.Close()
-			}
+			_ = ln.asyncIO.Close()
 		}
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
 	}

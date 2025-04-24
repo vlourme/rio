@@ -30,7 +30,6 @@ func TestTCP(t *testing.T) {
 	t.Log("ln addr:", ln.Addr())
 	lnWG := new(sync.WaitGroup)
 	connWG := new(sync.WaitGroup)
-
 	defer func() {
 		err := ln.Close()
 		if err != nil {
@@ -40,10 +39,11 @@ func TestTCP(t *testing.T) {
 		return
 	}()
 
+	defer t.Log("conn done")
 	defer connWG.Wait()
 
 	loops := 1
-	src := make([]byte, 4096*32)
+	src := make([]byte, 4096*64)
 	_, _ = rand.Read(src)
 	lnWG.Add(1)
 	go func(ln net.Listener, src []byte, wg *sync.WaitGroup) {
@@ -109,6 +109,7 @@ func TestTCP(t *testing.T) {
 		t.Error(connErr)
 		return
 	}
+
 	t.Log("cli:", conn.LocalAddr(), conn.RemoteAddr())
 	defer func() {
 		err := conn.Close()
@@ -383,6 +384,10 @@ func TestTCPConn_CloseRead(t *testing.T) {
 	wg := new(sync.WaitGroup)
 	defer wg.Wait()
 
+	rio.Pin()
+	rio.Pin()
+	defer rio.Unpin()
+
 	ln, lnErr := rio.Listen("tcp", ":9000")
 	if lnErr != nil {
 		t.Error(lnErr)
@@ -404,6 +409,7 @@ func TestTCPConn_CloseRead(t *testing.T) {
 				b := make([]byte, 1024)
 				rn, rErr := c.Read(b)
 				if rErr != nil {
+					_ = c.Close()
 					if errors.Is(rErr, io.EOF) {
 						t.Log("srv closed", rErr)
 						return
@@ -411,7 +417,6 @@ func TestTCPConn_CloseRead(t *testing.T) {
 					t.Error(rn, rErr)
 					return
 				}
-				_ = c.Close()
 			}(conn, wg)
 			crErr := conn.(*rio.TCPConn).CloseRead()
 			if crErr != nil {

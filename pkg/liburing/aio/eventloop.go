@@ -163,7 +163,7 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		so use a timer and done to fix blocking.
 		*/
 		unregisterFilesDone := make(chan struct{})
-		unregisterFilesTimer := time.NewTimer(10 * time.Millisecond)
+		unregisterFilesTimer := time.NewTimer(500 * time.Millisecond)
 		go func(ring *liburing.Ring, done chan struct{}) {
 			_, _ = ring.UnregisterFiles()
 			close(unregisterFilesDone)
@@ -177,6 +177,13 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 		unregisterFilesTimer.Stop()
 		// close ring
 		eventLoop.err = ring.Close()
+
+		// close ready
+		for i := 0; i < len(eventLoop.ready); i++ {
+			op := <-eventLoop.ready
+			op.complete(0, 0, ErrCanceled)
+		}
+		close(eventLoop.ready)
 		// shutdown <<<
 
 		eventLoop.wg.Done()
@@ -197,7 +204,7 @@ type EventLoop struct {
 	idle             atomic.Bool
 	poll             bool
 	waitTimeoutCurve Curve
-	submitter        func(op *Operation) (future Future)
+	submitter        func(op *Operation)
 	ready            chan *Operation
 	orphan           *Operation
 	err              error
@@ -224,7 +231,13 @@ func (eventLoop *EventLoop) Group() *EventLoopGroup {
 }
 
 func (eventLoop *EventLoop) Submit(op *Operation) (future Future) {
-	future = eventLoop.submitter(op)
+	channel := eventLoop.setupChannel(op)
+	if eventLoop.running.Load() {
+		eventLoop.submitter(op)
+	} else {
+		channel.Complete(0, 0, ErrCanceled)
+	}
+	future = channel
 	return
 }
 
@@ -246,7 +259,7 @@ func (eventLoop *EventLoop) AcquireBufferAndRing() (br *BufferAndRing, err error
 	var ptr unsafe.Pointer
 	op := AcquireOperation()
 	op.PrepareCreateBufferAndRing(register)
-	_, _, ptr, err = eventLoop.submitter(op).Await()
+	_, _, ptr, err = eventLoop.Submit(op).Await()
 	if err == nil {
 		br = (*BufferAndRing)(ptr)
 	}
@@ -268,8 +281,6 @@ func (eventLoop *EventLoop) Close() (err error) {
 	eventLoop.Submit(op)
 	// wait
 	eventLoop.wg.Wait()
-	// close ready
-	close(eventLoop.ready)
 	// get err
 	err = eventLoop.err
 	return
@@ -298,20 +309,18 @@ func (eventLoop *EventLoop) setupChannel(op *Operation) *Channel {
 	return channel
 }
 
-func (eventLoop *EventLoop) submit1(op *Operation) (future Future) {
-	channel := eventLoop.setupChannel(op)
-	future = channel
+func (eventLoop *EventLoop) submit1(op *Operation) {
 	if eventLoop.running.Load() {
 		eventLoop.ready <- op
 		if eventLoop.idle.CompareAndSwap(true, false) {
 			if err := eventLoop.group.wakeup.Wakeup(eventLoop.ring.Fd(), 0); err != nil {
-				channel.Complete(0, 0, ErrCanceled)
+				op.complete(0, 0, ErrCanceled)
 				return
 			}
 		}
 		return
 	}
-	channel.Complete(0, 0, ErrCanceled)
+	op.complete(0, 0, ErrCanceled)
 	return
 }
 
@@ -369,14 +378,12 @@ func (eventLoop *EventLoop) process1() {
 	return
 }
 
-func (eventLoop *EventLoop) submit2(op *Operation) (future Future) {
-	channel := eventLoop.setupChannel(op)
-	future = channel
+func (eventLoop *EventLoop) submit2(op *Operation) {
 	if eventLoop.running.Load() {
 		eventLoop.ready <- op
 		return
 	}
-	channel.Complete(0, 0, ErrCanceled)
+	op.complete(0, 0, ErrCanceled)
 	return
 }
 
@@ -529,13 +536,14 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 
 			if cqe.UserData == eventLoop.key { // userdata is key means closed
 				ring.CQAdvance(1)
-				eventLoop.running.Store(true)
+				eventLoop.running.Store(false)
 				stopped = true
 				continue
 			}
 
 			// get op from cqe
-			cop := (*Operation)(unsafe.Pointer(uintptr(cqe.UserData)))
+			copp := unsafe.Pointer(uintptr(cqe.UserData))
+			cop := (*Operation)(copp)
 			var (
 				opN     = int(cqe.Res)
 				opFlags = cqe.Flags
@@ -552,6 +560,8 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 			cop.complete(opN, opFlags, opErr)
 			ring.CQAdvance(1)
 			cop = nil
+			copp = nil
+			cqe.UserData = 0
 		}
 		completed += peeked
 	}
