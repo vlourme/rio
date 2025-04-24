@@ -101,13 +101,9 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// asyncIO
-	asyncIORC := d.AsyncIO
-	if asyncIORC == nil {
-		var asyncIOErr error
-		asyncIORC, asyncIOErr = getAsyncIO()
-		if asyncIOErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
-		}
+	asyncIORC, asyncIOErr := getAsyncIO()
+	if asyncIOErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
 	}
 	asyncIO := asyncIORC.Value()
 
@@ -188,13 +184,9 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	}
 
 	// asyncIO
-	asyncIORC := d.AsyncIO
-	if asyncIORC == nil {
-		var asyncIOErr error
-		asyncIORC, asyncIOErr = getAsyncIO()
-		if asyncIOErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
-		}
+	asyncIORC, asyncIOErr := getAsyncIO()
+	if asyncIOErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
 	}
 	asyncIO := asyncIORC.Value()
 
@@ -271,13 +263,9 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	}
 
 	// asyncIO
-	asyncIORC := d.AsyncIO
-	if asyncIORC == nil {
-		var asyncIOErr error
-		asyncIORC, asyncIOErr = getAsyncIO()
-		if asyncIOErr != nil {
-			return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
-		}
+	asyncIORC, asyncIOErr := getAsyncIO()
+	if asyncIOErr != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
 	}
 	asyncIO := asyncIORC.Value()
 

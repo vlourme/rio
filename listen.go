@@ -2,8 +2,6 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"syscall"
 	"time"
@@ -104,8 +102,6 @@ type ListenConfig struct {
 	MultipathTCP bool
 	// ReusePort is set SO_REUSEPORT
 	ReusePort bool
-	// AsyncIO customize [aio.AsyncIO]
-	AsyncIO *reference.Pointer[aio.AsyncIO]
 }
 
 // SetMultipathTCP set multi-path tcp.

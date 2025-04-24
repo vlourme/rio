@@ -2,8 +2,6 @@ package rio
 
 import (
 	"context"
-	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"syscall"
 	"time"
@@ -20,7 +18,6 @@ var (
 		MultipathTCP:    false,
 		Control:         nil,
 		ControlContext:  nil,
-		AsyncIO:         nil,
 	}
 )
 
@@ -183,8 +180,6 @@ type Dialer struct {
 	//
 	// If ControlContext is not nil, Control is ignored.
 	ControlContext func(ctx context.Context, network, address string, c syscall.RawConn) error
-	// AsyncIO customize [aio.AsyncIO]
-	AsyncIO *reference.Pointer[aio.AsyncIO]
 }
 
 // SetMultipathTCP set multi-path tcp.

@@ -102,13 +102,9 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		addr = &net.UDPAddr{}
 	}
 	// asyncIO
-	asyncIORC := lc.AsyncIO
-	if asyncIORC == nil {
-		var asyncIORCErr error
-		asyncIORC, asyncIORCErr = getAsyncIO()
-		if asyncIORCErr != nil {
-			return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
-		}
+	asyncIORC, asyncIORCErr := getAsyncIO()
+	if asyncIORCErr != nil {
+		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
 	}
 	asyncIO := asyncIORC.Value()
 	// control
