@@ -4,12 +4,16 @@ package aio
 
 type Conn struct {
 	NetFd
-	multishotReceiver *MultishotReceiver
+	multishotReceiver    *MultishotReceiver
+	multishotMsgReceiver *MultishotMsgReceiver
 }
 
 func (c *Conn) tryReleaseMultishotReceiver() {
 	if c.multishotReceiver != nil {
 		_ = c.multishotReceiver.Close()
+	}
+	if c.multishotMsgReceiver != nil {
+		_ = c.multishotMsgReceiver.Close()
 	}
 }
 

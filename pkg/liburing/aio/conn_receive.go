@@ -48,6 +48,37 @@ func (c *Conn) receiveOneshot(b []byte) (n int, err error) {
 }
 
 func (c *Conn) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
+	if c.multishot {
+		if c.multishotMsgReceiver == nil {
+			c.multishotMsgReceiver, err = newMultishotMsgReceiver(c)
+			if err != nil {
+				c.multishot = false
+				err = nil
+				n, addr, err = c.receiveFromOneshot(b)
+				return
+			}
+		}
+		var rsa *syscall.RawSockaddrAny
+		n, _, _, rsa, err = c.multishotMsgReceiver.ReceiveMsg(b, nil, c.readDeadline)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+			return
+		}
+		sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
+		if saErr != nil {
+			err = saErr
+			return
+		}
+		addr = sys.SockaddrToAddr(c.net, sa)
+	} else {
+		n, addr, err = c.receiveFromOneshot(b)
+	}
+	return
+}
+
+func (c *Conn) receiveFromOneshot(b []byte) (n int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
@@ -72,6 +103,41 @@ func (c *Conn) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
 }
 
 func (c *Conn) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, flag int, addr net.Addr, err error) {
+	if c.multishot && flags == 0 {
+		if c.multishotMsgReceiver == nil {
+			c.multishotMsgReceiver, err = newMultishotMsgReceiver(c)
+			if err != nil {
+				c.multishot = false
+				err = nil
+				n, oobn, flag, addr, err = c.receiveMsgOneshot(b, oob, flags)
+				return
+			}
+		}
+		var (
+			flags32 int32
+			rsa     *syscall.RawSockaddrAny
+		)
+		n, oobn, flags32, rsa, err = c.multishotMsgReceiver.ReceiveMsg(b, oob, c.readDeadline)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			}
+			return
+		}
+		sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
+		if saErr != nil {
+			err = saErr
+			return
+		}
+		addr = sys.SockaddrToAddr(c.net, sa)
+		flag = int(flags32)
+	} else {
+		n, oobn, flag, addr, err = c.receiveMsgOneshot(b, oob, flags)
+	}
+	return
+}
+
+func (c *Conn) receiveMsgOneshot(b []byte, oob []byte, flags int) (n int, oobn int, flag int, addr net.Addr, err error) {
 	rsa := &syscall.RawSockaddrAny{}
 	rsaLen := syscall.SizeofSockaddrAny
 
