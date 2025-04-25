@@ -10,7 +10,7 @@
 * 【重要】Linux 内核版本必须`>= 6.13`
 * 【重要】只使用 `Dial` 的场景需要 `PIN` 和 `UNPIN` 来固定 `IOURING` 的内核线程
 * 【重要】`WSL2` 中不能开启 `networkingMode=mirrored`
-* 【普通】因 `DIRECT FD` 不支持 `CLOEXEC` 所以务必在程序退出时关闭所有 `FD`
+* 【普通】因 `DIRECT FD` 不支持 `CLOEXEC` 所以务必在程序退出时关闭所有 `FD` （net.Http 和 fasthttp 均实现关闭时关闭所有链接）
 
 
 ## 特性
