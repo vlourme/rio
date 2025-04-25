@@ -2,12 +2,10 @@ package rio
 
 import (
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/reference"
 )
 
 var (
-	aioInstance *reference.Pointer[aio.AsyncIO]
-	aioOptions  []aio.Option
+	aioOptions []aio.Option
 )
 
 // Preset aio options

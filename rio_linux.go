@@ -29,6 +29,7 @@ func Unpin() {
 }
 
 var (
+	aioInstance     *reference.Pointer[aio.AsyncIO]
 	aioInstanceErr  error
 	aioInstanceOnce sync.Once
 )

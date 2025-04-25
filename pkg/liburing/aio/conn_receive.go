@@ -48,6 +48,9 @@ func (c *Conn) receiveOneshot(b []byte) (n int, err error) {
 }
 
 func (c *Conn) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
+	if len(b) == 0 {
+		return
+	}
 	if c.multishot {
 		if c.multishotMsgReceiver == nil {
 			c.multishotMsgReceiver, err = newMultishotMsgReceiver(c)
@@ -58,20 +61,13 @@ func (c *Conn) ReceiveFrom(b []byte) (n int, addr net.Addr, err error) {
 				return
 			}
 		}
-		var rsa *syscall.RawSockaddrAny
-		n, _, _, rsa, err = c.multishotMsgReceiver.ReceiveMsg(b, nil, c.readDeadline)
+		n, _, _, addr, err = c.multishotMsgReceiver.ReceiveMsg(&c.NetFd, b, nil, c.readDeadline)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				err = nil
 			}
 			return
 		}
-		sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
-		if saErr != nil {
-			err = saErr
-			return
-		}
-		addr = sys.SockaddrToAddr(c.net, sa)
 	} else {
 		n, addr, err = c.receiveFromOneshot(b)
 	}
@@ -103,7 +99,7 @@ func (c *Conn) receiveFromOneshot(b []byte) (n int, addr net.Addr, err error) {
 }
 
 func (c *Conn) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, flag int, addr net.Addr, err error) {
-	if c.multishot && flags == 0 {
+	if c.multishot && len(oob) == 0 && flags == 0 {
 		if c.multishotMsgReceiver == nil {
 			c.multishotMsgReceiver, err = newMultishotMsgReceiver(c)
 			if err != nil {
@@ -113,24 +109,14 @@ func (c *Conn) ReceiveMsg(b []byte, oob []byte, flags int) (n int, oobn int, fla
 				return
 			}
 		}
-		var (
-			flags32 int32
-			rsa     *syscall.RawSockaddrAny
-		)
-		n, oobn, flags32, rsa, err = c.multishotMsgReceiver.ReceiveMsg(b, oob, c.readDeadline)
+
+		n, oobn, flag, addr, err = c.multishotMsgReceiver.ReceiveMsg(&c.NetFd, b, oob, c.readDeadline)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				err = nil
 			}
 			return
 		}
-		sa, saErr := sys.RawSockaddrAnyToSockaddr(rsa)
-		if saErr != nil {
-			err = saErr
-			return
-		}
-		addr = sys.SockaddrToAddr(c.net, sa)
-		flag = int(flags32)
 	} else {
 		n, oobn, flag, addr, err = c.receiveMsgOneshot(b, oob, flags)
 	}
@@ -164,8 +150,4 @@ func (c *Conn) receiveMsgOneshot(b []byte, oob []byte, flags int) (n int, oobn i
 	}
 	addr = sys.SockaddrToAddr(c.Net(), sa)
 	return
-}
-
-func OOBLen() int {
-	return syscall.CmsgLen(syscall.SizeofSockaddrAny) + syscall.SizeofCmsghdr
 }

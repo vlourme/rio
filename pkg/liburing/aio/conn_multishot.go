@@ -6,7 +6,9 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/bytebuffer"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"io"
+	"net"
 	"sync"
 	"syscall"
 	"time"
@@ -305,6 +307,72 @@ func (r *MultishotReceiver) Close() (err error) {
 	return
 }
 
+type Message struct {
+	B     *bytebuffer.Buffer
+	OOB   *bytebuffer.Buffer
+	Addr  syscall.Sockaddr
+	Flags int
+	Err   error
+}
+
+func (msg *Message) Read(fd *NetFd, b []byte, oob []byte) (n int, oobn int, flags int, addr net.Addr, err error) {
+	if msg.Err != nil {
+		err = msg.Err
+		return
+	}
+	bLen := len(b)
+	if bLen > 0 && msg.B != nil {
+		if bLen < msg.B.Len() {
+			err = io.ErrShortBuffer
+			return
+		}
+		n, _ = msg.B.Read(b)
+	}
+	oobLen := len(oob)
+	if oobLen > 0 && msg.OOB != nil {
+		if oobLen < msg.OOB.Len() {
+			err = io.ErrShortBuffer
+			return
+		}
+		oobLen, _ = msg.OOB.Read(oob)
+	}
+	flags = msg.Flags
+	if msg.Addr != nil {
+		addr = sys.SockaddrToAddr(fd.net, msg.Addr)
+	}
+	return
+}
+
+var (
+	messages = sync.Pool{}
+)
+
+func acquireMessage() *Message {
+	v := messages.Get()
+	if v == nil {
+		return &Message{}
+	}
+	return v.(*Message)
+}
+
+func releaseMessage(m *Message) {
+	if m == nil {
+		return
+	}
+	if b := m.B; b != nil {
+		m.B = nil
+		bytebuffer.Release(b)
+	}
+	if b := m.OOB; b != nil {
+		m.OOB = nil
+		bytebuffer.Release(b)
+	}
+	m.Addr = nil
+	m.Flags = 0
+	m.Err = nil
+	messages.Put(m)
+}
+
 type MultishotMsgReceiveAdaptor struct {
 	br  *BufferAndRing
 	msg *syscall.Msghdr
@@ -316,12 +384,13 @@ func (adaptor *MultishotMsgReceiveAdaptor) Handle(n int, flags uint32, err error
 	}
 
 	var (
-		br   = adaptor.br
-		bid  = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg  = int(bid) * br.config.Size
-		end  = beg + br.config.Size
-		mask = br.config.mask
-		msg  = acquireMsg(nil, nil, nil, 0, 0)
+		br      = adaptor.br
+		bid     = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
+		beg     = int(bid) * br.config.Size
+		end     = beg + br.config.Size
+		mask    = br.config.mask
+		msg     = acquireMsg(nil, nil, nil, 0, 0)
+		message = acquireMessage()
 	)
 	// buffer
 	b := br.buffer[beg:end]
@@ -331,44 +400,55 @@ func (adaptor *MultishotMsgReceiveAdaptor) Handle(n int, flags uint32, err error
 
 	out := liburing.RecvmsgValidate(unsafe.Pointer(&b[0]), n, msg)
 
+	// name
+	if name := out.Name(); name != nil {
+		addr := (*syscall.RawSockaddrAny)(name)
+		sa, saErr := sys.RawSockaddrAnyToSockaddr(addr)
+		if saErr != nil {
+			message.Err = saErr
+			// release bid
+			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
+			br.value.BufRingAdvance(1)
+			// release msg
+			releaseMsg(msg)
+			return true, n, flags, unsafe.Pointer(message), nil
+		}
+		message.Addr = sa
+		addr = nil
+	}
+
+	// flags
+	message.Flags = int(out.Flags)
+
 	// control
 	if cmsg := out.CmsgFirsthdr(msg); cmsg != nil {
-		oob := make([]byte, n)
-		copy(oob, b[:n])
-		msg.Control = &oob[0]
-		msg.Controllen = uint64(n)
-
+		message.OOB = bytebuffer.Acquire()
+		_, _ = message.OOB.Write(b[:out.ControlLen])
 		// release bid
 		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
 		br.value.BufRingAdvance(1)
-		return true, n, flags, unsafe.Pointer(msg), nil
-	}
-	// name
-	if name := out.Name(); name != nil {
-		msg.Name = (*byte)(out.Name())
+		// release msg
+		releaseMsg(msg)
+		return true, n, flags, unsafe.Pointer(message), nil
 	}
 
 	// payload
 	n = int(out.PayloadLength(n, msg))
 	if n > 0 {
-		msg.Iov = &syscall.Iovec{
-			Base: (*byte)(out.Payload(msg)),
-			Len:  uint64(n),
-		}
-		msg.Iovlen = 1
+		payload := unsafe.Slice((*byte)(out.Payload(msg)), n)
+		message.B = bytebuffer.Acquire()
+		_, _ = message.B.Write(payload)
 	}
-
-	// flags
-	msg.Flags = int32(out.Flags)
 
 	// release bid
 	br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
 	br.value.BufRingAdvance(1)
-
-	return true, n, flags, unsafe.Pointer(msg), nil
+	// release msg
+	releaseMsg(msg)
+	return true, n, flags, unsafe.Pointer(message), nil
 }
 
-func (adaptor *MultishotMsgReceiveAdaptor) HandleCompletionEvent(event CompletionEvent) (msg *syscall.Msghdr, interrupted bool, err error) {
+func (adaptor *MultishotMsgReceiveAdaptor) HandleCompletionEvent(event CompletionEvent) (msg *Message, interrupted bool, err error) {
 	// handle error
 	if event.Err != nil {
 		err = event.Err
@@ -377,7 +457,7 @@ func (adaptor *MultishotMsgReceiveAdaptor) HandleCompletionEvent(event Completio
 
 	// handle attachment
 	if attachment := event.Attachment; attachment != nil {
-		msg = (*syscall.Msghdr)(attachment)
+		msg = (*Message)(attachment)
 	}
 
 	// handle IORING_CQE_F_MORE is 0
@@ -391,33 +471,9 @@ func (adaptor *MultishotMsgReceiveAdaptor) HandleCompletionEvent(event Completio
 	return
 }
 
-func (adaptor *MultishotMsgReceiveAdaptor) HandleMsg(msg *syscall.Msghdr, b []byte, oob []byte) (n int, oobn int, flags int32, rsa *syscall.RawSockaddrAny, err error) {
-	if msg.Iov != nil {
-		// b
-		bLen := uint64(len(b))
-		if bLen < msg.Iov.Len {
-			err = io.ErrShortBuffer
-			releaseMsg(msg)
-			return
-		}
-		p := unsafe.Slice(msg.Iov.Base, msg.Iov.Len)
-		n = copy(b, p)
-		// addr
-		rsa = (*syscall.RawSockaddrAny)(unsafe.Pointer(msg.Name))
-		// flags
-		flags = msg.Flags
-	} else if msg.Control != nil {
-		// oob
-		oobLen := uint64(len(oob))
-		if oobLen < msg.Controllen {
-			err = io.ErrShortBuffer
-			releaseMsg(msg)
-			return
-		}
-		p := unsafe.Slice(msg.Control, msg.Controllen)
-		oobn = copy(oob, p)
-	}
-	releaseMsg(msg)
+func (adaptor *MultishotMsgReceiveAdaptor) HandleMsg(msg *Message, fd *NetFd, b []byte, oob []byte) (n int, oobn int, flags int, addr net.Addr, err error) {
+	n, oobn, flags, addr, err = msg.Read(fd, b, oob)
+	releaseMessage(msg)
 	return
 }
 
@@ -428,8 +484,9 @@ func newMultishotMsgReceiver(conn *Conn) (receiver *MultishotMsgReceiver, err er
 		err = brErr
 		return
 	}
+	oobLen := syscall.CmsgLen(syscall.SizeofSockaddrAny) + syscall.SizeofCmsghdr
 	// adaptor
-	adaptor := &MultishotMsgReceiveAdaptor{br: br, msg: &syscall.Msghdr{Namelen: syscall.SizeofSockaddrAny, Controllen: uint64(OOBLen())}}
+	adaptor := &MultishotMsgReceiveAdaptor{br: br, msg: &syscall.Msghdr{Namelen: syscall.SizeofSockaddrAny, Controllen: uint64(oobLen)}}
 	// op
 	op := AcquireOperation()
 	op.PrepareReceiveMsgMultishot(conn, adaptor)
@@ -439,7 +496,7 @@ func newMultishotMsgReceiver(conn *Conn) (receiver *MultishotMsgReceiver, err er
 		locker:        sync.Mutex{},
 		operationLock: sync.Mutex{},
 		adaptor:       adaptor,
-		buffer:        make([]*syscall.Msghdr, 0, 8),
+		buffer:        make([]*Message, 0, 8),
 		eventLoop:     conn.eventLoop,
 		operation:     op,
 		future:        nil,
@@ -452,7 +509,7 @@ type MultishotMsgReceiver struct {
 	status        int
 	locker        sync.Mutex
 	adaptor       *MultishotMsgReceiveAdaptor
-	buffer        []*syscall.Msghdr
+	buffer        []*Message
 	eventLoop     *EventLoop
 	operation     *Operation
 	operationLock sync.Mutex
@@ -460,7 +517,7 @@ type MultishotMsgReceiver struct {
 	err           error
 }
 
-func (r *MultishotMsgReceiver) ReceiveMsg(b []byte, oob []byte, deadline time.Time) (n int, oobn int, flags32 int32, rsa *syscall.RawSockaddrAny, err error) {
+func (r *MultishotMsgReceiver) ReceiveMsg(fd *NetFd, b []byte, oob []byte, deadline time.Time) (n int, oobn int, flags int, addr net.Addr, err error) {
 	bLen := len(b)
 	oobLen := len(oob)
 	if bLen == 0 && oobLen == 0 {
@@ -473,7 +530,7 @@ func (r *MultishotMsgReceiver) ReceiveMsg(b []byte, oob []byte, deadline time.Ti
 		if len(r.buffer) > 0 {
 			msg := r.buffer[0]
 			r.buffer = r.buffer[1:]
-			n, oobn, flags32, rsa, err = r.adaptor.HandleMsg(msg, b, oob)
+			n, oobn, flags, addr, err = r.adaptor.HandleMsg(msg, fd, b, oob)
 			r.locker.Unlock()
 			return
 		}
@@ -486,7 +543,7 @@ func (r *MultishotMsgReceiver) ReceiveMsg(b []byte, oob []byte, deadline time.Ti
 	if len(r.buffer) > 0 {
 		msg := r.buffer[0]
 		r.buffer = r.buffer[1:]
-		n, oobn, flags32, rsa, err = r.adaptor.HandleMsg(msg, b, oob)
+		n, oobn, flags, addr, err = r.adaptor.HandleMsg(msg, fd, b, oob)
 		r.locker.Unlock()
 		return
 	}
@@ -553,7 +610,7 @@ func (r *MultishotMsgReceiver) ReceiveMsg(b []byte, oob []byte, deadline time.Ti
 	if len(r.buffer) > 0 {
 		msg := r.buffer[0]
 		r.buffer = r.buffer[1:]
-		n, oobn, flags32, rsa, err = r.adaptor.HandleMsg(msg, b, oob)
+		n, oobn, flags, addr, err = r.adaptor.HandleMsg(msg, fd, b, oob)
 	}
 
 	r.locker.Unlock()

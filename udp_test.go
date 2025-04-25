@@ -3,7 +3,6 @@ package rio_test
 import (
 	"errors"
 	"github.com/brickingsoft/rio"
-	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"net"
 	"strconv"
 	"sync"
@@ -96,7 +95,7 @@ func TestUDPConn_ReadMsgUDP(t *testing.T) {
 		defer wg.Done()
 		t.Log("srv:", conn.LocalAddr())
 		b := make([]byte, 1024)
-		oob := make([]byte, aio.OOBLen())
+		oob := make([]byte, 128)
 		for {
 			rn, oobN, flags, addr, rErr := conn.ReadMsgUDP(b, oob)
 			t.Log("srv read", rn, oobN, flags, string(b[:rn]), addr)
