@@ -176,7 +176,7 @@ func (ln *TCPListener) SetDeadline(t time.Time) error {
 	return nil
 }
 
-// SetSocketOptInt set socket option.
+// SetSocketOptInt implements the rio.Listener SetSocketOptInt method.
 func (ln *TCPListener) SetSocketOptInt(level int, optName int, optValue int) (err error) {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -188,7 +188,7 @@ func (ln *TCPListener) SetSocketOptInt(level int, optName int, optValue int) (er
 	return
 }
 
-// GetSocketOptInt get socket option.
+// GetSocketOptInt implements the rio.Listener GetSocketOptInt method.
 func (ln *TCPListener) GetSocketOptInt(level int, optName int) (optValue int, err error) {
 	if !ln.ok() {
 		return 0, syscall.EINVAL

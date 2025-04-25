@@ -168,7 +168,7 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	return
 }
 
-// SetSocketOptInt set socket option.
+// SetSocketOptInt implements the rio.Listener SetSocketOptInt method.
 func (ln *UnixListener) SetSocketOptInt(level int, optName int, optValue int) (err error) {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -180,7 +180,7 @@ func (ln *UnixListener) SetSocketOptInt(level int, optName int, optValue int) (e
 	return
 }
 
-// GetSocketOptInt get socket option.
+// GetSocketOptInt implements the rio.Listener GetSocketOptInt method.
 func (ln *UnixListener) GetSocketOptInt(level int, optName int) (optValue int, err error) {
 	if !ln.ok() {
 		return 0, syscall.EINVAL
@@ -445,7 +445,7 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 	return
 }
 
-// SetSocketOptInt set socket option.
+// SetSocketOptInt implements the rio.PacketConn SetSocketOptInt method.
 func (c *UnixConn) SetSocketOptInt(level int, optName int, optValue int) (err error) {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -457,7 +457,7 @@ func (c *UnixConn) SetSocketOptInt(level int, optName int, optValue int) (err er
 	return
 }
 
-// GetSocketOptInt get socket option.
+// GetSocketOptInt implements the rio.PacketConn GetSocketOptInt method.
 func (c *UnixConn) GetSocketOptInt(level int, optName int) (optValue int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL

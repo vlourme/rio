@@ -354,7 +354,7 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr net.Addr) (n, oobn int, err error
 	return
 }
 
-// SetSocketOptInt set socket option.
+// SetSocketOptInt implements the rio.PacketConn SetSocketOptInt method.
 func (c *UDPConn) SetSocketOptInt(level int, optName int, optValue int) (err error) {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -366,7 +366,7 @@ func (c *UDPConn) SetSocketOptInt(level int, optName int, optValue int) (err err
 	return
 }
 
-// GetSocketOptInt get socket option.
+// GetSocketOptInt implements the rio.PacketConn GetSocketOptInt method.
 func (c *UDPConn) GetSocketOptInt(level int, optName int) (optValue int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL

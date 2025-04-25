@@ -194,7 +194,7 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	return nil
 }
 
-// SetSocketOptInt set socket option.
+// SetSocketOptInt implements the rio.Conn SetSocketOptInt method.
 func (c *conn) SetSocketOptInt(level int, optName int, optValue int) (err error) {
 	if !c.ok() {
 		return syscall.EINVAL
@@ -206,7 +206,7 @@ func (c *conn) SetSocketOptInt(level int, optName int, optValue int) (err error)
 	return
 }
 
-// GetSocketOptInt get socket option.
+// GetSocketOptInt implements the rio.Conn GetSocketOptInt method.
 func (c *conn) GetSocketOptInt(level int, optName int) (optValue int, err error) {
 	if !c.ok() {
 		return 0, syscall.EINVAL
@@ -218,7 +218,7 @@ func (c *conn) GetSocketOptInt(level int, optName int) (optValue int, err error)
 	return
 }
 
-// SendZCEnable check sendzc enabled
+// SendZCEnable implements the rio.Conn SendZCEnable method.
 func (c *conn) SendZCEnable() bool {
 	if !c.ok() {
 		return false

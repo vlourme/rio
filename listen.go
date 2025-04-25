@@ -12,9 +12,9 @@ import (
 // Multiple goroutines may invoke methods on a Listener simultaneously.
 type Listener interface {
 	net.Listener
-	// SetSocketOptInt set socket option
+	// SetSocketOptInt set socket option, the func is limited to SOL_SOCKET level.
 	SetSocketOptInt(level int, optName int, optValue int) (err error)
-	// GetSocketOptInt get socket option
+	// GetSocketOptInt get socket option, the func is limited to SOL_SOCKET level.
 	GetSocketOptInt(level int, optName int) (optValue int, err error)
 }
 
@@ -51,9 +51,9 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 // Multiple goroutines may invoke methods on a PacketConn simultaneously.
 type PacketConn interface {
 	net.PacketConn
-	// SetSocketOptInt set socket option
+	// SetSocketOptInt set socket option, the func is limited to SOL_SOCKET level.
 	SetSocketOptInt(level int, optName int, optValue int) (err error)
-	// GetSocketOptInt get socket option
+	// GetSocketOptInt get socket option, the func is limited to SOL_SOCKET level.
 	GetSocketOptInt(level int, optName int) (optValue int, err error)
 }
 
