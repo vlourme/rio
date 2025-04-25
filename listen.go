@@ -7,6 +7,17 @@ import (
 	"time"
 )
 
+// A Listener is a generic network listener for stream-oriented protocols.
+//
+// Multiple goroutines may invoke methods on a Listener simultaneously.
+type Listener interface {
+	net.Listener
+	// SetSocketOptInt set socket option
+	SetSocketOptInt(level int, optName int, optValue int) (err error)
+	// GetSocketOptInt get socket option
+	GetSocketOptInt(level int, optName int) (optValue int, err error)
+}
+
 // Listen announces on the local network address.
 //
 // The network must be "tcp", "tcp4", "tcp6", "unix" or "unixpacket".
@@ -33,6 +44,17 @@ func Listen(network string, addr string) (ln net.Listener, err error) {
 	ctx := context.Background()
 	ln, err = config.Listen(ctx, network, addr)
 	return
+}
+
+// PacketConn is a generic packet-oriented network connection.
+//
+// Multiple goroutines may invoke methods on a PacketConn simultaneously.
+type PacketConn interface {
+	net.PacketConn
+	// SetSocketOptInt set socket option
+	SetSocketOptInt(level int, optName int, optValue int) (err error)
+	// GetSocketOptInt get socket option
+	GetSocketOptInt(level int, optName int) (optValue int, err error)
 }
 
 // ListenPacket announces on the local network address.

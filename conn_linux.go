@@ -194,6 +194,30 @@ func (c *conn) SetWriteBuffer(bytes int) error {
 	return nil
 }
 
+// SetSocketOptInt set socket option.
+func (c *conn) SetSocketOptInt(level int, optName int, optValue int) (err error) {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err = c.fd.SetSocketoptInt(level, optName, optValue); err != nil {
+		err = &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
+// GetSocketOptInt get socket option.
+func (c *conn) GetSocketOptInt(level int, optName int) (optValue int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if optValue, err = c.fd.GetSocketoptInt(level, optName); err != nil {
+		err = &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
 // SendZCEnable check sendzc enabled
 func (c *conn) SendZCEnable() bool {
 	if !c.ok() {

@@ -168,6 +168,30 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 	return
 }
 
+// SetSocketOptInt set socket option.
+func (ln *UnixListener) SetSocketOptInt(level int, optName int, optValue int) (err error) {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	if err = ln.fd.SetSocketoptInt(level, optName, optValue); err != nil {
+		err = &net.OpError{Op: "set", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
+// GetSocketOptInt get socket option.
+func (ln *UnixListener) GetSocketOptInt(level int, optName int) (optValue int, err error) {
+	if !ln.ok() {
+		return 0, syscall.EINVAL
+	}
+	if optValue, err = ln.fd.GetSocketoptInt(level, optName); err != nil {
+		err = &net.OpError{Op: "get", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
 // Close stops listening on the Unix address. Already accepted
 // connections are not closed.
 func (ln *UnixListener) Close() error {
@@ -189,7 +213,7 @@ func (ln *UnixListener) Close() error {
 	return nil
 }
 
-// Addr returns the listener's network address, a [*TCPAddr].
+// Addr returns the listener's network address, a [*net.UnixAddr].
 // The Addr returned is shared by all invocations of Addr, so
 // do not modify it.
 func (ln *UnixListener) Addr() net.Addr {
@@ -200,8 +224,7 @@ func (ln *UnixListener) Addr() net.Addr {
 }
 
 // SetDeadline sets the deadline associated with the listener.
-// IORING_SETUP_SUBMIT_ALL zero time value disables the deadline.
-// Only valid when not multishot accept mode.
+// set zero time value disables the deadline.
 func (ln *UnixListener) SetDeadline(t time.Time) error {
 	if !ln.ok() {
 		return syscall.EINVAL
@@ -417,6 +440,30 @@ func (c *UnixConn) WriteMsgUnix(b []byte, oob []byte, addr *net.UnixAddr) (n int
 			err = net.ErrClosed
 		}
 		err = &net.OpError{Op: "write", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
+// SetSocketOptInt set socket option.
+func (c *UnixConn) SetSocketOptInt(level int, optName int, optValue int) (err error) {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err = c.fd.SetSocketoptInt(level, optName, optValue); err != nil {
+		err = &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
+// GetSocketOptInt get socket option.
+func (c *UnixConn) GetSocketOptInt(level int, optName int) (optValue int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if optValue, err = c.fd.GetSocketoptInt(level, optName); err != nil {
+		err = &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
 		return
 	}
 	return

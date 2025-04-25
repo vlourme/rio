@@ -156,7 +156,7 @@ func (ln *TCPListener) Close() error {
 	return nil
 }
 
-// Addr returns the listener's network address, a [*TCPAddr].
+// Addr returns the listener's network address, a [*net.TCPAddr].
 // The Addr returned is shared by all invocations of Addr, so
 // do not modify it.
 func (ln *TCPListener) Addr() net.Addr {
@@ -167,14 +167,37 @@ func (ln *TCPListener) Addr() net.Addr {
 }
 
 // SetDeadline sets the deadline associated with the listener.
-// IORING_SETUP_SUBMIT_ALL zero time value disables the deadline.
-// Only valid when not multishot accept mode.
+// set zero time value disables the deadline.
 func (ln *TCPListener) SetDeadline(t time.Time) error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
 	ln.fd.SetReadDeadline(t)
 	return nil
+}
+
+// SetSocketOptInt set socket option.
+func (ln *TCPListener) SetSocketOptInt(level int, optName int, optValue int) (err error) {
+	if !ln.ok() {
+		return syscall.EINVAL
+	}
+	if err = ln.fd.SetSocketoptInt(level, optName, optValue); err != nil {
+		err = &net.OpError{Op: "set", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
+// GetSocketOptInt get socket option.
+func (ln *TCPListener) GetSocketOptInt(level int, optName int) (optValue int, err error) {
+	if !ln.ok() {
+		return 0, syscall.EINVAL
+	}
+	if optValue, err = ln.fd.GetSocketoptInt(level, optName); err != nil {
+		err = &net.OpError{Op: "get", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
 }
 
 // SyscallConn returns a raw network connection.

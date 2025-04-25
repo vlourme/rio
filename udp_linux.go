@@ -353,3 +353,27 @@ func (c *UDPConn) writeMsg(b, oob []byte, addr net.Addr) (n, oobn int, err error
 	}
 	return
 }
+
+// SetSocketOptInt set socket option.
+func (c *UDPConn) SetSocketOptInt(level int, optName int, optValue int) (err error) {
+	if !c.ok() {
+		return syscall.EINVAL
+	}
+	if err = c.fd.SetSocketoptInt(level, optName, optValue); err != nil {
+		err = &net.OpError{Op: "set", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
+
+// GetSocketOptInt get socket option.
+func (c *UDPConn) GetSocketOptInt(level int, optName int) (optValue int, err error) {
+	if !c.ok() {
+		return 0, syscall.EINVAL
+	}
+	if optValue, err = c.fd.GetSocketoptInt(level, optName); err != nil {
+		err = &net.OpError{Op: "get", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
+		return
+	}
+	return
+}
