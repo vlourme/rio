@@ -60,9 +60,9 @@ func WithMultishotDisabled(disabled bool) Option {
 	}
 }
 
-// WithRingBufferConfig
+// WithBufferAndRingConfig
 // setup buffer and ring config
-func WithRingBufferConfig(size int, count int, idleTimeout time.Duration) Option {
+func WithBufferAndRingConfig(size int, count int, idleTimeout time.Duration) Option {
 	return func(opts *Options) {
 		if size < 0 {
 			size = 0
