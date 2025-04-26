@@ -196,7 +196,6 @@ type Wakeup struct {
 	personality uint16
 	ready       chan *Operation
 	running     atomic.Bool
-	closed      atomic.Bool
 	err         error
 }
 
@@ -225,7 +224,7 @@ func (r *Wakeup) Wakeup(ringFd int, flags uint32) (err error) {
 }
 
 func (r *Wakeup) Close() (err error) {
-	if r.closed.CompareAndSwap(false, true) {
+	if r.running.CompareAndSwap(true, false) {
 		// submit close op
 		op := &Operation{}
 		op.PrepareCloseRing(r.key)
@@ -261,8 +260,15 @@ func (r *Wakeup) process() {
 			panic(errors.Join(errors.New("packing sqe failed"), err, errors.New(op.Name())))
 			return
 		}
-		_, _ = ring.SubmitAndWait(1)
-		cqe, _ := ring.PeekCQE()
+		if _, swErr := ring.SubmitAndWait(1); swErr != nil {
+			op.complete(0, 0, swErr)
+			continue
+		}
+		cqe, cqeErr := ring.PeekCQE()
+		if cqeErr != nil {
+			op.complete(0, 0, cqeErr)
+			continue
+		}
 
 		if cqe.UserData == 0 {
 			ring.CQAdvance(1)
@@ -270,7 +276,7 @@ func (r *Wakeup) process() {
 		}
 		if cqe.UserData == r.key {
 			ring.CQAdvance(1)
-			r.running.Store(false)
+			r.running.CompareAndSwap(true, false)
 			break
 		}
 

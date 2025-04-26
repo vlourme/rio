@@ -189,7 +189,6 @@ type EventLoop struct {
 	key              uint64
 	personality      uint16
 	running          atomic.Bool
-	closed           atomic.Bool
 	idle             atomic.Bool
 	poll             bool
 	waitTimeoutCurve Curve
@@ -221,12 +220,12 @@ func (eventLoop *EventLoop) Group() *EventLoopGroup {
 
 func (eventLoop *EventLoop) Submit(op *Operation) (future Future) {
 	channel := eventLoop.setupChannel(op)
+	future = channel
 	if eventLoop.running.Load() {
 		eventLoop.submitter(op)
 	} else {
 		channel.Complete(0, 0, ErrCanceled)
 	}
-	future = channel
 	return
 }
 
@@ -262,13 +261,13 @@ func (eventLoop *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
 }
 
 func (eventLoop *EventLoop) Close() (err error) {
-	if eventLoop.closed.CompareAndSwap(false, true) {
+	if eventLoop.running.CompareAndSwap(true, false) {
 		// stop buffer and rings
 		eventLoop.bufferAndRings.Stop()
 		// submit close op
 		op := &Operation{}
 		op.PrepareCloseRing(eventLoop.key)
-		eventLoop.Submit(op)
+		eventLoop.submitter(op)
 		// wait
 		eventLoop.wg.Wait()
 		// get err
@@ -301,17 +300,13 @@ func (eventLoop *EventLoop) setupChannel(op *Operation) *Channel {
 }
 
 func (eventLoop *EventLoop) submit1(op *Operation) {
-	if eventLoop.running.Load() {
-		eventLoop.ready <- op
-		if eventLoop.idle.CompareAndSwap(true, false) {
-			if err := eventLoop.group.wakeup.Wakeup(eventLoop.ring.Fd(), 0); err != nil {
-				op.complete(0, 0, ErrCanceled)
-				return
-			}
+	eventLoop.ready <- op
+	if eventLoop.idle.CompareAndSwap(true, false) {
+		if err := eventLoop.group.wakeup.Wakeup(eventLoop.ring.Fd(), 0); err != nil {
+			op.complete(0, 0, ErrCanceled)
+			return
 		}
-		return
 	}
-	op.complete(0, 0, ErrCanceled)
 	return
 }
 
@@ -370,11 +365,7 @@ func (eventLoop *EventLoop) process1() {
 }
 
 func (eventLoop *EventLoop) submit2(op *Operation) {
-	if eventLoop.running.Load() {
-		eventLoop.ready <- op
-		return
-	}
-	op.complete(0, 0, ErrCanceled)
+	eventLoop.ready <- op
 	return
 }
 
@@ -527,7 +518,7 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 
 			if cqe.UserData == eventLoop.key { // userdata is key means closed
 				ring.CQAdvance(1)
-				eventLoop.running.Store(false)
+				eventLoop.running.CompareAndSwap(true, false)
 				stopped = true
 				continue
 			}
