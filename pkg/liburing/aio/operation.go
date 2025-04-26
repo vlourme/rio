@@ -106,6 +106,9 @@ func (op *Operation) reset() {
 }
 
 func (op *Operation) complete(n int, flags uint32, err error) {
+	if op.channel == nil {
+		return
+	}
 	op.channel.Complete(n, flags, err)
 	return
 }
