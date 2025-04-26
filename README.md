@@ -183,38 +183,40 @@ rio.Unpin()
 通过预设来定制化 `IOURING`。
 
 ```go
-// 设置 EventLoop 数量，一个 EventLoop 持有一个 IOURING 实例。
-// 并不推荐多个 IOURING 实例，除非 CPU 资源十分富裕。
-// 如需要多个 IOURING 实例，可以使用 REUSE PORT 来进行多进程实现多个实例。
-rio.Peset(aio.WithEventLoopCount(1))
-// 设置 IOURING 的大小，默认是16384，最大是32768。
-rio.Peset(aio.WithEntries(liburing.DefaultEntries))
-// 设置 IOURING 的 Flags。
-// 默认已对单线程进行优化，如何需要开启 SQPOLL，可以进行设置。
-rio.Peset(aio.WithFlags(liburing.IORING_SETUP_SINGLE_ISSUER))
-// 是否开启 SEND ZERO COPY。
-// 默认未开启。
-rio.Peset(aio.WithSendZCEnabled(false))
-// 是否禁止多射模式。
-// 默认未禁止。
-// 多射可以大幅减少 SQE 的投递，但会需要额外的资源。
-// 禁止多射模式一般用于配合开启 SQPOLL 来大幅减少 SYSCALL 的开销。
-rio.Peset(aio.WithMultishotDisabled(false))
-// 配置 Buffer and Ring。
-// 非禁止多射模式有效。
-// 一个 Buffer and Ring 只服务于一个 Fd。
-// 参数 size 是 buffer 的大小，建议是一个 page size。
-// 参数 count 是指有多少个 buffer。
-// 参数 idle timeout 是指当不再被使用后，空闲多少时间再注销。
-rio.Peset(aio.WithBufferAndRingConfig(4096, 32, 2*time.Second))
-// 设置 CQE 等待时间曲线。
-// 预设有 aio.SCurve（默认） 和 aio.LCurve 。
-// 更短的时间有利于更低的延时，如 SCurve 适合 HTTP。
-// 更长的时间有利于更大的批处理，如 LCurve 适合 EVENT MESSAGE。
-rio.Peset(aio.WithWaitCQETimeoutCurve(aio.SCurve))
-// 设置 NAPI。
-// 默认未开启。
-rio.Peset(aio.WithNAPIBusyPollTimeout(50*time.Microsecond))
+rio.Peset(
+    // 设置 EventLoop 数量，一个 EventLoop 持有一个 IOURING 实例。
+    // 并不推荐多个 IOURING 实例，除非 CPU 资源十分富裕。
+    // 如需要多个 IOURING 实例，可以使用 REUSE PORT 来进行多进程实现多个实例。
+    aio.WithEventLoopCount(1),
+    // 设置 IOURING 的大小，默认是16384，最大是32768。
+    aio.WithEntries(liburing.DefaultEntries),
+    // 设置 IOURING 的 Flags。
+    // 默认已对单线程进行优化，如何需要开启 SQPOLL，可以进行设置。
+    aio.WithFlags(liburing.IORING_SETUP_SINGLE_ISSUER),
+    // 是否开启 SEND ZERO COPY。
+    // 默认未开启。
+    aio.WithSendZCEnabled(false),
+    // 是否禁止多射模式。
+    // 默认未禁止。
+    // 多射可以大幅减少 SQE 的投递，但会需要额外的资源，如注册和注销 BufferAndRing。
+    // 禁止多射模式一般用于配合开启 SQPOLL 来大幅减少 SYSCALL 的开销。
+    aio.WithMultishotDisabled(false),
+    // 配置 BufferAndRing。
+    // 非禁止多射模式下有效。
+    // 一个 BufferAndRing 只服务于一个 Fd。
+    // 参数 size 是 buffer 的大小，建议是一个 page size。
+    // 参数 count 是指 ring 里有多少个 buffer 节点。
+    // 参数 idle timeout 是指当不再被使用后，空闲多少时间再注销。
+    aio.WithBufferAndRingConfig(4096, 32, 2*time.Second),
+    // 设置 CQE 等待时间曲线。
+    // 预设有 aio.SCurve（默认） 和 aio.LCurve 。
+    // 更短的时间有利于更低的延时，如 SCurve 适合 HTTP。
+    // 更长的时间有利于更大的批处理，如 LCurve 适合 EVENT MESSAGE。
+    aio.WithWaitCQETimeoutCurve(aio.SCurve),
+    // 设置 NAPI。
+    // 超时时间最小单位为微妙，默认未开启。
+    aio.WithNAPIBusyPollTimeout(50*time.Microsecond),
+)
 ```
 
 
