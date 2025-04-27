@@ -12,6 +12,9 @@ type Transmission interface {
 }
 
 var (
+	NCurve = Curve{
+		{1, 0},
+	}
 	SCurve = Curve{
 		{1, 50 * time.Microsecond},
 	}
@@ -34,20 +37,36 @@ type Curve []struct {
 	Timeout time.Duration
 }
 
+func (c Curve) HasNoTimeout() bool {
+	if len(c) == 0 {
+		return true
+	}
+	for _, n := range c {
+		if n.Timeout == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func NewCurveTransmission(curve Curve) Transmission {
 	if len(curve) == 0 {
-		curve = SCurve
+		curve = NCurve
 	}
 	times := make([]WaitNTime, 0, 1)
 	for _, t := range curve {
 		n := t.N
-		if n < 1 || t.Timeout < 1 {
+		if n < 1 {
 			continue
 		}
-		timeout := syscall.NsecToTimespec(t.Timeout.Nanoseconds())
+		var timeout *syscall.Timespec
+		if t.Timeout > 0 {
+			v := syscall.NsecToTimespec(t.Timeout.Nanoseconds())
+			timeout = &v
+		}
 		times = append(times, WaitNTime{
 			n:    n,
-			time: &timeout,
+			time: timeout,
 		})
 	}
 	return &CurveTransmission{

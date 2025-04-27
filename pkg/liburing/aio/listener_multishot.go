@@ -84,7 +84,7 @@ func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, eventLoop
 		return
 	}
 	// dispatch
-	fd, eventLoop, err = acceptor.eventLoop.group.Dispatch(accepted, acceptor.eventLoop)
+	fd, eventLoop, err = acceptor.eventLoop.Group().Dispatch(accepted, acceptor.eventLoop)
 
 	acceptor.locker.Unlock()
 	return

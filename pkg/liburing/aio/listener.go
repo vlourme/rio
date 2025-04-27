@@ -52,7 +52,7 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 		return
 	}
 	// dispatch to member
-	dispatchFd, member, dispatchErr := fd.eventLoop.group.Dispatch(accepted, fd.eventLoop)
+	dispatchFd, member, dispatchErr := fd.eventLoop.Group().Dispatch(accepted, fd.eventLoop)
 	if dispatchErr != nil {
 		err = dispatchErr
 		return

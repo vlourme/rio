@@ -14,26 +14,26 @@ import (
 
 var bufferAndRingRegisters = sync.Pool{}
 
-func acquireBufferAndRingRegister(eventLoop *EventLoop) *BufferAndRingRegister {
+func acquireBufferAndRingRegister(group *BufferAndRingGroup) *BufferAndRingRegister {
 	v := bufferAndRingRegisters.Get()
 	if v == nil {
 		r := &BufferAndRingRegister{
-			eventLoop: eventLoop,
+			group: group,
 		}
 		return r
 	}
 	r := v.(*BufferAndRingRegister)
-	r.eventLoop = eventLoop
+	r.group = group
 	return r
 }
 
 func releaseBufferAndRingRegister(r *BufferAndRingRegister) {
-	r.eventLoop = nil
+	r.group = nil
 	bufferAndRingRegisters.Put(r)
 }
 
 type BufferAndRingRegister struct {
-	eventLoop *EventLoop
+	group *BufferAndRingGroup
 }
 
 func (r BufferAndRingRegister) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
@@ -41,43 +41,40 @@ func (r BufferAndRingRegister) Handle(n int, flags uint32, err error) (bool, int
 		return true, n, flags, nil, err
 	}
 	var br *BufferAndRing = nil
-	br, err = r.eventLoop.bufferAndRings.Acquire()
+	br, err = r.group.registerBufferAndRing()
 	return true, n, flags, unsafe.Pointer(br), err
 }
 
 var bufferAndRingUnregisters = sync.Pool{}
 
-func acquireBufferAndRingUnregister(brs *BufferAndRings, br *BufferAndRing) *BufferAndRingUnregister {
+func acquireBufferAndRingUnregister(br *BufferAndRing) *BufferAndRingUnregister {
 	v := bufferAndRingUnregisters.Get()
 	if v == nil {
 		r := &BufferAndRingUnregister{
-			brs: brs,
-			br:  br,
+			br: br,
 		}
 		return r
 	}
 	r := v.(*BufferAndRingUnregister)
-	r.brs = brs
 	r.br = br
 	return r
 }
 
 func releaseBufferAndRingUnregister(r *BufferAndRingUnregister) {
-	r.brs = nil
 	r.br = nil
 	bufferAndRingUnregisters.Put(r)
 }
 
 type BufferAndRingUnregister struct {
-	brs *BufferAndRings
-	br  *BufferAndRing
+	br *BufferAndRing
 }
 
 func (r BufferAndRingUnregister) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
 	if err != nil {
 		return true, n, flags, nil, err
 	}
-	err = r.br.free(r.brs)
+	// free
+	err = r.br.free()
 	return true, n, flags, nil, err
 }
 
@@ -85,6 +82,7 @@ type BufferAndRing struct {
 	bgid        uint16
 	lastUseTime time.Time
 	config      BufferAndRingConfig
+	group       *BufferAndRingGroup
 	value       *liburing.BufferAndRing
 	buffer      []byte
 }
@@ -93,12 +91,12 @@ func (br *BufferAndRing) Id() uint16 {
 	return br.bgid
 }
 
-func (br *BufferAndRing) free(brs *BufferAndRings) (err error) {
+func (br *BufferAndRing) free() (err error) {
 	// free br
 	entries := uint32(br.config.Count)
-	err = brs.eventLoop.ring.FreeBufRing(br.value, entries, br.bgid)
-	// recycle br
-	brs.recycleBufferAndRing(br)
+	err = br.group.eventLoop.ring.FreeBufRing(br.value, entries, br.bgid)
+	// recycle
+	br.group.recycleBufferAndRing(br)
 	return
 }
 
@@ -106,7 +104,7 @@ const (
 	maxBufferSize = int(^uint(0) >> 1)
 )
 
-func newBufferAndRings(config BufferAndRingConfig) (brs *BufferAndRings, err error) {
+func newBufferAndRingGroup(config BufferAndRingConfig) (brs *BufferAndRingGroup, err error) {
 	size := config.Size
 	if size < 1 {
 		size = os.Getpagesize()
@@ -140,7 +138,7 @@ func newBufferAndRings(config BufferAndRingConfig) (brs *BufferAndRings, err err
 		bgids[i] = uint16(i)
 	}
 
-	brs = &BufferAndRings{
+	brs = &BufferAndRingGroup{
 		config:       config,
 		locker:       new(sync.Mutex),
 		eventLoop:    nil,
@@ -155,7 +153,7 @@ func newBufferAndRings(config BufferAndRingConfig) (brs *BufferAndRings, err err
 	return
 }
 
-type BufferAndRings struct {
+type BufferAndRingGroup struct {
 	config       BufferAndRingConfig
 	locker       sync.Locker
 	eventLoop    *EventLoop
@@ -167,70 +165,84 @@ type BufferAndRings struct {
 	bufferPool   sync.Pool
 }
 
-func (brs *BufferAndRings) getBuffer() []byte {
-	v := brs.bufferPool.Get()
+func (group *BufferAndRingGroup) getBuffer() []byte {
+	v := group.bufferPool.Get()
 	if v == nil {
-		return make([]byte, brs.bufferLength)
+		return make([]byte, group.bufferLength)
 	}
 	return v.([]byte)
 }
 
-func (brs *BufferAndRings) putBuffer(buf []byte) {
+func (group *BufferAndRingGroup) putBuffer(buf []byte) {
 	if len(buf) == 0 {
 		return
 	}
-	brs.bufferPool.Put(buf)
+	group.bufferPool.Put(buf)
 }
 
-func (brs *BufferAndRings) Acquire() (br *BufferAndRing, err error) {
-	brs.locker.Lock()
-
+func (group *BufferAndRingGroup) Acquire() (br *BufferAndRing, err error) {
+	group.locker.Lock()
 	// no idles
-	if len(brs.idles) == 0 {
-		br, err = brs.createBufferAndRing()
-		brs.locker.Unlock()
+	if len(group.idles) == 0 {
+		group.locker.Unlock()
+		// register one
+		register := acquireBufferAndRingRegister(group)
+		var ptr unsafe.Pointer
+		op := AcquireOperation()
+		op.PrepareRegisterBufferAndRing(register)
+		_, _, ptr, err = group.eventLoop.Submit(op).Await()
+		if err == nil {
+			br = (*BufferAndRing)(ptr)
+		}
+		ReleaseOperation(op)
+		releaseBufferAndRingRegister(register)
 		return
 	}
-	// use an idle one
-	br = brs.idles[0]
-	brs.idles = brs.idles[1:]
 
-	brs.locker.Unlock()
+	// use an idle one
+	br = group.idles[0]
+	group.idles = group.idles[1:]
+
+	group.locker.Unlock()
 	return
 }
 
-func (brs *BufferAndRings) Release(br *BufferAndRing) {
+func (group *BufferAndRingGroup) Release(br *BufferAndRing) {
 	if br == nil {
 		return
 	}
 
-	brs.locker.Lock()
+	group.locker.Lock()
 	br.lastUseTime = time.Now()
-	brs.idles = append(brs.idles, br)
-	brs.locker.Unlock()
+	group.idles = append(group.idles, br)
+	group.locker.Unlock()
 	return
 }
 
-func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err error) {
-	if len(brs.bgids) == 0 {
-		err = errors.New("create buffer and ring failed cause no bgid available")
+func (group *BufferAndRingGroup) registerBufferAndRing() (value *BufferAndRing, err error) {
+	group.locker.Lock()
+	if len(group.bgids) == 0 {
+		err = errors.New("register buffer and ring failed cause no bgid available")
+		group.locker.Unlock()
 		return
 	}
 
-	bgid := brs.bgids[0]
+	bgid := group.bgids[0]
 
-	entries := uint32(brs.config.Count)
-	br, setupErr := brs.eventLoop.ring.SetupBufRing(entries, bgid, 0)
+	entries := uint32(group.config.Count)
+	br, setupErr := group.eventLoop.ring.SetupBufRing(entries, bgid, 0)
 	if setupErr != nil {
 		err = setupErr
+		group.locker.Unlock()
 		return
 	}
 
-	brs.bgids = brs.bgids[1:]
+	group.bgids = group.bgids[1:]
+	group.locker.Unlock()
 
-	mask := brs.config.mask
-	buffer := brs.getBuffer()
-	bufferUnitLength := uint32(brs.config.Size)
+	mask := group.config.mask
+	buffer := group.getBuffer()
+	bufferUnitLength := uint32(group.config.Size)
 	for i := uint32(0); i < entries; i++ {
 		beg := bufferUnitLength * i
 		end := beg + bufferUnitLength
@@ -243,39 +255,40 @@ func (brs *BufferAndRings) createBufferAndRing() (value *BufferAndRing, err erro
 	value = &BufferAndRing{
 		bgid:        bgid,
 		lastUseTime: time.Time{},
-		config:      brs.config,
+		config:      group.config,
+		group:       group,
 		value:       br,
 		buffer:      buffer,
 	}
 	return
 }
 
-func (brs *BufferAndRings) closeBufferAndRing(br *BufferAndRing) {
-	unregister := acquireBufferAndRingUnregister(brs, br)
+func (group *BufferAndRingGroup) unregisterBufferAndRing(br *BufferAndRing) {
+	unregister := acquireBufferAndRingUnregister(br)
 	op := AcquireOperation()
-	op.PrepareCloseBufferAndRing(unregister)
-	_, _, _ = brs.eventLoop.SubmitAndWait(op)
+	op.PrepareUnregisterBufferAndRing(unregister)
+	_, _, _ = group.eventLoop.SubmitAndWait(op)
 	ReleaseOperation(op)
 	releaseBufferAndRingUnregister(unregister)
 	return
 }
 
-func (brs *BufferAndRings) recycleBufferAndRing(br *BufferAndRing) {
-	brs.locker.Lock()
+func (group *BufferAndRingGroup) recycleBufferAndRing(br *BufferAndRing) {
+	group.locker.Lock()
 	// release bgid
-	brs.bgids = append(brs.bgids, br.bgid)
+	group.bgids = append(group.bgids, br.bgid)
 	// release buffer
 	buffer := br.buffer
 	br.buffer = nil
-	brs.putBuffer(buffer)
-	brs.locker.Unlock()
+	group.putBuffer(buffer)
+	group.locker.Unlock()
 	return
 }
 
-func (brs *BufferAndRings) Start(eventLoop *EventLoop) {
-	brs.eventLoop = eventLoop
-	brs.wg.Add(1)
-	go func(brs *BufferAndRings) {
+func (group *BufferAndRingGroup) Start(eventLoop *EventLoop) {
+	group.eventLoop = eventLoop
+	group.wg.Add(1)
+	go func(brs *BufferAndRingGroup) {
 		defer brs.wg.Done()
 
 		done := brs.done
@@ -298,30 +311,30 @@ func (brs *BufferAndRings) Start(eventLoop *EventLoop) {
 			}
 		}
 		timer.Stop()
-	}(brs)
+	}(group)
 }
 
-func (brs *BufferAndRings) Stop() {
-	close(brs.done)
-	brs.wg.Wait()
+func (group *BufferAndRingGroup) Stop() {
+	close(group.done)
+	group.wg.Wait()
 }
 
-func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
-	brs.locker.Lock()
+func (group *BufferAndRingGroup) clean(scratch *[]*BufferAndRing) {
+	group.locker.Lock()
 
-	n := len(brs.idles)
+	n := len(group.idles)
 	if n == 0 {
-		brs.locker.Unlock()
+		group.locker.Unlock()
 		return
 	}
 
-	maxIdleDuration := brs.config.IdleTimeout
+	maxIdleDuration := group.config.IdleTimeout
 	criticalTime := time.Now().Add(-maxIdleDuration)
 
 	l, r, mid := 0, n-1, 0
 	for l <= r {
 		mid = (l + r) / 2
-		if criticalTime.After(brs.idles[mid].lastUseTime) {
+		if criticalTime.After(group.idles[mid].lastUseTime) {
 			l = mid + 1
 		} else {
 			r = mid - 1
@@ -329,21 +342,21 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 	}
 	i := r
 	if i == -1 {
-		brs.locker.Unlock()
+		group.locker.Unlock()
 		return
 	}
 
-	*scratch = append((*scratch)[:0], brs.idles[:i+1]...)
-	m := copy(brs.idles, brs.idles[i+1:])
+	*scratch = append((*scratch)[:0], group.idles[:i+1]...)
+	m := copy(group.idles, group.idles[i+1:])
 	for i = m; i < n; i++ {
-		brs.idles[i] = nil
+		group.idles[i] = nil
 	}
-	brs.idles = brs.idles[:m]
-	brs.locker.Unlock()
+	group.idles = group.idles[:m]
+	group.locker.Unlock()
 
 	tmp := *scratch
 	for j := range tmp {
-		brs.closeBufferAndRing(tmp[j])
+		group.unregisterBufferAndRing(tmp[j])
 		tmp[j] = nil
 	}
 
@@ -351,9 +364,9 @@ func (brs *BufferAndRings) clean(scratch *[]*BufferAndRing) {
 
 }
 
-func (brs *BufferAndRings) Unregister() error {
-	for _, br := range brs.idles {
-		_ = br.free(brs)
+func (group *BufferAndRingGroup) Unregister() error {
+	for _, br := range group.idles {
+		_ = br.free()
 	}
 	return nil
 }

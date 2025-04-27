@@ -47,23 +47,12 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 
 	group = &EventLoopGroup{}
 
-	// wakeup
-	wakeupCh := newWakeup(group)
-	wakeup := <-wakeupCh
-	if err = wakeup.Valid(); err != nil {
-		return
-	}
-	group.wakeup = wakeup
-
 	// members
 	members := make([]*EventLoop, options.EventLoopCount)
 	for i := uint32(0); i < options.EventLoopCount; i++ {
 		memberCh := newEventLoop(int(i), group, options)
 		member := <-memberCh
 		if err = member.Valid(); err != nil {
-			if wakeup != nil {
-				_ = wakeup.Close()
-			}
 			for j := uint32(0); j < i; j++ {
 				_ = members[j].Close()
 			}
@@ -72,7 +61,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 		members[i] = member
 	}
 
-	group.wakeup = wakeup
 	group.members = members
 	group.count = options.EventLoopCount
 	group.mask = options.EventLoopCount - 1
@@ -80,7 +68,6 @@ func newEventLoopGroup(options Options) (group *EventLoopGroup, err error) {
 }
 
 type EventLoopGroup struct {
-	wakeup  *Wakeup
 	members []*EventLoop
 	count   uint32
 	mask    uint32
@@ -131,22 +118,18 @@ func (group *EventLoopGroup) Close() (err error) {
 	for _, member := range group.members {
 		_ = member.Close()
 	}
-	if group.wakeup != nil {
-		_ = group.wakeup.Close()
-	}
 	return
 }
 
-func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
+func newWakeup() (v <-chan *Wakeup) {
 	ch := make(chan *Wakeup)
 
-	go func(group *EventLoopGroup, ch chan *Wakeup) {
+	go func(ch chan *Wakeup) {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
 
-		entries := runtime.NumCPU() * 2
 		ring, ringErr := liburing.New(
-			liburing.WithEntries(uint32(entries)),
+			liburing.WithEntries(4),
 			liburing.WithFlags(liburing.IORING_SETUP_COOP_TASKRUN|liburing.IORING_SETUP_SINGLE_ISSUER),
 		)
 		if ringErr != nil {
@@ -168,7 +151,6 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 		personality, _ := ring.RegisterPersonality()
 		w := &Wakeup{
 			ring:        ring,
-			group:       group,
 			wg:          new(sync.WaitGroup),
 			key:         0,
 			personality: uint16(personality),
@@ -182,7 +164,7 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 		close(ch)
 
 		w.process()
-	}(group, ch)
+	}(ch)
 
 	v = ch
 	return
@@ -190,7 +172,6 @@ func newWakeup(group *EventLoopGroup) (v <-chan *Wakeup) {
 
 type Wakeup struct {
 	ring        *liburing.Ring
-	group       *EventLoopGroup
 	wg          *sync.WaitGroup
 	key         uint64
 	personality uint16
@@ -202,10 +183,6 @@ type Wakeup struct {
 func (r *Wakeup) Valid() error {
 	return r.err
 }
-
-const (
-	IORING_CQE_F_RING_WAKEUP = liburing.IORING_CQE_F_SOCK_NONEMPTY
-)
 
 func (r *Wakeup) Wakeup(ringFd int, flags uint32) (err error) {
 	if r.running.Load() {

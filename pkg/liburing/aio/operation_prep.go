@@ -22,18 +22,16 @@ func (op *Operation) PrepareCloseRing(key uint64) {
 	return
 }
 
-func (op *Operation) PrepareCreateBufferAndRing(r *BufferAndRingRegister) {
+func (op *Operation) PrepareRegisterBufferAndRing(r *BufferAndRingRegister) {
 	op.kind = op_kind_register
-	op.code = liburing.IORING_OP_NOP
-	op.cmd = op_cmd_create_br
+	op.cmd = op_cmd_register_buffer_and_ring
 	op.addr = unsafe.Pointer(r)
 	return
 }
 
-func (op *Operation) PrepareCloseBufferAndRing(r *BufferAndRingUnregister) {
+func (op *Operation) PrepareUnregisterBufferAndRing(r *BufferAndRingUnregister) {
 	op.kind = op_kind_register
-	op.code = liburing.IORING_OP_NOP
-	op.cmd = op_cmd_close_br
+	op.cmd = op_cmd_unregister_buffer_and_ring
 	op.addr = unsafe.Pointer(r)
 	return
 }
@@ -43,18 +41,6 @@ func (op *Operation) packingNop(sqe *liburing.SubmissionQueueEntry) (err error) 
 	case op_cmd_close_ring:
 		sqe.PrepareNop()
 		sqe.SetData64(uint64(op.fd))
-		break
-	case op_cmd_create_br:
-		r := (*BufferAndRingRegister)(op.addr)
-		op.channel.adaptor = r
-		sqe.PrepareNop()
-		sqe.SetData(unsafe.Pointer(op))
-		break
-	case op_cmd_close_br:
-		r := (*BufferAndRingUnregister)(op.addr)
-		op.channel.adaptor = r
-		sqe.PrepareNop()
-		sqe.SetData(unsafe.Pointer(op))
 		break
 	default:
 		sqe.PrepareNop()

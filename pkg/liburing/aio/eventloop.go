@@ -3,6 +3,7 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"math"
@@ -70,12 +71,25 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 				err: ringErr,
 			}
 			ch <- event
+			close(ch)
 			return
 		}
-		// poll
-		poll := ring.Flags()&liburing.IORING_SETUP_SQPOLL != 0
-		// register ring
-		_, _ = ring.RegisterRingFd()
+		// wakeup
+		var wakeup *Wakeup
+		if ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER != 0 {
+			wakeupCh := newWakeup()
+			wakeup = <-wakeupCh
+			if wakeupErr := wakeup.Valid(); wakeupErr != nil {
+				_ = ring.Close()
+				event := &EventLoop{
+					id:  id,
+					err: wakeupErr,
+				}
+				ch <- event
+				close(ch)
+				return
+			}
+		}
 		// register personality
 		personality, _ := ring.RegisterPersonality()
 		// register napi
@@ -98,19 +112,21 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 					err: napiErr,
 				}
 				ch <- event
+				close(ch)
 				return
 			}
 		}
 
-		// buffer and rings
-		bufferAndRings, bufferAndRingsErr := newBufferAndRings(options.BufferAndRingConfig)
-		if bufferAndRingsErr != nil {
+		// buffer and ring group
+		bufferAndRingGroup, bufferAndRingGroupErr := newBufferAndRingGroup(options.BufferAndRingConfig)
+		if bufferAndRingGroupErr != nil {
 			_ = ring.Close()
 			event := &EventLoop{
 				id:  id,
-				err: bufferAndRingsErr,
+				err: bufferAndRingGroupErr,
 			}
 			ch <- event
+			close(ch)
 			return
 		}
 		// register files
@@ -121,39 +137,39 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 				err: regErr,
 			}
 			ch <- event
+			close(ch)
 			return
 		}
 
 		eventLoop := &EventLoop{
-			ring:             ring,
-			bufferAndRings:   bufferAndRings,
-			group:            group,
-			wg:               new(sync.WaitGroup),
-			id:               id,
-			key:              uint64(uintptr(unsafe.Pointer(ring))),
-			personality:      uint16(personality),
-			running:          atomic.Bool{},
-			idle:             atomic.Bool{},
-			poll:             poll,
-			waitTimeoutCurve: options.WaitCQETimeoutCurve,
-			ready:            make(chan *Operation, ring.SQEntries()),
-			err:              nil,
+			ring:               ring,
+			wakeup:             wakeup,
+			bufferAndRingGroup: bufferAndRingGroup,
+			group:              group,
+			wg:                 new(sync.WaitGroup),
+			id:                 id,
+			key:                uint64(uintptr(unsafe.Pointer(ring))),
+			personality:        uint16(personality),
+			running:            atomic.Bool{},
+			idle:               atomic.Bool{},
+			waitTimeoutCurve:   options.WaitCQETimeoutCurve,
+			ready:              make(chan *Operation, ring.SQEntries()),
+			err:                nil,
 		}
 		eventLoop.running.Store(true)
 		// return event loop
 		ch <- eventLoop
 		close(ch)
+
 		eventLoop.wg.Add(1)
-
-		// start buffer and rings loop
-		bufferAndRings.Start(eventLoop)
-
+		// start buffer and ring group loop
+		bufferAndRingGroup.Start(eventLoop)
 		// process
 		eventLoop.process()
 
 		// shutdown >>>
-		// unregister buffer and rings
-		_ = bufferAndRings.Unregister()
+		// unregister buffer and ring group
+		_ = bufferAndRingGroup.Unregister()
 		// unregister napi
 		if napi != nil {
 			_, _ = ring.UnregisterNAPI(napi)
@@ -172,6 +188,11 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 			op.complete(0, 0, ErrCanceled)
 		}
 		close(eventLoop.ready)
+
+		// close wakeup
+		if wakeup != nil {
+			_ = wakeup.Close()
+		}
 		// shutdown <<<
 
 		eventLoop.wg.Done()
@@ -181,21 +202,21 @@ func newEventLoop(id int, group *EventLoopGroup, options Options) (v <-chan *Eve
 }
 
 type EventLoop struct {
-	ring             *liburing.Ring
-	bufferAndRings   *BufferAndRings
-	group            *EventLoopGroup
-	wg               *sync.WaitGroup
-	id               int
-	key              uint64
-	personality      uint16
-	running          atomic.Bool
-	idle             atomic.Bool
-	poll             bool
-	waitTimeoutCurve Curve
-	submitter        func(op *Operation)
-	ready            chan *Operation
-	orphan           *Operation
-	err              error
+	ring               *liburing.Ring
+	wakeup             *Wakeup
+	bufferAndRingGroup *BufferAndRingGroup
+	group              *EventLoopGroup
+	wg                 *sync.WaitGroup
+	id                 int
+	key                uint64
+	personality        uint16
+	running            atomic.Bool
+	idle               atomic.Bool
+	waitTimeoutCurve   Curve
+	submitter          func(op *Operation)
+	ready              chan *Operation
+	orphan             *Operation
+	err                error
 }
 
 func (eventLoop *EventLoop) Id() int {
@@ -243,27 +264,18 @@ func (eventLoop *EventLoop) Cancel(target *Operation) (err error) {
 }
 
 func (eventLoop *EventLoop) AcquireBufferAndRing() (br *BufferAndRing, err error) {
-	register := acquireBufferAndRingRegister(eventLoop)
-	var ptr unsafe.Pointer
-	op := AcquireOperation()
-	op.PrepareCreateBufferAndRing(register)
-	_, _, ptr, err = eventLoop.Submit(op).Await()
-	if err == nil {
-		br = (*BufferAndRing)(ptr)
-	}
-	ReleaseOperation(op)
-	releaseBufferAndRingRegister(register)
+	br, err = eventLoop.bufferAndRingGroup.Acquire()
 	return
 }
 
 func (eventLoop *EventLoop) ReleaseBufferAndRing(br *BufferAndRing) {
-	eventLoop.bufferAndRings.Release(br)
+	eventLoop.bufferAndRingGroup.Release(br)
 }
 
 func (eventLoop *EventLoop) Close() (err error) {
 	if eventLoop.running.CompareAndSwap(true, false) {
 		// stop buffer and rings
-		eventLoop.bufferAndRings.Stop()
+		eventLoop.bufferAndRingGroup.Stop()
 		// submit close op
 		op := &Operation{}
 		op.PrepareCloseRing(eventLoop.key)
@@ -277,7 +289,7 @@ func (eventLoop *EventLoop) Close() (err error) {
 }
 
 func (eventLoop *EventLoop) process() {
-	if eventLoop.poll {
+	if eventLoop.ring.Flags()&liburing.IORING_SETUP_SINGLE_ISSUER == 0 {
 		eventLoop.submitter = eventLoop.submit2
 		eventLoop.process2()
 	} else {
@@ -302,7 +314,7 @@ func (eventLoop *EventLoop) setupChannel(op *Operation) *Channel {
 func (eventLoop *EventLoop) submit1(op *Operation) {
 	eventLoop.ready <- op
 	if eventLoop.idle.CompareAndSwap(true, false) {
-		if err := eventLoop.group.wakeup.Wakeup(eventLoop.ring.Fd(), 0); err != nil {
+		if err := eventLoop.wakeup.Wakeup(eventLoop.ring.Fd(), 0); err != nil {
 			op.complete(0, 0, ErrCanceled)
 			return
 		}
@@ -311,17 +323,28 @@ func (eventLoop *EventLoop) submit1(op *Operation) {
 }
 
 func (eventLoop *EventLoop) process1() {
+	curve := eventLoop.waitTimeoutCurve
+	if len(curve) == 0 {
+		curve = SCurve
+	}
+	if curve.HasNoTimeout() {
+		curve = SCurve
+	}
 	var (
 		stopped      bool
 		ready        = eventLoop.ready
 		readyN       uint32
+		registerN    uint32
 		completed    uint32
 		waitNr       uint32
 		waitTimeout  *syscall.Timespec
 		ring         = eventLoop.ring
-		transmission = NewCurveTransmission(eventLoop.waitTimeoutCurve)
+		transmission = NewCurveTransmission(curve)
 		cqes         = make([]*liburing.CompletionQueueEvent, eventLoop.ring.CQEntries())
 	)
+
+	// register ring
+	_, _ = ring.RegisterRingFd()
 
 	waitNr, waitTimeout = transmission.Match(1)
 	for {
@@ -335,12 +358,17 @@ func (eventLoop *EventLoop) process1() {
 		if readyN = uint32(len(ready)); readyN > 0 {
 			for i := uint32(0); i < readyN; i++ {
 				op := <-ready
+				if op.kind == op_kind_register {
+					registerN++
+				}
 				if !eventLoop.prepareSQE(op) {
 					eventLoop.orphan = op
 					break
 				}
 			}
 		}
+		readyN -= registerN
+		registerN = 0
 		// submit and wait
 	SUBMIT:
 		if readyN == 0 && completed == 0 { // idle
@@ -371,9 +399,56 @@ func (eventLoop *EventLoop) submit2(op *Operation) {
 
 func (eventLoop *EventLoop) process2() {
 	wg := new(sync.WaitGroup)
-	wg.Add(1)
 	done := make(chan struct{})
-	go eventLoop.submitAndFlushOperation(wg, done)
+	wg.Add(1)
+	go func(eventLoop *EventLoop, wg *sync.WaitGroup, done chan struct{}) {
+		var (
+			ring    = eventLoop.ring
+			ready   = eventLoop.ready
+			readyN  uint32
+			orphan  *Operation
+			stopped bool
+		)
+		for {
+			// orphan
+			if orphan != nil {
+				if !eventLoop.prepareSQE(orphan) {
+					_, _ = ring.Submit()
+					continue
+				}
+				orphan = nil
+				_, _ = ring.Submit()
+			}
+			// ready
+			if readyN = uint32(len(ready)); readyN > 0 {
+				for i := uint32(0); i < readyN; i++ {
+					op := <-ready
+					if !eventLoop.prepareSQE(op) {
+						orphan = op
+						break
+					}
+				}
+				_, _ = ring.Submit()
+				continue
+			}
+			// wait
+			select {
+			case op := <-ready:
+				if !eventLoop.prepareSQE(op) {
+					orphan = op
+				}
+				_, _ = ring.Submit()
+				break
+			case <-done:
+				stopped = true
+				break
+			}
+			if stopped {
+				break
+			}
+		}
+		wg.Done()
+	}(eventLoop, wg, done)
 
 	var (
 		ring         = eventLoop.ring
@@ -405,64 +480,32 @@ func (eventLoop *EventLoop) process2() {
 	wg.Wait()
 }
 
-func (eventLoop *EventLoop) submitAndFlushOperation(wg *sync.WaitGroup, done <-chan struct{}) {
-	var (
-		wakeup     = eventLoop.group.wakeup
-		ring       = eventLoop.ring
-		ready      = eventLoop.ready
-		readyN     uint32
-		needWakeup bool
-		orphan     *Operation
-		stopped    bool
-	)
-	for {
-		// wakeup
-		if needWakeup {
-			_ = wakeup.Wakeup(ring.Fd(), IORING_CQE_F_RING_WAKEUP)
-		}
-
-		// prepare
-		if orphan != nil {
-			if !eventLoop.prepareSQE(orphan) {
-				continue
-			}
-			orphan = nil
-			needWakeup = ring.FlushSQ()
-		}
-		// ready
-		if readyN = uint32(len(ready)); readyN > 0 {
-			for i := uint32(0); i < readyN; i++ {
-				op := <-ready
-				if !eventLoop.prepareSQE(op) {
-					orphan = op
-					break
-				}
-			}
-			needWakeup = ring.FlushSQ()
-			continue
-		}
-		// wait
-		select {
-		case op := <-ready:
-			if !eventLoop.prepareSQE(op) {
-				orphan = op
-				break
-			}
-			needWakeup = ring.FlushSQ()
+func (eventLoop *EventLoop) handleRegister(op *Operation) bool {
+	if op.kind == op_kind_register {
+		switch op.cmd {
+		case op_cmd_register_buffer_and_ring:
+			r := (*BufferAndRingRegister)(op.addr)
+			op.channel.adaptor = r
+			op.complete(0, 0, nil)
 			break
-		case <-done:
-			stopped = true
+		case op_cmd_unregister_buffer_and_ring:
+			r := (*BufferAndRingUnregister)(op.addr)
+			op.channel.adaptor = r
+			op.complete(0, 0, nil)
+			break
+		default:
+			op.complete(0, 0, errors.New("invalid register cmd"))
 			break
 		}
-		if stopped {
-			break
-		}
+		return true
 	}
-	wg.Done()
-	return
+	return false
 }
 
 func (eventLoop *EventLoop) prepareSQE(op *Operation) bool {
+	if eventLoop.handleRegister(op) {
+		return true
+	}
 	// get sqe
 	sqe := eventLoop.ring.GetSQE()
 	if sqe == nil {
@@ -508,10 +551,7 @@ func (eventLoop *EventLoop) completeCQE(cqesp *[]*liburing.CompletionQueueEvent)
 			cqe := cqes[i]
 			cqes[i] = nil
 
-			if cqe.UserData == 0 { // no userdata means no op or msg ring
-				if cqe.Flags&IORING_CQE_F_RING_WAKEUP != 0 { // wakeup sqpoll ring
-					_, _ = ring.WakeupSQPoll()
-				}
+			if cqe.UserData == 0 { // no op
 				ring.CQAdvance(1)
 				continue
 			}

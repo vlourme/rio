@@ -71,8 +71,8 @@ const (
 	op_cmd_cancel_direct
 	op_cmd_msg_ring
 	op_cmd_msg_ring_fd
-	op_cmd_create_br
-	op_cmd_close_br
+	op_cmd_register_buffer_and_ring
+	op_cmd_unregister_buffer_and_ring
 )
 
 type Operation struct {
