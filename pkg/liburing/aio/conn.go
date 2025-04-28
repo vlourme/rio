@@ -27,7 +27,7 @@ func (c *Conn) CloseRead() error {
 	if c.Available() {
 		op := AcquireOperation()
 		op.PrepareCloseRead(c)
-		_, _, err := c.eventLoop.SubmitAndWait(op)
+		_, _, err := poller.SubmitAndWait(op)
 		ReleaseOperation(op)
 		return err
 	}
@@ -38,7 +38,7 @@ func (c *Conn) CloseWrite() error {
 	if c.Available() {
 		op := AcquireOperation()
 		op.PrepareCloseWrite(c)
-		_, _, err := c.eventLoop.SubmitAndWait(op)
+		_, _, err := poller.SubmitAndWait(op)
 		ReleaseOperation(op)
 		return err
 	}

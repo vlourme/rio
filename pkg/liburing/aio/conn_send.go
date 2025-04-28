@@ -53,13 +53,13 @@ func (c *Conn) Send(b []byte) (n int, err error) {
 		op      = AcquireOperationWithDeadline(c.writeDeadline)
 		adaptor *ZerocopyPromiseAdaptor
 	)
-	if c.sendZCEnabled {
+	if poller.sendZCEnabled {
 		adaptor = acquireZerocopyAdaptor()
 		op.PrepareSendZC(c, b, adaptor)
 	} else {
 		op.PrepareSend(c, b)
 	}
-	n, _, err = c.eventLoop.SubmitAndWait(op)
+	n, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	releaseZerocopyAdaptor(adaptor)
 	if err != nil {
@@ -84,12 +84,12 @@ func (c *Conn) SendTo(b []byte, addr net.Addr) (n int, err error) {
 		msg     = acquireMsg(b, nil, rsa, int(rsaLen), 0)
 		adaptor *ZerocopyPromiseAdaptor
 	)
-	if c.sendMSGZCEnabled {
+	if poller.sendZCEnabled {
 		op.PrepareSendMsgZC(c, msg, adaptor)
 	} else {
 		op.PrepareSendMsg(c, msg)
 	}
-	n, _, err = c.eventLoop.SubmitAndWait(op)
+	n, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	releaseZerocopyAdaptor(adaptor)
 	releaseMsg(msg)
@@ -113,12 +113,12 @@ func (c *Conn) SendMsg(b []byte, oob []byte, addr net.Addr) (n int, oobn int, er
 		adaptor *ZerocopyPromiseAdaptor
 	)
 
-	if c.sendMSGZCEnabled {
+	if poller.sendZCEnabled {
 		op.PrepareSendMsgZC(c, msg, adaptor)
 	} else {
 		op.PrepareSendMsg(c, msg)
 	}
-	n, _, err = c.eventLoop.SubmitAndWait(op)
+	n, _, err = poller.SubmitAndWait(op)
 	if err == nil {
 		oobn = int(msg.Controllen)
 	}

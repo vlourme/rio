@@ -38,7 +38,7 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 		}
 		opDrain := AcquireOperation()
 		opDrain.PrepareSplice(&drainParams)
-		drained, _, drainedErr := fd.eventLoop.SubmitAndWait(opDrain)
+		drained, _, drainedErr := poller.SubmitAndWait(opDrain)
 		ReleaseOperation(opDrain)
 		if drainedErr != nil || drained == 0 {
 			err = drainedErr
@@ -58,7 +58,7 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 		}
 		opPump := AcquireOperation()
 		opPump.PrepareSplice(&pumpParams)
-		pumped, _, pumpedErr := fd.eventLoop.SubmitAndWait(opPump)
+		pumped, _, pumpedErr := poller.SubmitAndWait(opPump)
 		ReleaseOperation(opPump)
 		if pumped > 0 {
 			n += int64(pumped)

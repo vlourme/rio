@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
-	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -16,7 +15,7 @@ import (
 	"time"
 )
 
-func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, addr net.Addr, reusePort bool, control Control) (ln *Listener, err error) {
+func Listen(ctx context.Context, network string, proto int, addr net.Addr, reusePort bool, control Control) (ln *Listener, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -46,8 +45,12 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		err = errors.New("unsupported network")
 		return
 	}
-	// eventLoop
-	eventLoop := vortex.group.members[0]
+
+	// poller
+	if pinErr := Pin(); pinErr != nil {
+		err = pinErr
+		return
+	}
 
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
@@ -57,9 +60,10 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 	)
 	op := AcquireOperation()
 	op.PrepareSocket(family, sotype, proto)
-	sock, _, err = eventLoop.SubmitAndWait(op)
+	sock, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
+		Unpin()
 		return
 	}
 
@@ -76,17 +80,13 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
-				multishot:     !vortex.multishotDisabled,
-				eventLoop:     eventLoop,
 			},
-			kind:             ListenedNetFd,
-			family:           family,
-			sotype:           sotype,
-			net:              network,
-			laddr:            addr,
-			raddr:            nil,
-			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
-			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
+			kind:   ListenedNetFd,
+			family: family,
+			sotype: sotype,
+			net:    network,
+			laddr:  addr,
+			raddr:  nil,
 		},
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {
@@ -145,30 +145,18 @@ func (vortex *Vortex) Listen(ctx context.Context, network string, proto int, add
 		return
 	}
 	// listen
-	if supportListen() {
-		op = AcquireOperation()
-		op.PrepareListen(ln, backlog)
-		_, _, err = eventLoop.SubmitAndWait(op)
-		ReleaseOperation(op)
-		if err != nil {
-			_ = ln.Close()
-			return
-		}
-	} else {
-		if err = ln.Install(); err != nil {
-			_ = ln.Close()
-			return
-		}
-		if err = syscall.Listen(ln.regular, backlog); err != nil {
-			_ = ln.Close()
-			err = os.NewSyscallError("listen", err)
-			return
-		}
+	op = AcquireOperation()
+	op.PrepareListen(ln, backlog)
+	_, _, err = poller.SubmitAndWait(op)
+	ReleaseOperation(op)
+	if err != nil {
+		_ = ln.Close()
+		return
 	}
 	return
 }
 
-func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto int, addr net.Addr, ifi *net.Interface, reusePort bool, control Control) (conn *Conn, err error) {
+func ListenPacket(ctx context.Context, network string, proto int, addr net.Addr, ifi *net.Interface, reusePort bool, control Control) (conn *Conn, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
 		addr = nil
@@ -203,8 +191,11 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 		return
 	}
 
-	// eventLoop
-	eventLoop := vortex.group.members[0]
+	// poller
+	if pinErr := Pin(); pinErr != nil {
+		err = pinErr
+		return
+	}
 
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, addr, nil, "listen")
@@ -214,9 +205,10 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 	)
 	op := AcquireOperation()
 	op.PrepareSocket(family, sotype, proto)
-	sock, _, err = eventLoop.SubmitAndWait(op)
+	sock, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
+		Unpin()
 		return
 	}
 	// conn
@@ -230,17 +222,13 @@ func (vortex *Vortex) ListenPacket(ctx context.Context, network string, proto in
 				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
-				multishot:     !vortex.multishotDisabled,
-				eventLoop:     eventLoop,
 			},
-			kind:             ListenedNetFd,
-			family:           family,
-			sotype:           sotype,
-			net:              network,
-			laddr:            addr,
-			raddr:            nil,
-			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
-			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
+			kind:   ListenedNetFd,
+			family: family,
+			sotype: sotype,
+			net:    network,
+			laddr:  addr,
+			raddr:  nil,
 		},
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {

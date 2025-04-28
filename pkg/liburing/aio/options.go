@@ -1,11 +1,66 @@
 package aio
 
 import (
+	"errors"
+	"github.com/brickingsoft/rio/pkg/liburing"
+	"math"
+	"os"
 	"time"
 )
 
+var (
+	presetOptions []Option
+)
+
+func Preset(options ...Option) {
+	presetOptions = append(presetOptions, options...)
+}
+
+type BufferAndRingConfig struct {
+	Size        int
+	Count       int
+	IdleTimeout time.Duration
+}
+
+const (
+	maxBufferSize = int(^uint(0) >> 1)
+)
+
+func (config *BufferAndRingConfig) Validate() (err error) {
+	size := config.Size
+	if size < 1 {
+		size = os.Getpagesize()
+	}
+	if size > math.MaxUint16 {
+		err = errors.New("buffer size too big")
+		return
+	}
+	config.Size = size
+
+	count := config.Count
+	if count == 0 {
+		count = 16
+	}
+	count = int(liburing.RoundupPow2(uint32(count)))
+	if count > 32768 {
+		err = errors.New("count is too large for buffer and ring, max count is 32768")
+		return
+	}
+	config.Count = count
+
+	bLen := size * count
+	if bLen > maxBufferSize {
+		err = errors.New("size and count are too large for buffer and ring")
+		return
+	}
+
+	if config.IdleTimeout < 1 {
+		config.IdleTimeout = 15 * time.Second
+	}
+	return
+}
+
 type Options struct {
-	EventLoopCount      uint32
 	Entries             uint32
 	Flags               uint32
 	SQThreadIdle        uint32
@@ -18,14 +73,6 @@ type Options struct {
 }
 
 type Option func(*Options)
-
-// WithEventLoopCount
-// setup event loop count
-func WithEventLoopCount(count uint32) Option {
-	return func(o *Options) {
-		o.EventLoopCount = count
-	}
-}
 
 // WithEntries
 // setup iouring's entries.

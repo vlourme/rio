@@ -19,8 +19,6 @@ type Fd struct {
 	direct        int
 	isStream      bool
 	zeroReadIsEOF bool
-	multishot     bool
-	eventLoop     *EventLoop
 	readDeadline  time.Time
 	writeDeadline time.Time
 }
@@ -43,10 +41,6 @@ func (fd *Fd) IsStream() bool {
 
 func (fd *Fd) ZeroReadIsEOF() bool {
 	return fd.zeroReadIsEOF
-}
-
-func (fd *Fd) MultishotEnabled() bool {
-	return fd.multishot
 }
 
 func (fd *Fd) Name() string {
@@ -81,7 +75,7 @@ func (fd *Fd) Install() (err error) {
 	var regular int
 	op := AcquireOperation()
 	op.PrepareFixedFdInstall(fd.direct)
-	regular, _, err = fd.eventLoop.SubmitAndWait(op)
+	regular, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err == nil {
 		fd.regular = regular

@@ -37,14 +37,12 @@ func (kind NetFdKind) String() string {
 
 type NetFd struct {
 	Fd
-	net              string
-	kind             NetFdKind
-	family           int
-	sotype           int
-	laddr            net.Addr
-	raddr            net.Addr
-	sendZCEnabled    bool
-	sendMSGZCEnabled bool
+	net    string
+	kind   NetFdKind
+	family int
+	sotype int
+	laddr  net.Addr
+	raddr  net.Addr
 }
 
 func (fd *NetFd) Name() string {
@@ -117,14 +115,6 @@ func (fd *NetFd) RemoteAddr() net.Addr {
 
 func (fd *NetFd) SetRemoteAddr(addr net.Addr) {
 	fd.raddr = addr
-}
-
-func (fd *NetFd) SendZCEnabled() bool {
-	return fd.sendZCEnabled
-}
-
-func (fd *NetFd) SendMSGZCEnabled() bool {
-	return fd.sendMSGZCEnabled
 }
 
 func (fd *NetFd) ReadBuffer() (n int, err error) {
@@ -499,7 +489,7 @@ func (fd *NetFd) CtrlNetwork() string {
 func (fd *NetFd) SetSocketoptInt(level int, optName int, optValue int) (err error) {
 	op := AcquireOperation()
 	op.PrepareSetSocketoptInt(fd, level, optName, &optValue)
-	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	_, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	return
 }
@@ -508,7 +498,7 @@ func (fd *NetFd) GetSocketoptInt(level int, optName int) (n int, err error) {
 	var optValue int
 	op := AcquireOperation()
 	op.PrepareGetSocketoptInt(fd, level, optName, &optValue)
-	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	_, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	n = optValue
 	return
@@ -517,7 +507,7 @@ func (fd *NetFd) GetSocketoptInt(level int, optName int) (n int, err error) {
 func (fd *NetFd) SetSocketopt(level int, optName int, optValue unsafe.Pointer, optValueLen int32) (err error) {
 	op := AcquireOperation()
 	op.PrepareSetSocketopt(fd, level, optName, optValue, optValueLen)
-	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	_, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	return
 }
@@ -525,7 +515,7 @@ func (fd *NetFd) SetSocketopt(level int, optName int, optValue unsafe.Pointer, o
 func (fd *NetFd) GetSocketopt(level int, optName int, optValue unsafe.Pointer, optValueLen *int32) (err error) {
 	op := AcquireOperation()
 	op.PrepareGetSocketopt(fd, level, optName, optValue, optValueLen)
-	_, _, err = fd.eventLoop.SubmitAndWait(op)
+	_, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	return
 }
@@ -536,28 +526,40 @@ func (fd *NetFd) Bind(addr net.Addr) (err error) {
 		err = saErr
 		return
 	}
-	if supportBind() {
-		rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-		if rsaErr != nil {
-			err = rsaErr
-			return
-		}
-		op := AcquireOperation()
-		op.PrepareBind(fd, rsa, int(rsaLen))
-		_, _, err = fd.eventLoop.SubmitAndWait(op)
-		ReleaseOperation(op)
-		if err != nil {
-			return
-		}
-	} else {
-		if err = fd.Install(); err != nil {
-			return
-		}
-		if err = syscall.Bind(fd.regular, sa); err != nil {
-			err = os.NewSyscallError("bind", err)
-			return
-		}
+	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
+	if rsaErr != nil {
+		err = rsaErr
+		return
 	}
+	op := AcquireOperation()
+	op.PrepareBind(fd, rsa, int(rsaLen))
+	_, _, err = poller.SubmitAndWait(op)
+	ReleaseOperation(op)
+	if err != nil {
+		return
+	}
+	//if supportBind() {
+	//	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
+	//	if rsaErr != nil {
+	//		err = rsaErr
+	//		return
+	//	}
+	//	op := AcquireOperation()
+	//	op.PrepareBind(fd, rsa, int(rsaLen))
+	//	_, _, err = poller.SubmitAndWait(op)
+	//	ReleaseOperation(op)
+	//	if err != nil {
+	//		return
+	//	}
+	//} else {
+	//	if err = fd.Install(); err != nil {
+	//		return
+	//	}
+	//	if err = syscall.Bind(fd.regular, sa); err != nil {
+	//		err = os.NewSyscallError("bind", err)
+	//		return
+	//	}
+	//}
 	return
 }
 

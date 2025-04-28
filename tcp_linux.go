@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
-	"github.com/brickingsoft/rio/pkg/reference"
 	"io"
 	"net"
 	"os"
@@ -55,12 +54,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 	if addr == nil {
 		addr = &net.TCPAddr{}
 	}
-	// asyncIO
-	asyncIORC, asyncIORCErr := getAsyncIO()
-	if asyncIORCErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
-	}
-	asyncIO := asyncIORC.Value()
 	// proto
 	proto := syscall.IPPROTO_TCP
 	if lc.MultipathTCP {
@@ -76,16 +69,14 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 		}
 	}
 	// listen
-	fd, fdErr := asyncIO.Listen(ctx, network, proto, addr, lc.ReusePort, control)
+	fd, fdErr := aio.Listen(ctx, network, proto, addr, lc.ReusePort, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// ln
 	ln := &TCPListener{
 		fd:              fd,
-		asyncIO:         asyncIORC,
 		keepAlive:       lc.KeepAlive,
 		keepAliveConfig: lc.KeepAliveConfig,
 		deadline:        time.Time{},
@@ -97,7 +88,6 @@ func (lc *ListenConfig) ListenTCP(ctx context.Context, network string, addr *net
 // use variables of type [net.Listener] instead of assuming TCP.
 type TCPListener struct {
 	fd              *aio.Listener
-	asyncIO         *reference.Pointer[aio.AsyncIO]
 	keepAlive       time.Duration
 	keepAliveConfig net.KeepAliveConfig
 	deadline        time.Time
@@ -125,11 +115,9 @@ func (ln *TCPListener) AcceptTCP() (c *TCPConn, err error) {
 		return
 	}
 	// conn
-	ln.asyncIO.Pin()
 	c = &TCPConn{
 		conn{
-			fd:      cfd,
-			asyncIO: ln.asyncIO,
+			fd: cfd,
 		},
 	}
 	return
@@ -141,16 +129,10 @@ func (ln *TCPListener) Close() error {
 	if !ln.ok() {
 		return syscall.EINVAL
 	}
-
 	if err := ln.fd.Close(); err != nil {
 		if aio.IsFdUnavailable(err) {
 			err = net.ErrClosed
-		} else {
-			_ = ln.asyncIO.Close()
 		}
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
-	}
-	if err := ln.asyncIO.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
 	}
 	return nil

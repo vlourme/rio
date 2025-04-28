@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/reference"
 	"golang.org/x/sys/unix"
 	"net"
 	"os"
@@ -39,12 +38,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 	if addr == nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
-	// asyncIO
-	asyncIORC, asyncIORCErr := getAsyncIO()
-	if asyncIORCErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
-	}
-	asyncIO := asyncIORC.Value()
 
 	// control
 	var control aio.Control = nil
@@ -54,9 +47,8 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		}
 	}
 	// listen
-	fd, fdErr := asyncIO.Listen(ctx, network, 0, addr, false, control)
+	fd, fdErr := aio.Listen(ctx, network, 0, addr, false, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
@@ -66,7 +58,6 @@ func (lc *ListenConfig) ListenUnix(ctx context.Context, network string, addr *ne
 		path:       fd.LocalAddr().String(),
 		unlink:     true,
 		unlinkOnce: sync.Once{},
-		asyncIO:    asyncIORC,
 		deadline:   time.Time{},
 	}
 	return ln, nil
@@ -94,12 +85,6 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 	if addr == nil {
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: errors.New("missing address")}
 	}
-	// asyncIO
-	asyncIORC, asyncIORCErr := getAsyncIO()
-	if asyncIORCErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
-	}
-	asyncIO := asyncIORC.Value()
 	// control
 	var control aio.Control = nil
 	if lc.Control != nil {
@@ -108,17 +93,15 @@ func (lc *ListenConfig) ListenUnixgram(ctx context.Context, network string, addr
 		}
 	}
 	// listen
-	fd, fdErr := asyncIO.ListenPacket(ctx, network, 0, addr, nil, false, control)
+	fd, fdErr := aio.ListenPacket(ctx, network, 0, addr, nil, false, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// conn
 	c := &UnixConn{
 		conn{
-			fd:      fd,
-			asyncIO: asyncIORC,
+			fd: fd,
 		},
 	}
 	return c, nil
@@ -132,7 +115,6 @@ type UnixListener struct {
 	path       string
 	unlink     bool
 	unlinkOnce sync.Once
-	asyncIO    *reference.Pointer[aio.AsyncIO]
 	deadline   time.Time
 }
 
@@ -158,11 +140,9 @@ func (ln *UnixListener) AcceptUnix() (c *UnixConn, err error) {
 		return
 	}
 	// unix conn
-	ln.asyncIO.Pin()
 	c = &UnixConn{
 		conn{
-			fd:      cfd,
-			asyncIO: ln.asyncIO,
+			fd: cfd,
 		},
 	}
 	return
@@ -202,12 +182,7 @@ func (ln *UnixListener) Close() error {
 	if err := ln.fd.Close(); err != nil {
 		if aio.IsFdUnavailable(err) {
 			err = net.ErrClosed
-		} else {
-			_ = ln.asyncIO.Close()
 		}
-		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
-	}
-	if err := ln.asyncIO.Close(); err != nil {
 		return &net.OpError{Op: "close", Net: ln.fd.Net(), Source: nil, Addr: ln.fd.TryLocalAddr(), Err: err}
 	}
 	return nil
@@ -293,14 +268,6 @@ func (ln *UnixListener) SyscallConn() (syscall.RawConn, error) {
 // to Unix domain sockets.
 type UnixConn struct {
 	conn
-}
-
-// SendMSGZCEnable check sendmsg_zc enabled
-func (c *UnixConn) SendMSGZCEnable() bool {
-	if !c.ok() {
-		return false
-	}
-	return c.fd.SendMSGZCEnabled()
 }
 
 // ReadFrom implements the [net.PacketConn] ReadFrom method.

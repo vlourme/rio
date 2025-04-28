@@ -25,42 +25,17 @@ func (adaptor *MultishotReceiveAdaptor) Handle(n int, flags uint32, err error) (
 	}
 
 	var (
-		br   = adaptor.br
-		bid  = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg  = int(bid) * br.config.Size
-		end  = beg + br.config.Size
-		mask = br.config.mask
+		br  = adaptor.br
+		bid = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
 	)
+
 	if n == 0 {
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
+		br.Advance(bid)
 		return true, n, flags, nil, nil
 	}
+
 	buf := bytebuffer.Acquire()
-	length := n
-	for length > 0 {
-		if br.config.Size > length {
-			_, _ = buf.Write(br.buffer[beg : beg+length])
-
-			b := br.buffer[beg:end]
-			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-			br.value.BufRingAdvance(1)
-			break
-		}
-
-		_, _ = buf.Write(br.buffer[beg:end])
-
-		b := br.buffer[beg:end]
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
-
-		length -= br.config.Size
-		bid = (bid + 1) % uint16(br.config.Count)
-		beg = int(bid) * br.config.Size
-		end = beg + br.config.Size
-	}
-
+	br.WriteTo(bid, n, buf)
 	return true, n, flags, unsafe.Pointer(buf), nil
 }
 
@@ -101,7 +76,7 @@ const (
 
 func newMultishotReceiver(conn *Conn) (receiver *MultishotReceiver, err error) {
 	// acquire buffer and ring
-	br, brErr := conn.eventLoop.AcquireBufferAndRing()
+	br, brErr := poller.AcquireBufferAndRing()
 	if brErr != nil {
 		err = brErr
 		return
@@ -118,7 +93,6 @@ func newMultishotReceiver(conn *Conn) (receiver *MultishotReceiver, err error) {
 		operationLock: sync.Mutex{},
 		buffer:        bytebuffer.Acquire(),
 		adaptor:       adaptor,
-		eventLoop:     conn.eventLoop,
 		operation:     op,
 		future:        nil,
 		err:           nil,
@@ -132,7 +106,6 @@ type MultishotReceiver struct {
 	operationLock sync.Mutex
 	adaptor       *MultishotReceiveAdaptor
 	buffer        *bytebuffer.Buffer
-	eventLoop     *EventLoop
 	operation     *Operation
 	future        Future
 	err           error
@@ -230,13 +203,13 @@ func (r *MultishotReceiver) Recv(b []byte, deadline time.Time) (n int, err error
 }
 
 func (r *MultishotReceiver) submit() {
-	r.future = r.eventLoop.Submit(r.operation)
+	r.future = poller.Submit(r.operation)
 }
 
 func (r *MultishotReceiver) cancel() bool {
 	r.operationLock.Lock()
 	if op := r.operation; op != nil {
-		ok := r.eventLoop.Cancel(r.operation) == nil
+		ok := poller.Cancel(r.operation) == nil
 		r.operationLock.Unlock()
 		return ok
 	}
@@ -256,7 +229,7 @@ func (r *MultishotReceiver) releaseRuntime() {
 		br := adaptor.br
 		adaptor.br = nil
 		r.adaptor = nil
-		r.eventLoop.ReleaseBufferAndRing(br)
+		poller.ReleaseBufferAndRing(br)
 	}
 }
 
@@ -345,6 +318,7 @@ func (msg *Message) Read(fd *NetFd, b []byte, oob []byte) (n int, oobn int, flag
 
 var (
 	messages = sync.Pool{}
+	msghdrs  sync.Pool
 )
 
 func acquireMessage() *Message {
@@ -373,6 +347,47 @@ func releaseMessage(m *Message) {
 	messages.Put(m)
 }
 
+func acquireMsg(b []byte, oob []byte, addr *syscall.RawSockaddrAny, addrLen int, flags int32) *syscall.Msghdr {
+	var msg *syscall.Msghdr
+	v := msghdrs.Get()
+	if v == nil {
+		msg = &syscall.Msghdr{}
+	} else {
+		msg = v.(*syscall.Msghdr)
+	}
+	bLen := len(b)
+	if bLen > 0 {
+		msg.Iov = &syscall.Iovec{
+			Base: &b[0],
+			Len:  uint64(bLen),
+		}
+		msg.Iovlen = 1
+	}
+	oobLen := len(oob)
+	if oobLen > 0 {
+		msg.Control = &oob[0]
+		msg.SetControllen(oobLen)
+	}
+	if addr != nil {
+		msg.Name = (*byte)(unsafe.Pointer(addr))
+		msg.Namelen = uint32(addrLen)
+	}
+	msg.Flags = flags
+	return msg
+}
+
+func releaseMsg(msg *syscall.Msghdr) {
+	msg.Name = nil
+	msg.Namelen = 0
+	msg.Iov = nil
+	msg.Iovlen = 0
+	msg.Control = nil
+	msg.Controllen = 0
+	msg.Flags = 0
+	msghdrs.Put(msg)
+	return
+}
+
 type MultishotMsgReceiveAdaptor struct {
 	br  *BufferAndRing
 	msg *syscall.Msghdr
@@ -386,18 +401,14 @@ func (adaptor *MultishotMsgReceiveAdaptor) Handle(n int, flags uint32, err error
 	var (
 		br      = adaptor.br
 		bid     = uint16(flags >> liburing.IORING_CQE_BUFFER_SHIFT)
-		beg     = int(bid) * br.config.Size
-		end     = beg + br.config.Size
-		mask    = br.config.mask
 		msg     = acquireMsg(nil, nil, nil, 0, 0)
 		message = acquireMessage()
 	)
 	// buffer
-	b := br.buffer[beg:end]
+	b := br.BufferOfBid(bid)
 	// msg
 	msg.Namelen = adaptor.msg.Namelen
 	msg.Controllen = adaptor.msg.Controllen
-
 	out := liburing.RecvmsgValidate(unsafe.Pointer(&b[0]), n, msg)
 
 	// name
@@ -407,8 +418,7 @@ func (adaptor *MultishotMsgReceiveAdaptor) Handle(n int, flags uint32, err error
 		if saErr != nil {
 			message.Err = saErr
 			// release bid
-			br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-			br.value.BufRingAdvance(1)
+			br.Advance(bid)
 			// release msg
 			releaseMsg(msg)
 			return true, n, flags, unsafe.Pointer(message), nil
@@ -425,8 +435,7 @@ func (adaptor *MultishotMsgReceiveAdaptor) Handle(n int, flags uint32, err error
 		message.OOB = bytebuffer.Acquire()
 		_, _ = message.OOB.Write(b[:out.ControlLen])
 		// release bid
-		br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-		br.value.BufRingAdvance(1)
+		br.Advance(bid)
 		// release msg
 		releaseMsg(msg)
 		return true, n, flags, unsafe.Pointer(message), nil
@@ -441,8 +450,7 @@ func (adaptor *MultishotMsgReceiveAdaptor) Handle(n int, flags uint32, err error
 	}
 
 	// release bid
-	br.value.BufRingAdd(unsafe.Pointer(&b[0]), uint32(br.config.Size), bid, mask, 0)
-	br.value.BufRingAdvance(1)
+	br.Advance(bid)
 	// release msg
 	releaseMsg(msg)
 	return true, n, flags, unsafe.Pointer(message), nil
@@ -479,7 +487,7 @@ func (adaptor *MultishotMsgReceiveAdaptor) HandleMsg(msg *Message, fd *NetFd, b 
 
 func newMultishotMsgReceiver(conn *Conn) (receiver *MultishotMsgReceiver, err error) {
 	// acquire buffer and ring
-	br, brErr := conn.eventLoop.AcquireBufferAndRing()
+	br, brErr := poller.AcquireBufferAndRing()
 	if brErr != nil {
 		err = brErr
 		return
@@ -497,7 +505,6 @@ func newMultishotMsgReceiver(conn *Conn) (receiver *MultishotMsgReceiver, err er
 		operationLock: sync.Mutex{},
 		adaptor:       adaptor,
 		buffer:        make([]*Message, 0, 8),
-		eventLoop:     conn.eventLoop,
 		operation:     op,
 		future:        nil,
 		err:           nil,
@@ -510,7 +517,6 @@ type MultishotMsgReceiver struct {
 	locker        sync.Mutex
 	adaptor       *MultishotMsgReceiveAdaptor
 	buffer        []*Message
-	eventLoop     *EventLoop
 	operation     *Operation
 	operationLock sync.Mutex
 	future        Future
@@ -656,13 +662,13 @@ func (r *MultishotMsgReceiver) Close() (err error) {
 }
 
 func (r *MultishotMsgReceiver) submit() {
-	r.future = r.eventLoop.Submit(r.operation)
+	r.future = poller.Submit(r.operation)
 }
 
 func (r *MultishotMsgReceiver) cancel() bool {
 	r.operationLock.Lock()
 	if op := r.operation; op != nil {
-		ok := r.eventLoop.Cancel(r.operation) == nil
+		ok := poller.Cancel(r.operation) == nil
 		r.operationLock.Unlock()
 		return ok
 	}
@@ -682,6 +688,6 @@ func (r *MultishotMsgReceiver) releaseRuntime() {
 		br := adaptor.br
 		adaptor.br = nil
 		r.adaptor = nil
-		r.eventLoop.ReleaseBufferAndRing(br)
+		poller.ReleaseBufferAndRing(br)
 	}
 }

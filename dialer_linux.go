@@ -100,13 +100,6 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	// asyncIO
-	asyncIORC, asyncIOErr := getAsyncIO()
-	if asyncIOErr != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
-	}
-	asyncIO := asyncIORC.Value()
-
 	// control
 	var control aio.Control = d.ControlContext
 	if control == nil && d.Control != nil {
@@ -122,9 +115,8 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := asyncIO.Connect(ctx, deadline, network, proto, laddr, raddr, control)
+	fd, fdErr := aio.Connect(ctx, deadline, network, proto, laddr, raddr, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
@@ -142,8 +134,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	// conn
 	c := &TCPConn{
 		conn{
-			fd:      fd,
-			asyncIO: asyncIORC,
+			fd: fd,
 		},
 	}
 
@@ -183,13 +174,6 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	// asyncIO
-	asyncIORC, asyncIOErr := getAsyncIO()
-	if asyncIOErr != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
-	}
-	asyncIO := asyncIORC.Value()
-
 	// control
 	var control aio.Control = d.ControlContext
 	if control == nil && d.Control != nil {
@@ -198,17 +182,15 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 		}
 	}
 	// fd
-	fd, fdErr := asyncIO.Connect(ctx, deadline, network, 0, laddr, raddr, control)
+	fd, fdErr := aio.Connect(ctx, deadline, network, 0, laddr, raddr, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
 	// conn
 	c := &UDPConn{
 		conn{
-			fd:      fd,
-			asyncIO: asyncIORC,
+			fd: fd,
 		},
 	}
 	return c, nil
@@ -262,13 +244,6 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
-	// asyncIO
-	asyncIORC, asyncIOErr := getAsyncIO()
-	if asyncIOErr != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: asyncIOErr}
-	}
-	asyncIO := asyncIORC.Value()
-
 	// control
 	var control aio.Control = d.ControlContext
 	if control == nil && d.Control != nil {
@@ -277,17 +252,15 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 		}
 	}
 	// fd
-	fd, fdErr := asyncIO.Connect(ctx, deadline, network, 0, laddr, raddr, control)
+	fd, fdErr := aio.Connect(ctx, deadline, network, 0, laddr, raddr, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: fdErr}
 	}
 
 	// conn
 	c := &UnixConn{
 		conn{
-			fd:      fd,
-			asyncIO: asyncIORC,
+			fd: fd,
 		},
 	}
 

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func (vortex *Vortex) Connect(
+func Connect(
 	ctx context.Context, deadline time.Time,
 	network string, proto int, laddr net.Addr, raddr net.Addr,
 	control Control,
@@ -51,8 +51,11 @@ func (vortex *Vortex) Connect(
 		err = errors.New("unsupported network")
 		return
 	}
-	// eventLoop
-	eventLoop := vortex.group.Next()
+	// poller
+	if pinErr := Pin(); pinErr != nil {
+		err = pinErr
+		return
+	}
 	// family
 	family, ipv6only := sys.FavoriteAddrFamily(network, laddr, raddr, "dial")
 	// sock
@@ -61,9 +64,10 @@ func (vortex *Vortex) Connect(
 	)
 	op := AcquireOperation()
 	op.PrepareSocket(family, sotype, proto)
-	sock, _, err = eventLoop.SubmitAndWait(op)
+	sock, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
+		Unpin()
 		return
 	}
 	// conn
@@ -77,17 +81,13 @@ func (vortex *Vortex) Connect(
 				zeroReadIsEOF: sotype != syscall.SOCK_DGRAM && sotype != syscall.SOCK_RAW,
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
-				multishot:     !vortex.multishotDisabled,
-				eventLoop:     eventLoop,
 			},
-			kind:             ConnectedNetFd,
-			family:           family,
-			sotype:           sotype,
-			net:              network,
-			laddr:            laddr,
-			raddr:            raddr,
-			sendZCEnabled:    vortex.sendZCEnabled && supportSendZC(),
-			sendMSGZCEnabled: vortex.sendZCEnabled && supportSendMSGZC(),
+			kind:   ConnectedNetFd,
+			family: family,
+			sotype: sotype,
+			net:    network,
+			laddr:  laddr,
+			raddr:  raddr,
 		},
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {
@@ -151,7 +151,7 @@ func (vortex *Vortex) Connect(
 
 		op = AcquireOperationWithDeadline(deadline)
 		op.PrepareConnect(conn, rsa, int(rsaLen))
-		_, _, err = eventLoop.SubmitAndWait(op)
+		_, _, err = poller.SubmitAndWait(op)
 		ReleaseOperation(op)
 		if err != nil {
 			_ = conn.Close()

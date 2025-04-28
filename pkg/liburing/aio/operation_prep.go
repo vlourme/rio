@@ -22,17 +22,17 @@ func (op *Operation) PrepareCloseRing(key uint64) {
 	return
 }
 
-func (op *Operation) PrepareRegisterBufferAndRing(r *BufferAndRingRegister) {
+func (op *Operation) PrepareRegisterBufferAndRing(bgid uint16) {
 	op.kind = op_kind_register
 	op.cmd = op_cmd_register_buffer_and_ring
-	op.addr = unsafe.Pointer(r)
+	op.addrLen = uint32(bgid)
 	return
 }
 
-func (op *Operation) PrepareUnregisterBufferAndRing(r *BufferAndRingUnregister) {
+func (op *Operation) PrepareUnregisterBufferAndRing(br *BufferAndRing) {
 	op.kind = op_kind_register
 	op.cmd = op_cmd_unregister_buffer_and_ring
-	op.addr = unsafe.Pointer(r)
+	op.addr = unsafe.Pointer(br)
 	return
 }
 

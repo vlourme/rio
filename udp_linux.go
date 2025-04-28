@@ -101,12 +101,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 	if addr == nil {
 		addr = &net.UDPAddr{}
 	}
-	// asyncIO
-	asyncIORC, asyncIORCErr := getAsyncIO()
-	if asyncIORCErr != nil {
-		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: asyncIORCErr}
-	}
-	asyncIO := asyncIORC.Value()
 	// control
 	var control aio.Control = nil
 	if lc.Control != nil {
@@ -115,17 +109,15 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 		}
 	}
 	// listen
-	fd, fdErr := asyncIO.ListenPacket(ctx, network, 0, addr, ifi, lc.ReusePort, control)
+	fd, fdErr := aio.ListenPacket(ctx, network, 0, addr, ifi, lc.ReusePort, control)
 	if fdErr != nil {
-		_ = asyncIORC.Close()
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: addr, Err: fdErr}
 	}
 
 	// conn
 	c := &UDPConn{
 		conn{
-			fd:      fd,
-			asyncIO: asyncIORC,
+			fd: fd,
 		},
 	}
 	return c, nil
@@ -135,14 +127,6 @@ func (lc *ListenConfig) listenUDP(ctx context.Context, network string, ifi *net.
 // for UDP network connections.
 type UDPConn struct {
 	conn
-}
-
-// SendMSGZCEnable check sendmsg_zc enabled
-func (c *UDPConn) SendMSGZCEnable() bool {
-	if !c.ok() {
-		return false
-	}
-	return c.fd.SendMSGZCEnabled()
 }
 
 // ReadFromUDP acts like [UDPConn.ReadFrom] but returns a net.UDPAddr.

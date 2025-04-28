@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/reference"
 	"net"
 	"os"
 	"syscall"
@@ -14,8 +13,7 @@ import (
 )
 
 type conn struct {
-	fd      *aio.Conn
-	asyncIO *reference.Pointer[aio.AsyncIO]
+	fd *aio.Conn
 }
 
 // Read implements the net.Conn Read method.
@@ -68,17 +66,8 @@ func (c *conn) Close() error {
 	if err := c.fd.Close(); err != nil {
 		if aio.IsFdUnavailable(err) {
 			err = net.ErrClosed
-		} else {
-			if c.asyncIO != nil {
-				_ = c.asyncIO.Close()
-			}
 		}
 		return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
-	}
-	if c.asyncIO != nil {
-		if err := c.asyncIO.Close(); err != nil {
-			return &net.OpError{Op: "close", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: err}
-		}
 	}
 	return nil
 }
@@ -216,14 +205,6 @@ func (c *conn) GetSocketOptInt(level int, optName int) (optValue int, err error)
 		return
 	}
 	return
-}
-
-// SendZCEnable implements the rio.Conn SendZCEnable method.
-func (c *conn) SendZCEnable() bool {
-	if !c.ok() {
-		return false
-	}
-	return c.fd.SendZCEnabled()
 }
 
 // File returns a copy of the underlying [os.File].

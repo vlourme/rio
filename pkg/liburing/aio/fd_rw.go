@@ -11,7 +11,7 @@ func (fd *Fd) Read(b []byte) (n int, err error) {
 		b = b[:maxRW]
 	}
 	op := AcquireOperationWithDeadline(fd.readDeadline)
-	n, _, err = fd.eventLoop.SubmitAndWait(op)
+	n, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if n == 0 && err == nil && fd.ZeroReadIsEOF() {
 		err = io.EOF
@@ -24,7 +24,7 @@ func (fd *Fd) Write(b []byte) (n int, err error) {
 		b = b[:maxRW]
 	}
 	op := AcquireOperationWithDeadline(fd.writeDeadline)
-	n, _, err = fd.eventLoop.SubmitAndWait(op)
+	n, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	if err != nil {
 		return

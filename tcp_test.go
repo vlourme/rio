@@ -317,8 +317,6 @@ func TestConnection_SetReadTimeout(t *testing.T) {
 				t.Error("accept", err)
 				return
 			}
-			rc := conn.(rio.Conn)
-			t.Log(rc.SendZCEnable())
 			_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 			t.Log("srv:", conn.LocalAddr(), conn.RemoteAddr())
 			b := make([]byte, 1024)

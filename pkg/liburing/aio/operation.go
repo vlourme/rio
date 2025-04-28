@@ -104,11 +104,3 @@ func (op *Operation) reset() {
 	op.addr2Len = 0
 	return
 }
-
-func (op *Operation) complete(n int, flags uint32, err error) {
-	if op.channel == nil {
-		return
-	}
-	op.channel.Complete(n, flags, err)
-	return
-}

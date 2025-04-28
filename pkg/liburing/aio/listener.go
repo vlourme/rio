@@ -3,11 +3,118 @@
 package aio
 
 import (
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 )
+
+func newMultishotAcceptor(ln *Listener) (acceptor *MultishotAcceptor) {
+	acceptor = &MultishotAcceptor{
+		serving:         true,
+		acceptAddr:      &syscall.RawSockaddrAny{},
+		acceptAddrLen:   syscall.SizeofSockaddrAny,
+		operation:       &Operation{},
+		future:          nil,
+		err:             nil,
+		locker:          new(sync.Mutex),
+		operationLocker: new(sync.Mutex),
+	}
+	acceptor.operation.PrepareAcceptMultishot(ln, acceptor.acceptAddr, &acceptor.acceptAddrLen)
+	acceptor.future = poller.Submit(acceptor.operation)
+	return
+}
+
+type MultishotAcceptor struct {
+	serving         bool
+	acceptAddr      *syscall.RawSockaddrAny
+	acceptAddrLen   int
+	operation       *Operation
+	future          Future
+	err             error
+	locker          *sync.Mutex
+	operationLocker *sync.Mutex
+}
+
+func (acceptor *MultishotAcceptor) Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error) {
+	return true, n, flags, nil, err
+}
+
+func (acceptor *MultishotAcceptor) Accept(deadline time.Time) (fd int, err error) {
+	acceptor.locker.Lock()
+	if acceptor.err != nil {
+		err = acceptor.err
+
+		acceptor.locker.Unlock()
+		return
+	}
+
+	var (
+		flags uint32
+	)
+	fd, flags, _, err = acceptor.future.AwaitDeadline(deadline)
+	if err != nil {
+		acceptor.serving = false
+		acceptor.err = err
+		if IsTimeout(err) {
+			if acceptor.cancel() {
+				for {
+					_, _, _, waitErr := acceptor.future.Await()
+					if IsCanceled(waitErr) {
+						break
+					}
+				}
+			}
+		}
+		acceptor.locker.Unlock()
+		return
+	}
+
+	if flags&liburing.IORING_CQE_F_MORE == 0 {
+		acceptor.locker.Lock()
+		acceptor.serving = false
+		acceptor.err = ErrCanceled
+		err = acceptor.err
+
+		acceptor.locker.Unlock()
+		return
+	}
+
+	acceptor.locker.Unlock()
+	return
+}
+
+func (acceptor *MultishotAcceptor) cancel() bool {
+	acceptor.operationLocker.Lock()
+	defer acceptor.operationLocker.Unlock()
+	if op := acceptor.operation; op != nil {
+		return poller.Cancel(acceptor.operation) == nil
+	}
+	return false
+}
+
+func (acceptor *MultishotAcceptor) Close() (err error) {
+	if acceptor.locker.TryLock() {
+		if acceptor.serving {
+			acceptor.serving = false
+			if acceptor.cancel() {
+				for {
+					_, _, _, waitErr := acceptor.future.Await()
+					if IsCanceled(waitErr) {
+						break
+					}
+				}
+			}
+		}
+		acceptor.err = ErrCanceled
+		acceptor.locker.Unlock()
+		return
+	}
+	acceptor.cancel()
+	return
+}
 
 type Listener struct {
 	NetFd
@@ -16,21 +123,20 @@ type Listener struct {
 }
 
 func (fd *Listener) Accept() (*Conn, error) {
-	if fd.multishot {
+	if poller.multishotEnabled {
 		fd.multishotAcceptOnce.Do(func() {
 			fd.multishotAcceptor = newMultishotAcceptor(fd)
 		})
 		var (
 			accepted int
-			member   *EventLoop
 			err      error
 		)
-		accepted, member, err = fd.multishotAcceptor.Accept(fd.readDeadline)
+		accepted, err = fd.multishotAcceptor.Accept(fd.readDeadline)
 		if err != nil {
 			return nil, err
 		}
 		// new conn
-		conn := fd.newAcceptedConnFd(accepted, member)
+		conn := fd.newAcceptedConnFd(accepted)
 		return conn, nil
 	}
 
@@ -44,21 +150,16 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 
 	op := AcquireOperationWithDeadline(fd.readDeadline)
 	op.PrepareAccept(fd, acceptAddr, acceptAddrLenPtr)
-	accepted, _, acceptErr := fd.eventLoop.SubmitAndWait(op)
+	accepted, _, acceptErr := poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 
 	if acceptErr != nil {
 		err = acceptErr
 		return
 	}
-	// dispatch to member
-	dispatchFd, member, dispatchErr := fd.eventLoop.Group().Dispatch(accepted, fd.eventLoop)
-	if dispatchErr != nil {
-		err = dispatchErr
-		return
-	}
+
 	// new conn
-	conn = fd.newAcceptedConnFd(dispatchFd, member)
+	conn = fd.newAcceptedConnFd(accepted)
 	sa, saErr := sys.RawSockaddrAnyToSockaddr(acceptAddr)
 	if saErr == nil {
 		addr := sys.SockaddrToAddr(conn.net, sa)
@@ -68,7 +169,7 @@ func (fd *Listener) acceptOneshot() (conn *Conn, err error) {
 }
 
 func (fd *Listener) Close() error {
-	if fd.multishot {
+	if fd.multishotAcceptor != nil {
 		if err := fd.multishotAcceptor.Close(); err != nil {
 			err = nil
 		}
@@ -76,7 +177,7 @@ func (fd *Listener) Close() error {
 	return fd.NetFd.Close()
 }
 
-func (fd *Listener) newAcceptedConnFd(accepted int, event *EventLoop) (conn *Conn) {
+func (fd *Listener) newAcceptedConnFd(accepted int) (conn *Conn) {
 	conn = &Conn{
 		NetFd: NetFd{
 			Fd: Fd{
@@ -87,18 +188,15 @@ func (fd *Listener) newAcceptedConnFd(accepted int, event *EventLoop) (conn *Con
 				zeroReadIsEOF: fd.zeroReadIsEOF,
 				readDeadline:  time.Time{},
 				writeDeadline: time.Time{},
-				multishot:     fd.multishot,
-				eventLoop:     event,
 			},
-			kind:             AcceptedNetFd,
-			family:           fd.family,
-			sotype:           fd.sotype,
-			net:              fd.net,
-			laddr:            nil,
-			raddr:            nil,
-			sendZCEnabled:    fd.sendZCEnabled,
-			sendMSGZCEnabled: fd.sendZCEnabled,
+			kind:   AcceptedNetFd,
+			family: fd.family,
+			sotype: fd.sotype,
+			net:    fd.net,
+			laddr:  nil,
+			raddr:  nil,
 		},
 	}
+	poller.Pin()
 	return
 }

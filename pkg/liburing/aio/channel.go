@@ -10,9 +10,47 @@ import (
 	"unsafe"
 )
 
+type Promise interface {
+	Complete(n int, flags uint32, err error)
+}
+
+type PromiseAdaptor interface {
+	Handle(n int, flags uint32, err error) (bool, int, uint32, unsafe.Pointer, error)
+}
+
+type CompletionEvent struct {
+	N          int
+	Flags      uint32
+	Err        error
+	Attachment unsafe.Pointer
+}
+
+type Future interface {
+	Await() (n int, flags uint32, attachment unsafe.Pointer, err error)
+	AwaitDeadline(deadline time.Time) (n int, flags uint32, attachment unsafe.Pointer, err error)
+	AwaitBatch(hungry bool, deadline time.Time) (events []CompletionEvent)
+}
+
 var (
 	channels = [2]sync.Pool{}
+	timers   sync.Pool
 )
+
+func acquireTimer(timeout time.Duration) *time.Timer {
+	v := timers.Get()
+	if v == nil {
+		timer := time.NewTimer(timeout)
+		return timer
+	}
+	timer := v.(*time.Timer)
+	timer.Reset(timeout)
+	return timer
+}
+
+func releaseTimer(timer *time.Timer) {
+	timer.Stop()
+	timers.Put(timer)
+}
 
 const (
 	oneshotChannelSize   = 2
@@ -76,6 +114,10 @@ func (c *Channel) Complete(n int, flags uint32, err error) {
 		c.ch <- CompletionEvent{n, flags, err, attachment}
 	}
 	return
+}
+
+func (c *Channel) CompleteWithAttachment(n int, flags uint32, attachment unsafe.Pointer, err error) {
+	c.ch <- CompletionEvent{n, flags, err, attachment}
 }
 
 func (c *Channel) Await() (n int, flags uint32, attachment unsafe.Pointer, err error) {
