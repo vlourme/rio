@@ -184,10 +184,6 @@ rio.Unpin()
 
 ```go
 rio.Peset(
-    // 设置 EventLoop 数量，一个 EventLoop 持有一个 IOURING 实例。
-    // 并不推荐多个 IOURING 实例，除非 CPU 资源十分富裕。
-    // 如需要多个 IOURING 实例，可以使用 REUSE PORT 来进行多进程实现多个实例。
-    aio.WithEventLoopCount(1),
     // 设置 IOURING 的大小，默认是16384，最大是32768。
     aio.WithEntries(liburing.DefaultEntries),
     // 设置 IOURING 的 Flags。
