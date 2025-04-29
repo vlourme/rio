@@ -81,6 +81,26 @@ ln, _ = security.Listen("tcp", ":9000", config)
 conn, _ = security.Dial("tcp", "127.0.0.1:9000", config)
 ```
 
+### HTTP
+
+```go
+rio.Preset(
+    aio.WithNAPIBusyPollTimeout(time.Microsecond * 50),
+)
+ln, lnErr := rio.Listen("tcp", ":9000")
+if lnErr != nil {
+    panic(lnErr)
+    return
+}
+srvErr := http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+    w.WriteHeader(http.StatusOK)
+    _, _ = w.Write([]byte("hello world"))
+}))
+if srvErr != nil {
+    panic(srvErr)
+}
+```
 
 ### Types
 
