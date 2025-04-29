@@ -26,18 +26,34 @@ Supported protocols: `TCP`, `UDP`, `UNIX`, `UNIXGRAM` (`IP` is the proxy standar
 
 ## [Performances](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 
 
+***TCP*** 
 
 <img src="benchmark/benchmark_tcpkali_C50T10s.png" width="336" height="144" alt="echo benchmark">
 <img src="benchmark/benchmark_tcpkali_C50R5K.png" width="336" height="144" alt="echo benchmark">
+
+***HTTP***
+
 <img src="benchmark/benchmark_k6.png" width="336" height="144" alt="echo benchmark">
 
-环境：
 
 | Endpoint | Platform | IP              | OS                                           | SKU     |
 |----------|----------|-----------------|----------------------------------------------|---------|
 | Client   | WSL2     | 192.168.100.1   | Ubuntu22.04 (6.13.6-microsoft-standard-WSL2) | 4C 16G  |
 | Server   | Hyper-V  | 192.168.100.120 | Ubuntu24.10 (6.13.12-061312-generic)         | 4C 0.5G |
 
+
+***Syscall***
+
+![syscall_rio_sqpoll.png](benchmark/syscall_rio_sqpoll.png)
+
+![syscall_rio_single.png](benchmark/syscall_rio_single.png)
+
+![syscall_net.png](benchmark/syscall_net.png)
+
+| Lib | Proportion | Desc                                                          |
+|-----|------------|---------------------------------------------------------------|
+| RIO | 33% (3%)   | 33% is the single publisher mode, and 3% is the SQ-POLL mode. |
+| NET | 74%        | Reading, writing, Epoll, etc. account for a total of 74%.     | 
 
 
 ## Usage

@@ -26,17 +26,34 @@
 
 ## [性能](https://github.com/brickingsoft/rio_examples/tree/main/benchmark)
 
+***TCP***
 
 <img src="benchmark/benchmark_tcpkali_C50T10s.png" width="336" height="144" alt="echo benchmark">
 <img src="benchmark/benchmark_tcpkali_C50R5K.png" width="336" height="144" alt="echo benchmark">
+
+***HTTP***
+
 <img src="benchmark/benchmark_k6.png" width="336" height="144" alt="echo benchmark">
 
-环境：
 
 | 端   | 平台      | IP              | OS                                           | 规格      |
 |-----|---------|-----------------|----------------------------------------------|---------|
 | 客户端 | WSL2    | 192.168.100.1   | Ubuntu22.04 （6.13.6-microsoft-standard-WSL2） | 4C 16G  |
 | 服务端 | Hyper-V | 192.168.100.120 | Ubuntu24.10（6.13.12-061312-generic）          | 4C 0.5G |
+
+
+***Syscall***
+
+![syscall_rio_sqpoll.png](benchmark/syscall_rio_sqpoll.png)
+
+![syscall_rio_single.png](benchmark/syscall_rio_single.png)
+
+![syscall_net.png](benchmark/syscall_net.png)
+
+| Lib | 占比       | 描述                            |
+|-----|----------|-------------------------------|
+| RIO | 33% (3%) | 33% 是单一发布者模式，3% 是 SQ_POLL 模式。 |
+| NET | 74%      | 读、写、Epoll等合计 74%。             | 
 
 
 
