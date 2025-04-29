@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+type Control func(ctx context.Context, network string, address string, raw syscall.RawConn) error
+
 func Listen(ctx context.Context, network string, proto int, addr net.Addr, reusePort bool, control Control) (ln *Listener, err error) {
 	// addr
 	if addr != nil && reflect.ValueOf(addr).IsNil() {
