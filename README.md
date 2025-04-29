@@ -17,66 +17,27 @@
 * 基于 `net.Listener` `net.Conn` 和 `net.PacketConn` 的实现
 * 使用 `BATCH` 来减少 `SYSTEM CALL` 的开销
 * 支持 `TLS`
-* 支持 `MULTISHOT_ACCEPT` `MULTISHOT_RECV` 和 `MULTISHOT_RECV_MSG`
+* 支持 `MULTISHOT_ACCEPT` `MULTISHOT_RECV` 和 `MULTISHOT_RECV_FROM`
 * 支持 `SEND_ZC` 和 `SENDMSG_ZC`
 * 支持 `NAPI`
 * 支持 `PERSIONALITY`
 * 支持 `CURVE` 进行动态调整 `WAIT CQE` 的超时来适配不同场景
 
 
-## 性能
+## [性能](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 
+
 
 <img src="benchmark/benchmark_tcpkali_C50T10s.png" width="336" height="144" alt="echo benchmark">
 <img src="benchmark/benchmark_tcpkali_C50R5K.png" width="336" height="144" alt="echo benchmark">
-<img src="benchmark/benchmark_local.png" width="336" height="144" alt="echo benchmark">
-
-<details>
-<summary>详细信息</summary>
-
-使用 `tcpkali` 进行压力测试，[基准测试代码地址](https://github.com/brickingsoft/rio_examples/tree/main/benchmark) 。
-
+<img src="benchmark/benchmark_k6.png" width="336" height="144" alt="echo benchmark">
 
 环境：
 
 | 端   | 平台      | IP              | OS                                           | 规格      |
 |-----|---------|-----------------|----------------------------------------------|---------|
 | 客户端 | WSL2    | 192.168.100.1   | Ubuntu22.04 （6.13.6-microsoft-standard-WSL2） | 4C 16G  |
-| 服务端 | Hyper-V | 192.168.100.120 | Ubuntu24.10（6.11.0-8-generic）                | 4C 0.5G |
+| 服务端 | Hyper-V | 192.168.100.120 | Ubuntu24.10（6.13.12-061312-generic）          | 4C 0.5G |
 
-
-### C50 T10s
-50链接10秒。
-
-```shell
-tcpkali --workers 1 -c 50 -T 10s -m "PING" 192.168.100.120:9000
-```
-结果：
-
-| 种类   | 速率 （pps） | 说明       | 性能    |
-|------|----------|----------|-------|
-| RIO  | 23263.3  | 稳定在23000 | 100 % |
-| EVIO | 18855.5  | 稳定在18000 | 81 %  |
-| GNET | 18284.7  | 稳定在18000 | 79 %  |
-| NET  | 14638.6  | 稳定在14000 | 63 %  |
-
-
-### C50 R5k
-50链接重复5000次。
-
-```shell
-tcpkali --workers 1 -c 50 -r 5k -m "PING" 192.168.100.120:9000
-```
-结果：
-
-| 种类   | 速率 （pps） | 说明       | 性能    |
-|------|----------|----------|-------|
-| RIO  | 44031.1  | 稳定在44000 | 100 % |
-| EVIO | 27997.6  | 稳定在28000 | 64 %  |
-| GNET | 28817.2  | 稳定在28000 | 65 %  |
-| NET  | 27874.5  | 稳定在28000 | 63 %  |
-
-
-</details>
 
 
 ## 使用
@@ -137,6 +98,8 @@ rioConn, ok := conn.(rio.Conn)
 ### 配置
 
 `rio.ListenConfig` 与 `net.ListenConfig` 是类似的，通过配置来监听。
+
+如果需要 `KEEP-ALIVE` ，使用 `rio.ListenConfig` 进行设置。
 ```go
 
 config := rio.ListenConfig{
@@ -150,6 +113,8 @@ ln, lnErr := config.Listen(context.Background(), "tcp", ":9000")
 ```
 
 `rio.Dialer` 与 `net.Dialer` 是类似的，通过配置来拨号。
+
+如果需要 `KEEP-ALIVE` ，使用 `rio.Dialer` 进行设置。
 ```go
 dialer := rio.Dialer{
     Timeout:            0,                          // 超时
@@ -165,7 +130,7 @@ dialer := rio.Dialer{
 conn, dialErr := dialer.DialContext(context.Background(), "tcp", "127.0.0.1:9000")
 ```
 
-### PIN AND UNPIN
+### PIN 和 UNPIN
 
 因 `IOURING` 的设置与关闭过程中有资源处理的步骤，且它的生命周期与使用者的最长生命周期挂钩。
 
@@ -177,6 +142,19 @@ rio.Pin()
 // 在所有链接关闭后进行调用
 rio.Unpin()
 ```
+
+### 完成事件等待曲线
+
+已预设 `aio.NCurve` `aio.SCurve` 和 `aio.LCurve`。
+
+
+| 曲线     | 描述  | 场景           |  
+|--------|-----|--------------|
+| NCurve | 空曲线 | 只适用于非单发布者    | 
+| SCurve | 短曲线 | 适用于单发布者下的短链接 | 
+| LCurve | 长曲线 | 适用于多发布者下的长链接 | 
+
+
 
 ### 预设
 
@@ -190,7 +168,7 @@ rio.Peset(
     // 默认已对单线程进行优化，如何需要开启 SQPOLL，可以进行设置。
     aio.WithFlags(liburing.IORING_SETUP_SINGLE_ISSUER),
     // 是否开启 SEND ZERO COPY。
-    // 默认未开启。
+    // 默认未开启。注意：部分压测工具无法探测到回值。
     aio.WithSendZCEnabled(false),
     // 是否禁止多射模式。
     // 默认未禁止。
@@ -205,9 +183,6 @@ rio.Peset(
     // 参数 idle timeout 是指当不再被使用后，空闲多少时间再注销。
     aio.WithBufferAndRingConfig(4096, 32, 2*time.Second),
     // 设置 CQE 等待时间曲线。
-    // 预设有 aio.SCurve（默认） 和 aio.LCurve 。
-    // 更短的时间有利于更低的延时，如 SCurve 适合 HTTP。
-    // 更长的时间有利于更大的批处理，如 LCurve 适合 EVENT MESSAGE。
     aio.WithWaitCQETimeoutCurve(aio.SCurve),
     // 设置 NAPI。
     // 超时时间最小单位为微妙，默认未开启。

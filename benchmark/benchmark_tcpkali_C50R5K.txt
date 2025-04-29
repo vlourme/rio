@@ -1,48 +1,48 @@
 ------RIO------
 Destination: [192.168.100.120]:9001
-Interface eth0 address [192.168.100.1]:0
+Interface eth0 address [172.20.59.62]:0
 Using interface eth0 to connect to [192.168.100.120]:9001
 Ramped up to 50 connections.
-Total data sent:     14.3 MiB (15020250 bytes)
-Total data received: 14.3 MiB (15020382 bytes)
-Bandwidth per channel: 0.481⇅ Mbps (60.1 kBps)
-Aggregate bandwidth: 12.013↓, 12.013↑ Mbps
-Packet rate estimate: 44031.1↓, 44049.8↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0027 s.
+Total data sent:     14.3 MiB (15026100 bytes)
+Total data received: 14.3 MiB (15026172 bytes)
+Bandwidth per channel: 0.480⇅ Mbps (60.1 kBps)
+Aggregate bandwidth: 12.012↓, 12.012↑ Mbps
+Packet rate estimate: 40210.6↓, 40229.1↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0072 s.
 
 ------EVIO------
 Destination: [192.168.100.120]:9002
-Interface eth0 address [192.168.100.1]:0
+Interface eth0 address [172.20.59.62]:0
 Using interface eth0 to connect to [192.168.100.120]:9002
 Ramped up to 50 connections.
-Total data sent:     14.3 MiB (15031518 bytes)
-Total data received: 14.3 MiB (15031194 bytes)
+Total data sent:     14.3 MiB (15018750 bytes)
+Total data received: 14.3 MiB (15018750 bytes)
 Bandwidth per channel: 0.481⇅ Mbps (60.1 kBps)
-Aggregate bandwidth: 12.016↓, 12.016↑ Mbps
-Packet rate estimate: 27997.6↓, 28012.8↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0077 s.
+Aggregate bandwidth: 12.015↓, 12.015↑ Mbps
+Packet rate estimate: 29708.3↓, 29708.9↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0001 s.
 
 ------GNET------
 Destination: [192.168.100.120]:9003
-Interface eth0 address [192.168.100.1]:0
+Interface eth0 address [172.20.59.62]:0
 Using interface eth0 to connect to [192.168.100.120]:9003
 Ramped up to 50 connections.
-Total data sent:     14.3 MiB (15016446 bytes)
-Total data received: 14.3 MiB (15016446 bytes)
-Bandwidth per channel: 0.481⇅ Mbps (60.1 kBps)
-Aggregate bandwidth: 12.013↓, 12.013↑ Mbps
-Packet rate estimate: 28817.2↓, 28817.7↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0005 s.
+Total data sent:     14.3 MiB (15005232 bytes)
+Total data received: 14.3 MiB (15002688 bytes)
+Bandwidth per channel: 0.480⇅ Mbps (60.0 kBps)
+Aggregate bandwidth: 12.000↓, 12.002↑ Mbps
+Packet rate estimate: 29650.0↓, 29655.3↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0022 s.
 
 ------NET------
 Destination: [192.168.100.120]:9004
-Interface eth0 address [192.168.100.1]:0
+Interface eth0 address [172.20.59.62]:0
 Using interface eth0 to connect to [192.168.100.120]:9004
 Ramped up to 50 connections.
-Total data sent:     14.3 MiB (15023898 bytes)
-Total data received: 14.3 MiB (15022932 bytes)
-Bandwidth per channel: 0.481⇅ Mbps (60.1 kBps)
-Aggregate bandwidth: 12.014↓, 12.015↑ Mbps
-Packet rate estimate: 27874.5↓, 27879.4↑ (1↓, 1↑ TCP MSS/op)
-Test duration: 10.0035 s.
+Total data sent:     14.3 MiB (15018738 bytes)
+Total data received: 14.3 MiB (15016110 bytes)
+Bandwidth per channel: 0.480⇅ Mbps (60.1 kBps)
+Aggregate bandwidth: 12.011↓, 12.013↑ Mbps
+Packet rate estimate: 29082.6↓, 29089.5↑ (1↓, 1↑ TCP MSS/op)
+Test duration: 10.0014 s.
 
