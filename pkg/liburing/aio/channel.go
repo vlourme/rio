@@ -4,6 +4,7 @@ package aio
 
 import (
 	"errors"
+	"github.com/brickingsoft/rio/pkg/liburing"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ type Future interface {
 	Await() (n int, flags uint32, attachment unsafe.Pointer, err error)
 	AwaitDeadline(deadline time.Time) (n int, flags uint32, attachment unsafe.Pointer, err error)
 	AwaitBatch(hungry bool, deadline time.Time) (events []CompletionEvent)
+	AwaitZeroCopy() (n int, flags uint32, attachment unsafe.Pointer, err error)
 }
 
 var (
@@ -157,6 +159,31 @@ func (c *Channel) AwaitDeadline(deadline time.Time) (n int, flags uint32, attach
 		break
 	}
 	releaseTimer(timer)
+	return
+}
+
+func (c *Channel) AwaitZeroCopy() (n int, flags uint32, attachment unsafe.Pointer, err error) {
+	r, ok := <-c.ch
+	if !ok {
+		err = ErrCanceled
+		return
+	}
+	n, flags, attachment, err = r.N, r.Flags, r.Attachment, r.Err
+	if err != nil {
+		return
+	}
+	if flags&liburing.IORING_CQE_F_MORE != 0 {
+		r, ok = <-c.ch
+		if !ok {
+			err = ErrCanceled
+			return
+		}
+		if r.Flags&liburing.IORING_CQE_F_NOTIF != 0 {
+			return
+		}
+		err = errors.New("await zero-copy of data failed cause no IORING_CQE_F_NOTIF")
+		return
+	}
 	return
 }
 

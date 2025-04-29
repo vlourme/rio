@@ -154,19 +154,15 @@ func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error)
 	return
 }
 
-func (op *Operation) PrepareSendZC(conn *Conn, b []byte, adaptor *ZerocopyPromiseAdaptor) {
+func (op *Operation) PrepareSendZC(conn *Conn, b []byte) {
 	op.code = liburing.IORING_OP_SEND_ZC
 	op.fd = conn.direct
 	op.addr = unsafe.Pointer(&b[0])
 	op.addrLen = uint32(len(b))
-	op.addr2 = unsafe.Pointer(adaptor)
 	return
 }
 
 func (op *Operation) packingSendZC(sqe *liburing.SubmissionQueueEntry) (err error) {
-	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
-	op.channel.adaptor = adaptor
-
 	b := uintptr(op.addr)
 	bLen := op.addrLen
 	opFlags := 0
@@ -236,18 +232,14 @@ func (op *Operation) packingSendMsg(sqe *liburing.SubmissionQueueEntry) (err err
 	return
 }
 
-func (op *Operation) PrepareSendMsgZC(conn *Conn, msg *syscall.Msghdr, adaptor *ZerocopyPromiseAdaptor) {
+func (op *Operation) PrepareSendMsgZC(conn *Conn, msg *syscall.Msghdr) {
 	op.code = liburing.IORING_OP_SENDMSG_ZC
 	op.fd = conn.direct
 	op.addr = unsafe.Pointer(msg)
-	op.addr2 = unsafe.Pointer(adaptor)
 	return
 }
 
 func (op *Operation) packingSendMsgZC(sqe *liburing.SubmissionQueueEntry) (err error) {
-	adaptor := (*ZerocopyPromiseAdaptor)(op.addr2)
-	op.channel.adaptor = adaptor
-
 	msg := (*syscall.Msghdr)(op.addr)
 	opFlags := 0
 	flags := liburing.IOSQE_FIXED_FILE
