@@ -40,11 +40,20 @@ func ReleasePipe(pipe *Pipe) {
 	pipePool.Put(pipe)
 }
 
+const (
+	// MaxSpliceSize is the maximum amount of data Splice asks
+	// the kernel to move in a single call to splice(2).
+	// We use 1MB as Splice writes data through a pipe, and 1MB is the default maximum pipe buffer size,
+	// which is determined by /proc/sys/fs/pipe-max-size.
+	MaxSpliceSize = 1 << 20
+)
+
 func NewPipe() *Pipe {
 	var fds [2]int
 	if err := syscall.Pipe2(fds[:], syscall.O_CLOEXEC|syscall.O_NONBLOCK); err != nil {
 		return nil
 	}
+	_, _ = Fcntl(fds[0], syscall.F_SETPIPE_SZ, MaxSpliceSize)
 	return &Pipe{pipeFields: pipeFields{rfd: fds[0], wfd: fds[1]}}
 }
 
