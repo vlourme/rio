@@ -10,10 +10,6 @@ import (
 	"syscall"
 )
 
-const (
-	maxSpliceSize = 1 << 20
-)
-
 func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 	pipe, pipeErr := sys.AcquirePipe()
 	if pipeErr != nil {
@@ -29,7 +25,7 @@ func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 	dst := fd.FileDescriptor()
 
 	for err == nil && remain > 0 {
-		chunk := int64(maxSpliceSize)
+		chunk := int64(sys.MaxSpliceSize)
 		if chunk > remain {
 			chunk = remain
 		}

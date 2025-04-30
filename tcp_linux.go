@@ -280,34 +280,30 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		}
 	}
 
+	var src *aio.Fd
 	sendMode := 0 // 0: copy, 1: splice, 2: mmap
-	var srcFd int
-	var srcFixed bool
 	switch v := r.(type) {
 	case *net.TCPConn:
 		dup, dupErr := v.File()
 		if dupErr != nil {
 			break
 		}
-		srcFd = int(dup.Fd())
+		src = aio.NewRegularFd(int(dup.Fd()))
 		sendMode = 1
 		break
 	case *TCPConn:
-		srcFd = v.fd.FileDescriptor()
-		srcFixed = true
+		src = &v.fd.Fd
 		sendMode = 1
 		break
 	case tcpConnWithoutWriteTo:
-		srcFd = v.fd.FileDescriptor()
-		srcFixed = true
+		src = &v.fd.Fd
 		sendMode = 1
 		break
 	case *UnixConn:
 		if v.fd.Net() != "unix" {
 			break
 		}
-		srcFd = v.fd.FileDescriptor()
-		srcFixed = true
+		src = &v.fd.Fd
 		sendMode = 1
 		break
 	case *os.File:
@@ -320,7 +316,7 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 		}
 		wb, _ := c.WriteBuffer()
 		if remain <= int64(wb) {
-			srcFd = int(v.Fd())
+			src = aio.NewRegularFd(int(v.Fd()))
 			sendMode = 1
 		} else {
 			sendMode = 2
@@ -332,10 +328,10 @@ func (c *TCPConn) ReadFrom(r io.Reader) (int64, error) {
 
 	switch sendMode {
 	case 1: // splice
-		if srcFd < 1 {
+		if src == nil {
 			return 0, &net.OpError{Op: "readfrom", Net: c.fd.Net(), Source: c.fd.TryRemoteAddr(), Addr: c.fd.TryLocalAddr(), Err: errors.New("no file descriptor found in reader")}
 		}
-		written, spliceErr := c.fd.Splice(srcFd, srcFixed, remain)
+		written, spliceErr := c.fd.Splice(src, remain)
 		if lr != nil {
 			lr.N -= written
 		}
@@ -377,8 +373,8 @@ func (c *TCPConn) WriteTo(w io.Writer) (int64, error) {
 	}
 	uc, ok := w.(*UnixConn)
 	if ok && uc.fd.Net() == "unix" {
-		fd := c.fd.FileDescriptor()
-		written, spliceErr := uc.fd.Splice(fd, true, 1<<63-1)
+		fd := &c.fd.Fd
+		written, spliceErr := uc.fd.Splice(fd, 1<<63-1)
 		if spliceErr != nil {
 			if errors.Is(spliceErr, context.Canceled) {
 				spliceErr = net.ErrClosed
