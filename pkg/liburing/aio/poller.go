@@ -218,7 +218,6 @@ func newPoller(options Options) (poller *Poller, err error) {
 		for _, idle := range poller.bufferAndRingIdles {
 			poller.unregisterBufferAndRing(idle)
 		}
-
 		// unregister napi
 		if napi != nil {
 			_, _ = ring.UnregisterNAPI(napi)
@@ -412,7 +411,7 @@ func (poller *Poller) handleIdleBufferAndRing(ctx context.Context) (done chan st
 				n := len(poller.bufferAndRingIdles)
 				if n == 0 {
 					poller.bufferAndRingLocker.Unlock()
-					return
+					break
 				}
 				criticalTime := time.Now().Add(-maxIdleDuration)
 				l, r, mid := 0, n-1, 0
@@ -427,7 +426,7 @@ func (poller *Poller) handleIdleBufferAndRing(ctx context.Context) (done chan st
 				i := r
 				if i == -1 {
 					poller.bufferAndRingLocker.Unlock()
-					return
+					break
 				}
 
 				scratch = append((scratch)[:0], poller.bufferAndRingIdles[:i+1]...)
