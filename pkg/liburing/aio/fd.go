@@ -13,6 +13,20 @@ import (
 
 const maxRW = 1 << 30
 
+func NewRegularFd(regular int) *Fd {
+	return &Fd{
+		regular: regular,
+		direct:  -1,
+	}
+}
+
+func NewDirectFd(direct int) *Fd {
+	return &Fd{
+		regular: -1,
+		direct:  direct,
+	}
+}
+
 type Fd struct {
 	locker        sync.Mutex
 	regular       int
