@@ -102,15 +102,18 @@ srv := &http.Server{
     }),
 }
 
-go func(ln net.Listener, srv *http.Server) {
+done := make(chan struct{}, 1)
+go func(ln net.Listener, srv *http.Server, done chan<- struct{}) {
     if srvErr := srv.Serve(ln); srvErr != nil {
         if errors.Is(srvErr, http.ErrServerClosed) {
+            close(done)
             return
         }
         panic(srvErr)
         return
 	}
-}(ln, srv)
+	close(done)
+}(ln, srv, done)
 
 signalCh := make(chan os.Signal, 1)
 signal.Notify(signalCh, syscall.SIGINT, syscall.SIGKILL, syscall.SIGQUIT, syscall.SIGABRT, syscall.SIGTERM)
@@ -119,6 +122,7 @@ signal.Notify(signalCh, syscall.SIGINT, syscall.SIGKILL, syscall.SIGQUIT, syscal
 if shutdownErr := srv.Shutdown(context.Background()); shutdownErr != nil {
     panic(shutdownErr)
 }
+<-done
 ```
 
 ### Types
