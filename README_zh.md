@@ -122,13 +122,31 @@ if lnErr != nil {
     panic(lnErr)
     return
 }
-srvErr := http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "text/html; charset=utf-8")
-    w.WriteHeader(http.StatusOK)
-    _, _ = w.Write([]byte("hello world"))
-}))
-if srvErr != nil {
-    panic(srvErr)
+
+srv := &http.Server{
+    Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "text/html; charset=utf-8")
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte("hello world"))
+    }),
+}
+
+go func(ln net.Listener, srv *http.Server) {
+    if srvErr := srv.Serve(ln); srvErr != nil {
+        if errors.Is(srvErr, http.ErrServerClosed) {
+            return
+        }
+        panic(srvErr)
+        return
+    }
+}(ln, srv)
+
+signalCh := make(chan os.Signal, 1)
+signal.Notify(signalCh, syscall.SIGINT, syscall.SIGKILL, syscall.SIGQUIT, syscall.SIGABRT, syscall.SIGTERM)
+<-signalCh
+
+if shutdownErr := srv.Shutdown(context.Background()); shutdownErr != nil {
+    panic(shutdownErr)
 }
 ```
 
