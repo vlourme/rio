@@ -113,3 +113,21 @@ func (op *Operation) packingMSGRing(sqe *liburing.SubmissionQueueEntry) (err err
 	sqe.SetData(unsafe.Pointer(op))
 	return
 }
+
+func (op *Operation) PrepPollAdd(fd int, fixed bool, mask uint32) {
+	op.code = liburing.IORING_OP_POLL_ADD
+	op.fd = fd
+	if fixed {
+		op.addrLen = 1
+	}
+	op.addr2Len = mask
+}
+
+func (op *Operation) packingPollAdd(sqe *liburing.SubmissionQueueEntry) (err error) {
+	sqe.PreparePollAdd(op.fd, op.addr2Len)
+	if op.addrLen == 1 {
+		sqe.SetFlags(liburing.IOSQE_FIXED_FILE)
+	}
+	sqe.SetData(unsafe.Pointer(op))
+	return
+}

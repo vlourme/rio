@@ -3,21 +3,29 @@
 package aio
 
 import (
+	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"golang.org/x/sys/unix"
+	"strconv"
+	"syscall"
 )
 
 const (
 	maxSpliceSize = 1 << 20
 )
 
-func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) {
+func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 	pipe, pipeErr := sys.AcquirePipe()
 	if pipeErr != nil {
 		return 0, pipeErr
 	}
 	defer sys.ReleasePipe(pipe)
 
+	srcFd := src.direct
+	srcFixed := srcFd != -1
+	if !srcFixed {
+		srcFd = src.regular
+	}
 	dst := fd.FileDescriptor()
 
 	for err == nil && remain > 0 {
@@ -27,7 +35,7 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 		}
 		// drain
 		drainParams := SpliceParams{
-			FdIn:       src,
+			FdIn:       srcFd,
 			FdInFixed:  srcFixed,
 			OffIn:      -1,
 			FdOut:      pipe.WriterFd(),
@@ -41,6 +49,18 @@ func (fd *Fd) Splice(src int, srcFixed bool, remain int64) (n int64, err error) 
 		drained, _, drainedErr := poller.SubmitAndWait(opDrain)
 		ReleaseOperation(opDrain)
 		if drainedErr != nil || drained == 0 {
+			if errors.Is(drainedErr, syscall.EAGAIN) {
+				pn, pErr := src.Poll(unix.POLLIN | unix.POLLERR | unix.POLLHUP)
+				if pErr != nil {
+					err = pErr
+					break
+				}
+				if pn&unix.POLLIN != 0 {
+					continue
+				}
+				err = errors.New("polled " + strconv.Itoa(pn))
+				break
+			}
 			err = drainedErr
 			break
 		}
