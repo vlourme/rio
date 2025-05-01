@@ -491,6 +491,9 @@ func (fd *NetFd) SetSocketoptInt(level int, optName int, optValue int) (err erro
 	op.PrepareSetSocketoptInt(fd, level, optName, &optValue)
 	_, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
+	if err != nil {
+		err = os.NewSyscallError("setsockopt", err)
+	}
 	return
 }
 
@@ -501,6 +504,9 @@ func (fd *NetFd) GetSocketoptInt(level int, optName int) (n int, err error) {
 	_, _, err = poller.SubmitAndWait(op)
 	ReleaseOperation(op)
 	n = optValue
+	if err != nil {
+		err = os.NewSyscallError("getsockopt", err)
+	}
 	return
 }
 
@@ -538,28 +544,6 @@ func (fd *NetFd) Bind(addr net.Addr) (err error) {
 	if err != nil {
 		return
 	}
-	//if supportBind() {
-	//	rsa, rsaLen, rsaErr := sys.SockaddrToRawSockaddrAny(sa)
-	//	if rsaErr != nil {
-	//		err = rsaErr
-	//		return
-	//	}
-	//	op := AcquireOperation()
-	//	op.PrepareBind(fd, rsa, int(rsaLen))
-	//	_, _, err = poller.SubmitAndWait(op)
-	//	ReleaseOperation(op)
-	//	if err != nil {
-	//		return
-	//	}
-	//} else {
-	//	if err = fd.Install(); err != nil {
-	//		return
-	//	}
-	//	if err = syscall.Bind(fd.regular, sa); err != nil {
-	//		err = os.NewSyscallError("bind", err)
-	//		return
-	//	}
-	//}
 	return
 }
 
