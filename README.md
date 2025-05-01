@@ -10,7 +10,7 @@ Supported protocols: `TCP`, `UDP`, `UNIX`, `UNIXGRAM` (`IP` is the proxy standar
 * Linux kernel version must be `>= 6.13`.
 * Scenarios that only use `Dial` require `PIN` and `UNPIN` to pin the kernel thread of `IOURING`.
 * `NetworkingMode=mirrored` cannot be enabled in `WSL2`.
-* Since 'DIRECT FD' does not support `CLOEXEC`, it is necessary to close all `FD` when the program exits (close all links when both net.Http and fasthttp implement closure).
+* Since `DIRECT FD` does not support `CLOEXEC`, it is necessary to close all `FD` when the program exits (close all links when both net.Http and fasthttp implement closure).
 
 
 ## Features
