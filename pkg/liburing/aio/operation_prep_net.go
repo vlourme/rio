@@ -139,16 +139,30 @@ func (op *Operation) PrepareSend(conn *Conn, b []byte) {
 	return
 }
 
+func (op *Operation) PrepareSendBundle(conn *Conn, br *BufferAndRing) {
+	op.code = liburing.IORING_OP_SEND
+	op.cmd = op_cmd_send_bundle
+	op.fd = conn.direct
+	op.addr = unsafe.Pointer(br)
+	return
+}
+
 func (op *Operation) packingSend(sqe *liburing.SubmissionQueueEntry) (err error) {
-	b := uintptr(op.addr)
-	bLen := op.addrLen
 	opFlags := 0
 	flags := liburing.IOSQE_FIXED_FILE
 	if op.timeout != nil {
 		opFlags = syscall.MSG_WAITALL
 		flags |= liburing.IOSQE_IO_LINK
 	}
-	sqe.PrepareSend(op.fd, b, bLen, opFlags)
+	if op.cmd == op_cmd_send_bundle {
+		br := (*BufferAndRing)(op.addr)
+		sqe.PrepareSendBundle(op.fd, 0, opFlags)
+		sqe.SetBufferGroup(br.bgid)
+	} else {
+		b := uintptr(op.addr)
+		bLen := op.addrLen
+		sqe.PrepareSend(op.fd, b, bLen, opFlags)
+	}
 	sqe.SetFlags(flags)
 	sqe.SetData(unsafe.Pointer(op))
 	return

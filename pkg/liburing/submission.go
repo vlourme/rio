@@ -327,6 +327,11 @@ func (entry *SubmissionQueueEntry) PrepareSend(fd int, addr uintptr, length uint
 	entry.OpcodeFlags = uint32(flags)
 }
 
+func (entry *SubmissionQueueEntry) PrepareSendBundle(fd int, length uint32, flags int) {
+	entry.PrepareSend(fd, 0, length, flags)
+	entry.IoPrio |= IORING_RECVSEND_BUNDLE
+}
+
 func (entry *SubmissionQueueEntry) PrepareSendZC(sockFd int, addr uintptr, length uint32, flags int, zcFlags uint32) {
 	entry.prepareRW(IORING_OP_SEND_ZC, sockFd, addr, length, 0)
 	entry.OpcodeFlags = uint32(flags)
