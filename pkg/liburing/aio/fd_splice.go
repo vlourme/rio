@@ -30,6 +30,7 @@ func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 			chunk = remain
 		}
 		// drain
+	DRAIN:
 		drainParams := SpliceParams{
 			FdIn:       srcFd,
 			FdInFixed:  srcFixed,
@@ -52,7 +53,7 @@ func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 					break
 				}
 				if pn&unix.POLLIN != 0 {
-					continue
+					goto DRAIN
 				}
 				err = errors.New("polled " + strconv.Itoa(pn))
 				break
@@ -62,6 +63,7 @@ func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 		}
 		pipe.DrainN(drained)
 		// pump
+	PUMP:
 		pumpParams := SpliceParams{
 			FdIn:       pipe.ReaderFd(),
 			FdInFixed:  false,
@@ -81,7 +83,21 @@ func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 			remain -= int64(pumped)
 			pipe.PumpN(pumped)
 		}
-		err = pumpedErr
+		if pumpedErr != nil {
+			if errors.Is(pumpedErr, syscall.EAGAIN) {
+				pn, pErr := src.Poll(unix.POLLOUT | unix.POLLERR | unix.POLLHUP)
+				if pErr != nil {
+					err = pErr
+					break
+				}
+				if pn&unix.POLLOUT != 0 {
+					goto PUMP
+				}
+				err = errors.New("polled " + strconv.Itoa(pn))
+				break
+			}
+			err = pumpedErr
+		}
 	}
 	return
 }
