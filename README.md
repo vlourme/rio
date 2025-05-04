@@ -82,7 +82,7 @@ conn, _ = security.Dial("tcp", "127.0.0.1:9000", config)
 ```
 
 ### HTTP
-
+For server, use `http.Server.Serve()` replace `Listener`.
 ```go
 rio.Preset(
     aio.WithNAPIBusyPollTimeout(time.Microsecond * 50),
@@ -123,6 +123,27 @@ if shutdownErr := srv.Shutdown(context.Background()); shutdownErr != nil {
     panic(shutdownErr)
 }
 <-done
+```
+
+For client, reset `http.DefaultTransport`.
+```go
+http.DefaultTransport = &http.Transport{
+    Proxy: http.ProxyFromEnvironment,
+    DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+        dialer := rio.Dialer{
+            Timeout:   30 * time.Second,
+            KeepAlive: 30 * time.Second,
+        }
+        return dialer.DialContext(ctx, network, addr)
+    },
+    ForceAttemptHTTP2:     true,
+    MaxIdleConns:          100,
+    IdleConnTimeout:       90 * time.Second,
+    TLSHandshakeTimeout:   10 * time.Second,
+    ExpectContinueTimeout: 1 * time.Second,
+}
+
+resp, getErr := http.Get("http://127.0.0.1:9000/")
 ```
 
 ### Types
@@ -177,6 +198,30 @@ To prevent an instance from shutting down when it shouldn't, its lifecycle can b
 rio.Pin()
 // Called after all links are closed
 rio.Unpin()
+```
+
+### SQL
+For postgres example, create a `Dialer` and use the `Connector` to open database.
+
+```go
+type RIOPQDialer struct{}
+
+func (d *RIOPQDialer) Dial(network, address string) (net.Conn, error) {
+	return rio.Dial(network, address)
+}
+
+func (d *RIOPQDialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+	return rio.DialTimeout(network, address, timeout)
+}
+```
+
+```go
+connector, connectorErr := pq.NewConnector("{dsn}")
+if connectorErr != nil {
+    panic(connectorErr)
+}
+connector.Dialer(&RIOPQDialer{})
+db := sql.OpenDB(connector)
 ```
 
 ### CQE Wait Timeout Curve

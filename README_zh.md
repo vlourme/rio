@@ -113,6 +113,7 @@ rioConn, ok := conn.(rio.Conn)
 
 ### HTTP
 
+服务端，使用 `http.Server.Serve()` 来替换 `Listener`。
 ```go
 rio.Preset(
     aio.WithNAPIBusyPollTimeout(time.Microsecond * 50),
@@ -154,6 +155,26 @@ if shutdownErr := srv.Shutdown(context.Background()); shutdownErr != nil {
 <-done
 ```
 
+客户端, 重置 `http.DefaultTransport`.
+```go
+http.DefaultTransport = &http.Transport{
+    Proxy: http.ProxyFromEnvironment,
+    DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+        dialer := rio.Dialer{
+            Timeout:   30 * time.Second,
+            KeepAlive: 30 * time.Second,
+        }
+        return dialer.DialContext(ctx, network, addr)
+    },
+    ForceAttemptHTTP2:     true,
+    MaxIdleConns:          100,
+    IdleConnTimeout:       90 * time.Second,
+    TLSHandshakeTimeout:   10 * time.Second,
+    ExpectContinueTimeout: 1 * time.Second,
+}
+
+resp, getErr := http.Get("http://127.0.0.1:9000/")
+```
 
 ### 配置
 
@@ -215,6 +236,30 @@ rio.Unpin()
 | LCurve | 长曲线 | 适用于多发布者下的长链接 | 
 
 
+### SQL
+
+如 postgres 案例，创建一个 `Dialer`，然后使用 `Connector` 来打开数据库。
+
+```go
+type RIOPQDialer struct{}
+
+func (d *RIOPQDialer) Dial(network, address string) (net.Conn, error) {
+	return rio.Dial(network, address)
+}
+
+func (d *RIOPQDialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+	return rio.DialTimeout(network, address, timeout)
+}
+```
+
+```go
+connector, connectorErr := pq.NewConnector("{dsn}")
+if connectorErr != nil {
+    panic(connectorErr)
+}
+connector.Dialer(&RIOPQDialer{})
+db := sql.OpenDB(connector)
+```
 
 ### 预设
 
