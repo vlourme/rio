@@ -18,49 +18,66 @@ import (
 )
 
 var (
-	pollerOnce = sync.Once{}
-	poller     *Poller
-	pollerErr  error
+	pollerLocker sync.Mutex
+	pollerInit   atomic.Bool
+	poller       *Poller
+	pollerErr    error
 )
 
-func Pin() (err error) {
-	pollerOnce.Do(func() {
-		if !liburing.VersionEnable(6, 13, 0) {
-			// support
-			// * io_uring_setup_buf_ring 5.19
-			// * io_uring_register_ring_fd 5.18
-			// * io_uring_prep_msg_ring  6.0
-			// * io_uring_prep_recv_multishot  6.0
-			// * io_uring_prep_cmd 6.7
-			// * io_uring_prep_fixed_fd_install 6.8
-			// * io_uring_prep_listen 6.12
-			// * io_uring_prep_bind 6.12
-			// * io_uring_unregister_files 6.13 (not blocked)
-			pollerErr = errors.New("kernel version must >= 6.13")
-			return
+func Pin() error {
+	if pollerInit.Load() {
+		if pollerErr == nil {
+			poller.Pin()
+			return nil
 		}
-
-		// options
-		opt := Options{}
-		for _, option := range presetOptions {
-			option(&opt)
-		}
-		// new poller
-		poller, pollerErr = newPoller(opt)
-		return
-	})
-	if pollerErr != nil {
-		err = pollerErr
-		return
+		return pollerErr
 	}
+	pollerLocker.Lock()
+	if pollerInit.Load() {
+		poller.Pin()
+		pollerLocker.Unlock()
+		return pollerErr
+	}
+	if !liburing.VersionEnable(6, 13, 0) {
+		// support
+		// * io_uring_setup_buf_ring 5.19
+		// * io_uring_register_ring_fd 5.18
+		// * io_uring_prep_msg_ring  6.0
+		// * io_uring_prep_recv_multishot  6.0
+		// * io_uring_prep_cmd 6.7
+		// * io_uring_prep_fixed_fd_install 6.8
+		// * io_uring_prep_listen 6.12
+		// * io_uring_prep_bind 6.12
+		// * io_uring_unregister_files 6.13 (not blocked)
+		pollerErr = errors.New("kernel version must >= 6.13")
+		pollerLocker.Unlock()
+		return pollerErr
+	}
+	// options
+	opt := Options{}
+	for _, option := range presetOptions {
+		option(&opt)
+	}
+	// new poller
+	poller, pollerErr = newPoller(opt)
+	if pollerErr != nil {
+		pollerLocker.Unlock()
+		return pollerErr
+	}
+	pollerInit.Store(true)
+	pollerLocker.Unlock()
+	// pin
 	poller.Pin()
-	return
+	return nil
 }
 
 func Unpin() {
-	if poller != nil {
+	if pollerInit.Load() {
 		if count := poller.Unpin(); count == 0 {
+			pollerLocker.Lock()
 			poller.Shutdown()
+			pollerInit.Store(false)
+			pollerLocker.Unlock()
 		}
 	}
 }
