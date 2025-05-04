@@ -86,8 +86,8 @@ func Connect(
 			family: family,
 			sotype: sotype,
 			net:    network,
-			laddr:  laddr,
-			raddr:  raddr,
+			laddr:  nil,
+			raddr:  nil,
 		},
 	}
 	if family == syscall.AF_INET || family == syscall.AF_INET6 {
