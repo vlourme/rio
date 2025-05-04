@@ -96,7 +96,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr *net.
 	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
-	if deadline.Before(now) {
+	if !deadline.IsZero() && deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
@@ -170,7 +170,7 @@ func (d *Dialer) DialUDP(ctx context.Context, network string, laddr, raddr *net.
 	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
-	if deadline.Before(now) {
+	if !deadline.IsZero() && deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
@@ -240,7 +240,7 @@ func (d *Dialer) DialUnix(ctx context.Context, network string, laddr, raddr *net
 	// deadline
 	now := time.Now()
 	deadline := d.deadline(ctx, time.Now())
-	if deadline.Before(now) {
+	if !deadline.IsZero() && deadline.Before(now) {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: aio.ErrTimeout}
 	}
 
