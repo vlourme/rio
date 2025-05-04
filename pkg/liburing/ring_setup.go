@@ -3,6 +3,9 @@
 package liburing
 
 import (
+	"bytes"
+	"errors"
+	"github.com/brickingsoft/rio/pkg/liburing/bytex"
 	"math/bits"
 	"os"
 	"syscall"
@@ -109,7 +112,7 @@ func MLockSizeParams(entries uint32, p *Params) (uint64, error) {
 		return 0, nil
 	}
 
-	sq, cqEntries, err = getSqCqEntries(entries, p)
+	sq, cqEntries, err = getSQAndCQEntries(entries, p)
 	if err != nil {
 		return 0, err
 	}
@@ -164,11 +167,27 @@ func sizeOfRing(p *Params, entries uint32, cqEntries uint32, pageSize uint64) ui
 	return pages * pageSize
 }
 
-// todo get hugePageSize from system
-// cat /proc/meminfo | grep Hugepagesize
-const hugePageSize uint64 = 2 * 1024 * 1024
+func getHugePagesize() (uint64, error) {
+	b, rErr := os.ReadFile("/proc/meminfo")
+	if rErr != nil {
+		return 0, rErr
+	}
+	hugepagePrefix := []byte("Hugepagesize:")
+	ss := bytes.Split(b, []byte("\n"))
+	for i := 0; i < len(ss); i++ {
+		if after, found := bytes.CutPrefix(ss[i], hugepagePrefix); found {
+			return bytex.ParseBytes(string(after))
+		}
+	}
+	return 0, errors.New("hugepagesize not found in /proc/meminfo")
+}
 
 func allocHuge(entries uint32, p *Params, sq *SubmissionQueue, cq *CompletionQueue, buf unsafe.Pointer, bufSize uint64) (uint, error) {
+	hugePageSize, hugePageSizeErr := getHugePagesize()
+	if hugePageSizeErr != nil {
+		return 0, hugePageSizeErr
+	}
+
 	pageSize := uint64(os.Getpagesize())
 	var sqEntries, cqEntries uint32
 	var ringMem, sqesMem uint64
@@ -176,7 +195,7 @@ func allocHuge(entries uint32, p *Params, sq *SubmissionQueue, cq *CompletionQue
 	var ptr unsafe.Pointer
 
 	var err error
-	sqEntries, cqEntries, err = getSqCqEntries(entries, p)
+	sqEntries, cqEntries, err = getSQAndCQEntries(entries, p)
 	if err != nil {
 		return 0, err
 	}
@@ -254,7 +273,7 @@ const (
 	maxCQEntries        = cqEntriesMultiplier * MaxEntries
 )
 
-func getSqCqEntries(entries uint32, p *Params) (uint32, uint32, error) {
+func getSQAndCQEntries(entries uint32, p *Params) (uint32, uint32, error) {
 	var cqEntries uint32
 
 	if entries == 0 {
