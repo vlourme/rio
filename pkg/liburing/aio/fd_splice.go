@@ -85,7 +85,7 @@ func (fd *Fd) Splice(src *Fd, remain int64) (n int64, err error) {
 		}
 		if pumpedErr != nil {
 			if errors.Is(pumpedErr, syscall.EAGAIN) {
-				pn, pErr := src.Poll(unix.POLLOUT | unix.POLLERR | unix.POLLHUP)
+				pn, pErr := fd.Poll(unix.POLLOUT | unix.POLLERR | unix.POLLHUP)
 				if pErr != nil {
 					err = pErr
 					break
