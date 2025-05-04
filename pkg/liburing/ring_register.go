@@ -136,7 +136,7 @@ type FileIndexRange struct {
 }
 
 func (ring *Ring) Register(fd int, opcode uint32, arg unsafe.Pointer, nrArgs uint32) (uint, syscall.Errno) {
-	r1, _, errno := syscall.Syscall6(
+	r1, _, errno := syscall.RawSyscall6(
 		sysRegister,
 		uintptr(fd),
 		uintptr(opcode),
