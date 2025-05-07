@@ -4,7 +4,6 @@ package liburing
 
 import (
 	"golang.org/x/sys/unix"
-	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
@@ -36,8 +35,7 @@ func (ring *Ring) submitAndWaitMinTimeout(waitNr uint32, ts *syscall.Timespec, m
 				arg:      unsafe.Pointer(&arg),
 			}
 
-			cqe, err = ring.getCQE(&data)
-			runtime.KeepAlive(data)
+			cqe, err = ring.getCQE(data)
 			return cqe, err
 		}
 		submit, err = ring.submitTimeout(waitNr, ts)
@@ -55,8 +53,7 @@ func (ring *Ring) submitAndWaitMinTimeout(waitNr uint32, ts *syscall.Timespec, m
 		sz:       nSig / szDivider,
 		arg:      unsafe.Pointer(sigmask),
 	}
-	cqe, err = ring.getCQE(&data)
-	runtime.KeepAlive(data)
+	cqe, err = ring.getCQE(data)
 	return cqe, err
 }
 

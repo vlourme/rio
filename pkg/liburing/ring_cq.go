@@ -4,7 +4,6 @@ package liburing
 
 import (
 	"golang.org/x/sys/unix"
-	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -36,13 +35,12 @@ func (ring *Ring) WaitCQENr(waitNr uint32) (*CompletionQueueEvent, error) {
 		sz:       nSig / szDivider,
 		arg:      nil,
 	}
-	cqe, err := ring.getCQE(&data)
-	runtime.KeepAlive(data)
+	cqe, err := ring.getCQE(data)
 	return cqe, err
 }
 
 func (ring *Ring) WaitCQE() (*CompletionQueueEvent, error) {
-	cqe, err := peekCQE(ring, nil)
+	cqe, _, err := ring.peekCQE()
 	if err == nil && cqe != nil {
 		return cqe, nil
 	}
@@ -50,10 +48,7 @@ func (ring *Ring) WaitCQE() (*CompletionQueueEvent, error) {
 }
 
 func (ring *Ring) waitCQEsNew(waitNr uint32, ts *syscall.Timespec, minTimeout time.Duration, sigmask *unix.Sigset_t) (*CompletionQueueEvent, error) {
-	var arg *GetEventsArg
-	var data *getData
-
-	arg = &GetEventsArg{
+	arg := &GetEventsArg{
 		sigMask:     uint64(uintptr(unsafe.Pointer(sigmask))),
 		sigMaskSz:   nSig / szDivider,
 		minWaitUsec: 0,
@@ -63,16 +58,14 @@ func (ring *Ring) waitCQEsNew(waitNr uint32, ts *syscall.Timespec, minTimeout ti
 		arg.minWaitUsec = uint32(minTimeout.Microseconds())
 	}
 
-	data = &getData{
+	data := getData{
 		waitNr:   waitNr,
 		getFlags: IORING_ENTER_EXT_ARG,
 		sz:       int(unsafe.Sizeof(GetEventsArg{})),
 		hasTS:    true,
 		arg:      unsafe.Pointer(arg),
 	}
-
 	cqe, err := ring.getCQE(data)
-	runtime.KeepAlive(data)
 	return cqe, err
 }
 
@@ -99,8 +92,7 @@ func (ring *Ring) WaitCQEsMinTimeout(waitNr uint32, ts *syscall.Timespec, minTim
 		sz:       nSig / szDivider,
 		arg:      unsafe.Pointer(sigmask),
 	}
-	cqe, err := ring.getCQE(&data)
-	runtime.KeepAlive(data)
+	cqe, err := ring.getCQE(data)
 	return cqe, err
 }
 
@@ -124,7 +116,7 @@ func (ring *Ring) ForEachCQE(callback func(cqe *CompletionQueueEvent)) {
 }
 
 func (ring *Ring) PeekCQE() (*CompletionQueueEvent, error) {
-	cqe, err := peekCQE(ring, nil)
+	cqe, _, err := ring.peekCQE()
 	if err == nil && cqe != nil {
 		return cqe, nil
 	}
@@ -229,7 +221,7 @@ func (ring *Ring) cqeIndex(ptr, mask uint32) uintptr {
 	return uintptr((ptr & mask) << ring.cqeShift())
 }
 
-func peekCQE(ring *Ring, nrAvailable *uint32) (*CompletionQueueEvent, error) {
+func (ring *Ring) peekCQE() (*CompletionQueueEvent, uint32, error) {
 	var cqe *CompletionQueueEvent
 	var err error
 	var available uint32
@@ -264,10 +256,7 @@ func peekCQE(ring *Ring, nrAvailable *uint32) (*CompletionQueueEvent, error) {
 
 		break
 	}
-	if nrAvailable != nil {
-		*nrAvailable = available
-	}
-	return cqe, err
+	return cqe, available, err
 }
 
 func (ring *Ring) cqRingNeedsFlush() bool {
@@ -287,7 +276,7 @@ type getData struct {
 	arg      unsafe.Pointer
 }
 
-func (ring *Ring) getCQE(data *getData) (*CompletionQueueEvent, error) {
+func (ring *Ring) getCQE(data getData) (*CompletionQueueEvent, error) {
 	var cqe *CompletionQueueEvent
 	var looped bool
 	var err error
@@ -299,7 +288,7 @@ func (ring *Ring) getCQE(data *getData) (*CompletionQueueEvent, error) {
 		var ret uint
 		var localErr error
 
-		cqe, localErr = peekCQE(ring, &nrAvailable)
+		cqe, nrAvailable, localErr = ring.peekCQE()
 		if localErr != nil {
 			err = localErr
 			break
