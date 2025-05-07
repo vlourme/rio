@@ -87,7 +87,7 @@ func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) 
 	default:
 		return NewInvalidOpErr(errors.New("unsupported"))
 	}
-	if err != nil && op.personality > 0 {
+	if err == nil && op.personality > 0 {
 		sqe.SetPersonality(op.personality)
 	}
 	return
