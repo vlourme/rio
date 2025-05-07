@@ -20,7 +20,7 @@ func (ring *Ring) GetSQE() *SubmissionQueueEntry {
 	if next-head <= *sq.ringEntries {
 		sqe := (*SubmissionQueueEntry)(
 			unsafe.Add(unsafe.Pointer(ring.sqRing.sqes),
-				uintptr((sq.sqeTail&*sq.ringMask)<<shift)*unsafe.Sizeof(SubmissionQueueEntry{})),
+				uintptr((sq.sqeTail&*sq.ringMask)<<shift)*submissionQueueEntrySize),
 		)
 		sq.sqeTail = next
 		return sqe

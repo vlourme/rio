@@ -5,7 +5,6 @@ package aio
 import (
 	"errors"
 	"github.com/brickingsoft/rio/pkg/liburing"
-	"runtime"
 )
 
 func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) {
@@ -91,6 +90,5 @@ func (op *Operation) packingSQE(sqe *liburing.SubmissionQueueEntry) (err error) 
 	if err != nil && op.personality > 0 {
 		sqe.SetPersonality(op.personality)
 	}
-	runtime.KeepAlive(sqe)
 	return
 }

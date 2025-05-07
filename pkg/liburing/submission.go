@@ -175,6 +175,10 @@ func mergeUint32ToUint64(n1 uint32, n2 uint32) uint64 {
 	return uint64(*(*uint64)(np))
 }
 
+var (
+	submissionQueueEntrySize = unsafe.Sizeof(SubmissionQueueEntry{})
+)
+
 type SubmissionQueueEntry struct {
 	OpCode      uint8
 	Flags       uint8
