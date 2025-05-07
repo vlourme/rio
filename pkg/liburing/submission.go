@@ -486,7 +486,7 @@ func (entry *SubmissionQueueEntry) PrepareLinkTimeout(spec *syscall.Timespec, fl
 }
 
 func (entry *SubmissionQueueEntry) PrepareTimeout(spec *syscall.Timespec, count, flags uint32) {
-	entry.prepareRW(IORING_OP_TIMEOUT, -1, uintptr(unsafe.Pointer(&spec)), 1, uint64(count))
+	entry.prepareRW(IORING_OP_TIMEOUT, -1, uintptr(unsafe.Pointer(spec)), 1, uint64(count))
 	entry.OpcodeFlags = flags
 }
 
