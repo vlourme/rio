@@ -485,18 +485,24 @@ func (entry *SubmissionQueueEntry) PrepareLinkTimeout(spec *syscall.Timespec, fl
 	entry.OpcodeFlags = flags
 }
 
+func (entry *SubmissionQueueEntry) PrepareLinkTimeoutUpdate(spec *syscall.Timespec, userdata unsafe.Pointer) {
+	entry.PrepareTimeoutUpdate(spec, userdata, IORING_LINK_TIMEOUT_UPDATE)
+}
+
 func (entry *SubmissionQueueEntry) PrepareTimeout(spec *syscall.Timespec, count, flags uint32) {
 	entry.prepareRW(IORING_OP_TIMEOUT, -1, uintptr(unsafe.Pointer(spec)), 1, uint64(count))
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareTimeoutRemove(spec *syscall.Timespec, count uint64, flags uint32) {
-	entry.prepareRW(IORING_OP_TIMEOUT_REMOVE, -1, uintptr(unsafe.Pointer(spec)), 1, count)
+func (entry *SubmissionQueueEntry) PrepareTimeoutRemove(userdata unsafe.Pointer, flags uint32) {
+	entry.prepareRW(IORING_OP_TIMEOUT_REMOVE, -1, uintptr(0), 0, 0)
+	entry.Addr = uint64(uintptr(userdata))
 	entry.OpcodeFlags = flags
 }
 
-func (entry *SubmissionQueueEntry) PrepareTimeoutUpdate(spec *syscall.Timespec, count uint64, flags uint32) {
-	entry.prepareRW(IORING_OP_TIMEOUT_REMOVE, -1, uintptr(unsafe.Pointer(spec)), 1, count)
+func (entry *SubmissionQueueEntry) PrepareTimeoutUpdate(spec *syscall.Timespec, userdata unsafe.Pointer, flags uint32) {
+	entry.prepareRW(IORING_OP_TIMEOUT_REMOVE, -1, uintptr(0), 0, uint64(uintptr(unsafe.Pointer(spec))))
+	entry.Addr = uint64(uintptr(userdata))
 	entry.OpcodeFlags = flags | IORING_TIMEOUT_UPDATE
 }
 
