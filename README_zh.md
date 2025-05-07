@@ -71,6 +71,15 @@ ln, lnErr := rio.Listen("tcp", ":9000")
 conn, dialErr := rio.Dial("tcp", "127.0.0.1:9000")
 ```
 
+### SocketOPT
+
+使用 `rio.Conn` 来设置或获取 socketopt.
+```go
+rc := conn.(rio.Conn)
+setErr := rc.SetSocketOptInt(level, name, value)
+value, getErr := rc.GetSocketOptInt(level, name)
+```
+
 ### TLS
 
 使用内置`security`方式。

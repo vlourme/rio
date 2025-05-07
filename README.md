@@ -70,6 +70,15 @@ ln, lnErr := rio.Listen("tcp", ":9000")
 conn, dialErr := rio.Dial("tcp", "127.0.0.1:9000")
 ```
 
+### SocketOPT
+
+Use `rio.Conn` to set or get socketopt. 
+```go
+rc := conn.(rio.Conn)
+setErr := rc.SetSocketOptInt(level, name, value)
+value, getErr := rc.GetSocketOptInt(level, name)
+```
+
 ### TLS
 
 Use the built-in `security` approach.
