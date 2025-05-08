@@ -5,13 +5,14 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"io"
 	"net"
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 )
 
 // ListenTCP acts like [Listen] for TCP networks.
@@ -507,4 +508,9 @@ func (c *TCPConn) MultipathTCP() (bool, error) {
 	}
 	ok := sys.IsUsingMultipathTCP(c.fd.RegularFileDescriptor())
 	return ok, nil
+}
+
+// Fd returns the underlying file descriptor of the connection.
+func (c *TCPConn) Fd() *aio.Fd {
+	return &c.fd.Fd
 }

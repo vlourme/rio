@@ -5,14 +5,15 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"golang.org/x/sys/unix"
 	"net"
 	"os"
 	"reflect"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"golang.org/x/sys/unix"
 )
 
 // ListenUnix acts like [Listen] for Unix networks.
@@ -434,4 +435,9 @@ func (c *UnixConn) GetSocketOptInt(level int, optName int) (optValue int, err er
 		return
 	}
 	return
+}
+
+// Fd returns the underlying file descriptor of the connection.
+func (c *UnixConn) Fd() *aio.Fd {
+	return &c.fd.Fd
 }
