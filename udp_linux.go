@@ -5,12 +5,13 @@ package rio
 import (
 	"context"
 	"errors"
-	"github.com/brickingsoft/rio/pkg/liburing/aio"
-	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 	"net"
 	"net/netip"
 	"reflect"
 	"syscall"
+
+	"github.com/brickingsoft/rio/pkg/liburing/aio"
+	"github.com/brickingsoft/rio/pkg/liburing/aio/sys"
 )
 
 // ListenUDP acts like [ListenPacket] for UDP networks.
@@ -360,4 +361,9 @@ func (c *UDPConn) GetSocketOptInt(level int, optName int) (optValue int, err err
 		return
 	}
 	return
+}
+
+// Fd returns the underlying file descriptor of the connection.
+func (c *UDPConn) Fd() *aio.Fd {
+	return &c.fd.Fd
 }
